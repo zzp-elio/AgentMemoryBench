@@ -113,6 +113,8 @@
   2 warnings`；文档规范 `5 passed`；`compileall` exit 0。未执行真实 API。
 - A-Mem 官方 robust layer 导入需要 `rank-bm25` 和 `litellm`，已通过 `uv add` 写入
   `pyproject.toml` / `uv.lock`。这是官方 A-Mem requirements 中的正式依赖。
+- README 已于 2026-06-17 更新为 GitHub 项目入口，清理本地绝对路径并明确本地资产不入库、
+  真实 API 实验需显式确认；交接见 `docs/handoffs/2026-06-17-readme-github-refresh.md`。
 - 本轮精确交接：
   `docs/handoffs/2026-06-16-amem-lightmem-adapters.md`。
 - Phase F 已完成并通过 `gpt-5.5 xhigh` 最终只读复审。LongMemEval S/M 使用 `ijson`
