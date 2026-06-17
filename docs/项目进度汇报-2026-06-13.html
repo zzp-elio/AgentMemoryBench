@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Memory Benchmark · 项目进度汇报 · 2026.06.13</title>
+<style>
+  /* ============================================================
+     Design Direction: Technical Blueprint / Engineering Journal
+     Industrial-editorial: precision engineering meets scholarly
+     rigor. Inspired by architectural blueprints, technical
+     specifications, and the warmth of engineering paper.
+     ============================================================ */
+
+  :root {
+    --paper:    #faf8f5;
+    --surface:  #ffffff;
+    --ink:      #1a1a1a;
+    --ink-mid:  #555555;
+    --ink-sub:  #8a8a8a;
+    --line:     #e3ded7;
+    --line-sub: #f0ebe4;
+    --amber:    #c2410c;
+    --amber-bg: #fff7ed;
+    --steel:    #4a6d8c;
+    --steel-bg: #f3f6f9;
+    --teal:     #0d9488;
+    --teal-bg:  #f0fdfa;
+    --gold:     #b45309;
+    --radius:   4px;
+    --font-serif: Georgia, 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Menlo', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+    /* Engineering paper dot grid */
+    background-image: radial-gradient(circle, #e8e4dd 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* ---- Layout ---- */
+  .page {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 40px;
+  }
+  @media (max-width: 700px) {
+    .page { padding: 0 20px; }
+  }
+
+  /* ---- Hero ---- */
+  .hero {
+    padding: 64px 0 48px;
+    position: relative;
+  }
+  .hero::after {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 1px;
+    background: var(--ink);
+    opacity: .12;
+    margin-top: 48px;
+  }
+  .hero .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 16px;
+  }
+  .hero h1 {
+    font-family: var(--font-serif);
+    font-size: 42px;
+    font-weight: 400;
+    line-height: 1.2;
+    letter-spacing: -.01em;
+    margin-bottom: 8px;
+  }
+  .hero h1 span { color: var(--steel); }
+  .hero .subtitle {
+    font-size: 16px;
+    color: var(--ink-mid);
+    margin-bottom: 40px;
+  }
+  .hero .subtitle em {
+    font-style: normal;
+    color: var(--amber);
+  }
+
+  /* Stats Row */
+  .stats-row {
+    display: flex;
+    gap: 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .stats-row .stat {
+    flex: 1;
+    text-align: center;
+    padding: 24px 16px;
+    position: relative;
+  }
+  .stats-row .stat + .stat { border-left: 1px solid var(--line-sub); }
+  .stats-row .stat .num {
+    font-family: var(--font-serif);
+    font-size: 40px;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .stats-row .stat:nth-child(1) .num { color: var(--ink); }
+  .stats-row .stat:nth-child(2) .num { color: var(--steel); }
+  .stats-row .stat:nth-child(3) .num { color: var(--amber); }
+  .stats-row .stat:nth-child(4) .num { color: var(--teal); }
+  .stats-row .stat:nth-child(5) .num { color: var(--ink-sub); }
+  .stats-row .stat .label {
+    font-size: 11px;
+    color: var(--ink-sub);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-family: var(--font-mono);
+  }
+  @media (max-width: 700px) {
+    .stats-row { flex-wrap: wrap; }
+    .stats-row .stat { flex: 0 0 33.33%; }
+    .stats-row .stat:nth-child(4),
+    .stats-row .stat:nth-child(5) { border-top: 1px solid var(--line-sub); }
+  }
+
+  /* ---- Section Headings ---- */
+  section { padding: 56px 0; position: relative; }
+  section + section::before {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 1px;
+    background: var(--line);
+    margin-bottom: 56px;
+  }
+  .section-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-sub);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  h2 {
+    font-family: var(--font-serif);
+    font-size: 26px;
+    font-weight: 400;
+    letter-spacing: -.01em;
+    margin-bottom: 28px;
+    color: var(--ink);
+  }
+  h3 {
+    font-family: var(--font-serif);
+    font-size: 18px;
+    font-weight: 400;
+    margin: 32px 0 14px;
+    color: var(--steel);
+    padding-left: 16px;
+    border-left: 3px solid var(--amber);
+  }
+
+  /* ---- Cards ---- */
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 8px 0 24px;
+  }
+  .card-grid.col3 { grid-template-columns: 1fr 1fr 1fr; }
+  @media (max-width: 700px) {
+    .card-grid, .card-grid.col3 { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    position: relative;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: #ccc5ba; }
+  /* Notch detail on top-left corner */
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 8px; height: 8px;
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    border-radius: 0 0 3px 0;
+  }
+  .card .icon { font-size: 18px; margin-bottom: 10px; display: block; }
+  .card h4 {
+    font-family: var(--font-serif);
+    font-size: 16px;
+    font-weight: 400;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  .card p {
+    font-size: 13px;
+    color: var(--ink-mid);
+    line-height: 1.65;
+  }
+  .card .tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--steel);
+    background: var(--steel-bg);
+    border: 1px solid #dce4ec;
+    padding: 3px 10px;
+    border-radius: 3px;
+    margin-top: 10px;
+    letter-spacing: .02em;
+  }
+
+  /* ---- Inline Code ---- */
+  .inline-code {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    background: var(--steel-bg);
+    color: var(--steel);
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid #e4eaf0;
+    white-space: nowrap;
+  }
+
+  /* ---- Tables ---- */
+  .table-wrap {
+    margin: 12px 0 28px;
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  th {
+    text-align: left;
+    padding: 12px 16px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--ink-sub);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    background: #fcfaf8;
+    border-bottom: 2px solid var(--line);
+  }
+  td {
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--line-sub);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* ---- Architecture Diagram ---- */
+  .arch-diagram {
+    background: #faf9f6;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 28px 28px 28px 48px;
+    position: relative;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 2.15;
+    color: var(--ink-mid);
+    white-space: pre;
+    overflow-x: auto;
+  }
+  /* Line numbers */
+  .arch-diagram::before {
+    content: '01\a 02\a 03\a 04\a 05\a 06\a 07\a 08\a 09\a 10\a 11\a 12\a 13\a 14\a 15\a 16\a 17\a 18\a 19\a 20\a 21\a 22\a 23\a 24\a 25\a 26\a 27\a 28';
+    position: absolute;
+    left: 12px;
+    top: 28px;
+    font-size: 10px;
+    line-height: 2.58;
+    color: #ccc5ba;
+    text-align: right;
+    white-space: pre;
+  }
+  .arch-diagram .hl  { color: var(--amber); }
+  .arch-diagram .dim { color: #b0a99e; }
+
+  /* ---- Status Dots ---- */
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+  .dot.done    { background: var(--teal); }
+  .dot.pending { background: var(--gold); }
+  .dot.na      { background: #ccc5ba; }
+
+  /* ---- Experiment Table ---- */
+  .exp-status {
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .exp-run-id {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-sub);
+  }
+
+  /* ---- Timeline ---- */
+  .timeline {
+    list-style: none;
+    margin: 8px 0 0;
+  }
+  .timeline li {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 20px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--line-sub);
+    position: relative;
+  }
+  .timeline li:last-child { border-bottom: none; }
+  .timeline .tl-marker {
+    position: relative;
+    padding-left: 20px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-sub);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    line-height: 1.4;
+  }
+  .timeline .tl-marker::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 4px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+  .timeline li.done    .tl-marker::before { background: var(--teal); }
+  .timeline li.now     .tl-marker::before { background: var(--amber); box-shadow: 0 0 0 5px rgba(194,65,12,.15); }
+  .timeline li.future  .tl-marker::before { background: var(--surface); border: 2px solid #ccc5ba; }
+  .timeline .tl-title {
+    font-family: var(--font-serif);
+    font-size: 16px;
+    color: var(--ink);
+    margin-bottom: 2px;
+  }
+  .timeline li.future .tl-title { color: var(--ink-sub); }
+  .timeline .tl-desc {
+    font-size: 13px;
+    color: var(--ink-mid);
+    line-height: 1.6;
+  }
+
+  /* ---- Summary Callout ---- */
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 28px 30px;
+    position: relative;
+    overflow: hidden;
+  }
+  .callout::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--amber);
+    border-radius: 4px 0 0 4px;
+  }
+  .callout .highlight {
+    font-family: var(--font-serif);
+    font-size: 14px;
+    color: var(--ink-mid);
+    line-height: 1.8;
+  }
+  .callout .highlight strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- Footer ---- */
+  footer {
+    text-align: center;
+    padding: 40px 0;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-sub);
+    letter-spacing: .04em;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---- Helper Text ---- */
+  .meta-note {
+    font-size: 12.5px;
+    color: var(--ink-sub);
+    margin-top: 10px;
+    line-height: 1.6;
+  }
+  .meta-note .inline-code { font-size: 11.5px; }
+  .pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .pill {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-mid);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 3px 10px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  /* ---- Number Highlights ---- */
+  .num-callout {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin: 8px 0 16px;
+    text-align: center;
+  }
+  .num-callout .nc {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 16px;
+  }
+  .num-callout .nc .big {
+    font-family: var(--font-serif);
+    font-size: 36px;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .num-callout .nc:nth-child(1) .big { color: var(--ink); }
+  .num-callout .nc:nth-child(2) .big { color: var(--steel); }
+  .num-callout .nc:nth-child(3) .big { color: var(--teal); }
+  .num-callout .nc .sub {
+    font-size: 11px;
+    color: var(--ink-sub);
+    font-family: var(--font-mono);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  @media (max-width: 700px) {
+    .num-callout { grid-template-columns: 1fr 1fr 1fr; }
+    .num-callout .nc .big { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ====== HERO ====== -->
+<div class="page">
+<div class="hero">
+  <div class="eyebrow">Progress Report · 2026-06-13</div>
+  <h1>Agent Memory <span>Benchmark</span></h1>
+  <p class="subtitle">可复现 &nbsp;·&nbsp; 可扩展 &nbsp;·&nbsp; 可审计 &nbsp;—&nbsp; 面向 <em>conversation-QA</em> 的 Memory 评测框架</p>
+
+  <div class="stats-row">
+    <div class="stat">
+      <div class="num">385</div>
+      <div class="label">Tests Passed</div>
+    </div>
+    <div class="stat">
+      <div class="num">31</div>
+      <div class="label">Test Files</div>
+    </div>
+    <div class="stat">
+      <div class="num">2</div>
+      <div class="label">Methods</div>
+    </div>
+    <div class="stat">
+      <div class="num">3</div>
+      <div class="label">Registries</div>
+    </div>
+    <div class="stat">
+      <div class="num">0</div>
+      <div class="label">Compile Errors</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ====== 1. 项目概述 ====== -->
+<section>
+<div class="page">
+  <div class="section-num">Section 01</div>
+  <h2>项目概述</h2>
+
+  <div class="card-grid">
+    <div class="card">
+      <span class="icon">&#9678;</span>
+      <h4>核心目标</h4>
+      <p>构建统一的 Memory Benchmark 评测框架，让不同 benchmark 和 method 通过同一套 runner 运行，避免每次复制专用代码。</p>
+    </div>
+    <div class="card">
+      <span class="icon">&#9671;</span>
+      <h4>当前范围</h4>
+      <p>只实现 <span class="inline-code">conversation_qa</span> task family。Phase 1 纯文本闭环：先打通 LoCoMo，再接 LongMemEval。</p>
+    </div>
+    <div class="card">
+      <span class="icon">&#9672;</span>
+      <h4>已接入 Method</h4>
+      <p><strong>Mem0 OSS</strong> (v2.0.4) 和 <strong>MemoryOS</strong>（论文系统），均已通过统一入口和通用 runner 运行。</p>
+    </div>
+    <div class="card">
+      <span class="icon">&#9679;</span>
+      <h4>已验证链路</h4>
+      <p>Mem0 + LoCoMo 单/双 conversation smoke 已验证。MemoryOS 新入口代码全部完成，等待 API 充值后跑真实实验。</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ====== 2. 架构总图 ====== -->
+<section>
+<div class="page">
+  <div class="section-num">Section 02</div>
+  <h2>系统架构</h2>
+
+  <div class="arch-diagram"><span class="hl">CLI</span> (predict / evaluate / run)
+  │
+  ├── <span class="hl">Command Service</span>  (PredictCommand / EvaluateCommand / RunCommand)
+  │
+  ├── <span class="hl">Unified Prediction Service</span>
+  │   ├── Benchmark Registry  ──  task family + required capabilities
+  │   ├── Method Registry     ──  system factory + source identity + capabilities
+  │   ├── Evaluator Registry  ──  metric factory + benchmark 兼容矩阵
+  │   └── Config Resolver     ──  .env → TOML → 强类型 dataclass
+  │
+  ├── <span class="hl">BenchmarkAdapter</span>.load()
+  │   └── Dataset → Conversation → Session → Turn
+  │                  └── Question (public)
+  │                  └── GoldAnswerInfo (evaluator-only)
+  │
+  ├── <span class="hl">Generic Prediction Runner</span>  (run_predictions)
+  │   ├── Manifest Preflight  (dataset fingerprint + 全量 manifest 比对)
+  │   ├── Ingest Phase        (conversation 并发写入，逐 turn checkpoint)
+  │   ├── Answer Phase        (conversation 并发答题，batch 原子提交)
+  │   └── Immutable Artifacts + Checkpoints + Events
+  │
+  └── <span class="hl">Generic Evaluation Runner</span>  (run_artifact_evaluation)
+      ├── 读取 3 类标准 artifacts  →  重建 Question/AnswerResult/GoldAnswerInfo
+      ├── Evaluator.evaluate()  →  MetricResult
+      └── 原子写入 scores + summary</div>
+</div>
+</section>
+
+<!-- ====== 3. 已完成工作 ====== -->
+<section>
+<div class="page">
+  <div class="section-num">Section 03</div>
+  <h2>已完成工作</h2>
+
+  <!-- 3.1 核心数据模型 -->
+  <h3>核心数据模型 &amp; 接口</h3>
+  <div class="card-grid col3">
+    <div class="card">
+      <span class="icon">&#9632;</span>
+      <h4>12 个核心实体</h4>
+      <p>Dataset → Conversation → Session → Turn，加 Question、GoldAnswerInfo、AnswerResult 等，全部为强类型 <span class="inline-code">@dataclass</span>，支持 JSON 序列化。</p>
+      <div class="pill-row"><span class="pill">@dataclass</span><span class="pill">to_dict()</span><span class="pill">to_public_dict()</span></div>
+    </div>
+    <div class="card">
+      <span class="icon">&#9632;</span>
+      <h4>公有/私有隔离</h4>
+      <p><span class="inline-code">Conversation.to_public_dict()</span> 显式剥离 gold_answers。Runner 层重建公开副本，清空私有字段。</p>
+      <div class="pill-row"><span class="pill">gold_answers={}</span><span class="pill">copy.deepcopy</span></div>
+    </div>
+    <div class="card">
+      <span class="icon">&#9632;</span>
+      <h4>3 层抽象接口</h4>
+      <p>BaseMemorySystem（add + get_answer）、BaseResumableMemorySystem（逐 turn 续写）、BaseMemoryRetriever（可选检索）。</p>
+      <div class="pill-row"><span class="pill">ABC</span><span class="pill">Protocol</span><span class="pill">@abstractmethod</span></div>
+    </div>
+  </div>
+
+  <!-- 3.2 数据安全 -->
+  <h3>数据安全：四层防护</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>#</th><th>层级</th><th>机制</th><th>说明</th></tr>
+    <tr>
+      <td style="color:var(--amber);font-family:var(--font-mono);font-size:12px">L1</td>
+      <td><strong>数据模型层</strong></td>
+      <td><span class="inline-code">Conversation.to_public_dict()</span></td>
+      <td>显式不序列化 gold_answers，从结构层面杜绝泄漏</td>
+    </tr>
+    <tr>
+      <td style="color:var(--amber);font-family:var(--font-mono);font-size:12px">L2</td>
+      <td><strong>Runner 重建层</strong></td>
+      <td><span class="inline-code">_make_public_conversation()</span></td>
+      <td>使用 copy.deepcopy 逐字段重建公开副本，<span class="inline-code">gold_answers={}</span></td>
+    </tr>
+    <tr>
+      <td style="color:var(--amber);font-family:var(--font-mono);font-size:12px">L3</td>
+      <td><strong>黑名单扫描层</strong></td>
+      <td><span class="inline-code">validate_no_private_keys()</span></td>
+      <td>递归扫描任意嵌套结构，case-insensitive 匹配 12 个私有键名，给出 JSONPath 定位</td>
+    </tr>
+    <tr>
+      <td style="color:var(--amber);font-family:var(--font-mono);font-size:12px">L4</td>
+      <td><strong>Manifest 检查层</strong></td>
+      <td><span class="inline-code">_validate_public_manifest()</span></td>
+      <td>额外禁止 api_key、secret、token、password 等敏感键名</td>
+    </tr>
+  </table>
+  </div>
+
+  <!-- 3.3 异常体系 -->
+  <h3>领域异常体系</h3>
+  <div class="card-grid col3">
+    <div class="card"><h4>MemoryBenchmarkError</h4><p>所有自定义异常的基类，CLI 统一捕获</p></div>
+    <div class="card"><h4>DatasetNotFoundError</h4><p>原始数据缺失，消息含 benchmark 名和路径</p></div>
+    <div class="card"><h4>UnknownBenchmarkError</h4><p>未注册 benchmark，列出所有已支持项</p></div>
+    <div class="card"><h4>ConfigurationError</h4><p>配置缺失 / 类型错误 / 未知 key</p></div>
+    <div class="card"><h4>DatasetValidationError</h4><p>字段缺失 / 重复 ID / question-gold 不对齐</p></div>
+    <div class="card"><h4>DataLeakageError</h4><p>私有数据泄漏风险检测，含完整 JSONPath</p></div>
+  </div>
+
+  <!-- 3.4 日志与可观测性 -->
+  <h3>日志与可观测性</h3>
+  <div class="card-grid">
+    <div class="card">
+      <h4>RunLogger</h4>
+      <p>终端 Rich 彩色输出 + <span class="inline-code">run.log</span>（人工可读） + <span class="inline-code">events.jsonl</span>（结构化事件流）。Rich markup 错误时自动降级为纯文本，长实验不中断。</p>
+      <span class="tag">run_started · conversation_ingested · question_answered · run_completed</span>
+    </div>
+    <div class="card">
+      <h4>ProgressReporter</h4>
+      <p>三阶段 Rich 进度条：阶段名称 + conversation 进度（含当前 ID）+ question 进度 + 耗时计时器。同步写 <span class="inline-code">progress.json</span> 快照（节流写入），关闭终端也不丢。</p>
+      <span class="tag">原子写入：tmp → fsync → os.replace</span>
+    </div>
+    <div class="card">
+      <h4>RunContext</h4>
+      <p>不可变 <span class="inline-code">@dataclass(frozen=True)</span>，管理标准目录布局。resume 预检时可关闭 <span class="inline-code">ensure_directories</span> 避免副作用。</p>
+      <span class="tag">logs/ · artifacts/ · checkpoints/ · summaries/ · method_state/</span>
+    </div>
+    <div class="card">
+      <h4>原子存储 + 崩溃恢复</h4>
+      <p>所有 JSON/JSONL 覆盖写入通过同目录临时文件 + fsync + os.replace 原子替换。<span class="inline-code">read_jsonl(recover_torn_tail=True)</span> 自动丢弃崩溃损坏尾行。</p>
+      <span class="tag">tmp → flush → fsync → replace</span>
+    </div>
+  </div>
+
+  <!-- 3.5 Resume -->
+  <h3>断点续跑（Resume）系统</h3>
+  <div class="card-grid">
+    <div class="card">
+      <h4>全量 Manifest 比对</h4>
+      <p>Resume 时比对现有 manifest 与新建 manifest（含 dataset_sha256、完整 policy、完整 method 配置），<strong>逐字段完全相等</strong>才允许继续。</p>
+      <span class="tag">schema_version · runner · dataset_sha256 · policy · method</span>
+    </div>
+    <div class="card">
+      <h4>只读 Preflight 预检</h4>
+      <p>创建目录和 method 前预检 manifest 状态。非法输入不留下空目录或无效 method 状态。预检通过后才创建目录、构造 method。</p>
+    </div>
+    <div class="card">
+      <h4>逐 Turn 三态状态机</h4>
+      <p><span class="inline-code">ready → in_flight → completed</span>。每次转换严格校验状态匹配和 turn index 对齐。<strong>in_flight 绝不自动 resume</strong>。</p>
+      <span class="tag">TurnIngestCheckpoint · TurnIngestCheckpointStore</span>
+    </div>
+    <div class="card">
+      <h4>Resume Attach</h4>
+      <p>完成的 conversation 通过 <span class="inline-code">load_existing_conversation_state()</span> 恢复到 method 内存，不重复 add。传入前通过 <span class="inline-code">_make_public_conversation()</span> 重建公开副本。</p>
+    </div>
+  </div>
+
+  <!-- 3.6 Runner -->
+  <h3>通用 Runner 引擎</h3>
+  <div class="card-grid">
+    <div class="card">
+      <h4>Prediction Runner (~800 行)</h4>
+      <p>与 benchmark/method 无关的通用引擎。<span class="inline-code">ThreadPoolExecutor</span> 控制并发，worker 内 <span class="inline-code">add → questions</span> 有序，协调线程用 <span class="inline-code">as_completed()</span> 收集 batch 并串行提交产物。</p>
+      <span class="tag">3-stage pipeline · 原子 batch 提交 · 中途崩溃可恢复</span>
+    </div>
+    <div class="card">
+      <h4>Evaluation Runner (artifact-only)</h4>
+      <p>纯读取 3 类标准 JSONL，从 artifact 记录显式重建实体，逐字段类型校验。不调 method、不读 .env。同一批 prediction 可复算多个 metric。</p>
+      <span class="tag">public_questions · method_predictions · evaluator_private_labels</span>
+    </div>
+    <div class="card">
+      <h4>返回结果多层校验</h4>
+      <p>question_id/conversation_id 对齐校验、answer 非空校验、add() 返回值必须包含期望 conversation_id、method manifest 敏感字段检查。</p>
+      <span class="tag">_validate_prediction() · _validate_public_manifest()</span>
+    </div>
+    <div class="card">
+      <h4>并发隔离策略</h4>
+      <p>Worker 不直接并发写共享 JSONL。Conversation 间并行（ThreadPoolExecutor），conversation 内串行（add → questions → batch return）。</p>
+      <span class="tag">max_workers · as_completed · _ConversationAnswerBatch</span>
+    </div>
+  </div>
+
+  <!-- 3.7 注册表 -->
+  <h3>三层注册表体系</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Registry</th><th>核心字段</th><th>当前注册</th></tr>
+    <tr>
+      <td><strong>Benchmark</strong></td>
+      <td><span class="inline-code">task_family</span> · <span class="inline-code">required_capabilities</span> · <span class="inline-code">source_paths</span> · <span class="inline-code">prediction_enabled</span></td>
+      <td>LoCoMo &nbsp;<span style="color:var(--teal)">&#x2713;</span>&nbsp; · LongMemEval &nbsp;<span style="color:var(--ink-sub)">&#x1f512;</span>&nbsp;</td>
+    </tr>
+    <tr>
+      <td><strong>Method</strong></td>
+      <td><span class="inline-code">task_families</span> · <span class="inline-code">provided_capabilities</span> · <span class="inline-code">system_factory</span> · <span class="inline-code">source_identity</span> · <span class="inline-code">workload_estimator</span> · 14 个冻结字段</td>
+      <td>Mem0 · MemoryOS</td>
+    </tr>
+    <tr>
+      <td><strong>Evaluator</strong></td>
+      <td><span class="inline-code">supported_benchmarks</span> · <span class="inline-code">requires_api</span> · <span class="inline-code">profile_names</span> · <span class="inline-code">factory</span></td>
+      <td>locomo-f1（离线）· locomo-judge（需 API）</td>
+    </tr>
+  </table>
+  </div>
+  <p class="meta-note">兼容性判定：<span class="inline-code">validate_compatibility()</span> 自动检查 task family 匹配 + required ⊆ provided，不维护 method × benchmark 笛卡尔积白名单。新增 method/benchmark 自动兼容。</p>
+
+  <!-- 3.8 配置 -->
+  <h3>分层配置体系</h3>
+  <div class="card-grid">
+    <div class="card">
+      <h4>Secret 层</h4>
+      <p>.env → OPENAI_KEY / BASE_URL。<span class="inline-code">OpenAISettings.to_client_kwargs()</span> 直传 SDK，<span class="inline-code">to_safe_dict()</span> 自动脱敏（<span class="inline-code">sk-xx...xxxx</span>）。</p>
+      <span class="tag">python-dotenv · load_dotenv</span>
+    </div>
+    <div class="card">
+      <h4>TOML Profile 层</h4>
+      <p><span class="inline-code">load_typed_profile()</span> 通用解析器：15+ 项安全校验（语法、未知 key、必填字段、类型检查 str/int/float/bool/Path/list/tuple/set/frozenset/dict/Optional/Union、自动类型转换）。</p>
+      <span class="tag">tomllib · get_type_hints · __post_init__</span>
+    </div>
+    <div class="card">
+      <h4>CLI 覆盖层</h4>
+      <p>优先级：代码默认值 &lt; 命名 profile &lt; 用户实验 TOML &lt; CLI 显式覆盖。Profile 分 <span class="inline-code">smoke</span> / <span class="inline-code">official-full</span> / <span class="inline-code">custom</span> 三级。</p>
+      <span class="tag">configs/methods/ · configs/evaluators/</span>
+    </div>
+    <div class="card">
+      <h4>成本保护与零副作用</h4>
+      <p>付费确认（<span class="inline-code">--confirm-api</span> / <span class="inline-code">--confirm-full</span>）在读取 profile、dataset、secret 和构造 method <strong>之前</strong>完成。未确认 = 零副作用。</p>
+      <span class="tag">_confirm_prediction_cost · preflight</span>
+    </div>
+  </div>
+
+  <!-- 3.9 Service -->
+  <h3>统一装配入口</h3>
+  <p class="meta-note">核心函数 <span class="inline-code">run_registered_conversation_qa_prediction()</span>，13 个严格步骤串联：</p>
+  <div class="pill-row" style="margin-bottom:8px">
+    <span class="pill">1. registration 读</span>
+    <span class="pill">2. prediction_enabled</span>
+    <span class="pill">3. compatibility</span>
+    <span class="pill">4. 成本确认</span>
+    <span class="pill">5. TOML profile</span>
+    <span class="pill">6. adapter</span>
+    <span class="pill">7. dataset</span>
+    <span class="pill">8. smoke scope</span>
+    <span class="pill">9. workload</span>
+    <span class="pill">10. settings</span>
+    <span class="pill">11. manifest</span>
+    <span class="pill">12. preflight</span>
+    <span class="pill">13. factory → runner</span>
+  </div>
+
+  <!-- 3.10 测试 -->
+  <h3>测试体系</h3>
+  <div class="num-callout">
+    <div class="nc"><div class="big">385</div><div class="sub">Tests Passed</div></div>
+    <div class="nc"><div class="big">31</div><div class="sub">Test Files</div></div>
+    <div class="nc"><div class="big">0</div><div class="sub">Compile Errors</div></div>
+  </div>
+  <p class="meta-note">覆盖：核心实体 · 数据校验 · adapter · runner · resume · evaluator · CLI · 配置 · 可观测性 · 存储 · 文档规范。pytest 默认 <span class="inline-code">-m "not api"</span> 排除付费 API，真实 API smoke 需显式 <span class="inline-code">uv run pytest -m api</span>。</p>
+  <p class="meta-note">MemoryOS marker 专项：<span class="inline-code">167 passed, 221 deselected, 2 subtests passed (8.54s)</span>。完整回归：<span class="inline-code">385 passed, 3 deselected, 6 subtests passed (24.39s)</span>。</p>
+</div>
+</section>
+
+<!-- ====== 4. 实验状态 ====== -->
+<section>
+<div class="page">
+  <div class="section-num">Section 04</div>
+  <h2>实验状态</h2>
+  <div class="table-wrap">
+  <table>
+    <tr><th>实验</th><th>状态</th><th>Run ID</th></tr>
+    <tr>
+      <td>MemoryOS-LoCoMo 全量 (legacy)</td>
+      <td><span class="exp-status"><span class="dot done"></span>已完成</span></td>
+      <td><span class="exp-run-id">memoryos-locomo-full-20260603</span></td>
+    </tr>
+    <tr>
+      <td>Mem0-LoCoMo smoke (1 conv)</td>
+      <td><span class="exp-status"><span class="dot done"></span>已完成</span></td>
+      <td><span class="exp-run-id">mem0-locomo-smoke-20260612</span></td>
+    </tr>
+    <tr>
+      <td>Mem0-LoCoMo concurrent smoke (2 conv)</td>
+      <td><span class="exp-status"><span class="dot done"></span>已完成</span></td>
+      <td><span class="exp-run-id">mem0-locomo-concurrent-smoke-20260612</span></td>
+    </tr>
+    <tr>
+      <td>Mem0-LoCoMo official-full</td>
+      <td><span class="exp-status"><span class="dot pending"></span>待 API 充值</span></td>
+      <td><span class="exp-run-id">—</span></td>
+    </tr>
+    <tr>
+      <td>MemoryOS-LoCoMo official-full (新统一入口)</td>
+      <td><span class="exp-status"><span class="dot pending"></span>待 API 充值</span></td>
+      <td><span class="exp-run-id">—</span></td>
+    </tr>
+  </table>
+  </div>
+  <p class="meta-note">受保护实验 <span class="inline-code">outputs/memoryos-locomo-full-20260603/</span> SHA-256 聚合哈希已锁定：<span class="inline-code">2bf09d41...</span></p>
+</div>
+</section>
+
+<!-- ====== 5. 下一步计划 ====== -->
+<section>
+<div class="page">
+  <div class="section-num">Section 05</div>
+  <h2>路线图</h2>
+
+  <ul class="timeline">
+    <li class="done">
+      <div class="tl-marker">已完成</div>
+      <div>
+        <div class="tl-title">核心框架建设</div>
+        <div class="tl-desc">数据模型 · 公有/私有隔离 · 通用 prediction/evaluation runner · 三层注册表 · 分层 TOML 配置体系 · 统一 CLI · 逐 turn 断点续跑 · Mem0 + MemoryOS 注册接入 · 385 项测试通过</div>
+      </div>
+    </li>
+    <li class="now">
+      <div class="tl-marker">当前</div>
+      <div>
+        <div class="tl-title">Task 7 收尾：source identity 修复</div>
+        <div class="tl-desc">将 wrapper adapter 源码 hash 纳入组合 identity；修复后 wrapper 改变 → resume manifest mismatch。代码改动很小，TDD + reviewer 复审即可收口。</div>
+      </div>
+    </li>
+    <li class="future">
+      <div class="tl-marker">API 充值后</div>
+      <div>
+        <div class="tl-title">真实全量实验</div>
+        <div class="tl-desc">Mem0 official-full → MemoryOS official-full → LoCoMo F1 离线评估 → LLM judge → 双方法对比分析</div>
+      </div>
+    </li>
+    <li class="future">
+      <div class="tl-marker">中期</div>
+      <div>
+        <div class="tl-title">LongMemEval 迁移与工程收尾</div>
+        <div class="tl-desc">LongMemEval 开放 prediction → 双 benchmark 闭环 → benchmarks/ 目录迁移 (6GB) → tests 按 unit/integration/api/contract 分类</div>
+      </div>
+    </li>
+    <li class="future">
+      <div class="tl-marker">远期</div>
+      <div>
+        <div class="tl-title">效率评测 + 新 task family</div>
+        <div class="tl-desc">Retrieval Latency · Memory Context Tokens · Memory Update Cost observation schema · 第二种 benchmark 形态接入</div>
+      </div>
+    </li>
+  </ul>
+</div>
+</section>
+
+<!-- ====== 6. 总结 ====== -->
+<section>
+<div class="page">
+  <div class="section-num">Section 06</div>
+  <h2>总结</h2>
+
+  <div class="callout">
+    <div class="highlight">
+      <strong>385 项测试全部通过，编译零错误。</strong>已完成从零散脚本到完整可扩展评测框架的工程化转型。<br><br>
+      核心成果：<strong>统一数据模型</strong> + <strong>公有/私有四层隔离</strong> + <strong>通用 prediction/evaluation runner</strong> + <strong>分层 TOML 配置</strong> + <strong>声明式能力注册表</strong> + <strong>逐 turn 断点续跑</strong> + <strong>原子存储与崩溃恢复</strong> + <strong>完整可观测性</strong>。<br><br>
+      新增 benchmark 或 method 只需实现标准接口并注册，即可自动获得 prediction / resume / evaluation 的完整能力。
+    </div>
+  </div>
+</div>
+</section>
+
+<footer>
+  Agent Memory Benchmark Framework &nbsp;·&nbsp; 2026-06-13 &nbsp;·&nbsp; Progress Report &nbsp;·&nbsp; Section 06/06
+</footer>
+
+</body>
+</html>

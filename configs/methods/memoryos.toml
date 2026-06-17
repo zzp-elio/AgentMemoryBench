@@ -1,0 +1,44 @@
+# MemoryOS 官方 eval wrapper 的固定方法参数。
+# smoke 与 official_full 仅由 benchmark 数据范围区分；方法本身参数保持一致。
+
+[smoke]
+llm_model = "gpt-4o-mini"
+embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2"
+short_term_capacity = 7
+mid_term_capacity = 200
+long_term_knowledge_capacity = 100
+heat_threshold = 5
+topic_similarity_threshold = 0.6
+retrieval_top_m_segments = 5
+retrieval_queue_capacity = 10
+segment_threshold = 0.1
+page_threshold = 0.1
+knowledge_threshold = 0.1
+api_timeout_seconds = 120
+api_max_retries = 8
+api_retry_wait_seconds = 5
+api_retry_backoff_multiplier = 2
+api_retry_max_wait_seconds = 60
+suppress_official_stdout = true
+max_workers = 1
+
+[official_full]
+llm_model = "gpt-4o-mini"
+embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2"
+short_term_capacity = 7
+mid_term_capacity = 200
+long_term_knowledge_capacity = 100
+heat_threshold = 5
+topic_similarity_threshold = 0.6
+retrieval_top_m_segments = 5
+retrieval_queue_capacity = 10
+segment_threshold = 0.1
+page_threshold = 0.1
+knowledge_threshold = 0.1
+api_timeout_seconds = 120
+api_max_retries = 8
+api_retry_wait_seconds = 5
+api_retry_backoff_multiplier = 2
+api_retry_max_wait_seconds = 60
+suppress_official_stdout = true
+max_workers = 1

@@ -1,0 +1,62 @@
+# 本项目计划作为长期维护工程使用 Git。
+# 默认跟踪代码、配置、文档和已兼容 method 源码；忽略数据集、模型、实验输出和本地缓存。
+
+# Python / tool caches
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+tmp/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+
+# Runtime datasets and local model weights.
+# 数据集和模型体积过大，不进入普通 Git；后续可用下载脚本、DVC 或 Git LFS 管理。
+data/
+models/
+
+# Experiment outputs and local run artifacts.
+outputs/
+logs/
+
+# Official benchmark repositories are retained locally for fact checking but too large for Git.
+# Runtime adapters should use data/ as dataset entry, not this directory.
+third_party/benchmarks/
+
+# Keep vendored method source code, but never include nested Git metadata or generated caches.
+third_party/methods/**/.git/
+third_party/methods/**/.github/
+third_party/methods/**/__pycache__/
+third_party/methods/**/*.py[cod]
+third_party/methods/**/.pytest_cache/
+third_party/methods/**/.mypy_cache/
+third_party/methods/**/.ruff_cache/
+third_party/methods/**/logs/
+third_party/methods/**/outputs/
+third_party/methods/**/results/
+third_party/methods/**/cached_memories*/
+third_party/methods/**/qdrant*/
+third_party/methods/**/wandb/
+
+# Legacy scratch space is not a current source of truth.
+old/
+
+# Paper drafts, rendered PDFs, and third-party reference documents are handled separately.
+paper-make/

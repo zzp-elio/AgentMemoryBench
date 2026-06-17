@@ -1,0 +1,24 @@
+# LightMem 官方 conversation-QA profile。
+# smoke 只缩小 benchmark 数据规模；method 参数保持 LoCoMo reported total-limit=60。
+
+[smoke]
+llm_model = "gpt-4o-mini"
+embedding_model_path = "models/all-MiniLM-L6-v2"
+llmlingua_model_path = "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+retrieve_limit = 60
+max_workers = 1
+pre_compress = true
+topic_segment = true
+text_summary = true
+suppress_official_stdout = true
+
+[official_full]
+llm_model = "gpt-4o-mini"
+embedding_model_path = "models/all-MiniLM-L6-v2"
+llmlingua_model_path = "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+retrieve_limit = 60
+max_workers = 1
+pre_compress = true
+topic_segment = true
+text_summary = true
+suppress_official_stdout = true

@@ -1,0 +1,66 @@
+[project]
+name = "memory-benchmark"
+version = "0.1.0"
+description = "Unified adapter skeleton for agent memory benchmark datasets."
+requires-python = ">=3.11"
+dependencies = [
+    "en-core-web-sm",
+    "faiss-cpu>=1.14.2",
+    "fastembed>=0.3.1",
+    "ijson>=3.5.0",
+    "litellm>=1.89.1",
+    "nltk>=3.9.0",
+    "openai>=2.38.0",
+    "posthog>=4.5.0",
+    "protobuf>=5.29.6,<7.0.0",
+    "python-dotenv>=1.2.2",
+    "pytz>=2024.1",
+    "qdrant-client>=1.12.0",
+    "rank-bm25>=0.2.2",
+    "regex>=2026.5.9",
+    "requests>=2.34.2",
+    "rich>=15.0.0",
+    "sentence-transformers>=5.5.1",
+    "spacy>=3.8.0,<3.9.0",
+    "sqlalchemy>=2.0.31",
+    "tiktoken>=0.13.0",
+]
+
+[project.scripts]
+memory-benchmark = "memory_benchmark.cli.main:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["memory_benchmark*"]
+exclude = ["benchmarks*", "docs*", "models*", "tests*"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -m 'not api'"
+markers = [
+    "unit: 纯逻辑与实体测试",
+    "integration: adapter、storage、runner 等集成测试",
+    "mem0: Mem0 wrapper、runner 或真实 smoke 测试",
+    "memoryos: MemoryOS wrapper 或 runner 测试",
+    "api: 会调用真实外部 API 的测试",
+    "slow: 长耗时测试",
+    "expensive: 会产生明显外部成本的测试",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

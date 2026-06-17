@@ -1,0 +1,19 @@
+["smoke"]
+extraction_model = "gpt-4o-mini"
+embedding_model = "text-embedding-3-small"
+embedding_dimensions = 1536
+reader_model = "gpt-4o-mini"
+top_k = 200
+max_workers = 1
+ingestion_chunk_size = 1
+infer = true
+
+["official_full"]
+extraction_model = "gpt-4o-mini"
+embedding_model = "text-embedding-3-small"
+embedding_dimensions = 1536
+reader_model = "gpt-4o-mini"
+top_k = 200
+max_workers = 10
+ingestion_chunk_size = 1
+infer = true

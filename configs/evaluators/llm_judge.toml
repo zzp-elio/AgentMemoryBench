@@ -1,0 +1,7 @@
+[compact]
+mode = "compact"
+model = "gpt-4o-mini"
+
+[detailed]
+mode = "detailed"
+model = "gpt-4o-mini"
