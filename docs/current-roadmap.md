@@ -119,17 +119,24 @@ API smoke 仍需等待用户确认 API 余额、样本规模和 run_id。2026-06
 fake/offline runner smoke 只能证明框架链路可运行，不能证明 A-Mem / LightMem 已按论文
 Table 级实验设置对齐。
 
-- [ ] A-Mem：补齐 Table 1 GPT-4o-mini profile，对齐官方 query keyword generation 和
+- [x] A-Mem：补齐 Table 1 GPT-4o-mini profile，对齐官方 query keyword generation 和
   Table 8 按类别 `k`。
+- [x] A-Mem：真实 API smoke 前确认并修复 ohmygpt base URL 注入；adapter 会在 wrapper
+  层替换官方 OpenAI controller client，保持算法、prompt 和调用顺序不变。
+- [ ] A-Mem：category 5 adversarial 当前因 gold answer 冲突显式拒绝，不进入普通
+  public-input smoke；如需测 adversarial，必须另行对齐私有 gold 边界。
 - [ ] LightMem：补齐 Table 2 / Table 3 profile。
   - [x] 用户指定并落实 `(r=0.7, th=512)` official-mini profile。
   - [x] 对齐 LoCoMo / LongMemEval 增量写入粒度。
   - [x] 对齐 LongMemEval `question_time` reader prompt 和 LightMem LoCoMo prompt 布局。
-  - [ ] 确认是否继续复刻 LightMem 针对 LoCoMo 的 `search_locomo.py` Qdrant payload 检索路径。
-  - [ ] 确认是否在真实 smoke 前接入 LoCoMo / LongMemEval offline update 顺序。
+  - [x] LoCoMo 已专门化为 LightMem `search_locomo.py` 风格的 Qdrant payload/vector combined 检索。
+  - [x] LoCoMo `add()` 完成后已接入 `construct_update_queue_all_entries()` 和
+    `offline_update_all_entries(score_threshold=0.9)`。
+  - [ ] LongMemEval OP-update 仍是可选 future profile；当前 LongMemEval 保持通用
+    `LightMemory.retrieve()` online 路径。
 - [ ] Mem0：将 `get_answer()` reader 改为 Mem0 memory-benchmarks 官方 LoCoMo /
   LongMemEval prompt，并固定当前阶段 answerer 为 `gpt-4o-mini`。
-- [ ] 完成 `docs/method-interface-inventory.md` 中四个 method 的完整输入输出清单，
+- [x] 完成 `docs/method-interface-inventory.md` 中四个 method 的完整输入输出清单，
   真实 smoke 前不得再依赖未记录假设。
 
 ### Phase I：通用并行调度（顺延）

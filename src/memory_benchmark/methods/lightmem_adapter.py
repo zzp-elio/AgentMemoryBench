@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from datetime import datetime
 import hashlib
 import importlib
 import importlib.util
@@ -427,6 +428,8 @@ class LightMem(BaseMemorySystem):
                     messages,
                     **kwargs,
                 )
+            if _is_locomo_conversation(conversation):
+                self._run_locomo_offline_update(backend, conversation.conversation_id)
             conversation_ids.append(conversation.conversation_id)
         return AddResult(conversation_ids=conversation_ids)
 
@@ -440,19 +443,26 @@ class LightMem(BaseMemorySystem):
         backend = self._backends[question.conversation_id]
         collector = self._efficiency_collector
         retrieval_started_ns = perf_counter_ns()
-        if collector is not None and collector.enabled:
-            with collector.operation_stage(EfficiencyStage.RETRIEVAL):
+        if _is_longmemeval_question(question, self._conversation_metadata):
+            if collector is not None and collector.enabled:
+                with collector.operation_stage(EfficiencyStage.RETRIEVAL):
+                    memories = backend.retrieve(
+                        question.text,
+                        limit=self.config.retrieve_limit,
+                        filters=None,
+                    )
+            else:
                 memories = backend.retrieve(
                     question.text,
                     limit=self.config.retrieve_limit,
                     filters=None,
                 )
         else:
-            memories = backend.retrieve(
-                question.text,
-                limit=self.config.retrieve_limit,
-                filters=None,
-            )
+            if collector is not None and collector.enabled:
+                with collector.operation_stage(EfficiencyStage.RETRIEVAL):
+                    memories = self._retrieve_locomo_memories(backend, question)
+            else:
+                memories = self._retrieve_locomo_memories(backend, question)
         memory_context = "\n".join(str(memory) for memory in memories)
         if collector is not None and collector.enabled:
             collector.record_retrieval_result(
@@ -512,6 +522,77 @@ class LightMem(BaseMemorySystem):
             project_root=self.path_settings.project_root,
         )
         return self._suppress_stdout_if_needed(lightmemory_cls.from_config, backend_config)
+
+    def _run_locomo_offline_update(self, backend: Any, conversation_id: str) -> None:
+        """执行 LightMem LoCoMo 官方构建脚本中的 post-build offline update。"""
+
+        if not hasattr(backend, "construct_update_queue_all_entries"):
+            raise ConfigurationError(
+                "LightMem LoCoMo backend does not expose "
+                f"construct_update_queue_all_entries: {conversation_id}"
+            )
+        if not hasattr(backend, "offline_update_all_entries"):
+            raise ConfigurationError(
+                "LightMem LoCoMo backend does not expose "
+                f"offline_update_all_entries: {conversation_id}"
+            )
+        self._suppress_stdout_if_needed(backend.construct_update_queue_all_entries)
+        self._suppress_stdout_if_needed(
+            backend.offline_update_all_entries,
+            score_threshold=0.9,
+        )
+
+    def _retrieve_locomo_memories(
+        self,
+        backend: Any,
+        question: Question,
+    ) -> list[dict[str, Any]]:
+        """复刻 LightMem LoCoMo `search_locomo.py` 的 combined vector search。
+
+        输入:
+            backend: 当前 conversation 的官方 LightMemory 实例。
+            question: 公开问题对象。
+
+        输出:
+            list[dict[str, Any]]: 带 payload、score 和 `_retrieved_speaker` 的条目。
+        """
+
+        text_embedder = getattr(backend, "text_embedder", None)
+        embedding_retriever = getattr(backend, "embedding_retriever", None)
+        if text_embedder is None or not hasattr(text_embedder, "embed"):
+            raise ConfigurationError(
+                f"LightMem LoCoMo backend has no text embedder: {question.conversation_id}"
+            )
+        if embedding_retriever is None or not hasattr(embedding_retriever, "get_all"):
+            raise ConfigurationError(
+                "LightMem LoCoMo backend has no Qdrant entry loader: "
+                f"{question.conversation_id}"
+            )
+        entries = embedding_retriever.get_all(with_vectors=True, with_payload=True)
+        query_vector = text_embedder.embed(question.text)
+        retrieved: list[dict[str, Any]] = []
+        for entry in entries:
+            vector = entry.get("vector") if isinstance(entry, dict) else None
+            if vector is None:
+                continue
+            payload = entry.get("payload", {}) if isinstance(entry, dict) else {}
+            score = _cosine_similarity(query_vector, vector)
+            retrieved.append(
+                {
+                    "id": str(entry.get("id")) if isinstance(entry, dict) else "",
+                    "score": float(score),
+                    "payload": payload if isinstance(payload, dict) else {},
+                    "source": "vector",
+                    "_retrieved_speaker": (
+                        str(payload.get("speaker_name"))
+                        if isinstance(payload, dict)
+                        and payload.get("speaker_name") is not None
+                        else "Unknown"
+                    ),
+                }
+            )
+        retrieved.sort(key=lambda item: item["score"], reverse=True)
+        return retrieved[: self.config.retrieve_limit]
 
     def _conversation_to_lightmem_batches(
         self,
@@ -881,10 +962,43 @@ def _format_lightmem_memory(memory: Any) -> str:
         or memory.get("memory")
         or ""
     )
+    if time_stamp:
+        formatted_date = _format_lightmem_memory_date(str(time_stamp))
+        if formatted_date:
+            weekday_text = f", {weekday}" if weekday else ""
+            return (
+                f"[Memory recorded on: {formatted_date}{weekday_text}]\n"
+                f"{memory_text}"
+            ).strip()
     prefix = " ".join(str(value) for value in (time_stamp, weekday) if value)
     if prefix:
-        return f"{prefix} {memory_text}".strip()
+        return f"{prefix}\n{memory_text}".strip()
     return str(memory_text or memory)
+
+
+def _format_lightmem_memory_date(time_stamp: str) -> str | None:
+    """按 LightMem LoCoMo `format_related_memories()` 的日期格式化时间。"""
+
+    try:
+        parsed = datetime.fromisoformat(time_stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.strftime("%d %B %Y")
+
+
+def _cosine_similarity(left: Any, right: Any) -> float:
+    """计算两个向量的 cosine similarity。"""
+
+    left_values = [float(value) for value in left]
+    right_values = [float(value) for value in right]
+    if len(left_values) != len(right_values):
+        raise ConfigurationError("LightMem vector dimensions do not match")
+    dot_product = sum(a * b for a, b in zip(left_values, right_values, strict=True))
+    left_norm = sum(value * value for value in left_values) ** 0.5
+    right_norm = sum(value * value for value in right_values) ** 0.5
+    if left_norm == 0 or right_norm == 0:
+        return 0.0
+    return dot_product / (left_norm * right_norm)
 
 
 class _OpenAIAnswerClient:

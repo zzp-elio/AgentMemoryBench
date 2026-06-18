@@ -52,6 +52,8 @@ def test_amem_source_identity_covers_official_core_files() -> None:
     assert "memory_layer_robust.py" in identity["files"]
     assert "llm_text_parsers.py" in identity["files"]
     assert "README.md" in identity["files"]
+    assert "test_advanced_robust.py" in identity["files"]
+    assert "run_k_sweep.sh" in identity["files"]
 
 
 class FakeAMemRuntime:
@@ -77,7 +79,7 @@ class FakeAMemRuntime:
 
 
 class FakeAMemLLM:
-    """模拟 OpenAI-compatible reader，返回固定答案。"""
+    """模拟 OpenAI-compatible LLM，区分 query generation 和 answer prompt。"""
 
     def __init__(self) -> None:
         """初始化 fake prompt 调用记录。"""
@@ -85,9 +87,11 @@ class FakeAMemLLM:
         self.prompts: list[dict[str, object]] = []
 
     def get_completion(self, prompt: str, temperature: float = 0.7) -> str:
-        """记录 prompt 并返回固定答案。"""
+        """记录 prompt，并按 prompt 类型返回关键词或答案。"""
 
         self.prompts.append({"prompt": prompt, "temperature": temperature})
+        if "generate several keywords separated by commas" in prompt:
+            return "generated keywords"
         return "fake answer"
 
 
@@ -152,7 +156,76 @@ def test_amem_add_and_get_answer_never_pass_private_gold_to_method() -> None:
     assert "private-evidence-id" not in public_text
     assert "private-evidence-id" not in prompt_text
     assert "tea" not in prompt_text
-    assert runtime.queries == [{"query": "What does Alice like?", "k": 2}]
+    assert runtime.queries == [{"query": "generated keywords", "k": 40}]
+    assert "generate several keywords separated by commas" in str(llm.prompts[0]["prompt"])
+
+
+def test_amem_get_answer_uses_table8_category_k_values() -> None:
+    """A-Mem Table 1 GPT-4o-mini profile 应按 category 使用 Table 8 的 k。"""
+
+    runtime = FakeAMemRuntime()
+    llm = FakeAMemLLM()
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=10,
+            max_workers=1,
+            profile_name="official-mini",
+        ),
+        runtime_factory=lambda conversation_id: runtime,
+        answer_llm=llm,
+    )
+    conversation = _conversation_with_private_gold()
+    method.add([conversation])
+
+    expected_k_by_category = {
+        "1": 40,
+        "2": 40,
+        "3": 50,
+        "4": 50,
+    }
+    for category, expected_k in expected_k_by_category.items():
+        question = Question(
+            question_id=f"q-{category}",
+            conversation_id="conv-1",
+            text=f"Question for category {category}?",
+            category=category,
+        )
+        method.get_answer(question)
+        assert runtime.queries[-1] == {
+            "query": "generated keywords",
+            "k": expected_k,
+        }
+
+
+def test_amem_rejects_adversarial_category_without_gold_answer() -> None:
+    """A-Mem adversarial 官方 prompt 需要 gold answer，普通 profile 必须显式拒绝。"""
+
+    runtime = FakeAMemRuntime()
+    llm = FakeAMemLLM()
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=10,
+            max_workers=1,
+            profile_name="official-mini",
+        ),
+        runtime_factory=lambda conversation_id: runtime,
+        answer_llm=llm,
+    )
+    conversation = _conversation_with_private_gold()
+    method.add([conversation])
+    question = Question(
+        question_id="q-5",
+        conversation_id="conv-1",
+        text="Which option is correct?",
+        category="5",
+    )
+
+    with pytest.raises(ConfigurationError, match="adversarial"):
+        method.get_answer(question)
 
 
 def test_amem_can_import_official_robust_layer_without_calling_api() -> None:
@@ -175,6 +248,11 @@ def test_amem_production_runtime_receives_openai_compatible_settings(monkeypatch
             """记录 wrapper 传入官方 runtime 的构造参数。"""
 
             created_kwargs.update(kwargs)
+            self.llm_controller = type(
+                "FakeLLMController",
+                (),
+                {"llm": type("FakeLLM", (), {"client": "official-default-client"})()},
+            )()
 
         def add_note(self, content: str, time: str | None = None) -> str:
             """模拟官方写入接口，避免真实模型和 API 调用。"""
@@ -209,6 +287,69 @@ def test_amem_production_runtime_receives_openai_compatible_settings(monkeypatch
     assert created_kwargs["api_key"] == "test-key"
     assert created_kwargs["api_base"] == "https://api.example.test/v1"
     assert created_kwargs["check_connection"] is False
+
+
+def test_amem_replaces_official_openai_client_when_base_url_is_configured(
+    monkeypatch,
+) -> None:
+    """官方 OpenAI controller 忽略 api_base 时，adapter 应在 wrapper 层注入 base URL。"""
+
+    created_clients: list[dict[str, str | None]] = []
+    runtime_instances: list[object] = []
+
+    class FakeOfficialRuntime:
+        """记录被 adapter 创建的 official runtime。"""
+
+        def __init__(self, **kwargs) -> None:
+            """构造带 client 字段的 fake LLM controller。"""
+
+            self.kwargs = kwargs
+            self.llm_controller = type(
+                "FakeLLMController",
+                (),
+                {"llm": type("FakeLLM", (), {"client": "official-default-client"})()},
+            )()
+            runtime_instances.append(self)
+
+        def add_note(self, content: str, time: str | None = None) -> str:
+            """模拟官方写入接口。"""
+
+            return "note-1"
+
+    monkeypatch.setattr(
+        amem_adapter_module,
+        "import_amem_robust_classes",
+        lambda path_settings=None: {
+            "RobustAgenticMemorySystem": FakeOfficialRuntime,
+            "RobustLLMController": object,
+        },
+    )
+    monkeypatch.setattr(
+        amem_adapter_module,
+        "_create_openai_compatible_client",
+        lambda api_key, base_url: created_clients.append(
+            {"api_key": api_key, "base_url": base_url}
+        )
+        or "patched-client",
+    )
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        openai_api_key="test-key",
+        openai_base_url="https://ohmygpt.example/v1",
+    )
+
+    method.add([_conversation_with_private_gold()])
+
+    assert created_clients == [
+        {"api_key": "test-key", "base_url": "https://ohmygpt.example/v1"}
+    ]
+    assert runtime_instances[0].llm_controller.llm.client == "patched-client"
 
 
 def test_amem_records_question_efficiency_observations() -> None:

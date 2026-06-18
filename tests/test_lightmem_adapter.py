@@ -68,6 +68,10 @@ class FakeLightMemoryBackend:
 
         self.added_messages: list[dict[str, object]] = []
         self.queries: list[dict[str, object]] = []
+        self.construct_update_calls: list[dict[str, object]] = []
+        self.offline_update_calls: list[dict[str, object]] = []
+        self.text_embedder = FakeLightMemEmbedder()
+        self.embedding_retriever = FakeLightMemEmbeddingRetriever()
 
     def add_memory(self, messages, **kwargs):
         """记录写入消息和 LightMem pipeline 参数。"""
@@ -80,6 +84,80 @@ class FakeLightMemoryBackend:
 
         self.queries.append({"query": query, "limit": limit, "filters": filters})
         return ["2026-01-01 Alice likes tea"]
+
+    def construct_update_queue_all_entries(self, **kwargs):
+        """记录官方 LoCoMo 离线更新前的 update queue 构造。"""
+
+        self.construct_update_calls.append(kwargs)
+
+    def offline_update_all_entries(self, **kwargs):
+        """记录官方 LoCoMo 离线更新调用。"""
+
+        self.offline_update_calls.append(kwargs)
+
+
+class FakeLightMemEmbedder:
+    """模拟 LightMem 官方 TextEmbedderHuggingface。"""
+
+    def __init__(self) -> None:
+        """初始化 query 记录。"""
+
+        self.embedded_texts: list[str] = []
+
+    def embed(self, text: str) -> list[float]:
+        """返回稳定二维向量，便于测试 cosine 排序。"""
+
+        self.embedded_texts.append(text)
+        return [1.0, 0.0]
+
+
+class FakeLightMemEmbeddingRetriever:
+    """模拟 LightMem 官方 Qdrant retriever 的 get_all 接口。"""
+
+    def __init__(self) -> None:
+        """初始化带 payload/vector 的 fake Qdrant entries。"""
+
+        self.get_all_calls: list[dict[str, object]] = []
+        self.entries = [
+            {
+                "id": "alice-tea",
+                "vector": [1.0, 0.0],
+                "payload": {
+                    "speaker_name": "Alice",
+                    "memory": "Alice likes jasmine tea.",
+                    "time_stamp": "2026-01-01T00:00:00.000",
+                    "weekday": "Thu",
+                },
+            },
+            {
+                "id": "bob-tea",
+                "vector": [0.8, 0.0],
+                "payload": {
+                    "speaker_name": "Bob",
+                    "memory": "Bob remembered Alice's tea preference.",
+                    "time_stamp": "2026-01-01T00:00:01.000",
+                    "weekday": "Thu",
+                },
+            },
+            {
+                "id": "irrelevant",
+                "vector": [0.0, 1.0],
+                "payload": {
+                    "speaker_name": "Alice",
+                    "memory": "Alice dislikes noisy airports.",
+                    "time_stamp": "2026-01-01T00:00:02.000",
+                    "weekday": "Thu",
+                },
+            },
+        ]
+
+    def get_all(self, with_vectors: bool = True, with_payload: bool = True):
+        """记录读取参数并返回 fake Qdrant entries。"""
+
+        self.get_all_calls.append(
+            {"with_vectors": with_vectors, "with_payload": with_payload}
+        )
+        return self.entries
 
 
 class FakeLightMemAnswerClient:
@@ -324,10 +402,11 @@ def test_lightmem_add_and_get_answer_with_fake_backend() -> None:
     assert add_result.conversation_ids == ["conv-1"]
     assert isinstance(answer, AnswerResult)
     assert answer.answer == "fake lightmem answer"
-    assert backend.queries == [
-        {"query": "What does Alice like?", "limit": 2, "filters": None}
+    assert backend.queries == []
+    assert backend.embedding_retriever.get_all_calls == [
+        {"with_vectors": True, "with_payload": True}
     ]
-    assert "Alice likes tea" in chat.prompts[0]
+    assert "Alice likes jasmine tea." in chat.prompts[0]
     first_message = backend.added_messages[0]["messages"][0]
     assert first_message["time_stamp"] == "2026-01-01"
     assert "timestamp" not in first_message
@@ -389,6 +468,33 @@ def test_lightmem_add_uses_locomo_single_turn_incremental_feeding() -> None:
     ]
 
 
+def test_lightmem_locomo_add_runs_official_offline_update_after_all_turns() -> None:
+    """LoCoMo 的 add 完成应包含官方 post-build offline update。"""
+
+    backend = FakeLightMemoryBackend()
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=60,
+            max_workers=1,
+            compression_rate=0.7,
+            stm_threshold=512,
+            profile_name="official-mini",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+    )
+
+    method.add([_locomo_style_lightmem_conversation()])
+
+    assert backend.construct_update_calls == [{}]
+    assert backend.offline_update_calls == [{"score_threshold": 0.9}]
+
+
 def test_lightmem_add_uses_longmemeval_user_assistant_pair_feeding() -> None:
     """LongMemEval 写入应复刻官方脚本的真实 user+assistant pair 增量喂入。"""
 
@@ -428,6 +534,8 @@ def test_lightmem_add_uses_longmemeval_user_assistant_pair_feeding() -> None:
         "user",
         "assistant",
     ]
+    assert backend.construct_update_calls == []
+    assert backend.offline_update_calls == []
 
 
 def test_lightmem_backend_config_uses_official_mini_profile_values() -> None:
@@ -492,6 +600,46 @@ def test_lightmem_locomo_reader_prompt_uses_official_memory_layout() -> None:
     assert "Memories for user Bob" in prompt
     assert "Question: What does Alice like?" in prompt
     assert "The answer should be less than 5-6 words." in prompt
+
+
+def test_lightmem_locomo_get_answer_uses_qdrant_payload_vector_search() -> None:
+    """LoCoMo 回答应复刻 search_locomo.py 的 Qdrant payload 检索路径。"""
+
+    backend = FakeLightMemoryBackend()
+    chat = FakeLightMemAnswerClient()
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            compression_rate=0.7,
+            stm_threshold=512,
+            profile_name="official-mini",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=chat,
+    )
+    conversation = _locomo_style_lightmem_conversation()
+    method.add([conversation])
+
+    method.get_answer(conversation.questions[0])
+
+    assert backend.queries == []
+    assert backend.text_embedder.embedded_texts == ["What does Alice like?"]
+    assert backend.embedding_retriever.get_all_calls == [
+        {"with_vectors": True, "with_payload": True}
+    ]
+    prompt = chat.prompts[0]
+    assert "Alice likes jasmine tea." in prompt
+    assert "Bob remembered Alice's tea preference." in prompt
+    assert "Alice dislikes noisy airports." not in prompt
+    assert "Memories for user Alice" in prompt
+    assert "Memories for user Bob" in prompt
+    assert "[Memory recorded on: 01 January 2026, Thu]" in prompt
 
 
 def test_lightmem_longmemeval_reader_prompt_includes_question_time() -> None:

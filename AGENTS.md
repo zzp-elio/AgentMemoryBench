@@ -97,27 +97,32 @@
   先 A-Mem 垂直闭环，再 LightMem；都必须复用通用 conversation-QA runner、标准
   artifact、resume 和 Phase G efficiency observation，不创建 method × benchmark 专用
   runner。
-- 2026-06-16 当前分支已初始化为 Git 仓库，当前分支
-  `feature/amem-lightmem-adapters`，尚未做 initial commit。`.gitignore` 已保护
+- 当前目录是 Git 仓库，当前分支为 `main`。`.gitignore` 已保护
   `data/`、`models/`、`outputs/`、`.env`、`.claude/`、`third_party/benchmarks/` 和
   third-party 生成物；不得把大型 dataset/model/output 加入 Git。
 - A-Mem 与 LightMem adapter 已完成 config、source identity、registry、question-level
   efficiency observation、fake/offline contract 和 registered runner smoke。LightMem 生产
   backend 已通过测试覆盖官方 `LightMemory.from_config()` 配置注入，但尚未执行真实 API
   smoke。2026-06-17 重新审计后确认：fake/offline smoke 只能证明框架链路，不代表
-  A-Mem / LightMem 已按论文 Table 级参数与调用流程对齐。A-Mem 需要补齐 Table 1
-  GPT-4o-mini profile：官方 query keyword generation + Table 8 按类别 `k`。LightMem
-  已落实用户指定 `(r=0.7, th=512)` official-mini、LoCoMo/LongMemEval 增量写入粒度和
-  官方 reader prompt 方向；剩余未确认项是是否完全复刻 LightMem 针对 LoCoMo 的
-  `search_locomo.py` Qdrant payload 检索路径，以及是否在真实 smoke 前接入 offline update
-  顺序。完成前不得
-  启动 A-Mem / LightMem 真实 API smoke；资源与参数审计见
+  A-Mem / LightMem 已自动按论文 Table 级参数与调用流程对齐。A-Mem 已补齐 Table 1
+  GPT-4o-mini profile 中非 adversarial QA 的官方 query keyword generation 和 Table 8
+  category k；category 5 adversarial 因官方 prompt 需要 gold answer，当前按 public-input
+  规则显式拒绝。LightMem 已落实用户指定 `(r=0.7, th=512)` official-mini、LoCoMo/LongMemEval 增量写入粒度和
+  官方 reader prompt 方向；LoCoMo 已专门化为 LightMem `search_locomo.py` 风格的
+  Qdrant payload/vector combined 检索，并在 `add()` 完成后执行
+  `construct_update_queue_all_entries()` 与
+  `offline_update_all_entries(score_threshold=0.9)`；LongMemEval OP-update 仍是 future
+  profile，当前保持 `LightMemory.retrieve()` online 路径。A-Mem 的 ohmygpt/OpenAI-compatible
+  `base_url` 已在 wrapper 层显式注入官方
+  OpenAI controller client；资源与参数审计见
   `docs/method-resource-parameter-audit.md`。
   Mem0 smoke `top_k=200`。
   LightMem 真实运行所需
   `models/all-MiniLM-L6-v2` 和
   `models/llmlingua-2-bert-base-multilingual-cased-meetingbank` 已补齐并通过本地资源
-  校验；adapter 仍会在真实 backend 构造前强校验。最新 LightMem focused 验证：
+  校验；adapter 仍会在真实 backend 构造前强校验。最新 A-Mem / runner focused 验证：
+  `uv run pytest tests/test_amem_adapter.py tests/test_amem_registered_prediction.py tests/test_amem_lightmem_registry.py tests/test_cost_calibration_smoke.py tests/test_main_cli.py -q`
+  为 `43 passed, 1 warning`；base URL 注入单测包含在 A-Mem adapter suite 中。最新 LightMem focused 验证：
   `uv run pytest tests/test_lightmem_adapter.py -q` 为 `13 passed, 1 warning`。
   未执行真实 API。
 - A-Mem 官方 robust layer 导入需要 `rank-bm25` 和 `litellm`，已通过 `uv add` 写入
@@ -129,7 +134,27 @@
   `0eb625cd4c7cecca7951c7c7feae4211861f979d`；准备脚本为
   `scripts/prepare_hf_dataset_bundle.py`，操作文档为 `docs/huggingface-datasets.md`。
 - 本轮精确交接：
+  `docs/handoffs/2026-06-17-lightmem-locomo-specialization.md`。
+- 上一轮 A-Mem 精确交接：
+  `docs/handoffs/2026-06-17-amem-red-tests-handoff.md`。
+- 上一轮 method table 参数审计交接：
   `docs/handoffs/2026-06-17-method-table-parameter-audit.md`。
+- 当前 LightMem 断点：用户已确认 LightMem + LoCoMo 需要专门化为官方
+  `experiments/locomo/search_locomo.py` 逻辑，LongMemEval 保持通用
+  `LightMemory.retrieve()` 逻辑。代码已实现 LoCoMo `add()` 后自动执行
+  `construct_update_queue_all_entries()` 和
+  `offline_update_all_entries(score_threshold=0.9)`，`get_answer()` 已改为 Qdrant
+  payload/vector combined search，不再调用 `backend.retrieve()`。LightMem focused
+  验证 `uv run pytest tests/test_lightmem_adapter.py -q` 为 `15 passed, 1 warning`；
+  更宽 focused 回归
+  `uv run pytest tests/test_lightmem_adapter.py tests/test_lightmem_registered_prediction.py tests/test_amem_lightmem_registry.py tests/test_cost_calibration_smoke.py tests/test_main_cli.py -q`
+  为 `49 passed, 1 warning`；文档规范 `5 passed`；`compileall` exit 0。未执行真实 API。
+  下一步可继续处理本轮改动提交，或在用户确认 API 预算、样本规模和 run_id 后启动极小
+  smoke。
+- 当前 A-Mem 断点：上一批 LightMem/成本校准 checkpoint 已提交并推送到 GitHub
+  `c01559f`；A-Mem RED 测试已转绿，当前需要继续处理文档同步、最终 focused 验证、
+  以及是否提交本轮改动。恢复时先读
+  `docs/handoffs/2026-06-17-amem-red-tests-handoff.md`，不要重复大范围扫描历史文档。
 - Method 原生接口清单：
   `docs/method-interface-inventory.md`。新增或重修 method adapter 前必须先更新该文档。
 - Method official profile 对齐实施计划：
@@ -163,12 +188,14 @@
 
 1. `docs/current-roadmap.md`
 2. `docs/method-interface-inventory.md`
-3. `docs/handoffs/2026-06-17-method-table-parameter-audit.md`
-4. `docs/handoffs/2026-06-16-amem-lightmem-adapters.md`
-5. `docs/superpowers/plans/2026-06-17-method-official-profile-alignment.md`
-6. `docs/superpowers/plans/2026-06-16-amem-lightmem-adapter.md`
-7. `docs/superpowers/specs/2026-06-16-amem-lightmem-adapter-design.md`
-8. 派发 subagent 前读 `docs/subagent-strategy.md`
+3. `docs/handoffs/2026-06-17-lightmem-locomo-specialization.md`
+4. `docs/handoffs/2026-06-17-amem-red-tests-handoff.md`
+5. `docs/handoffs/2026-06-17-method-table-parameter-audit.md`
+6. `docs/handoffs/2026-06-16-amem-lightmem-adapters.md`
+7. `docs/superpowers/plans/2026-06-17-method-official-profile-alignment.md`
+8. `docs/superpowers/plans/2026-06-16-amem-lightmem-adapter.md`
+9. `docs/superpowers/specs/2026-06-16-amem-lightmem-adapter-design.md`
+10. 派发 subagent 前读 `docs/subagent-strategy.md`
 
 Phase G 的 plan/spec 已完成，只在核验成本与效率实现细节时按需读取，不作为下一窗口默认输入。
 

@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass
 import hashlib
 import importlib
 import io
+import json
 import sys
 from time import perf_counter_ns
 from typing import Any
@@ -35,6 +36,14 @@ from memory_benchmark.observability.efficiency import (
 AMEM_METHOD_DIRECTORY = "A-mem"
 AMEM_ADAPTER_VERSION = "conversation-qa-v1"
 AMEM_READER_PROMPT_VERSION = "amem-reader-v1"
+AMEM_QUERY_KEYWORD_PROMPT_VERSION = "amem-query-keywords-v1"
+AMEM_GPT4O_MINI_CATEGORY_K = {
+    "1": 40,
+    "2": 40,
+    "3": 50,
+    "4": 50,
+    "5": 40,
+}
 
 
 @dataclass(frozen=True)
@@ -105,6 +114,8 @@ def build_amem_source_identity(
         "README.md",
         "memory_layer_robust.py",
         "llm_text_parsers.py",
+        "test_advanced_robust.py",
+        "run_k_sweep.sh",
         "requirements.txt",
     ]
     source_files = [amem_root / relative_path for relative_path in required_files]
@@ -222,19 +233,27 @@ class AMem(BaseMemorySystem):
             raise ConfigurationError(
                 f"A-Mem conversation has not been added: {question.conversation_id}"
             )
+        if self._is_adversarial_category(question):
+            raise ConfigurationError(
+                "A-Mem official adversarial prompt requires gold answer in the "
+                "method input, which is forbidden by this framework; category 5 "
+                "is therefore unsupported for A-Mem official-mini profile."
+            )
         runtime = self._runtimes[question.conversation_id]
+        query_keywords = self._generate_query_keywords(question=question, runtime=runtime)
+        retrieve_k = self._retrieve_k_for_question(question)
         collector = self._efficiency_collector
         retrieval_started_ns = perf_counter_ns()
         if collector is not None and collector.enabled:
             with collector.operation_stage(EfficiencyStage.RETRIEVAL):
                 context = runtime.find_related_memories_raw(
-                    question.text,
-                    k=self.config.retrieve_k,
+                    query_keywords,
+                    k=retrieve_k,
                 )
         else:
             context = runtime.find_related_memories_raw(
-                question.text,
-                k=self.config.retrieve_k,
+                query_keywords,
+                k=retrieve_k,
             )
         retrieval_latency_ms = _elapsed_ms(retrieval_started_ns)
         memory_context = str(context)
@@ -272,8 +291,10 @@ class AMem(BaseMemorySystem):
             answer=str(answer).strip(),
             metadata={
                 "method": "amem",
-                "retrieve_k": self.config.retrieve_k,
+                "retrieve_k": retrieve_k,
+                "query_keywords": query_keywords,
                 "reader_prompt_version": AMEM_READER_PROMPT_VERSION,
+                "query_keyword_prompt_version": AMEM_QUERY_KEYWORD_PROMPT_VERSION,
             },
         )
 
@@ -305,13 +326,37 @@ class AMem(BaseMemorySystem):
             )
         classes = import_amem_robust_classes(self.path_settings)
         runtime_cls = classes["RobustAgenticMemorySystem"]
-        return runtime_cls(
+        runtime = runtime_cls(
             model_name=self.config.embedding_model,
             llm_backend="openai",
             llm_model=self.config.llm_model,
             api_key=self._openai_api_key,
             api_base=self._openai_base_url,
             check_connection=False,
+        )
+        self._ensure_openai_base_url(runtime=runtime, conversation_id=conversation_id)
+        return runtime
+
+    def _ensure_openai_base_url(self, runtime: Any, conversation_id: str) -> None:
+        """把 OpenAI-compatible base URL 注入官方 OpenAI controller。
+
+        A-Mem robust runtime 接收 `api_base`，但当前 vendored `RobustOpenAIController`
+        实际只调用 `OpenAI(api_key=...)`。本方法只替换传输层 client，不改变 A-Mem
+        的记忆算法、prompt 或调用顺序。
+        """
+
+        if not self._openai_base_url:
+            return
+        llm_controller = getattr(runtime, "llm_controller", None)
+        llm = getattr(llm_controller, "llm", None)
+        if llm is None or not hasattr(llm, "client"):
+            raise ConfigurationError(
+                "A-Mem OpenAI-compatible base URL is configured, but the official "
+                f"runtime does not expose a patchable OpenAI client for {conversation_id}"
+            )
+        llm.client = _create_openai_compatible_client(
+            api_key=self._openai_api_key,
+            base_url=self._openai_base_url,
         )
 
     def _iter_turns(self, conversation: Conversation) -> list[Turn]:
@@ -345,16 +390,61 @@ class AMem(BaseMemorySystem):
             f"context whenever possible.\n\nQuestion: {question.text} Short answer:"
         )
 
+    def _generate_query_keywords(self, question: Question, runtime: Any) -> str:
+        """按 A-Mem 官方 robust QA 脚本先把问题改写为检索关键词。
+
+        输入:
+            question: 公开问题对象，不能包含 gold answer。
+            runtime: 当前 conversation 隔离的 A-Mem runtime。
+
+        输出:
+            str: 传给 `find_related_memories_raw()` 的关键词查询文本。
+        """
+
+        llm = self._select_llm(runtime=runtime, question=question)
+        prompt = (
+            "Given the following question, generate several keywords separated by "
+            "commas.\n\n"
+            f"Question: {question.text}\n\n"
+            "Keywords:"
+        )
+        response = self._suppress_stdout_if_needed(llm.get_completion, prompt)
+        parsed_keywords = _parse_keywords_response(str(response))
+        return parsed_keywords or question.text
+
+    def _retrieve_k_for_question(self, question: Question) -> int:
+        """返回 A-Mem Table 8 的 GPT-4o-mini 类别检索深度。
+
+        LoCoMo category 与 Table 8 对齐；非 LoCoMo 或缺 category 的数据集回退到
+        profile 中的 `retrieve_k`，避免把 LoCoMo 特例升格为统一接口字段。
+        """
+
+        category = _normalize_category(question.category)
+        if category is None:
+            return self.config.retrieve_k
+        return AMEM_GPT4O_MINI_CATEGORY_K.get(category, self.config.retrieve_k)
+
+    def _is_adversarial_category(self, question: Question) -> bool:
+        """判断是否为 A-Mem 官方 adversarial prompt 需要 gold 的类别。"""
+
+        return _normalize_category(question.category) == "5"
+
+    def _select_llm(self, runtime: Any, question: Question) -> Any:
+        """选择 query generation 和 reader 共用的 LLM。"""
+
+        selected_llm = self._answer_llm
+        if selected_llm is None and hasattr(runtime, "llm_controller"):
+            selected_llm = runtime.llm_controller.llm
+        if selected_llm is None:
+            raise ConfigurationError(
+                f"A-Mem LLM is not available for {question.conversation_id}"
+            )
+        return selected_llm
+
     def _call_answer_llm(self, prompt: str, question: Question, runtime: Any) -> str:
         """调用 reader LLM；测试阶段由 fake LLM 提供。"""
 
-        answer_llm = self._answer_llm
-        if answer_llm is None and hasattr(runtime, "llm_controller"):
-            answer_llm = runtime.llm_controller.llm
-        if answer_llm is None:
-            raise ConfigurationError(
-                f"A-Mem answer LLM is not available for {question.conversation_id}"
-            )
+        answer_llm = self._select_llm(runtime=runtime, question=question)
         temperature = 0.7
         return self._suppress_stdout_if_needed(
             answer_llm.get_completion,
@@ -414,3 +504,50 @@ def _count_openai_tokens(text: str, model_name: str) -> int:
     if not text:
         return 0
     return _TiktokenCounter(model_name).count_tokens(text)
+
+
+def _normalize_category(category: object) -> str | None:
+    """把 benchmark category 归一为字符串；缺失时返回 None。"""
+
+    if category is None:
+        return None
+    category_text = str(category).strip()
+    return category_text or None
+
+
+def _parse_keywords_response(response: str) -> str:
+    """复刻 A-Mem 官方 `parse_keywords_response()` 的关键词解析逻辑。"""
+
+    cleaned = _strip_markdown_fences(response.strip())
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return cleaned
+    if isinstance(payload, dict) and "keywords" in payload:
+        return str(payload["keywords"]).strip()
+    return cleaned
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """去掉 LLM 可能包裹的 markdown code fence。"""
+
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+    return text
+
+
+def _create_openai_compatible_client(api_key: str | None, base_url: str | None) -> Any:
+    """创建显式携带 base_url 的 OpenAI-compatible client。"""
+
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise ConfigurationError("openai package is required for A-Mem") from exc
+    if not api_key:
+        raise ConfigurationError("A-Mem OpenAI-compatible client requires API key")
+    return OpenAI(api_key=api_key, base_url=base_url)

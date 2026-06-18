@@ -94,8 +94,8 @@
 | 官方回答流程 | `generate_query_llm(question) -> retrieve_memory(keywords, k) -> category prompt -> LLM` |
 | 私有字段冲突 | `answer_question(..., answer)` 对 adversarial 类别会使用 gold answer 构造二选一 prompt，和本项目普通 public-input 规则冲突 |
 | 模型配置 | Table 1 GPT-4o-mini profile 使用 `gpt-4o-mini`；embedding `all-MiniLM-L6-v2`；按类别 Table 8 `k` |
-| API 配置 | robust LLM controller 需要 API key/base URL |
-| 当前 adapter 状态 | 写入粒度对齐；QA 目前绕过了 `generate_query_llm()` 和 Table 8 类别 `k`，真实 smoke 前阻塞 |
+| API 配置 | robust LLM controller 需要 API key/base URL；当前 adapter 在 wrapper 层显式替换官方 OpenAI client，保证 OpenAI-compatible `base_url` 生效 |
+| 当前 adapter 状态 | 写入粒度对齐；QA 已补齐官方 `generate_query_llm()` 等价关键词生成和 Table 8 GPT-4o-mini 类别 `k`；category 5 adversarial 因官方 prompt 需要 gold answer，当前按 public-input 规则显式拒绝 |
 
 ## LightMem
 
@@ -125,5 +125,5 @@
 | 论文实验细节 | 论文 5.1：使用 LLMLingua-2 作为 pre-compressor；topic segmentation attention scores 也来自 LLMLingua-2；sensory memory buffer size 为 512 tokens；fseg 为 turn-level granularity input；findex 为 `all-MiniLM-L6-v2`；fchat / fsum/extract / fupdate 使用 `gpt-4o-mini` 等 backbone |
 | 模型配置 | 用户当前指定 LoCoMo profile `(r=0.7, th=512)`；当前阶段真实 LLM 统一 `gpt-4o-mini`；embedding `all-MiniLM-L6-v2`；LLMLingua-2 本地模型 |
 | API 配置 | memory manager 和 answerer LLM 需要 API key/base URL |
-| 当前 adapter 状态 | 已改为 adapter 内部按来源展开：LoCoMo 单原始 turn -> `user(content)+assistant("")`，LongMemEval 真实 `user+assistant` pair；仅最后一批 `force_segment=True, force_extract=True`；`r=0.7, th=512` 已进入 config/profile；reader prompt 已改为 LoCoMo / LongMemEval 官方模板方向 |
-| 已知差异 | LightMem 的 LoCoMo `search_locomo.py` 不直接用 `LightMemory.retrieve()`，而是读取 Qdrant payload 后按 speaker 分组再检索；当前 adapter 仍调用 `LightMemory.retrieve()`，字符串结果会丢 speaker payload，因此只做到 LightMem LoCoMo prompt 结构对齐，未完全复刻 LightMem 的 LoCoMo search 脚本 |
+| 当前 adapter 状态 | 已改为 adapter 内部按来源展开：LoCoMo 单原始 turn -> `user(content)+assistant("")`，LongMemEval 真实 `user+assistant` pair；仅最后一批 `force_segment=True, force_extract=True`；`r=0.7, th=512` 已进入 config/profile；LoCoMo `add()` 后执行 `construct_update_queue_all_entries()` 与 `offline_update_all_entries(score_threshold=0.9)`；LoCoMo `get_answer()` 使用 `search_locomo.py` 风格 Qdrant payload/vector combined 检索和 speaker-organized prompt；LongMemEval `get_answer()` 保持 `LightMemory.retrieve()` + `question_time` prompt |
+| 已知差异 | LongMemEval OP-update 仍未作为独立 profile 实现；LoCoMo 真实 API smoke 尚未运行，因此不能宣称 Table 3 真实复现完成 |
