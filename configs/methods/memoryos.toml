@@ -41,4 +41,4 @@ api_retry_wait_seconds = 5
 api_retry_backoff_multiplier = 2
 api_retry_max_wait_seconds = 60
 suppress_official_stdout = true
-max_workers = 1
+max_workers = 10

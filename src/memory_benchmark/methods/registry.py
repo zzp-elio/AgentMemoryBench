@@ -114,6 +114,7 @@ class MethodRegistration:
     retrieval_observation_contract_getter: (
         Callable[[Any], RetrievalObservationContract] | None
     ) = None
+    supports_shared_instance_parallelism: bool = False
 
     @property
     def profile_names(self) -> frozenset[str]:
@@ -161,13 +162,17 @@ def _build_amem_system(context: MethodBuildContext) -> BaseMemorySystem:
         raise ConfigurationError("A-Mem factory requires AMemConfig")
     if context.openai_settings is None:
         raise ConfigurationError("A-Mem factory requires OpenAI settings")
-    return AMem(
+    system = AMem(
         config=context.config,
         openai_api_key=context.openai_settings.api_key,
         openai_base_url=context.openai_settings.base_url,
+        storage_root=context.storage_root,
         path_settings=context.path_settings,
         efficiency_collector=context.efficiency_collector,
     )
+    for conversation in context.completed_conversations:
+        system.load_existing_conversation_state(conversation)
+    return system
 
 
 def _amem_model_name(config: Any) -> str:
@@ -256,13 +261,16 @@ def _build_lightmem_system(context: MethodBuildContext) -> BaseMemorySystem:
         raise ConfigurationError("LightMem factory requires LightMemConfig")
     if context.openai_settings is None:
         raise ConfigurationError("LightMem factory requires OpenAI settings")
-    return LightMem(
+    system = LightMem(
         config=context.config,
         openai_settings=context.openai_settings,
         storage_root=context.storage_root,
         path_settings=context.path_settings,
         efficiency_collector=context.efficiency_collector,
     )
+    for conversation in context.completed_conversations:
+        system.load_existing_conversation_state(conversation)
+    return system
 
 
 def _lightmem_model_name(config: Any) -> str:
@@ -560,6 +568,7 @@ _REGISTRATIONS = {
             _mem0_efficiency_instrumentation_identity
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
+        supports_shared_instance_parallelism=True,
     ),
     "lightmem": MethodRegistration(
         name="lightmem",

@@ -5,9 +5,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
+
+from memory_benchmark.config import OpenAISettings, load_path_settings
+from memory_benchmark.core import Conversation, Session, Turn
 from memory_benchmark.methods.amem_adapter import AMemConfig
 from memory_benchmark.methods.lightmem_adapter import LightMemConfig
-from memory_benchmark.methods.registry import get_method_registration
+from memory_benchmark.methods import registry as method_registry_module
+from memory_benchmark.methods.registry import MethodBuildContext, get_method_registration
 
 
 def test_amem_is_registered_for_conversation_qa() -> None:
@@ -73,3 +79,68 @@ def test_lightmem_registration_exposes_efficiency_contract() -> None:
 
     assert contract.required_by_profile is True
     assert contract.supported_by_method is True
+
+
+def test_lightmem_factory_loads_completed_conversations_for_resume(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """LightMem registry factory 应恢复 completed conversations 供后续 question resume。"""
+
+    instances: list[FakeLightMemForFactory] = []
+
+    class FakeLightMemForFactory:
+        """替代 LightMem，记录 factory 传入参数和恢复调用。"""
+
+        def __init__(self, **kwargs) -> None:
+            """保存构造参数。"""
+
+            self.kwargs = kwargs
+            self.loaded_conversations: list[Conversation] = []
+            instances.append(self)
+
+        def load_existing_conversation_state(self, conversation: Conversation) -> None:
+            """记录恢复请求。"""
+
+            self.loaded_conversations.append(conversation)
+
+    monkeypatch.setattr(method_registry_module, "LightMem", FakeLightMemForFactory)
+    conversation = Conversation(
+        conversation_id="conv-lightmem",
+        sessions=[
+            Session(
+                session_id="s-1",
+                turns=[Turn(turn_id="t-1", speaker="Alice", content="I like tea.")],
+            )
+        ],
+    )
+    context = MethodBuildContext(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=5,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        openai_settings=OpenAISettings(
+            api_key="sk-test",
+            base_url="https://example.invalid/v1",
+        ),
+        path_settings=replace(
+            load_path_settings(Path(__file__).resolve().parents[1]),
+            outputs_root=tmp_path,
+        ),
+        storage_root=tmp_path / "method_state",
+        completed_conversations=(conversation,),
+    )
+    registration = get_method_registration("lightmem")
+
+    system = registration.system_factory(context)
+
+    assert system.kwargs["storage_root"] == tmp_path / "method_state"
+    assert [item.conversation_id for item in system.loaded_conversations] == [
+        "conv-lightmem"
+    ]

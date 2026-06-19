@@ -13,6 +13,8 @@ import hashlib
 import importlib
 import io
 import json
+import pickle
+from pathlib import Path
 import sys
 from time import perf_counter_ns
 from typing import Any
@@ -30,13 +32,20 @@ from memory_benchmark.core.interfaces import BaseMemorySystem
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
+    resolve_token_usage,
 )
+from memory_benchmark.storage import atomic_write_json
 
 
 AMEM_METHOD_DIRECTORY = "A-mem"
 AMEM_ADAPTER_VERSION = "conversation-qa-v1"
 AMEM_READER_PROMPT_VERSION = "amem-reader-v1"
 AMEM_QUERY_KEYWORD_PROMPT_VERSION = "amem-query-keywords-v1"
+AMEM_STATE_SCHEMA_VERSION = 1
+AMEM_MEMORIES_FILENAME = "memories.pkl"
+AMEM_RETRIEVER_FILENAME = "retriever.pkl"
+AMEM_RETRIEVER_EMBEDDINGS_FILENAME = "retriever_embeddings.npy"
+AMEM_STATE_MANIFEST_FILENAME = "state_manifest.json"
 AMEM_GPT4O_MINI_CATEGORY_K = {
     "1": 40,
     "2": 40,
@@ -191,6 +200,7 @@ class AMem(BaseMemorySystem):
         answer_llm: Any | None = None,
         openai_api_key: str | None = None,
         openai_base_url: str | None = None,
+        storage_root: str | Path | None = None,
         path_settings: PathSettings | None = None,
         efficiency_collector: EfficiencyCollector | None = None,
     ):
@@ -202,6 +212,7 @@ class AMem(BaseMemorySystem):
             answer_llm: 测试可注入 fake；生产为空时后续任务使用官方 LLM controller。
             openai_api_key: 传给官方 OpenAI-compatible backend 的 API key。
             openai_base_url: 传给官方 OpenAI-compatible backend 的 base URL。
+            storage_root: 当前 run 的 A-Mem 状态目录；为空时使用隔离的默认输出目录。
             path_settings: 项目路径配置。
             efficiency_collector: runner 管理的可选效率 observation collector。
         """
@@ -212,6 +223,9 @@ class AMem(BaseMemorySystem):
         self._openai_api_key = openai_api_key
         self._openai_base_url = openai_base_url
         self.path_settings = path_settings or load_path_settings()
+        self.storage_root = Path(storage_root) if storage_root is not None else (
+            self.path_settings.outputs_root / "amem" / "unscoped-method-state"
+        )
         self._efficiency_collector = efficiency_collector
         self._runtimes: dict[str, Any] = {}
 
@@ -221,10 +235,58 @@ class AMem(BaseMemorySystem):
         conversation_ids: list[str] = []
         for conversation in conversations:
             runtime = self._get_or_create_runtime(conversation.conversation_id)
+            turn_count = 0
             for turn in self._iter_turns(conversation):
                 self._call_runtime_add(runtime, turn)
+                turn_count += 1
+            self._save_conversation_state(
+                conversation=conversation,
+                runtime=runtime,
+                turn_count=turn_count,
+            )
             conversation_ids.append(conversation.conversation_id)
         return AddResult(conversation_ids=conversation_ids)
+
+    def load_existing_conversation_state(self, conversation: Conversation) -> None:
+        """从 wrapper 状态目录恢复一个已完成写入的 conversation。
+
+        输入:
+            conversation: runner 已确认 `conversation_status=completed` 的公开对象。
+
+        输出:
+            None；恢复后的官方 runtime 会注册到 `self._runtimes`。
+
+        异常:
+            ConfigurationError: 状态文件缺失、manifest 不匹配或 checksum 不一致。
+        """
+
+        conversation_id = conversation.conversation_id
+        if conversation_id in self._runtimes:
+            return
+        state_dir = self._conversation_state_dir(conversation_id)
+        manifest = self._load_and_validate_state_manifest(
+            conversation=conversation,
+            state_dir=state_dir,
+        )
+        runtime = self._get_or_create_runtime(conversation_id)
+        memories_path = state_dir / AMEM_MEMORIES_FILENAME
+        with memories_path.open("rb") as memories_file:
+            runtime.memories = pickle.load(memories_file)
+        retriever = getattr(runtime, "retriever", None)
+        if retriever is None or not hasattr(retriever, "load"):
+            raise ConfigurationError(
+                f"A-Mem retriever cannot load persisted state: {conversation_id}"
+            )
+        self._suppress_stdout_if_needed(
+            retriever.load,
+            str(state_dir / AMEM_RETRIEVER_FILENAME),
+            str(state_dir / AMEM_RETRIEVER_EMBEDDINGS_FILENAME),
+        )
+        self._runtimes[conversation_id] = runtime
+        if int(manifest.get("turn_count", -1)) != len(self._iter_turns(conversation)):
+            raise ConfigurationError(
+                f"A-Mem state turn_count mismatch for {conversation_id}"
+            )
 
     def get_answer(self, question: Question) -> AnswerResult:
         """基于 A-Mem 检索上下文回答公开问题。"""
@@ -240,17 +302,24 @@ class AMem(BaseMemorySystem):
                 "is therefore unsupported for A-Mem official-mini profile."
             )
         runtime = self._runtimes[question.conversation_id]
-        query_keywords = self._generate_query_keywords(question=question, runtime=runtime)
         retrieve_k = self._retrieve_k_for_question(question)
         collector = self._efficiency_collector
         retrieval_started_ns = perf_counter_ns()
         if collector is not None and collector.enabled:
             with collector.operation_stage(EfficiencyStage.RETRIEVAL):
+                query_keywords = self._generate_query_keywords(
+                    question=question,
+                    runtime=runtime,
+                )
                 context = runtime.find_related_memories_raw(
                     query_keywords,
                     k=retrieve_k,
                 )
         else:
+            query_keywords = self._generate_query_keywords(
+                question=question,
+                runtime=runtime,
+            )
             context = runtime.find_related_memories_raw(
                 query_keywords,
                 k=retrieve_k,
@@ -309,6 +378,120 @@ class AMem(BaseMemorySystem):
             else:
                 self._runtimes[conversation_id] = self._runtime_factory(conversation_id)
         return self._runtimes[conversation_id]
+
+    def _save_conversation_state(
+        self,
+        conversation: Conversation,
+        runtime: Any,
+        turn_count: int,
+    ) -> None:
+        """保存一个已完整写入 conversation 的 A-Mem wrapper 状态。"""
+
+        state_dir = self._conversation_state_dir(conversation.conversation_id)
+        state_dir.mkdir(parents=True, exist_ok=True)
+        memories_path = state_dir / AMEM_MEMORIES_FILENAME
+        _atomic_pickle_dump(memories_path, getattr(runtime, "memories", {}))
+        retriever = getattr(runtime, "retriever", None)
+        if retriever is None or not hasattr(retriever, "save"):
+            raise ConfigurationError(
+                "A-Mem retriever cannot persist state because it does not expose save()"
+            )
+        self._suppress_stdout_if_needed(
+            retriever.save,
+            str(state_dir / AMEM_RETRIEVER_FILENAME),
+            str(state_dir / AMEM_RETRIEVER_EMBEDDINGS_FILENAME),
+        )
+        manifest = self._build_state_manifest(
+            conversation=conversation,
+            state_dir=state_dir,
+            turn_count=turn_count,
+        )
+        atomic_write_json(state_dir / AMEM_STATE_MANIFEST_FILENAME, manifest)
+
+    def _build_state_manifest(
+        self,
+        conversation: Conversation,
+        state_dir: Path,
+        turn_count: int,
+    ) -> dict[str, Any]:
+        """构造 A-Mem conversation 状态 manifest。"""
+
+        files = {
+            AMEM_MEMORIES_FILENAME: _sha256_file(state_dir / AMEM_MEMORIES_FILENAME),
+            AMEM_RETRIEVER_FILENAME: _sha256_file(state_dir / AMEM_RETRIEVER_FILENAME),
+            AMEM_RETRIEVER_EMBEDDINGS_FILENAME: _sha256_file(
+                state_dir / AMEM_RETRIEVER_EMBEDDINGS_FILENAME
+            ),
+        }
+        source_identity = build_amem_source_identity(self.path_settings)
+        return {
+            "schema_version": AMEM_STATE_SCHEMA_VERSION,
+            "conversation_id": conversation.conversation_id,
+            "adapter_version": AMEM_ADAPTER_VERSION,
+            "source_sha256": source_identity["source_sha256"],
+            "profile": self.config.to_manifest(),
+            "turn_count": turn_count,
+            "files": files,
+        }
+
+    def _load_and_validate_state_manifest(
+        self,
+        conversation: Conversation,
+        state_dir: Path,
+    ) -> dict[str, Any]:
+        """读取并强校验 A-Mem conversation 状态 manifest。"""
+
+        manifest_path = state_dir / AMEM_STATE_MANIFEST_FILENAME
+        if not manifest_path.is_file():
+            raise ConfigurationError(
+                f"A-Mem state manifest missing: {manifest_path}"
+            )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("schema_version") != AMEM_STATE_SCHEMA_VERSION:
+            raise ConfigurationError(
+                f"A-Mem state schema mismatch for {conversation.conversation_id}"
+            )
+        if manifest.get("conversation_id") != conversation.conversation_id:
+            raise ConfigurationError(
+                f"A-Mem state conversation_id mismatch for {conversation.conversation_id}"
+            )
+        if manifest.get("adapter_version") != AMEM_ADAPTER_VERSION:
+            raise ConfigurationError(
+                f"A-Mem state adapter_version mismatch for {conversation.conversation_id}"
+            )
+        expected_source = build_amem_source_identity(self.path_settings)["source_sha256"]
+        if manifest.get("source_sha256") != expected_source:
+            raise ConfigurationError(
+                f"A-Mem state source identity mismatch for {conversation.conversation_id}"
+            )
+        if manifest.get("profile") != self.config.to_manifest():
+            raise ConfigurationError(
+                f"A-Mem state profile mismatch for {conversation.conversation_id}"
+            )
+        files = manifest.get("files")
+        if not isinstance(files, dict):
+            raise ConfigurationError(
+                f"A-Mem state files manifest invalid for {conversation.conversation_id}"
+            )
+        for filename in (
+            AMEM_MEMORIES_FILENAME,
+            AMEM_RETRIEVER_FILENAME,
+            AMEM_RETRIEVER_EMBEDDINGS_FILENAME,
+        ):
+            file_path = state_dir / filename
+            if not file_path.is_file():
+                raise ConfigurationError(f"A-Mem state file missing: {file_path}")
+            expected_sha = files.get(filename)
+            if expected_sha != _sha256_file(file_path):
+                raise ConfigurationError(
+                    f"A-Mem state checksum mismatch for {file_path}"
+                )
+        return manifest
+
+    def _conversation_state_dir(self, conversation_id: str) -> Path:
+        """返回单个 conversation 的状态目录。"""
+
+        return self.storage_root / _safe_path_name(conversation_id)
 
     def _create_official_runtime(self, conversation_id: str) -> Any:
         """构造官方 A-Mem robust runtime。
@@ -409,7 +592,13 @@ class AMem(BaseMemorySystem):
             "Keywords:"
         )
         response = self._suppress_stdout_if_needed(llm.get_completion, prompt)
-        parsed_keywords = _parse_keywords_response(str(response))
+        response_text = str(response)
+        self._record_llm_call(
+            model_id="amem-query-llm",
+            prompt_text=prompt,
+            output_text=response_text,
+        )
+        parsed_keywords = _parse_keywords_response(response_text)
         return parsed_keywords or question.text
 
     def _retrieve_k_for_question(self, question: Question) -> int:
@@ -446,10 +635,43 @@ class AMem(BaseMemorySystem):
 
         answer_llm = self._select_llm(runtime=runtime, question=question)
         temperature = 0.7
-        return self._suppress_stdout_if_needed(
+        response = self._suppress_stdout_if_needed(
             answer_llm.get_completion,
             prompt,
             temperature=temperature,
+        )
+        response_text = str(response)
+        self._record_llm_call(
+            model_id="amem-answer-llm",
+            prompt_text=prompt,
+            output_text=response_text,
+        )
+        return response_text
+
+    def _record_llm_call(
+        self,
+        *,
+        model_id: str,
+        prompt_text: str,
+        output_text: str,
+    ) -> None:
+        """记录 A-Mem wrapper 可见的一次 LLM 调用 token。"""
+
+        collector = self._efficiency_collector
+        if collector is None or not collector.enabled:
+            return
+        usage = resolve_token_usage(
+            api_input_tokens=None,
+            api_output_tokens=None,
+            prompt_text=prompt_text,
+            output_text=output_text,
+            tokenizer=_TiktokenCounter(self.config.llm_model),
+        )
+        collector.record_llm_call(
+            model_id=model_id,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            token_measurement_source=usage.source,
         )
 
     def _suppress_stdout_if_needed(
@@ -551,3 +773,44 @@ def _create_openai_compatible_client(api_key: str | None, base_url: str | None) 
     if not api_key:
         raise ConfigurationError("A-Mem OpenAI-compatible client requires API key")
     return OpenAI(api_key=api_key, base_url=base_url)
+
+
+def _atomic_pickle_dump(path: Path, payload: Any) -> None:
+    """原子写入 pickle 文件。
+
+    输入:
+        path: 目标 pickle 文件路径。
+        payload: 要写入的 Python 对象；仅用于本项目生成并读取的 method state。
+
+    输出:
+        None；写入完成后原子替换目标文件。
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    try:
+        with temporary_path.open("wb") as temporary_file:
+            pickle.dump(payload, temporary_file)
+        temporary_path.replace(path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            temporary_path.unlink()
+
+
+def _sha256_file(path: Path) -> str:
+    """计算单个状态文件的 SHA-256。"""
+
+    digest = hashlib.sha256()
+    with path.open("rb") as source_file:
+        for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _safe_path_name(value: str) -> str:
+    """把 conversation_id 转成安全目录名。"""
+
+    return "".join(
+        character if character.isalnum() or character in "-_." else "_"
+        for character in value
+    )

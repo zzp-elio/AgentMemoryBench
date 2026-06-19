@@ -8,8 +8,9 @@ service 和 analysis 层。
 
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
+import importlib
 from pathlib import Path
 from typing import Callable, Iterable, Literal
 
@@ -18,6 +19,9 @@ from memory_benchmark.cli.run_prediction import (
     run_registered_conversation_qa_prediction,
 )
 from memory_benchmark.core import ConfigurationError
+from memory_benchmark.runners.calibration_progress import (
+    CalibrationProgressMonitor,
+)
 from memory_benchmark.runners.prediction import PredictionRunSummary
 
 
@@ -39,7 +43,9 @@ class CalibrationSmokeCommand:
         confirm_api: 是否允许真实 API 调用。
         smoke_turn_limit: conversation 型 benchmark 的历史 turn 裁剪上限。
         smoke_conversation_limit: 固定为 1，表示每个组合只跑一个 conversation/instance。
-        max_parallel_runs: 外层同时运行的 child run 数，当前最多为 2。
+        max_new_conversations: 本次命令最多推进多少个未完成 conversation；仅是命令预算，
+            不属于实验 identity。
+        max_parallel_runs: 外层同时运行的 child run 数，当前最多为 4。
     """
 
     project_root: str | Path
@@ -47,10 +53,11 @@ class CalibrationSmokeCommand:
     benchmarks: tuple[str, ...]
     run_prefix: str
     profile: str = "smoke"
-    resume: bool = True
+    resume: bool = False
     confirm_api: bool = False
     smoke_turn_limit: int = 20
     smoke_conversation_limit: int = 1
+    max_new_conversations: int | None = None
     max_parallel_runs: int = 2
 
     def __post_init__(self) -> None:
@@ -75,8 +82,15 @@ class CalibrationSmokeCommand:
             )
         if self.smoke_turn_limit < 1:
             raise ConfigurationError("smoke_turn_limit must be positive")
-        if self.max_parallel_runs not in {1, 2}:
-            raise ConfigurationError("max_parallel_runs must be 1 or 2")
+        if (
+            self.max_new_conversations is not None
+            and self.max_new_conversations < 1
+        ):
+            raise ConfigurationError(
+                "max_new_conversations must be positive when provided"
+            )
+        if self.max_parallel_runs not in {1, 2, 4}:
+            raise ConfigurationError("max_parallel_runs must be 1, 2 or 4")
 
 
 @dataclass(frozen=True)
@@ -136,6 +150,7 @@ def run_cost_calibration_smoke(
     command: CalibrationSmokeCommand,
     *,
     prediction_runner: PredictionRunner = run_registered_conversation_qa_prediction,
+    dependency_preloader: Callable[[CalibrationSmokeCommand], None] | None = None,
 ) -> CalibrationSmokeSummary:
     """运行成本校准 smoke 矩阵。
 
@@ -147,21 +162,34 @@ def run_cost_calibration_smoke(
         CalibrationSmokeSummary。即使部分 child run 失败，也会返回完整结果。
     """
 
+    preloader = dependency_preloader or _preload_parallel_dependencies
+    preloader(command)
     tasks = _build_tasks(command)
     results: list[CalibrationChildRunResult] = []
+    progress_enabled_child = command.max_parallel_runs <= 1
     with ThreadPoolExecutor(max_workers=command.max_parallel_runs) as executor:
-        futures: dict[Future[tuple[CalibrationChildRunResult, ...]], _CalibrationTask]
-        futures = {
-            executor.submit(
+        child_futures: dict[Future[tuple[CalibrationChildRunResult, ...]], float]
+        child_futures = {}
+        for task in tasks:
+            future = executor.submit(
                 _run_one_task,
                 task,
                 command,
                 prediction_runner,
-            ): task
-            for task in tasks
-        }
-        for future in as_completed(futures):
-            results.extend(future.result())
+                progress_enabled_child,
+            )
+            child_futures[future] = _clock()
+
+        if command.max_parallel_runs > 1:
+            _run_with_progress_monitor(
+                futures=child_futures,
+                command=command,
+                tasks=tasks,
+                results=results,
+            )
+        else:
+            for future in as_completed(child_futures):
+                results.extend(future.result())
 
     ordered_results = tuple(
         sorted(
@@ -189,6 +217,34 @@ def run_cost_calibration_smoke(
     )
 
 
+def _preload_parallel_dependencies(command: CalibrationSmokeCommand) -> None:
+    """在外层线程并发前串行预加载第三方重型依赖。
+
+    LightMem、MemoryOS 和 A-Mem 都可能在 child run 内触发 transformers /
+    sentence-transformers 的懒加载。部分版本的 transformers lazy module 在多线程首次
+    导入时不稳定，因此这里先在主线程完成导入，避免 worker 互相踩全局 import 状态。
+    """
+
+    method_names = set(command.methods)
+    modules: list[str] = []
+    if method_names & {"lightmem", "memoryos", "amem"}:
+        modules.extend(
+            [
+                "transformers",
+                "transformers.tokenization_utils_fast",
+                "sentence_transformers",
+            ]
+        )
+    for module_name in modules:
+        try:
+            importlib.import_module(module_name)
+        except Exception as exc:
+            raise ConfigurationError(
+                "Failed to preload parallel smoke dependency "
+                f"{module_name!r}: {exc}"
+            ) from exc
+
+
 def _build_tasks(command: CalibrationSmokeCommand) -> tuple[_CalibrationTask, ...]:
     """按 method × benchmark 生成稳定 child task 列表。"""
 
@@ -212,6 +268,7 @@ def _run_one_task(
     task: _CalibrationTask,
     command: CalibrationSmokeCommand,
     prediction_runner: PredictionRunner,
+    progress_enabled: bool = True,
 ) -> tuple[CalibrationChildRunResult, ...]:
     """执行一个 method × benchmark child task，并把异常转为失败结果。"""
 
@@ -229,7 +286,9 @@ def _run_one_task(
             smoke_turn_limit=command.smoke_turn_limit,
             smoke_conversation_limit=command.smoke_conversation_limit,
             smoke_max_workers=None,
+            max_new_conversations=command.max_new_conversations,
             enable_efficiency_observability=True,
+            progress_enabled=progress_enabled,
         )
     except Exception as exc:  # noqa: BLE001 - 调度层必须隔离单个 child 失败。
         return (
@@ -259,6 +318,60 @@ def _run_one_task(
         )
         for child in batch.runs
     )
+
+
+def _run_with_progress_monitor(
+    *,
+    futures: dict[Future[tuple[CalibrationChildRunResult, ...]], float],
+    command: CalibrationSmokeCommand,
+    tasks: tuple[_CalibrationTask, ...],
+    results: list[CalibrationChildRunResult],
+) -> None:
+    """在并行模式下用统一进度监控表收集 child run 结果。
+
+    本函数在 ThreadPoolExecutor 上下文内调用。它创建 CalibrationProgressMonitor，
+    定期轮询各 child run 的 progress.json，并用 Rich Live(Table) 统一展示状态；
+    child run 各自的 Rich 进度条已被禁用。
+    """
+
+    run_ids = tuple(task.base_run_id for task in tasks)
+    methods = tuple(task.method for task in tasks)
+    benchmarks = tuple(task.benchmark for task in tasks)
+    monitor = CalibrationProgressMonitor(
+        output_root=Path(command.project_root) / "outputs",
+        run_ids=run_ids,
+        methods=methods,
+        benchmarks=benchmarks,
+    )
+    monitor.start()
+    try:
+        for run_id, task in zip(run_ids, tasks, strict=True):
+            monitor.start_task(run_id)
+        pending = set(futures.keys())
+        while pending:
+            done, pending = wait(pending, timeout=0.2)
+            for future in done:
+                run_results = future.result()
+                results.extend(run_results)
+                for run_result in run_results:
+                    if run_result.status == "completed":
+                        monitor.mark_completed(run_result.run_id)
+                    else:
+                        monitor.mark_failed(
+                            run_result.run_id,
+                            run_result.error or "unknown",
+                        )
+            monitor._refresh_table()
+    finally:
+        monitor.stop()
+
+
+def _clock() -> float:
+    """返回单调时间秒数。独立函数便于测试注入。"""
+
+    import time as _time
+
+    return _time.monotonic()
 
 
 def _normalize_nonempty_tuple(

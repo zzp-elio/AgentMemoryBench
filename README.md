@@ -312,6 +312,23 @@ uv run memory-benchmark predict \
   --confirm-full
 ```
 
+分批续跑选项：
+
+```bash
+uv run memory-benchmark predict \
+  --method mem0 \
+  --benchmark locomo \
+  --profile official-full \
+  --run-id mem0-locomo-full-YYYYMMDD \
+  --confirm-api \
+  --confirm-full \
+  --max-new-conversations 2
+```
+
+`--max-new-conversations` 的语义是“本次命令最多推进 N 个尚未完成的 conversation”。
+它是运行预算，不是实验 identity；同一个 `run_id` 后续可以用不同预算继续 `--resume`。
+该选项已接入 `predict` / `run` / `calibrate-smoke`，用于把长实验拆成多次可恢复的小批次。
+
 ## 配置
 
 配置分层组合，避免把 secret、官方参数和单次运行选项混在一起。
@@ -374,9 +391,15 @@ outputs/<run_id>/
 
 - `run_id` 对应不可变实验；resume 只能继续数据、method、reader、源码身份和关键配置一致的运行。
 - `method_predictions.jsonl` 可以被多个 evaluator 复用，不需要重复调用 method。
+- `method_predictions.jsonl` 应保持轻量：大段 system prompt、reader prompt、injected
+  context 或重复 metadata 应按 run/conversation 单独记录一次，再在逐题 prediction 中引用。
 - `evaluator_private_labels.jsonl` 只给 evaluator 使用，不能传给 method。
 - `config.redacted.json` 只保存脱敏配置，不包含 secret。
 - `logs/run.log` 面向人工排查；`logs/events.jsonl` 是结构化事件日志。
+- 第三方 method 的 stdout/warning 不应直接打乱终端 Rich 进度；wrapper 应捕获、重定向到
+  日志或按配置静默。
+- 如果 question 带 `category`，evaluator summary 应同时输出 overall 和 by-category
+  聚合；这不是某个 benchmark 的特例。
 
 ## 指标与效率观测
 

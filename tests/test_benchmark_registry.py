@@ -491,8 +491,6 @@ def test_longmemeval_registration_prepares_full_and_smoke_datasets() -> None:
             smoke_conversation_limit=99,
         ),
     )
-    adapter = LongMemEvalAdapter(Path("."), variant="m_cleaned")
-    expected_smoke = adapter.load(limit=1)
     assert smoke_run.variant == "m_cleaned"
     assert smoke_run.run_scope is RunScope.SMOKE
     assert smoke_run.source_relative_paths == (
@@ -502,8 +500,15 @@ def test_longmemeval_registration_prepares_full_and_smoke_datasets() -> None:
     assert smoke_run.dataset.metadata["run_scope"] == "smoke"
     assert smoke_run.dataset.metadata["total_raw_instances"] == 1
     assert smoke_run.dataset.metadata["source_fully_scanned"] is False
+    assert smoke_run.dataset.metadata["smoke_round_limit"] == 1
+    assert smoke_run.dataset.metadata["smoke_original_turn_count"] > 2
+    assert smoke_run.dataset.metadata["smoke_retained_turn_count"] == 2
+    assert smoke_run.dataset.metadata["smoke_retained_round_count"] == 1
     assert len(smoke_run.dataset.conversations) == 1
-    assert smoke_run.dataset.conversations == expected_smoke.conversations
+    smoke_conversation = smoke_run.dataset.conversations[0]
+    assert sum(len(session.turns) for session in smoke_conversation.sessions) == 2
+    assert smoke_conversation.metadata["smoke_retained_round_count"] == 1
+    assert smoke_conversation.metadata["smoke_retained_turn_count"] == 2
 
 
 def test_locomo_registration_prepares_full_and_smoke_datasets() -> None:

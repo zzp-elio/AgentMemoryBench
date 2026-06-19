@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from memory_benchmark.config import OpenAISettings, PathSettings, load_path_settings
@@ -58,6 +60,23 @@ def test_lightmem_can_import_official_lightmemory_class() -> None:
     classes = import_lightmem_classes(load_path_settings())
 
     assert classes["LightMemory"].__name__ == "LightMemory"
+
+
+def test_lightmem_import_keeps_vendored_src_path_for_thread_safety() -> None:
+    """LightMem vendored src 路径导入后应保留，避免多线程反复插拔 `sys.path`。"""
+
+    path_settings = load_path_settings()
+    src_root = (
+        path_settings.resolve_third_party_method_path("LightMem") / "src"
+    ).resolve()
+    src_root_text = str(src_root)
+    if src_root_text in sys.path:
+        sys.path.remove(src_root_text)
+
+    classes = import_lightmem_classes(path_settings)
+
+    assert classes["LightMemory"].__name__ == "LightMemory"
+    assert src_root_text in sys.path
 
 
 class FakeLightMemoryBackend:
@@ -415,6 +434,38 @@ def test_lightmem_add_and_get_answer_with_fake_backend() -> None:
     assert first_message["role"] == "user"
 
 
+def test_lightmem_load_existing_conversation_state_rebuilds_backend() -> None:
+    """resume 时 LightMem 应重建 completed conversation 的 backend 以回答剩余问题。"""
+
+    backend = FakeLightMemoryBackend()
+    chat = FakeLightMemAnswerClient()
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=chat,
+    )
+    conversation = _lightmem_conversation()
+
+    method.load_existing_conversation_state(conversation)
+    answer = method.get_answer(conversation.questions[0])
+
+    assert answer.answer == "fake lightmem answer"
+    assert backend.added_messages == []
+    assert backend.embedding_retriever.get_all_calls == [
+        {"with_vectors": True, "with_payload": True}
+    ]
+    assert "Alice likes jasmine tea." in chat.prompts[0]
+
+
 def test_lightmem_add_uses_locomo_single_turn_incremental_feeding() -> None:
     """LoCoMo 写入应复刻官方脚本的单 turn + 空 assistant 增量喂入。"""
 
@@ -674,7 +725,7 @@ def test_lightmem_longmemeval_reader_prompt_includes_question_time() -> None:
 
 
 def test_lightmem_records_question_efficiency_observations() -> None:
-    """LightMem wrapper 应记录 retrieval/context/answer 的 question-level observation。"""
+    """LightMem wrapper 应记录 question-level 汇总和 reader LLM token。"""
 
     backend = FakeLightMemoryBackend()
     chat = FakeLightMemAnswerClient()
@@ -711,6 +762,15 @@ def test_lightmem_records_question_efficiency_observations() -> None:
     assert question_records[0]["unsupported_reason"] is None
     assert question_records[0]["injected_memory_context_tokens"] > 0
     assert question_records[0]["answer_generation_latency_ms"] >= 0
+    llm_records = [
+        record for record in records if record["observation_type"] == "llm_call"
+    ]
+    assert len(llm_records) == 1
+    assert llm_records[0]["stage"] == "answer"
+    assert llm_records[0]["model_id"] == "lightmem-answer-llm"
+    assert llm_records[0]["input_tokens"] > 0
+    assert llm_records[0]["output_tokens"] > 0
+    assert llm_records[0]["token_measurement_source"] == "tokenizer_estimate"
 
 
 def test_lightmem_production_backend_receives_openai_and_storage_settings(

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from time import perf_counter_ns
 from typing import Any
@@ -18,6 +18,7 @@ from memory_benchmark.core import AnswerResult, Conversation, Dataset, Question
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemorySystem, BaseResumableMemorySystem
 from memory_benchmark.core.validators import validate_dataset, validate_no_private_keys
+from memory_benchmark.methods.registry import MethodBuildContext
 from memory_benchmark.observability import ProgressReporter, RunContext
 from memory_benchmark.observability.efficiency import (
     EfficiencyArtifactStore,
@@ -54,6 +55,8 @@ class PredictionRunPolicy:
         max_workers: conversation 级最大并发数。
         conversation_ids: 可选 conversation 白名单；为空时选择全部。
         question_limit_per_conversation: 每个 conversation 最多回答的问题数。
+        max_new_conversations: 本次命令最多推进多少个未完成 conversation；不属于
+            实验 identity，可在 resume 命令之间变化。
         resume: 是否允许复用当前 run_id 的兼容 checkpoint。
         progress_enabled: 是否在终端渲染 Rich 进度条。
     """
@@ -61,6 +64,7 @@ class PredictionRunPolicy:
     max_workers: int = 1
     conversation_ids: tuple[str, ...] | None = None
     question_limit_per_conversation: int | None = None
+    max_new_conversations: int | None = None
     resume: bool = False
     progress_enabled: bool = True
 
@@ -76,6 +80,8 @@ class PredictionRunPolicy:
             raise ConfigurationError(
                 "question_limit_per_conversation must be at least 1"
             )
+        if self.max_new_conversations is not None and self.max_new_conversations < 1:
+            raise ConfigurationError("max_new_conversations must be at least 1")
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,7 @@ class PredictionRunSummary:
     prediction_path: str
     private_label_path: str
     summary_path: str
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """返回 JSON 可序列化摘要。"""
@@ -105,6 +112,7 @@ class _ConversationAnswerBatch:
     conversation_id: str
     predictions: tuple[dict[str, Any], ...]
     observations: tuple[EfficiencyObservation, ...] = ()
+    ingested: bool = False
 
 
 @dataclass(frozen=True)
@@ -113,6 +121,28 @@ class _ConversationIngestBatch:
 
     conversation_id: str
     observations: tuple[EfficiencyObservation, ...] = ()
+
+
+@dataclass(frozen=True)
+class _ConversationWorkItem:
+    """本次命令要处理的单个 conversation 工作项。"""
+
+    conversation: Conversation
+    needs_ingest: bool
+    pending_questions: tuple[Question, ...]
+
+
+@dataclass(frozen=True)
+class _PredictionWorkPlan:
+    """本次命令裁剪后的 prediction 工作计划。"""
+
+    items: tuple[_ConversationWorkItem, ...]
+    selected_questions: dict[str, list[Question]]
+    question_order: tuple[str, ...]
+    completed_question_ids: frozenset[str]
+    ingested_conversation_ids: frozenset[str]
+    dataset_conversation_count: int
+    budget_exhausted: bool
 
 
 def run_predictions(
@@ -128,6 +158,12 @@ def run_predictions(
     model_inventory: tuple[ModelDescriptor, ...] = (),
     instrumentation_identity: dict[str, object] | None = None,
     retrieval_observation_contract: RetrievalObservationContract | None = None,
+    *,
+    system_factory: Callable[
+        [MethodBuildContext], BaseMemorySystem
+    ] | None = None,
+    build_context_template: MethodBuildContext | None = None,
+    supports_shared_instance_parallelism: bool = False,
 ) -> PredictionRunSummary:
     """运行不含 metric 的通用 conversation-QA 回复生成。
 
@@ -140,6 +176,9 @@ def run_predictions(
         benchmark_variant: 当前 benchmark 的 concrete variant，不能为 `all`。
         run_scope: 本次运行范围，必须是 `RunScope`。
         source_paths: 可选原始数据文件，用于数据指纹审计。
+        system_factory: 独立 instance 模式下 worker 创建 system 的工厂函数。
+        build_context_template: 独立 instance 模式下 worker 构造 context 的模板。
+        supports_shared_instance_parallelism: method 是否支持共享实例线程并行。
 
     输出:
         PredictionRunSummary: 回复数量和标准 artifact 路径。
@@ -194,6 +233,35 @@ def run_predictions(
         for conversation in selected_conversations
         for question in selected_questions[conversation.conversation_id]
     ]
+    use_isolated = (
+        system_factory is not None
+        and build_context_template is not None
+        and policy.max_workers > 1
+        and not supports_shared_instance_parallelism
+    )
+    if not use_isolated:
+        checkpoint_store = TurnIngestCheckpointStore(
+            paths.ingest_turn_checkpoints_dir
+        )
+        _preflight_ingest_checkpoints(
+            conversations=selected_conversations,
+            system=system,
+            policy=policy,
+            conversation_status=conversation_status,
+            checkpoint_store=checkpoint_store,
+        )
+        atomic_write_json(paths.conversation_status_path, conversation_status)
+    work_plan = _build_prediction_work_plan(
+        conversations=selected_conversations,
+        selected_questions=selected_questions,
+        conversation_status=conversation_status,
+        prediction_records=prediction_records,
+        policy=policy,
+    )
+    run_control_metadata = {
+        "max_new_conversations": policy.max_new_conversations,
+        "budget_exhausted": work_plan.budget_exhausted,
+    }
 
     logger.info(
         "[bold]Prediction run[/bold] "
@@ -207,6 +275,7 @@ def run_predictions(
             "benchmark": dataset.dataset_name,
             "method": run_context.method_name,
             "resume": policy.resume,
+            "run_control": run_control_metadata,
         },
     )
 
@@ -216,35 +285,72 @@ def run_predictions(
     ) as progress:
         progress.start_conversations(len(selected_conversations))
         progress.start_questions(len(question_order))
-        _ingest_pending_conversations(
-            conversations=selected_conversations,
-            system=system,
-            policy=policy,
-            conversation_status=conversation_status,
-            paths=paths,
-            progress=progress,
-            logger=logger,
-            efficiency_collector=efficiency_collector,
-            efficiency_store=efficiency_store,
-        )
-        _answer_pending_questions(
-            conversations=selected_conversations,
-            selected_questions=selected_questions,
-            system=system,
-            policy=policy,
-            prediction_records=prediction_records,
-            question_status=question_status,
-            question_order=question_order,
-            paths=paths,
-            progress=progress,
-            logger=logger,
-            efficiency_collector=efficiency_collector,
-            efficiency_store=efficiency_store,
-            retrieval_observation_contract=retrieval_observation_contract,
-        )
+        if use_isolated:
+            _run_isolated_worker_pipeline(
+                work_plan=work_plan,
+                system_factory=system_factory,
+                build_context_template=build_context_template,
+                policy=policy,
+                paths=paths,
+                progress=progress,
+                logger=logger,
+                efficiency_collector=efficiency_collector,
+                efficiency_store=efficiency_store,
+                retrieval_observation_contract=retrieval_observation_contract,
+                prediction_records=prediction_records,
+                conversation_status=conversation_status,
+                question_status=question_status,
+                question_order=question_order,
+            )
+        else:
+            ingest_conversations = [
+                item.conversation for item in work_plan.items if item.needs_ingest
+            ]
+            answer_conversations = [
+                item.conversation
+                for item in work_plan.items
+                if item.pending_questions
+            ]
+            pending_selected_questions = {
+                item.conversation.conversation_id: list(item.pending_questions)
+                for item in work_plan.items
+                if item.pending_questions
+            }
+            _ingest_pending_conversations(
+                conversations=ingest_conversations,
+                system=system,
+                policy=policy,
+                conversation_status=conversation_status,
+                paths=paths,
+                progress=progress,
+                logger=logger,
+                efficiency_collector=efficiency_collector,
+                efficiency_store=efficiency_store,
+            )
+            _answer_pending_questions(
+                conversations=answer_conversations,
+                selected_questions=pending_selected_questions,
+                system=system,
+                policy=policy,
+                prediction_records=prediction_records,
+                question_status=question_status,
+                question_order=question_order,
+                paths=paths,
+                progress=progress,
+                logger=logger,
+                efficiency_collector=efficiency_collector,
+                efficiency_store=efficiency_store,
+                retrieval_observation_contract=retrieval_observation_contract,
+            )
         progress.set_stage("Completed", step_index=3, step_count=3)
+        completed_conversation_count = sum(
+            1
+            for conversation in selected_conversations
+            if conversation_status.get(conversation.conversation_id, {}).get("status")
+            == "completed"
+        )
         progress.update_conversations(
-            completed=len(selected_conversations),
+            completed=completed_conversation_count,
             total=len(selected_conversations),
             current_conversation_id=None,
         )
@@ -273,6 +379,7 @@ def run_predictions(
         prediction_path=str(paths.method_predictions_path),
         private_label_path=str(paths.evaluator_private_labels_path),
         summary_path=str(paths.summary_path),
+        metadata={"run_control": run_control_metadata},
     )
     atomic_write_json(paths.summary_path, summary.to_dict())
     logger.log_event("run_completed", summary.to_dict())
@@ -322,6 +429,82 @@ def _selected_questions(
         )
         for conversation in conversations
     }
+
+
+def _build_prediction_work_plan(
+    *,
+    conversations: list[Conversation],
+    selected_questions: dict[str, list[Question]],
+    conversation_status: dict[str, Any],
+    prediction_records: dict[str, dict[str, Any]],
+    policy: PredictionRunPolicy,
+) -> _PredictionWorkPlan:
+    """根据持久化状态和本次预算生成实际要执行的工作计划。
+
+    `max_new_conversations` 只限制本次命令推进多少个未完成 conversation，不改变
+    manifest identity。已完成 conversation 不占预算；已完成 add 但仍有未答问题的
+    conversation 会占预算并只进入 answer 阶段。
+    """
+
+    selected_question_ids = {
+        question.question_id
+        for conversation in conversations
+        for question in selected_questions[conversation.conversation_id]
+    }
+    completed_question_ids = frozenset(
+        question_id
+        for question_id in prediction_records
+        if question_id in selected_question_ids
+    )
+    ingested_conversation_ids = frozenset(
+        conversation.conversation_id
+        for conversation in conversations
+        if conversation_status.get(conversation.conversation_id, {}).get("status")
+        == "completed"
+    )
+    question_order = tuple(
+        question.question_id
+        for conversation in conversations
+        for question in selected_questions[conversation.conversation_id]
+    )
+
+    items: list[_ConversationWorkItem] = []
+    unfinished_seen = 0
+    budget_exhausted = False
+    for conversation in conversations:
+        conversation_id = conversation.conversation_id
+        pending_questions = tuple(
+            question
+            for question in selected_questions[conversation_id]
+            if question.question_id not in completed_question_ids
+        )
+        needs_ingest = conversation_id not in ingested_conversation_ids
+        if not needs_ingest and not pending_questions:
+            continue
+        if (
+            policy.max_new_conversations is not None
+            and unfinished_seen >= policy.max_new_conversations
+        ):
+            budget_exhausted = True
+            continue
+        unfinished_seen += 1
+        items.append(
+            _ConversationWorkItem(
+                conversation=conversation,
+                needs_ingest=needs_ingest,
+                pending_questions=pending_questions,
+            )
+        )
+
+    return _PredictionWorkPlan(
+        items=tuple(items),
+        selected_questions=selected_questions,
+        question_order=question_order,
+        completed_question_ids=completed_question_ids,
+        ingested_conversation_ids=ingested_conversation_ids,
+        dataset_conversation_count=len(conversations),
+        budget_exhausted=budget_exhausted,
+    )
 
 
 def _build_manifest(
@@ -613,6 +796,237 @@ def _write_input_artifacts(
             )
     atomic_write_jsonl(paths.public_questions_path, public_records)
     atomic_write_jsonl(paths.evaluator_private_labels_path, private_records)
+
+
+def _split_into_chunks(
+    items: list[Any],
+    num_chunks: int,
+) -> list[list[Any]]:
+    """把 conversation 列表均匀分布到 num_chunks 个 chunk。
+
+    最后剩余不足 num_chunks 的归入最后一个非满 chunk。
+    """
+
+    if num_chunks < 1:
+        raise ConfigurationError("num_chunks must be at least 1")
+    if num_chunks > len(items):
+        num_chunks = len(items)
+    chunks: list[list[Any]] = [[] for _ in range(num_chunks)]
+    for idx, item in enumerate(items):
+        chunks[idx % num_chunks].append(item)
+    return chunks
+
+
+def _run_isolated_worker_pipeline(
+    *,
+    work_plan: _PredictionWorkPlan,
+    system_factory: Callable[[MethodBuildContext], BaseMemorySystem],
+    build_context_template: MethodBuildContext,
+    policy: PredictionRunPolicy,
+    paths: ExperimentPaths,
+    progress: ProgressReporter,
+    logger: RunLogger,
+    efficiency_collector: EfficiencyCollector | None,
+    efficiency_store: EfficiencyArtifactStore | None,
+    retrieval_observation_contract: RetrievalObservationContract | None,
+    prediction_records: dict[str, dict[str, Any]],
+    conversation_status: dict[str, Any],
+    question_status: dict[str, Any],
+    question_order: list[str],
+) -> None:
+    """使用独立 method instance 并行处理 conversation 的 ingest 与 answer。
+
+    每个 worker 创建自己的 method instance（storage 隔离到 worker_{idx}/），
+    在内部串行 ingest + answer 分配给它的 conversation 子集。
+    协调线程串行写入 artifact，避免竞态。
+    """
+
+    progress.set_stage("Ingest + answer", step_index=1, step_count=2)
+    if any(paths.ingest_turn_checkpoints_dir.glob("*.json")):
+        raise ConfigurationError(
+            "Isolated worker prediction cannot resume turn-level ingest checkpoints"
+        )
+    if not work_plan.items:
+        progress.update_conversations(
+            completed=len(work_plan.ingested_conversation_ids),
+            total=work_plan.dataset_conversation_count,
+            current_conversation_id=None,
+        )
+        progress.update_questions(
+            completed=len(work_plan.completed_question_ids),
+            total=len(question_order),
+            current_conversation_id=None,
+            current_question_id=None,
+        )
+        return
+
+    chunks = _split_into_chunks(list(work_plan.items), policy.max_workers)
+    conversation_ingested: int = len(work_plan.ingested_conversation_ids)
+    question_answered: int = len(work_plan.completed_question_ids)
+
+    with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
+        future_to_chunk: dict[
+            Future[tuple[_ConversationAnswerBatch, ...]], int
+        ] = {}
+        for worker_idx, chunk in enumerate(chunks):
+            worker_storage = (
+                build_context_template.storage_root / f"worker_{worker_idx}"
+            )
+            completed_for_chunk = tuple(
+                _make_public_conversation(item.conversation)
+                for item in chunk
+                if not item.needs_ingest
+            )
+            worker_context = MethodBuildContext(
+                config=build_context_template.config,
+                openai_settings=build_context_template.openai_settings,
+                path_settings=build_context_template.path_settings,
+                storage_root=worker_storage,
+                completed_conversations=completed_for_chunk,
+                efficiency_collector=build_context_template.efficiency_collector,
+            )
+            future = executor.submit(
+                _isolated_worker,
+                worker_context,
+                system_factory,
+                tuple(chunk),
+                efficiency_collector,
+                retrieval_observation_contract,
+            )
+            future_to_chunk[future] = worker_idx
+
+        for future in as_completed(future_to_chunk):
+            try:
+                batches = future.result()
+            except Exception:
+                logger.log_event(
+                    "isolated_worker_failed",
+                    {"worker_idx": future_to_chunk[future]},
+                )
+                raise
+            if efficiency_store is not None:
+                for batch in batches:
+                    efficiency_store.merge_observations(batch.observations)
+            for batch in batches:
+                for record in batch.predictions:
+                    prediction_records[record["question_id"]] = record
+                    question_status[record["question_id"]] = {
+                        "question_id": record["question_id"],
+                        "conversation_id": record["conversation_id"],
+                        "status": "completed",
+                    }
+                    question_answered += 1
+                if batch.ingested:
+                    conversation_ingested += 1
+                    conversation_status[batch.conversation_id] = {"status": "completed"}
+                progress.update_conversations(
+                    completed=conversation_ingested,
+                    total=work_plan.dataset_conversation_count,
+                    current_conversation_id=batch.conversation_id,
+                )
+                progress.update_questions(
+                    completed=question_answered,
+                    total=len(question_order),
+                    current_conversation_id=batch.conversation_id,
+                    current_question_id=None,
+                )
+                logger.log_event(
+                    "conversation_completed_isolated",
+                    {"conversation_id": batch.conversation_id},
+                )
+            atomic_write_jsonl(
+                paths.method_predictions_path,
+                [
+                    prediction_records[qid]
+                    for qid in question_order
+                    if qid in prediction_records
+                ],
+            )
+            atomic_write_jsonl(
+                paths.question_status_path,
+                [
+                    question_status[qid]
+                    for qid in question_order
+                    if qid in question_status
+                ],
+            )
+            atomic_write_json(paths.conversation_status_path, conversation_status)
+
+    progress.set_stage("Completed", step_index=2, step_count=2)
+
+
+def _isolated_worker(
+    build_context: MethodBuildContext,
+    system_factory: Callable[[MethodBuildContext], BaseMemorySystem],
+    work_items: tuple[_ConversationWorkItem, ...],
+    efficiency_collector: EfficiencyCollector | None,
+    retrieval_observation_contract: RetrievalObservationContract | None,
+) -> tuple[_ConversationAnswerBatch, ...]:
+    """单个独立 worker：创建 method instance，串行处理分配到的 conversation。
+
+    每个 worker 内按 conversation 顺序执行 add → get_answer，
+    conversation 间无共享状态。
+    """
+
+    system = system_factory(build_context)
+    results: list[_ConversationAnswerBatch] = []
+    for work_item in work_items:
+        conversation = work_item.conversation
+        public_conversation = _make_public_conversation(conversation)
+        if work_item.needs_ingest:
+            system.add([public_conversation])
+        conv_predictions: list[dict[str, Any]] = []
+        conv_observations: list[EfficiencyObservation] = []
+        for source_question in work_item.pending_questions:
+            question = _make_public_question(source_question)
+            validate_no_private_keys(question.to_dict())
+            if (
+                efficiency_collector is not None
+                and efficiency_collector.enabled
+            ):
+                if not isinstance(
+                    retrieval_observation_contract,
+                    RetrievalObservationContract,
+                ):
+                    raise ConfigurationError(
+                        "Enabled efficiency observability requires an "
+                        "explicit retrieval observation contract"
+                    )
+                with efficiency_collector.question_scope(
+                    conversation.conversation_id,
+                    question.question_id,
+                ) as scope:
+                    prediction = system.get_answer(question)
+                    if (
+                        not retrieval_observation_contract.supported_by_method
+                    ):
+                        efficiency_collector.record_retrieval_unsupported_if_missing(
+                            retrieval_observation_contract.unsupported_reason
+                            or ""
+                        )
+                conv_observations.extend(scope.records)
+            else:
+                prediction = system.get_answer(question)
+            _validate_prediction(prediction, question)
+            validate_no_private_keys(prediction.metadata)
+            conv_predictions.append(
+                {
+                    "question_id": question.question_id,
+                    "conversation_id": conversation.conversation_id,
+                    "question_text": question.text,
+                    "answer": prediction.answer,
+                    "metadata": prediction.metadata,
+                }
+            )
+        results.append(
+            _ConversationAnswerBatch(
+                conversation_id=conversation.conversation_id,
+                predictions=tuple(conv_predictions),
+                observations=tuple(conv_observations),
+                ingested=work_item.needs_ingest,
+            )
+        )
+    return tuple(results)
 
 
 def _ingest_pending_conversations(
@@ -1067,7 +1481,18 @@ def _validate_public_manifest(payload: dict[str, object]) -> None:
     """拒绝 method manifest 中的 secret 和私有评测字段。"""
 
     validate_no_private_keys(payload)
-    forbidden_fragments = ("api_key", "secret", "token", "password")
+    forbidden_fragments = ("api_key", "secret", "password")
+    forbidden_token_keys = frozenset(
+        {
+            "token",
+            "api_token",
+            "access_token",
+            "auth_token",
+            "bearer_token",
+            "id_token",
+            "refresh_token",
+        }
+    )
 
     def walk(value: Any, path: str) -> None:
         """递归检查嵌套 manifest 的字段名称。"""
@@ -1075,7 +1500,11 @@ def _validate_public_manifest(payload: dict[str, object]) -> None:
         if isinstance(value, dict):
             for key, child in value.items():
                 normalized = str(key).lower()
-                if any(fragment in normalized for fragment in forbidden_fragments):
+                if any(fragment in normalized for fragment in forbidden_fragments) or (
+                    normalized in forbidden_token_keys
+                    or normalized.endswith("_token")
+                    or normalized.endswith("-token")
+                ):
                     raise ConfigurationError(
                         f"Method manifest contains a secret-like field: {path}.{key}"
                     )

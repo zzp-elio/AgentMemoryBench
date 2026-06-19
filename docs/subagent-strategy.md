@@ -6,9 +6,13 @@
 ## 当前启用状态
 
 - Codex subagent：可按本文策略使用。
-- OpenCode subagent：skill 已配置，当前**禁止启动**；必须等用户明确允许。
+- OpenCode：用户已启用为 Codex 额度空窗期的正式外部推进通道；推进结果写入
+  `opencode/opencode_result.md`。
+- OpenCode subagent skill：仍只在用户明确要求 Codex 主动派发时调用；用户自行运行
+  OpenCode 产生的结果也必须按本文验收。
 - OpenCode skill 路径：`/Users/wz/.codex/skills/opencode-subagent/SKILL.md`。
-- OpenCode 启用后必须复用命名会话，并在采纳结果前检查实际 diff 和验证证据。
+- Codex 从额度中断恢复后，必须先读取 `opencode/opencode_result.md`、检查实际 diff，
+  并运行必要离线测试；OpenCode 报告完成不等于项目任务完成。
 
 ## 派发原则
 
@@ -77,9 +81,9 @@ review 而跳过未完成步骤或提前关闭阶段。
 
 每次升级或降级都应根据任务结果，而不是凭感觉长期固定。
 
-## OpenCode 的未来定位
+## OpenCode 的定位
 
-用户明确启用后，OpenCode 优先承担：
+OpenCode 优先承担：
 
 - 机械式文档同步、路径核对和格式修正。
 - 已有明确测试与实现说明的小范围编码。
@@ -93,7 +97,7 @@ review 而跳过未完成步骤或提前关闭阶段。
 - 最终整体 review。
 - 需要跨多个复杂模块进行创造性重构的任务。
 
-OpenCode 结果必须视为候选改动：先检查 session messages 和 diff，再由 Codex 或测试验证。
+OpenCode 结果必须视为候选改动：先检查 result、diff 和测试证据，再由 Codex 或测试验证。
 如果多次表现稳定，可逐步扩大任务范围；如果返工率高，则缩小范围或改用 Codex subagent。
 
 ## 任务记录

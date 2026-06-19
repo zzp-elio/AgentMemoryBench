@@ -201,13 +201,14 @@ def test_load_typed_profile_builds_memoryos_official_full_profile_from_project_t
 
     assert config.profile_name == "official_full"
     assert config.short_term_capacity == 7
+    assert config.mid_term_capacity == 200
     assert config.retrieval_top_m_segments == 5
     assert config.retrieval_queue_capacity == 10
-    assert config.max_workers == 1
+    assert config.max_workers == 10
 
 
 def test_load_typed_profile_builds_matching_memoryos_smoke_and_official_profiles() -> None:
-    """MemoryOS smoke 与 official_full 应只在自动填充的 profile_name 上不同。"""
+    """MemoryOS smoke 与 official_full 应在非并发字段上保持一致。"""
 
     toml_path = PROJECT_ROOT / "configs" / "methods" / "memoryos.toml"
     smoke = load_typed_profile(toml_path, "smoke", MemoryOSPaperConfig)
@@ -220,11 +221,11 @@ def test_load_typed_profile_builds_matching_memoryos_smoke_and_official_profiles
     assert {
         key: value
         for key, value in smoke.to_manifest().items()
-        if key != "profile_name"
+        if key not in {"profile_name", "max_workers"}
     } == {
         key: value
         for key, value in official_full.to_manifest().items()
-        if key != "profile_name"
+        if key not in {"profile_name", "max_workers"}
     }
 
 

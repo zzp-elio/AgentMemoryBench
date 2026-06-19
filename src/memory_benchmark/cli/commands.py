@@ -50,6 +50,7 @@ class PredictCommand:
     smoke_turn_limit: int = 20
     smoke_conversation_limit: int = 1
     smoke_max_workers: int | None = None
+    max_new_conversations: int | None = None
     enable_efficiency_observability: bool = False
 
 
@@ -123,6 +124,7 @@ def execute_predict(command: PredictCommand) -> PredictionBatchResult:
         smoke_turn_limit=command.smoke_turn_limit,
         smoke_conversation_limit=command.smoke_conversation_limit,
         smoke_max_workers=command.smoke_max_workers,
+        max_new_conversations=command.max_new_conversations,
         enable_efficiency_observability=command.enable_efficiency_observability,
     )
 

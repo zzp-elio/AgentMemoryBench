@@ -33,6 +33,11 @@ from .commands import (
 
 CONSOLE = Console()
 ERROR_CONSOLE = Console(stderr=True)
+MAX_NEW_CONVERSATIONS_HELP = (
+    "per-command budget: advance at most this many unfinished conversations in "
+    "this invocation. It does not become experiment identity and does not "
+    "affect resume compatibility."
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -162,6 +167,12 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Write raw token/latency observations for this prediction run.",
     )
+    parser.add_argument(
+        "--max-new-conversations",
+        type=int,
+        default=None,
+        help=MAX_NEW_CONVERSATIONS_HELP,
+    )
 
 
 def _add_calibration_arguments(parser: argparse.ArgumentParser) -> None:
@@ -186,12 +197,19 @@ def _add_calibration_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--run-prefix", required=True)
     parser.add_argument("--confirm-api", action="store_true")
-    parser.add_argument(
+    resume_group = parser.add_mutually_exclusive_group()
+    resume_group.add_argument(
+        "--resume",
+        action="store_true",
+        dest="resume",
+        default=False,
+        help="Resume compatible child runs when their manifests already exist.",
+    )
+    resume_group.add_argument(
         "--no-resume",
         action="store_false",
         dest="resume",
-        default=True,
-        help="Start child runs without resume; default is resume enabled.",
+        help="Start child runs without resume; this is the default.",
     )
     parser.add_argument(
         "--smoke-turn-limit",
@@ -199,9 +217,15 @@ def _add_calibration_arguments(parser: argparse.ArgumentParser) -> None:
         default=20,
     )
     parser.add_argument(
+        "--max-new-conversations",
+        type=int,
+        default=None,
+        help=MAX_NEW_CONVERSATIONS_HELP,
+    )
+    parser.add_argument(
         "--max-parallel-runs",
         type=int,
-        choices=[1, 2],
+        choices=[1, 2, 4],
         default=2,
     )
 
@@ -239,6 +263,7 @@ def _dispatch(args: argparse.Namespace) -> Any:
                 resume=args.resume,
                 confirm_api=args.confirm_api,
                 smoke_turn_limit=args.smoke_turn_limit,
+                max_new_conversations=args.max_new_conversations,
                 max_parallel_runs=args.max_parallel_runs,
             )
         )
@@ -261,6 +286,7 @@ def _prediction_command_from_args(args: argparse.Namespace) -> PredictCommand:
         smoke_turn_limit=args.smoke_turn_limit,
         smoke_conversation_limit=args.smoke_conversation_limit,
         smoke_max_workers=args.smoke_max_workers,
+        max_new_conversations=args.max_new_conversations,
         enable_efficiency_observability=args.enable_efficiency_observability,
     )
 

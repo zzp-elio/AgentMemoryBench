@@ -33,6 +33,8 @@ from memory_benchmark.core import (
     Turn,
 )
 from memory_benchmark.methods import registry as method_registry_module
+from memory_benchmark.methods.amem_adapter import AMemConfig
+from memory_benchmark.methods.registry import MethodBuildContext
 from memory_benchmark.storage import read_jsonl
 
 
@@ -50,6 +52,7 @@ class FakeAMemForRegisteredPrediction:
         self.kwargs = kwargs
         self.added_conversations: list[list[Conversation]] = []
         self.answered_questions: list[Question] = []
+        self.loaded_conversations: list[Conversation] = []
         self.instances.append(self)
 
     def add(self, conversations: list[Conversation]) -> AddResult:
@@ -71,6 +74,11 @@ class FakeAMemForRegisteredPrediction:
             conversation_id=question.conversation_id,
             answer=f"fake answer for {question.question_id}",
         )
+
+    def load_existing_conversation_state(self, conversation: Conversation) -> None:
+        """记录 registry factory 请求恢复的 completed conversation。"""
+
+        self.loaded_conversations.append(conversation)
 
 
 class FakeBenchmarkAdapter(BenchmarkAdapter):
@@ -242,3 +250,39 @@ def test_amem_registered_prediction_runs_generic_runner_offline(
     assert predictions[0]["answer"] == "fake answer for q-1"
     assert public_questions[0]["question_id"] == "q-1"
     assert "gold_answers" not in public_questions[0]
+
+
+def test_amem_factory_loads_completed_conversations_for_resume(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """registry factory 应把 completed conversations 接到 A-Mem 持久化恢复路径。"""
+
+    FakeAMemForRegisteredPrediction.instances.clear()
+    monkeypatch.setattr(method_registry_module, "AMem", FakeAMemForRegisteredPrediction)
+    conversation = _build_registered_smoke_dataset().conversations[0]
+    context = MethodBuildContext(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        openai_settings=OpenAISettings(
+            api_key="sk-test",
+            base_url="https://example.invalid/v1",
+        ),
+        path_settings=replace(load_path_settings(PROJECT_ROOT), outputs_root=tmp_path),
+        storage_root=tmp_path / "method_state",
+        completed_conversations=(conversation,),
+    )
+    registration = method_registry_module.get_method_registration("amem")
+
+    system = registration.system_factory(context)
+
+    assert system.kwargs["storage_root"] == tmp_path / "method_state"
+    assert [item.conversation_id for item in system.loaded_conversations] == [
+        "conv-amem-1"
+    ]
+    assert system.added_conversations == []

@@ -53,6 +53,7 @@ def _predict_command(tmp_path: Path, **overrides) -> PredictCommand:
         "smoke_turn_limit": 3,
         "smoke_conversation_limit": 1,
         "smoke_max_workers": 1,
+        "max_new_conversations": None,
         "enable_efficiency_observability": False,
     }
     values.update(overrides)
@@ -118,6 +119,7 @@ def test_execute_predict_delegates_to_registered_prediction(
             "smoke_turn_limit": 3,
             "smoke_conversation_limit": 1,
             "smoke_max_workers": 1,
+            "max_new_conversations": None,
             "enable_efficiency_observability": False,
         }
     ]
@@ -147,6 +149,32 @@ def test_execute_predict_can_enable_efficiency_observability(
 
     assert result is expected
     assert calls[0]["enable_efficiency_observability"] is True
+
+
+def test_execute_predict_forwards_max_new_conversations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """predict command 应把本次命令预算透传给 registered prediction。"""
+
+    calls: list[dict[str, object]] = []
+    expected = PredictionBatchResult(
+        benchmark="locomo",
+        selector="locomo10",
+        runs=(),
+    )
+    monkeypatch.setattr(
+        commands,
+        "run_registered_conversation_qa_prediction",
+        lambda **kwargs: calls.append(kwargs) or expected,
+    )
+
+    result = execute_predict(
+        _predict_command(tmp_path, max_new_conversations=2)
+    )
+
+    assert result is expected
+    assert calls[0]["max_new_conversations"] == 2
 
 
 def test_execute_calibrate_smoke_delegates_to_runner(
@@ -391,6 +419,32 @@ def test_main_help_lists_predict_evaluate_and_run(capsys) -> None:
     assert "calibrate-smoke" in output
 
 
+def test_prediction_help_describes_max_new_conversations(capsys) -> None:
+    """predict 子命令 help 应说明预算只属于本次命令，不属于实验 identity。"""
+
+    with pytest.raises(SystemExit) as raised:
+        main_cli.main(["predict", "--help"])
+
+    assert raised.value.code == 0
+    output = capsys.readouterr().out
+    assert "--max-new-conversations" in output
+    assert "per-command" in output
+    assert "identity" in output
+
+
+def test_calibration_help_describes_max_new_conversations(capsys) -> None:
+    """calibrate-smoke help 也应说明该字段只是本次命令预算。"""
+
+    with pytest.raises(SystemExit) as raised:
+        main_cli.main(["calibrate-smoke", "--help"])
+
+    assert raised.value.code == 0
+    output = capsys.readouterr().out
+    assert "--max-new-conversations" in output
+    assert "per-command" in output
+    assert "identity" in output
+
+
 def test_main_maps_predict_arguments_to_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -423,6 +477,8 @@ def test_main_maps_predict_arguments_to_command(
             "--confirm-api",
             "--smoke-turn-limit",
             "3",
+            "--max-new-conversations",
+            "2",
         ]
     )
 
@@ -437,6 +493,7 @@ def test_main_maps_predict_arguments_to_command(
             run_id="run-1",
             confirm_api=True,
             smoke_turn_limit=3,
+            max_new_conversations=2,
         )
     ]
 
@@ -659,6 +716,8 @@ def test_main_maps_run_arguments_to_run_command(
             "2",
             "--smoke-max-workers",
             "2",
+            "--max-new-conversations",
+            "3",
             "--metric",
             "locomo-f1",
             "--metric",
@@ -684,6 +743,7 @@ def test_main_maps_run_arguments_to_run_command(
                 smoke_turn_limit=7,
                 smoke_conversation_limit=2,
                 smoke_max_workers=2,
+                max_new_conversations=3,
             ),
             metrics=("locomo-f1", "locomo-judge"),
             judge_profile="detailed",
@@ -723,8 +783,10 @@ def test_main_maps_calibration_smoke_arguments_to_command(
             "--confirm-api",
             "--smoke-turn-limit",
             "7",
-            "--max-parallel-runs",
+            "--max-new-conversations",
             "2",
+            "--max-parallel-runs",
+            "4",
         ]
     )
 
@@ -735,10 +797,54 @@ def test_main_maps_calibration_smoke_arguments_to_command(
             methods=("mem0", "memoryos"),
             benchmarks=("locomo", "longmemeval"),
             run_prefix="ohmygpt-calib",
-            resume=True,
+            resume=False,
             confirm_api=True,
             smoke_turn_limit=7,
-            max_parallel_runs=2,
+            max_new_conversations=2,
+            max_parallel_runs=4,
+        )
+    ]
+
+
+def test_main_maps_calibration_smoke_resume_flag_to_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """calibrate-smoke 只有显式传入 `--resume` 时才续跑 child run。"""
+
+    received: list[CalibrationSmokeCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_calibrate_smoke",
+        lambda command: received.append(command)
+        or SimpleNamespace(failed_count=0),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "calibrate-smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--run-prefix",
+            "ohmygpt-calib",
+            "--confirm-api",
+            "--resume",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received == [
+        CalibrationSmokeCommand(
+            project_root=tmp_path,
+            methods=("mem0",),
+            benchmarks=("locomo",),
+            run_prefix="ohmygpt-calib",
+            resume=True,
+            confirm_api=True,
         )
     ]
 

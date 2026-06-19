@@ -25,7 +25,8 @@ class LlmLingua2Compressor:
                     model_name=config.llmlingua_config['model_name'],
                     device_map=config.llmlingua_config['device_map'],
                     use_llmlingua2=config.llmlingua_config['use_llmlingua2'],
-                    llmlingua2_config=config.llmlingua2_config
+                    llmlingua2_config=config.llmlingua2_config,
+                    model_config=config.llmlingua_config.get('model_config', {}),
                 )
             else:
                 self._compressor = PromptCompressor(

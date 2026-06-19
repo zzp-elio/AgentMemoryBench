@@ -166,7 +166,9 @@ def run_registered_conversation_qa_prediction(
     smoke_turn_limit: int = DEFAULT_SMOKE_TURN_LIMIT,
     smoke_conversation_limit: int = 1,
     smoke_max_workers: int | None = None,
+    max_new_conversations: int | None = None,
     enable_efficiency_observability: bool = False,
+    progress_enabled: bool = True,
 ) -> PredictionBatchResult:
     """通过 benchmark/method registration 运行 conversation-QA prediction。
 
@@ -183,7 +185,10 @@ def run_registered_conversation_qa_prediction(
         smoke_turn_limit: smoke 最多写入的历史 turn 数。
         smoke_conversation_limit: smoke 选择 1 或 2 个 conversation。
         smoke_max_workers: smoke runner 的可选并发覆盖，最多为 2。
+        max_new_conversations: 本次命令最多推进多少个未完成 conversation；它只属于
+            当前命令预算，不属于实验 identity。
         enable_efficiency_observability: 是否写入效率观测原始 artifact。
+        progress_enabled: 是否在终端渲染 Rich 进度条；并行校准模式下应关闭。
 
     输出:
         PredictionBatchResult: 按 concrete variant 拆开的 child run 结果。
@@ -273,6 +278,8 @@ def run_registered_conversation_qa_prediction(
             max_workers=max_workers,
             question_limit_per_conversation=_question_limit_for_scope(run_scope),
             resume=resume,
+            max_new_conversations=max_new_conversations,
+            progress_enabled=progress_enabled,
         )
         run_context = RunContext.create(
             run_id=selected_run_id,
@@ -352,16 +359,15 @@ def run_registered_conversation_qa_prediction(
             for conversation in child.dataset.conversations
             if conversation.conversation_id in completed_conversation_ids
         )
-        system = method_registration.system_factory(
-            MethodBuildContext(
-                config=config,
-                openai_settings=openai_settings,
-                path_settings=path_settings,
-                storage_root=child.run_context.method_state_dir,
-                completed_conversations=completed_conversations,
-                efficiency_collector=child.efficiency_collector,
-            )
+        build_context = MethodBuildContext(
+            config=config,
+            openai_settings=openai_settings,
+            path_settings=path_settings,
+            storage_root=child.run_context.method_state_dir,
+            completed_conversations=completed_conversations,
+            efficiency_collector=child.efficiency_collector,
         )
+        system = method_registration.system_factory(build_context)
         summary = run_predictions(
             dataset=child.dataset,
             system=system,
@@ -375,6 +381,15 @@ def run_registered_conversation_qa_prediction(
             model_inventory=child.model_inventory,
             instrumentation_identity=child.instrumentation_identity,
             retrieval_observation_contract=child.retrieval_observation_contract,
+            system_factory=method_registration.system_factory,
+            build_context_template=build_context,
+            supports_shared_instance_parallelism=(
+                getattr(
+                    method_registration,
+                    "supports_shared_instance_parallelism",
+                    False,
+                )
+            ),
         )
         results.append(
             PredictionVariantResult(
@@ -692,6 +707,7 @@ def run_mem0_locomo_prediction(
     smoke_turn_limit: int = DEFAULT_SMOKE_TURN_LIMIT,
     smoke_conversation_limit: int = 1,
     smoke_max_workers: int | None = None,
+    max_new_conversations: int | None = None,
 ) -> PredictionRunSummary:
     """兼容旧调用路径，转发到统一 registered prediction service。"""
 
@@ -707,6 +723,7 @@ def run_mem0_locomo_prediction(
         smoke_turn_limit=smoke_turn_limit,
         smoke_conversation_limit=smoke_conversation_limit,
         smoke_max_workers=smoke_max_workers,
+        max_new_conversations=max_new_conversations,
     )
     return batch_result.runs[0].summary
 
@@ -749,6 +766,15 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
     )
     parser.add_argument(
+        "--max-new-conversations",
+        type=int,
+        default=None,
+        help=(
+            "per-command budget: advance at most this many unfinished "
+            "conversations in this invocation. It is not experiment identity."
+        ),
+    )
+    parser.add_argument(
         "--smoke-max-workers",
         type=int,
         choices=[1, 2],
@@ -766,6 +792,7 @@ def main(argv: list[str] | None = None) -> int:
         smoke_turn_limit=args.smoke_turn_limit,
         smoke_conversation_limit=args.smoke_conversation_limit,
         smoke_max_workers=args.smoke_max_workers,
+        max_new_conversations=args.max_new_conversations,
     )
     print(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
     return 0

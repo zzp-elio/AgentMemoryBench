@@ -13,7 +13,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from memory_benchmark.core import Dataset, MethodCapability, TaskFamily
+from memory_benchmark.core import (
+    Conversation,
+    Dataset,
+    MethodCapability,
+    Session,
+    TaskFamily,
+)
 from memory_benchmark.core.exceptions import (
     AdapterAlreadyRegisteredError,
     ConfigurationError,
@@ -55,6 +61,108 @@ def _copy_dataset_with_metadata(
     )
 
 
+def _build_longmemeval_smoke_dataset(
+    dataset: Dataset,
+    *,
+    round_limit: int,
+) -> Dataset:
+    """按完整 user+assistant round 裁剪 LongMemEval smoke 历史。
+
+    输入:
+        dataset: 已通过 `LongMemEvalAdapter.load(limit=1)` 得到的单 instance 数据。
+        round_limit: 最多保留多少个双 turn round；必须为正数。
+
+    输出:
+        Dataset: conversation/question/gold 保持不变，sessions 只保留前 `round_limit`
+        个完整双 turn round，并在 metadata 中记录原始和保留规模。
+    """
+
+    if round_limit < 1:
+        raise ConfigurationError("LongMemEval smoke round_limit must be positive")
+
+    cropped_conversations: list[Conversation] = []
+    total_original_turn_count = 0
+    total_retained_turn_count = 0
+    total_retained_round_count = 0
+    for conversation in dataset.conversations:
+        remaining_rounds = round_limit
+        cropped_sessions: list[Session] = []
+        original_turn_count = sum(len(session.turns) for session in conversation.sessions)
+        retained_turn_count = 0
+        retained_round_count = 0
+        total_original_turn_count += original_turn_count
+
+        for session in conversation.sessions:
+            if remaining_rounds <= 0:
+                break
+            round_turn_count = min(len(session.turns) // 2, remaining_rounds) * 2
+            if round_turn_count <= 0:
+                continue
+            retained_turns = copy.deepcopy(session.turns[:round_turn_count])
+            retained_rounds = round_turn_count // 2
+            remaining_rounds -= retained_rounds
+            retained_turn_count += round_turn_count
+            retained_round_count += retained_rounds
+            session_metadata = copy.deepcopy(session.metadata)
+            session_metadata.update(
+                {
+                    "smoke_original_turn_count": len(session.turns),
+                    "smoke_retained_turn_count": round_turn_count,
+                    "smoke_retained_round_count": retained_rounds,
+                }
+            )
+            cropped_sessions.append(
+                Session(
+                    session_id=session.session_id,
+                    turns=retained_turns,
+                    session_time=session.session_time,
+                    start_time=session.start_time,
+                    end_time=session.end_time,
+                    metadata=session_metadata,
+                )
+            )
+
+        if retained_round_count < 1:
+            raise ConfigurationError(
+                "LongMemEval smoke requires at least one complete two-turn round"
+            )
+        total_retained_turn_count += retained_turn_count
+        total_retained_round_count += retained_round_count
+        conversation_metadata = copy.deepcopy(conversation.metadata)
+        conversation_metadata.update(
+            {
+                "smoke_round_limit": round_limit,
+                "smoke_original_turn_count": original_turn_count,
+                "smoke_retained_turn_count": retained_turn_count,
+                "smoke_retained_round_count": retained_round_count,
+            }
+        )
+        cropped_conversations.append(
+            Conversation(
+                conversation_id=conversation.conversation_id,
+                sessions=cropped_sessions,
+                questions=copy.deepcopy(conversation.questions),
+                gold_answers=copy.deepcopy(conversation.gold_answers),
+                metadata=conversation_metadata,
+            )
+        )
+
+    metadata = copy.deepcopy(dataset.metadata)
+    metadata.update(
+        {
+            "smoke_round_limit": round_limit,
+            "smoke_original_turn_count": total_original_turn_count,
+            "smoke_retained_turn_count": total_retained_turn_count,
+            "smoke_retained_round_count": total_retained_round_count,
+        }
+    )
+    return Dataset(
+        dataset_name=dataset.dataset_name,
+        conversations=cropped_conversations,
+        metadata=metadata,
+    )
+
+
 def _prepare_longmemeval_run(
     project_root: Path,
     request: BenchmarkLoadRequest,
@@ -65,7 +173,10 @@ def _prepare_longmemeval_run(
     if request.run_scope is RunScope.FULL:
         dataset = adapter.load()
     elif request.run_scope is RunScope.SMOKE:
-        dataset = adapter.load(limit=1)
+        dataset = _build_longmemeval_smoke_dataset(
+            adapter.load(limit=1),
+            round_limit=request.smoke_turn_limit,
+        )
     else:  # pragma: no cover - RunScope 只有 smoke / full
         raise ConfigurationError(f"unsupported LongMemEval run scope: {request.run_scope}")
 

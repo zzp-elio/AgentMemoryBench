@@ -16,7 +16,8 @@
 - PrefEval 已移除。不要恢复 PrefEval 的仓库、adapter、测试、文档或论文内容。
 - 当前已实现 answer 质量评测，不做 retrieval recall。成本与效率原始 observation 底座
   已完成并覆盖 Mem0/MemoryOS；真实费用在实验完成后按实际 API 服务商价格离线计算。
-- 当前用户明确要求暂缓通用并行调度，优先接入 A-Mem 与 LightMem adapter。
+- 当前主线是审查并稳固 OpenCode 推进的并行/进度显示相关改动；A-Mem、LightMem、
+  Mem0、MemoryOS adapter 已进入可 smoke 但仍需按 official profile 和 resume 契约验收。
 - 当前阶段所有真实 LLM 调用统一使用 `gpt-4o-mini`；不要临时切换 `gpt-4o`、
   GPT-5 或其他模型，除非用户后续明确改口。
 
@@ -92,6 +93,23 @@
   无 Critical/Important finding。未执行真实 API。
   当前精确断点已从 Phase H 通用并行调度切换到 A-Mem / LightMem adapter 接入；不得启动
   付费实验，除非用户显式确认 API 余额、实验规模和正式 run_id。
+- LoCoMo 四路并行极小 smoke 已 4/4 通过（Mem0/MemoryOS/A-Mem/LightMem@locomo），
+  验证了首次 API 运行的主体链路。A-Mem/LightMem 补齐了 wrapper 层 LLM token
+  observation，但来源为 `tokenizer_estimate`（wrapper 只返回文本，不暴露原始 response
+  usage），不冒充 `api_usage`。Mem0/MemoryOS 继续提供 `api_usage` 级逐调用明细。
+- LongMemEval smoke round 裁剪已实现（registry 在 SMOKE 下对单 instance 内部按完整
+  双 turn round 裁剪），LightMem 并发导入竞态已修（`threading.Lock` + 不回撤
+  `sys.path`）。未重跑真实 LongMemEval API smoke。
+- calibrate-smoke 首次运行友好性已修：默认 `resume=False`，CLI 新增显式 `--resume`；
+  public manifest secret 检测允许 `llm_tokenizer`/`embedding_tokenizer`/`*_tokens`
+  技术字段，继续拒绝真实 token/secret 字段。
+- `transformers`、`llmlingua` 已通过 `uv add` 写入 `pyproject.toml`/`uv.lock`。
+  LightMem llmlingua 注入 `attn_implementation=eager`，第三方仅透传 `model_config`。
+- Rich 并行输出待修：多个 child run 的进度条会交错，第三方 warning 可插入进度区。
+  不影响实验结果，codex 尚未修。
+- OpenCode 已成为用户启用的正式外部推进通道。Codex 每次额度中断后恢复时，必须读取
+  `opencode/opencode_result.md`、核对实际 diff 和验证证据，再决定哪些内容写入主线。
+  OpenCode 可承担实质开发任务，不再只承担机械任务；但 OpenCode 报告完成不等于任务完成。
 - A-Mem / LightMem 接入设计已写入
   `docs/superpowers/specs/2026-06-16-amem-lightmem-adapter-design.md`。实施顺序为：
   先 A-Mem 垂直闭环，再 LightMem；都必须复用通用 conversation-QA runner、标准
@@ -107,15 +125,19 @@
   A-Mem / LightMem 已自动按论文 Table 级参数与调用流程对齐。A-Mem 已补齐 Table 1
   GPT-4o-mini profile 中非 adversarial QA 的官方 query keyword generation 和 Table 8
   category k；category 5 adversarial 因官方 prompt 需要 gold answer，当前按 public-input
-  规则显式拒绝。A-Mem 当前尚未实现可靠跨进程 method 内部状态持久化；runner artifact
-  可恢复已完成问题，但进程重启后 A-Mem 内部 memory/Faiss 状态不能安全复用，后续需做
-  wrapper 层 Faiss index + memories JSON 持久化。LightMem 已落实用户指定
+  规则显式拒绝。A-Mem 已实现 wrapper 层 conversation-level 持久化：每个 completed
+  conversation 保存 `memories.pkl`、官方 retriever cache/embeddings 和
+  `state_manifest.json`，resume 时由 registry 基于 `completed_conversations` 加载；不做
+  turn-level resume，不修改 A-Mem 核心算法流程。LightMem 已落实用户指定
   `(r=0.7, th=512)` official-mini、LoCoMo/LongMemEval 增量写入粒度和
   官方 reader prompt 方向；LoCoMo 已专门化为 LightMem `search_locomo.py` 风格的
   Qdrant payload/vector combined 检索，并在 `add()` 完成后执行
   `construct_update_queue_all_entries()` 与
   `offline_update_all_entries(score_threshold=0.9)`；LongMemEval OP-update 仍是 future
-  profile，当前保持 `LightMemory.retrieve()` online 路径。A-Mem 的 ohmygpt/OpenAI-compatible
+  profile，当前保持 `LightMemory.retrieve()` online 路径。LightMem 已实现
+  conversation-level resume，registry 会对 completed conversations 调
+  `load_existing_conversation_state()`，用同一 `storage_root+conversation_id` 重建 backend
+  供剩余问题回答。A-Mem 的 ohmygpt/OpenAI-compatible
   `base_url` 已在 wrapper 层显式注入官方
   OpenAI controller client；资源与参数审计见
   `docs/method-resource-parameter-audit.md`。
@@ -129,10 +151,15 @@
   LightMem 真实运行所需
   `models/all-MiniLM-L6-v2` 和
   `models/llmlingua-2-bert-base-multilingual-cased-meetingbank` 已补齐并通过本地资源
-  校验；adapter 仍会在真实 backend 构造前强校验。最新 A-Mem / runner focused 验证：
-  `uv run pytest tests/test_amem_adapter.py tests/test_amem_registered_prediction.py tests/test_amem_lightmem_registry.py tests/test_cost_calibration_smoke.py tests/test_main_cli.py -q`
-  为 `43 passed, 1 warning`；base URL 注入单测包含在 A-Mem adapter suite 中。最新 LightMem focused 验证：
-  `uv run pytest tests/test_lightmem_adapter.py -q` 为 `15 passed, 1 warning`。
+  校验；adapter 仍会在真实 backend 构造前强校验。最新 A-Mem 持久化 focused 验证：
+  `uv run pytest tests/test_amem_adapter.py -q` 为 `12 passed, 1 warning`；
+  `uv run pytest tests/test_amem_registered_prediction.py tests/test_method_registry.py tests/test_config_profiles.py -q`
+  为 `22 passed`；更宽 focused 回归
+  `uv run pytest tests/test_amem_adapter.py tests/test_amem_registered_prediction.py tests/test_amem_lightmem_registry.py tests/test_cost_calibration_smoke.py tests/test_main_cli.py tests/test_method_registry.py tests/test_config_profiles.py -q`
+  为 `67 passed, 1 warning`；文档规范 `5 passed`；`compileall` 和 `git diff --check`
+  均通过。最新 LightMem focused 验证：
+  `uv run pytest tests/test_lightmem_adapter.py -q` 为 `16 passed, 1 warning`；
+  `uv run pytest tests/test_amem_lightmem_registry.py -q` 为 `5 passed`。
   最新 Mem0 prompt/top_k/resume focused 验证：
   `uv run pytest tests/test_mem0_adapter.py tests/test_method_registry.py tests/test_config_profiles.py tests/test_documentation_standards.py -q`
   旧结果为 `40 passed`；纠偏后新增验证
@@ -151,6 +178,12 @@
   `0eb625cd4c7cecca7951c7c7feae4211861f979d`；准备脚本为
   `scripts/prepare_hf_dataset_bundle.py`，操作文档为 `docs/huggingface-datasets.md`。
 - 本轮精确交接：
+  `docs/handoffs/2026-06-19-opencode-progress-review.md`、
+  `docs/handoffs/2026-06-18-longmemeval-smoke-lightmem-import.md` 和
+  `docs/handoffs/2026-06-18-token-observation-locomo-smoke.md`。
+  上游校准修复登记在
+  `docs/handoffs/2026-06-18-calibrate-smoke-bugfix-review.md`。
+- 上一轮 LightMem LoCoMo 专门化交接：
   `docs/handoffs/2026-06-17-lightmem-locomo-specialization.md`。
 - 上一轮 A-Mem 精确交接：
   `docs/handoffs/2026-06-17-amem-red-tests-handoff.md`。
@@ -195,24 +228,84 @@
 - API 已充值，但未经用户确认 method、benchmark、样本规模和正式 run_id，不得启动真实
   prediction；全量实验仍需额外确认。
 - 未经用户确认 API 规模、余额和正式 run_id，不得启动 Mem0 official-full。
-- 成本校准 smoke 外层 orchestrator 已实现但尚未真实运行：
+- 成本校准 smoke 外层 orchestrator 已实现，且用户/外部 agent 已做过 LoCoMo 极小
+  smoke 排查：
   `memory-benchmark calibrate-smoke` 会对多个 method × benchmark 启动独立 smoke
   child run，固定每组合 1 个 conversation/LongMemEval instance，强制开启
-  efficiency observation，并用 `--max-parallel-runs` 限制外层并发。真实运行前仍需用户
-  确认 run_prefix、并发数和 API 预算。
+  efficiency observation，并用 `--max-parallel-runs` 限制外层并发。2026-06-18
+  首次四路 LoCoMo smoke 暴露两个基础问题：首次运行被错误强制 resume，以及 public
+  manifest secret 检测误伤 `llm_tokenizer`。当前已修复：默认 `resume=False`，
+  CLI 支持显式 `--resume`，secret 检测允许 tokenizer/tokens 技术字段但继续拒绝真实
+  token 字段。实际文件证据显示 Mem0/MemoryOS/A-Mem 已在
+  `locomo-smoke-20260618-*` 前缀下完成；LightMem 已在单独
+  `outputs/locomo-lightmem-smoke-obs/` 完成，因此四个 method 功能上均已跑通 LoCoMo
+  极小 smoke。LongMemEval smoke 已改为 instance 内按完整双 turn round 裁剪，
+  避免一个 S instance 仍包含数百条 message；LightMem vendored import 已加锁，
+  并在当前进程保留 LightMem `src` 路径，避免并发 smoke 时反复插拔 `sys.path`。
+  用户已确认不做统一 OpenAI-compatible API gateway，当前只要求每个 method 记录可
+  审计 token 消耗量。A-Mem / LightMem 已补齐 wrapper 层可见 LLM token observation：
+  A-Mem 记录 query-generation 与 answer LLM，LightMem 记录 answer LLM；因第三方
+  wrapper 只返回文本，当前来源为 `tokenizer_estimate`，不冒充 API usage。
+  `calibrate-smoke` 已在启动线程池前串行预加载 transformers / sentence-transformers
+  相关依赖，规避 LightMem 与其他 method 并行启动时的 lazy import 竞态。
+  四 method 并行 LoCoMo 极小 smoke 已通过：
+  `locomo-smoke-20260618-token-rich-v1-{mem0,memoryos,amem,lightmem}-locomo`
+  均为 1 conversation / 1 question completed，并全部写出 prediction efficiency
+  observation。Rich 终端输出仍有问题：多个 child run 的进度条会顺序/交错显示，
+  第三方 warning 可插入进度区，且进度条 elapsed 秒数可能停住但后台实验仍运行。
+  OpenCode 已新增 `CalibrationProgressMonitor`，在 `calibrate-smoke` 并行模式禁用
+  child run Rich progress，由外层读取各 run 的 `checkpoints/progress.json` 并统一展示
+  Rich `Live(Table)`；Codex 已修复其新增测试的 Rich 宽度问题，离线 focused 验证为
+  `20 passed`。真实终端体验仍未完成：OpenCode 真实运行仍观察到 elapsed 停住、
+  第三方 warning 插入进度区和 isolated prediction 进度长时间不动。
+- OpenCode 已提交 isolated worker 并行原型：非共享实例 method 可为每个 worker 创建独立
+  method instance 并处理 conversation chunk；Codex focused 验证
+  `tests/test_prediction_runner.py tests/test_config_profiles.py tests/test_method_registry.py`
+  为 `56 passed`。但该原型当前不读取 completed conversation checkpoint，`completed_conversations=()`
+  写死，因此不满足 conversation-level resume，不能用于 official/full 长实验。
+- 并行 resume 与分批运行控制第一版已完成。设计文档：
+  `docs/superpowers/specs/2026-06-19-parallel-resume-run-control-design.md`；实施计划：
+  `docs/superpowers/plans/2026-06-19-parallel-resume-run-control.md`。核心决策：
+  `max_new_conversations` 是本次命令预算，不是实验 identity，不写入 prediction manifest；
+  同一 `run_id` 可用不同预算分批 resume。Mem0 LoCoMo 保留 turn-level resume；isolated
+  worker 第一版只支持 conversation-level resume，遇到 turn checkpoint 必须 fail closed。
+  当前已实现 generic work plan、normal/isolated 共用 completed conversation 与 pending
+  question 判断、isolated worker conversation-level/question-level resume、CLI 与
+  calibrate-smoke 的 `--max-new-conversations` 透传。离线 focused 验证：
+  `tests/test_prediction_runner.py` 为 `40 passed`；
+  `tests/test_main_cli.py tests/test_cost_calibration_smoke.py` 为 `37 passed`；
+  合并 focused 回归为 `119 passed`；`compileall` 和 `git diff --check` 已通过。
+  本轮交接见 `docs/handoffs/2026-06-19-parallel-resume-run-control.md`。
+  低额度暂停交接见 `docs/handoffs/2026-06-19-low-quota-checkpoint.md`。
+- OpenCode 已为 MemoryOS eval import 增加全局锁，Codex focused 验证
+  `tests/test_memoryos_adapter.py` 为 `131 passed, 2 subtests passed`。stdout、prediction
+  artifact 膨胀和 metric category summary 已提升为框架级待办：所有第三方 method 的
+  stdout/warning 都不能破坏 Rich 进度区；所有大段 prompt/context 不能逐 question 重复写入
+  `method_predictions.jsonl`；所有带 `category` 的 answer-level metric 都必须输出
+  overall 与 by-category summary。
 
 恢复工作时按顺序读：
 
 1. `docs/current-roadmap.md`
-2. `docs/method-interface-inventory.md`
-3. `docs/handoffs/2026-06-17-lightmem-locomo-specialization.md`
-4. `docs/handoffs/2026-06-17-amem-red-tests-handoff.md`
-5. `docs/handoffs/2026-06-17-method-table-parameter-audit.md`
-6. `docs/handoffs/2026-06-16-amem-lightmem-adapters.md`
-7. `docs/superpowers/plans/2026-06-17-method-official-profile-alignment.md`
-8. `docs/superpowers/plans/2026-06-16-amem-lightmem-adapter.md`
-9. `docs/superpowers/specs/2026-06-16-amem-lightmem-adapter-design.md`
-10. 派发 subagent 前读 `docs/subagent-strategy.md`
+2. `docs/handoffs/2026-06-19-parallel-resume-run-control.md`
+3. `docs/handoffs/2026-06-19-low-quota-checkpoint.md`
+4. `docs/handoffs/2026-06-19-opencode-progress-review.md`
+5. OpenCode 介入后恢复时读 `opencode/opencode_result.md`
+6. `docs/superpowers/specs/2026-06-19-parallel-resume-run-control-design.md`
+7. `docs/superpowers/plans/2026-06-19-parallel-resume-run-control.md`
+6. `docs/method-interface-inventory.md`
+7. `docs/handoffs/2026-06-18-token-observation-locomo-smoke.md`
+8. `docs/handoffs/2026-06-18-longmemeval-smoke-lightmem-import.md`
+9. `docs/handoffs/2026-06-18-calibrate-smoke-bugfix-review.md`
+10. `docs/handoffs/2026-06-18-mem0-prompt-resume.md`
+11. `docs/handoffs/2026-06-17-lightmem-locomo-specialization.md`
+12. `docs/handoffs/2026-06-17-amem-red-tests-handoff.md`
+13. `docs/handoffs/2026-06-17-method-table-parameter-audit.md`
+14. `docs/handoffs/2026-06-16-amem-lightmem-adapters.md`
+15. `docs/superpowers/plans/2026-06-17-method-official-profile-alignment.md`
+16. `docs/superpowers/plans/2026-06-16-amem-lightmem-adapter.md`
+17. `docs/superpowers/specs/2026-06-16-amem-lightmem-adapter-design.md`
+18. 派发 subagent 前读 `docs/subagent-strategy.md`
 
 Phase G 的 plan/spec 已完成，只在核验成本与效率实现细节时按需读取，不作为下一窗口默认输入。
 
@@ -335,10 +428,20 @@ adapter 可以把这些放入 `GoldAnswerInfo` 或 evaluator-only artifact，但
 - 禁止修改第三方核心算法；wrapper 和配置注入优先放在本项目侧。若 adapter 无法准确
   观测，可在第三方源码加入可关闭、可审计且通过行为等价验证的纯 observer 插桩。
 - 长实验 runner 必须写 `logs/run.log`、`logs/events.jsonl` 和 `checkpoints/progress.json`。
+- 第三方 method 的 stdout、warning 和长文本调试输出不得直接污染终端进度区；wrapper
+  应统一捕获、重定向到日志或按配置静默。
+- `method_predictions.jsonl` 只保存每题必要字段和轻量 metadata；大段 system prompt、
+  reader prompt、injected context 或重复 metadata 必须按 run/conversation 单独记录一次，
+  prediction 记录只保留引用。
 - 新 runner 优先写标准 artifacts，只保留迁移所必需的 legacy alias。
 - 新增 evaluator 时优先复用已有 `method_predictions.jsonl` 和 `evaluator_private_labels.jsonl`，不要重新调用 method。
+- 新增 evaluator 时，如果 question 带 `category`，必须同时输出 overall summary 和
+  by-category summary；这不是 LoCoMo F1 的特例。
 - `predict` 与 `evaluate` 必须保持分离；`run` 只做二者的便利组合。
 - `run_id` 对应不可变实验；resume 只能继续数据指纹、method、reader 和关键配置完全一致的运行。
+- 分批运行控制属于本次命令预算，不属于不可变实验 identity。实现后
+  `max_new_conversations` 可在同一 `run_id` 的多次 resume 中变化；不得把它写入
+  prediction manifest 导致误拒绝 resume。
 - 官方 profile 分为 `official`、`smoke`、`custom`；official 的关键复现参数不可临时覆盖。
 - 用户配置采用分层 TOML，禁止为 method × benchmark 创建配置文件笛卡尔积；示例配置必须有详细注释。
 - smoke profile 必须使用官方 method 参数；不得为了省钱降低 `top_k`、`retrieve_k`
@@ -365,7 +468,10 @@ adapter 可以把这些放入 `GoldAnswerInfo` 或 evaluator-only artifact，但
 - Review 采用风险分级，不再为每个小步骤固定执行 spec review + code-quality review：
   普通局部修改由主线程自检并运行 focused tests；完整功能切片结束后做一次综合 review；
   resume、隐私、指标、公共协议等高风险契约可单独 review；阶段验收前做最终整体 review。
-- OpenCode subagent skill 已配置，但当前默认禁用；只有用户明确允许启用后才能调用。
+- OpenCode 已由用户启用为正式外部推进通道；Codex 不直接信任其结论，必须先读
+  `opencode/opencode_result.md`、检查 diff 并跑必要验证。Codex 主动派发 OpenCode
+  任务仍需用户明确要求或按用户已授权的任务范围执行；任务可以是实质开发，但必须写清
+  边界、验收命令和禁止事项。
 
 ## AGENTS 与 Handoff 维护规则
 

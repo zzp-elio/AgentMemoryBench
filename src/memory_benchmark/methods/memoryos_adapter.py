@@ -15,6 +15,7 @@ import json
 import math
 import openai as openai_package
 import sys
+import threading
 import time
 import uuid
 from contextvars import ContextVar
@@ -57,6 +58,8 @@ MEMORYOS_EVAL_MODULE_NAMES = [
     "retrieval_and_answer",
     "main_loco_parse",
 ]
+
+_MEMORYOS_EVAL_IMPORT_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -868,48 +871,50 @@ class MemoryOS(BaseMemorySystem):
         完成模块导入；导入后 `_patch_eval_modules()` 会注入真实 client。
         本函数会在导入前后恢复同名 `sys.modules` 和 `sys.path`，避免不同
         MemoryOS 实例共享被 monkeypatch 的官方 eval 模块。
+        整个导入过程受 `_MEMORYOS_EVAL_IMPORT_LOCK` 保护，避免并行 worker 的
+        sys.modules/sys.path 竞态。
         """
 
-        real_openai_class = openai_package.OpenAI
-        eval_dir_text = str(eval_dir)
-        saved_modules = {
-            module_name: sys.modules.get(module_name)
-            for module_name in MEMORYOS_EVAL_MODULE_NAMES
-        }
-        inserted_path = False
+        with _MEMORYOS_EVAL_IMPORT_LOCK:
+            real_openai_class = openai_package.OpenAI
+            eval_dir_text = str(eval_dir)
+            saved_modules = {
+                module_name: sys.modules.get(module_name)
+                for module_name in MEMORYOS_EVAL_MODULE_NAMES
+            }
+            inserted_path = False
 
-        def safe_openai_constructor(*args: Any, **kwargs: Any) -> OpenAI:
-            """为空 API key 补占位值，保证官方 eval 模块能完成导入。"""
+            def safe_openai_constructor(*args: Any, **kwargs: Any) -> OpenAI:
+                """为空 API key 补占位值，保证官方 eval 模块能完成导入。"""
 
-            if not kwargs.get("api_key"):
-                kwargs["api_key"] = "memoryos-import-placeholder"
-            return real_openai_class(*args, **kwargs)
+                if not kwargs.get("api_key"):
+                    kwargs["api_key"] = "memoryos-import-placeholder"
+                return real_openai_class(*args, **kwargs)
 
-        openai_package.OpenAI = safe_openai_constructor
-        try:
-            for module_name in MEMORYOS_EVAL_MODULE_NAMES:
-                sys.modules.pop(module_name, None)
-            if eval_dir_text not in sys.path:
-                sys.path.insert(0, eval_dir_text)
-                inserted_path = True
-            return _MemoryOSEvalModules(
-                utils=importlib.import_module("utils"),
-                short_term_memory=importlib.import_module("short_term_memory"),
-                mid_term_memory=importlib.import_module("mid_term_memory"),
-                long_term_memory=importlib.import_module("long_term_memory"),
-                dynamic_update=importlib.import_module("dynamic_update"),
-                retrieval_and_answer=importlib.import_module("retrieval_and_answer"),
-                main_loco_parse=importlib.import_module("main_loco_parse"),
-            )
-        finally:
-            openai_package.OpenAI = real_openai_class
-            for module_name in MEMORYOS_EVAL_MODULE_NAMES:
-                sys.modules.pop(module_name, None)
-            for module_name, module in saved_modules.items():
-                if module is not None:
-                    sys.modules[module_name] = module
-            if inserted_path:
-                with contextlib.suppress(ValueError):
+            openai_package.OpenAI = safe_openai_constructor
+            try:
+                for module_name in MEMORYOS_EVAL_MODULE_NAMES:
+                    sys.modules.pop(module_name, None)
+                if eval_dir_text not in sys.path:
+                    sys.path.insert(0, eval_dir_text)
+                    inserted_path = True
+                return _MemoryOSEvalModules(
+                    utils=importlib.import_module("utils"),
+                    short_term_memory=importlib.import_module("short_term_memory"),
+                    mid_term_memory=importlib.import_module("mid_term_memory"),
+                    long_term_memory=importlib.import_module("long_term_memory"),
+                    dynamic_update=importlib.import_module("dynamic_update"),
+                    retrieval_and_answer=importlib.import_module("retrieval_and_answer"),
+                    main_loco_parse=importlib.import_module("main_loco_parse"),
+                )
+            finally:
+                openai_package.OpenAI = real_openai_class
+                for module_name in MEMORYOS_EVAL_MODULE_NAMES:
+                    sys.modules.pop(module_name, None)
+                for module_name, module in saved_modules.items():
+                    if module is not None:
+                        sys.modules[module_name] = module
+                if inserted_path and eval_dir_text in sys.path:
                     sys.path.remove(eval_dir_text)
 
     def _patch_eval_modules(self) -> None:
@@ -931,7 +936,7 @@ class MemoryOS(BaseMemorySystem):
         )
 
         def compute_segment_heat(session: dict[str, Any], alpha: float = 1.0, beta: float = 1.0, gamma: float = 1.0) -> float:
-            """按论文 alpha/beta/gamma 默认值计算 segment heat。"""
+            """按论文 Eq.4 alpha/beta/gamma 默认值计算 segment heat。"""
 
             return (
                 alpha * session.get("N_visit", 0)

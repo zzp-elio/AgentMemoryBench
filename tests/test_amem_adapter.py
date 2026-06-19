@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from memory_benchmark.config import load_path_settings
@@ -64,18 +67,61 @@ class FakeAMemRuntime:
 
         self.added_notes: list[dict[str, object]] = []
         self.queries: list[dict[str, object]] = []
+        self.memories: dict[str, dict[str, object]] = {}
+        self.retriever = FakeAMemRetriever()
 
     def add_note(self, content: str, time: str | None = None) -> str:
         """记录写入内容并返回 fake note id。"""
 
         self.added_notes.append({"content": content, "time": time})
-        return f"note-{len(self.added_notes)}"
+        note_id = f"note-{len(self.added_notes)}"
+        self.memories[note_id] = {
+            "id": note_id,
+            "content": content,
+            "time": time,
+        }
+        self.retriever.saved_documents.append(content)
+        return note_id
 
     def find_related_memories_raw(self, query: str, k: int = 5) -> str:
         """记录检索请求并返回 fake memory context。"""
 
         self.queries.append({"query": query, "k": k})
         return "memory content from fake runtime"
+
+
+class FakeAMemRetriever:
+    """模拟 A-Mem 官方 retriever 的 save/load 接口。"""
+
+    def __init__(self) -> None:
+        """初始化 fake 检索器状态。"""
+
+        self.saved_documents: list[str] = []
+        self.loaded_from: tuple[str, str] | None = None
+
+    def save(self, retriever_cache_file: str, retriever_cache_embeddings_file: str) -> None:
+        """用文本文件模拟官方 retriever cache 和 embeddings 文件。"""
+
+        Path(retriever_cache_file).write_text(
+            json.dumps({"documents": self.saved_documents}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        Path(retriever_cache_embeddings_file).write_text(
+            json.dumps({"embedding_count": len(self.saved_documents)}),
+            encoding="utf-8",
+        )
+
+    def load(
+        self,
+        retriever_cache_file: str,
+        retriever_cache_embeddings_file: str,
+    ) -> "FakeAMemRetriever":
+        """记录 load 路径并恢复 fake 文档列表。"""
+
+        self.loaded_from = (retriever_cache_file, retriever_cache_embeddings_file)
+        payload = json.loads(Path(retriever_cache_file).read_text(encoding="utf-8"))
+        self.saved_documents = list(payload["documents"])
+        return self
 
 
 class FakeAMemLLM:
@@ -127,7 +173,7 @@ def _conversation_with_private_gold() -> Conversation:
     )
 
 
-def test_amem_add_and_get_answer_never_pass_private_gold_to_method() -> None:
+def test_amem_add_and_get_answer_never_pass_private_gold_to_method(tmp_path) -> None:
     """A-Mem wrapper 只能把公开 conversation 和 question 传给第三方 runtime。"""
 
     runtime = FakeAMemRuntime()
@@ -142,6 +188,7 @@ def test_amem_add_and_get_answer_never_pass_private_gold_to_method() -> None:
         ),
         runtime_factory=lambda conversation_id: runtime,
         answer_llm=llm,
+        storage_root=tmp_path,
     )
     conversation = _conversation_with_private_gold()
 
@@ -160,7 +207,129 @@ def test_amem_add_and_get_answer_never_pass_private_gold_to_method() -> None:
     assert "generate several keywords separated by commas" in str(llm.prompts[0]["prompt"])
 
 
-def test_amem_get_answer_uses_table8_category_k_values() -> None:
+def test_amem_add_persists_conversation_state(tmp_path) -> None:
+    """A-Mem 写完 conversation 后应保存 memories、retriever 和 manifest。"""
+
+    runtime = FakeAMemRuntime()
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda conversation_id: runtime,
+        answer_llm=FakeAMemLLM(),
+        storage_root=tmp_path,
+    )
+
+    method.add([_conversation_with_private_gold()])
+
+    state_dir = tmp_path / "conv-1"
+    manifest = json.loads((state_dir / "state_manifest.json").read_text("utf-8"))
+    assert (state_dir / "memories.pkl").is_file()
+    assert (state_dir / "retriever.pkl").is_file()
+    assert (state_dir / "retriever_embeddings.npy").is_file()
+    assert manifest["conversation_id"] == "conv-1"
+    assert manifest["adapter_version"]
+    assert manifest["turn_count"] == 2
+    assert manifest["profile"]["profile_name"] == "smoke"
+    assert set(manifest["files"]) == {
+        "memories.pkl",
+        "retriever.pkl",
+        "retriever_embeddings.npy",
+    }
+
+
+def test_amem_load_existing_conversation_state_restores_runtime(tmp_path) -> None:
+    """新 A-Mem 实例应能加载已完成 conversation 并直接回答问题。"""
+
+    first_runtime = FakeAMemRuntime()
+    conversation = _conversation_with_private_gold()
+    first_method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda conversation_id: first_runtime,
+        answer_llm=FakeAMemLLM(),
+        storage_root=tmp_path,
+    )
+    first_method.add([conversation])
+
+    restored_runtime = FakeAMemRuntime()
+    restored_llm = FakeAMemLLM()
+    second_method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda conversation_id: restored_runtime,
+        answer_llm=restored_llm,
+        storage_root=tmp_path,
+    )
+
+    second_method.load_existing_conversation_state(conversation)
+    answer = second_method.get_answer(conversation.questions[0])
+
+    assert answer.answer == "fake answer"
+    assert restored_runtime.added_notes == []
+    assert restored_runtime.memories == first_runtime.memories
+    assert restored_runtime.retriever.loaded_from == (
+        str(tmp_path / "conv-1" / "retriever.pkl"),
+        str(tmp_path / "conv-1" / "retriever_embeddings.npy"),
+    )
+    assert restored_runtime.queries == [{"query": "generated keywords", "k": 40}]
+
+
+def test_amem_load_existing_state_rejects_corrupt_manifest(tmp_path) -> None:
+    """manifest 被破坏时必须拒绝恢复，避免错误状态污染实验。"""
+
+    runtime = FakeAMemRuntime()
+    conversation = _conversation_with_private_gold()
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda conversation_id: runtime,
+        answer_llm=FakeAMemLLM(),
+        storage_root=tmp_path,
+    )
+    method.add([conversation])
+    manifest_path = tmp_path / "conv-1" / "state_manifest.json"
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    manifest["profile"]["llm_model"] = "different-model"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    restored = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda conversation_id: FakeAMemRuntime(),
+        answer_llm=FakeAMemLLM(),
+        storage_root=tmp_path,
+    )
+
+    with pytest.raises(ConfigurationError, match="profile"):
+        restored.load_existing_conversation_state(conversation)
+
+
+def test_amem_get_answer_uses_table8_category_k_values(tmp_path) -> None:
     """A-Mem Table 1 GPT-4o-mini profile 应按 category 使用 Table 8 的 k。"""
 
     runtime = FakeAMemRuntime()
@@ -175,6 +344,7 @@ def test_amem_get_answer_uses_table8_category_k_values() -> None:
         ),
         runtime_factory=lambda conversation_id: runtime,
         answer_llm=llm,
+        storage_root=tmp_path,
     )
     conversation = _conversation_with_private_gold()
     method.add([conversation])
@@ -199,7 +369,7 @@ def test_amem_get_answer_uses_table8_category_k_values() -> None:
         }
 
 
-def test_amem_rejects_adversarial_category_without_gold_answer() -> None:
+def test_amem_rejects_adversarial_category_without_gold_answer(tmp_path) -> None:
     """A-Mem adversarial 官方 prompt 需要 gold answer，普通 profile 必须显式拒绝。"""
 
     runtime = FakeAMemRuntime()
@@ -214,6 +384,7 @@ def test_amem_rejects_adversarial_category_without_gold_answer() -> None:
         ),
         runtime_factory=lambda conversation_id: runtime,
         answer_llm=llm,
+        storage_root=tmp_path,
     )
     conversation = _conversation_with_private_gold()
     method.add([conversation])
@@ -236,7 +407,10 @@ def test_amem_can_import_official_robust_layer_without_calling_api() -> None:
     assert classes["RobustAgenticMemorySystem"].__name__ == "RobustAgenticMemorySystem"
 
 
-def test_amem_production_runtime_receives_openai_compatible_settings(monkeypatch) -> None:
+def test_amem_production_runtime_receives_openai_compatible_settings(
+    monkeypatch,
+    tmp_path,
+) -> None:
     """生产 runtime 必须把 API key/base URL 和 profile 模型传给官方 A-Mem 类。"""
 
     created_kwargs: dict[str, object] = {}
@@ -248,6 +422,8 @@ def test_amem_production_runtime_receives_openai_compatible_settings(monkeypatch
             """记录 wrapper 传入官方 runtime 的构造参数。"""
 
             created_kwargs.update(kwargs)
+            self.memories: dict[str, object] = {}
+            self.retriever = FakeAMemRetriever()
             self.llm_controller = type(
                 "FakeLLMController",
                 (),
@@ -257,6 +433,10 @@ def test_amem_production_runtime_receives_openai_compatible_settings(monkeypatch
         def add_note(self, content: str, time: str | None = None) -> str:
             """模拟官方写入接口，避免真实模型和 API 调用。"""
 
+            self.memories[f"note-{len(self.memories) + 1}"] = {
+                "content": content,
+                "time": time,
+            }
             return "note-1"
 
     monkeypatch.setattr(
@@ -277,6 +457,7 @@ def test_amem_production_runtime_receives_openai_compatible_settings(monkeypatch
         ),
         openai_api_key="test-key",
         openai_base_url="https://api.example.test/v1",
+        storage_root=tmp_path,
     )
 
     method.add([_conversation_with_private_gold()])
@@ -291,6 +472,7 @@ def test_amem_production_runtime_receives_openai_compatible_settings(monkeypatch
 
 def test_amem_replaces_official_openai_client_when_base_url_is_configured(
     monkeypatch,
+    tmp_path,
 ) -> None:
     """官方 OpenAI controller 忽略 api_base 时，adapter 应在 wrapper 层注入 base URL。"""
 
@@ -304,6 +486,8 @@ def test_amem_replaces_official_openai_client_when_base_url_is_configured(
             """构造带 client 字段的 fake LLM controller。"""
 
             self.kwargs = kwargs
+            self.memories: dict[str, object] = {}
+            self.retriever = FakeAMemRetriever()
             self.llm_controller = type(
                 "FakeLLMController",
                 (),
@@ -314,6 +498,10 @@ def test_amem_replaces_official_openai_client_when_base_url_is_configured(
         def add_note(self, content: str, time: str | None = None) -> str:
             """模拟官方写入接口。"""
 
+            self.memories[f"note-{len(self.memories) + 1}"] = {
+                "content": content,
+                "time": time,
+            }
             return "note-1"
 
     monkeypatch.setattr(
@@ -342,6 +530,7 @@ def test_amem_replaces_official_openai_client_when_base_url_is_configured(
         ),
         openai_api_key="test-key",
         openai_base_url="https://ohmygpt.example/v1",
+        storage_root=tmp_path,
     )
 
     method.add([_conversation_with_private_gold()])
@@ -352,8 +541,8 @@ def test_amem_replaces_official_openai_client_when_base_url_is_configured(
     assert runtime_instances[0].llm_controller.llm.client == "patched-client"
 
 
-def test_amem_records_question_efficiency_observations() -> None:
-    """启用 collector 后，A-Mem 应记录 retrieval、context token 和 answer latency。"""
+def test_amem_records_question_efficiency_observations(tmp_path) -> None:
+    """启用 collector 后，A-Mem 应记录问题级汇总和两次 LLM 调用 token。"""
 
     runtime = FakeAMemRuntime()
     llm = FakeAMemLLM()
@@ -369,6 +558,7 @@ def test_amem_records_question_efficiency_observations() -> None:
         runtime_factory=lambda conversation_id: runtime,
         answer_llm=llm,
         efficiency_collector=collector,
+        storage_root=tmp_path,
     )
     conversation = _conversation_with_private_gold()
     method.add([conversation])
@@ -387,3 +577,17 @@ def test_amem_records_question_efficiency_observations() -> None:
     assert question_records[0]["unsupported_reason"] is None
     assert question_records[0]["injected_memory_context_tokens"] > 0
     assert question_records[0]["answer_generation_latency_ms"] >= 0
+    llm_records = [
+        record for record in records if record["observation_type"] == "llm_call"
+    ]
+    assert [record["stage"] for record in llm_records] == ["retrieval", "answer"]
+    assert [record["model_id"] for record in llm_records] == [
+        "amem-query-llm",
+        "amem-answer-llm",
+    ]
+    assert all(record["input_tokens"] > 0 for record in llm_records)
+    assert all(record["output_tokens"] > 0 for record in llm_records)
+    assert all(
+        record["token_measurement_source"] == "tokenizer_estimate"
+        for record in llm_records
+    )

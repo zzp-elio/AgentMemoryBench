@@ -13,6 +13,6 @@ suppress_official_stdout = true
 llm_model = "gpt-4o-mini"
 embedding_model = "all-MiniLM-L6-v2"
 retrieve_k = 10
-max_workers = 1
+max_workers = 10
 use_robust_layer = true
 suppress_official_stdout = true

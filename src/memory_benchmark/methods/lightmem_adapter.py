@@ -17,6 +17,7 @@ import io
 from pathlib import Path
 import re
 import sys
+import threading
 from time import perf_counter_ns
 from typing import Any
 
@@ -40,12 +41,14 @@ from memory_benchmark.core.interfaces import BaseMemorySystem
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
+    resolve_token_usage,
 )
 
 
 LIGHTMEM_METHOD_DIRECTORY = "LightMem"
 LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v1"
 LIGHTMEM_READER_PROMPT_VERSION = "lightmem-reader-v1"
+_LIGHTMEM_IMPORT_LOCK = threading.Lock()
 LIGHTMEM_MODEL_DOWNLOADS = {
     "embedding_model_path": "sentence-transformers/all-MiniLM-L6-v2",
     "llmlingua_model_path": (
@@ -188,17 +191,11 @@ def import_lightmem_classes(
         raise ConfigurationError(f"LightMem source package missing: {src_root}")
 
     root_text = str(src_root)
-    inserted = False
-    if root_text not in sys.path:
-        sys.path.insert(0, root_text)
-        inserted = True
-    try:
+    with _LIGHTMEM_IMPORT_LOCK:
+        if root_text not in sys.path:
+            sys.path.insert(0, root_text)
         module = importlib.import_module("lightmem.memory.lightmem")
         return {"LightMemory": module.LightMemory}
-    finally:
-        if inserted:
-            with contextlib.suppress(ValueError):
-                sys.path.remove(root_text)
 
 
 def build_lightmem_source_identity(
@@ -336,6 +333,7 @@ class LightMem(BaseMemorySystem):
                         "model_name": llmlingua_model_reference,
                         "device_map": config.llmlingua_device_map,
                         "use_llmlingua2": True,
+                        "model_config": {"attn_implementation": "eager"},
                     },
                     "compress_config": {
                         "instruction": "",
@@ -432,6 +430,29 @@ class LightMem(BaseMemorySystem):
                 self._run_locomo_offline_update(backend, conversation.conversation_id)
             conversation_ids.append(conversation.conversation_id)
         return AddResult(conversation_ids=conversation_ids)
+
+    def load_existing_conversation_state(self, conversation: Conversation) -> None:
+        """恢复已完成写入的 conversation backend。
+
+        输入:
+            conversation: runner 根据 `conversation_status=completed` 传入的公开对象。
+
+        输出:
+            None；该方法只重建 LightMemory backend 和公开 metadata，不重新调用
+            `add_memory()`。
+        """
+
+        if conversation.conversation_id in self._backends:
+            return
+        backend = self._get_or_create_backend(conversation.conversation_id)
+        self._conversation_metadata[conversation.conversation_id] = {
+            **conversation.metadata,
+            "conversation_id": conversation.conversation_id,
+        }
+        if backend is None:
+            raise ConfigurationError(
+                f"LightMem backend cannot be restored: {conversation.conversation_id}"
+            )
 
     def get_answer(self, question: Question) -> AnswerResult:
         """基于 LightMem 检索上下文回答公开问题。"""
@@ -763,9 +784,32 @@ class LightMem(BaseMemorySystem):
             raise ConfigurationError(
                 f"LightMem answer client is not available for {question.conversation_id}"
             )
-        return self._suppress_stdout_if_needed(
+        response = self._suppress_stdout_if_needed(
             self._answer_client.create_answer,
             prompt,
+        )
+        response_text = str(response)
+        self._record_answer_llm_call(prompt_text=prompt, output_text=response_text)
+        return response_text
+
+    def _record_answer_llm_call(self, *, prompt_text: str, output_text: str) -> None:
+        """记录 LightMem 固定 reader 的 LLM token。"""
+
+        collector = self._efficiency_collector
+        if collector is None or not collector.enabled:
+            return
+        usage = resolve_token_usage(
+            api_input_tokens=None,
+            api_output_tokens=None,
+            prompt_text=prompt_text,
+            output_text=output_text,
+            tokenizer=_TiktokenCounter(self.config.llm_model),
+        )
+        collector.record_llm_call(
+            model_id="lightmem-answer-llm",
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            token_measurement_source=usage.source,
         )
 
     def _suppress_stdout_if_needed(
@@ -853,14 +897,42 @@ def _is_longmemeval_question(
 
 
 def _turn_timestamp(turn: Turn, session: Session) -> str:
-    """读取 LightMem 必需的 `time_stamp` 字段。"""
+    """读取 LightMem 必需的 `time_stamp` 字段，并转为官方格式。
 
-    timestamp = turn.turn_time or session.session_time
-    if not timestamp:
+    LightMem 的 MessageNormalizer 要求格式为 "2023/05/20 (Sat) 00:44" 或 ISO。
+    LoCoMo 数据集的 session time 是 "1:56 pm on 8 May, 2023"，需要转换。
+    LongMemEval 已经是 ISO 或 compatible 格式，直接通过。
+    """
+
+    raw_timestamp = turn.turn_time or session.session_time
+    if not raw_timestamp:
         raise ConfigurationError(
             f"LightMem requires turn_time or session_time for turn {turn.turn_id}"
         )
-    return timestamp
+    converted = _locomo_time_to_lightmem(raw_timestamp)
+    if converted is not None:
+        return converted
+    return raw_timestamp
+
+
+def _locomo_time_to_lightmem(raw_time: str) -> str | None:
+    """尝试把 LoCoMo 数据集的时间格式转为 LightMem 认可的格式。
+
+    LoCoMo 格式: "1:56 pm on 8 May, 2023"
+    LightMem 期望: "2023/05/08 (Mon) 13:56"
+
+    输入:
+        raw_time: 原始 session/turn 时间字符串。
+
+    输出:
+        str | None: 转换后的时间字符串；如果格式不匹配则返回 None。
+    """
+
+    try:
+        dt = datetime.strptime(raw_time, "%I:%M %p on %d %B, %Y")
+    except (ValueError, TypeError):
+        return None
+    return dt.strftime("%Y/%m/%d (%a) %H:%M")
 
 
 def _locomo_speaker_id(conversation: Conversation, turn: Turn) -> str:

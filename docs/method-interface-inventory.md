@@ -138,8 +138,17 @@
 | --- | --- | --- | --- |
 | Mem0 | LoCoMo turn 级；LongMemEval conversation 级 | LoCoMo 官方 `CHUNK_SIZE=1`，每次 `Memory.add([message], run_id=...)` 完成完整写入；LongMemEval 官方 `CHUNK_SIZE=2` user+assistant pair，不适合 turn checkpoint | `supports_turn_resume()` 已按 conversation 分流；LoCoMo 使用 turn checkpoint，LongMemEval 使用 conversation status |
 | MemoryOS | conversation 级 | 官方 LoCoMo eval 以 dialogue page / QA pair 写入，状态落到独立 JSON 目录；当前 adapter 通过 conversation state 目录恢复 | 后续并行时优先做进程隔离，不强行降到 turn 级 |
-| A-Mem | 暂无可靠跨进程 resume，当前按 conversation 重跑 | 官方 robust runtime 主要是内存 dict + Faiss retriever；进程重启后状态丢失 | 后续可在 wrapper 层增加 Faiss index + memories JSON 持久化，作为可靠性增强 |
-| LightMem | conversation 级 | `add_memory()` 中间调用可能只进入 buffer，只有 force extraction/offline update 后才具备完整持久化语义 | 不做 turn 级 resume；LoCoMo `add()` 返回后已执行 offline update，可作为 conversation 完成点 |
+| A-Mem | conversation 级 | 官方 robust runtime 主要是内存 dict + retriever；当前 wrapper 在 conversation 完成后保存 `memories.pkl`、官方 retriever cache/embeddings 和强校验 manifest | 不做 turn 级 resume；resume 时 registry 对 completed conversations 调 `load_existing_conversation_state()` |
+| LightMem | conversation 级 | `add_memory()` 中间调用可能只进入 buffer，只有 force extraction/offline update 后才具备完整持久化语义；resume 时按同一 `storage_root+conversation_id` 重建 backend | 不做 turn 级 resume；LoCoMo `add()` 返回后已执行 offline update，可作为 conversation 完成点；registry 会对 completed conversations 调 `load_existing_conversation_state()` |
 
 question 级 resume 由 runner 统一基于 `method_predictions.jsonl` 处理。当前四个 method 的
 `get_answer()` 都按只读路径设计，不应修改 method 记忆状态。
+
+## 四个 method 的当前 resume 状态
+
+| Method | 写入记忆 resume | 问问题 resume |
+| --- | --- | --- |
+| Mem0 | LoCoMo 为 turn-level；LongMemEval 为 conversation-level | 统一基于 `method_predictions.jsonl` 和 question status |
+| MemoryOS | conversation-level；恢复已有 JSON state 目录 | 统一基于 `method_predictions.jsonl` 和 question status |
+| A-Mem | conversation-level；恢复 `memories.pkl`、retriever cache/embeddings 和 manifest | 统一基于 `method_predictions.jsonl` 和 question status |
+| LightMem | conversation-level；按同一状态目录重建 LightMemory backend | 统一基于 `method_predictions.jsonl` 和 question status |
