@@ -930,6 +930,59 @@ def test_shared_mock_provider_uses_framework_reader(tmp_path: Path) -> None:
     assert "conv-1 custom memory" in answer_client.calls[0]["prompt"]
 
 
+def test_isolated_retrieve_first_worker_persists_answer_prompt_artifact(
+    tmp_path: Path,
+) -> None:
+    """isolated worker 路径也必须写出完整 answer prompt artifact。"""
+
+    from memory_benchmark.methods.registry import MethodBuildContext
+
+    dataset = _build_dataset()
+    answer_client = FakeAnswerLLMClient(answer="isolated framework answer")
+    reader = FrameworkAnswerReader(client=answer_client)
+    context = _create_context(tmp_path)
+
+    def fake_factory(_context: MethodBuildContext) -> BaseMemoryProvider:
+        """每个 isolated worker 创建独立 provider 实例。"""
+
+        return RecordingMemoryProvider()
+
+    summary = run_predictions(
+        dataset=dataset,
+        system=RecordingMemoryProvider(),
+        run_context=context,
+        policy=PredictionRunPolicy(max_workers=2),
+        answer_reader=reader,
+        method_manifest={"adapter": "recording-provider-v1"},
+        benchmark_variant="test_variant",
+        run_scope=RunScope.FULL,
+        system_factory=fake_factory,
+        build_context_template=MethodBuildContext(
+            config={},
+            openai_settings=None,
+            path_settings=None,
+            storage_root=context.run_dir / "method_state",
+        ),
+        supports_shared_instance_parallelism=False,
+    )
+
+    retrievals = read_jsonl(
+        context.artifacts_dir / "answer_prompts.prediction.jsonl"
+    )
+
+    assert summary.completed_questions == 2
+    assert [record["question_id"] for record in retrievals] == [
+        "conv-1:q1",
+        "conv-2:q1",
+    ]
+    assert retrievals[0]["prompt_messages"] == [
+        {"role": "user", "content": "memory for 问题 1"}
+    ]
+    assert retrievals[1]["prompt_messages"] == [
+        {"role": "user", "content": "memory for 问题 2"}
+    ]
+
+
 def test_resume_reuses_completed_retrieval_when_answer_failed(
     tmp_path: Path,
 ) -> None:

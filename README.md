@@ -50,8 +50,9 @@ messages，再由 framework reader 统一负责 answer LLM 调用。设计文档
 当前 core protocol、framework reader、retrieval artifact、retrieval/answer resume、
 registered prediction reader wiring、四个内置 method adapter 的 `retrieve()`、framework
 answer efficiency observation 和 artifact evaluation compatibility 均已落地。旧
-`get_answer()` 路径仍作为迁移期兼容保留；真实 retrieve-first API smoke 仍需用户确认
-method、benchmark、规模和 run_id 后再执行。
+`get_answer()` 路径仍作为迁移期兼容保留。2026-06-22 已执行一轮 LoCoMo 2c20t 真实
+smoke，但发现 isolated worker 仍走 legacy answer path；当前代码已修复，严格
+retrieve-first API smoke 仍需用户确认 method、benchmark、规模和新 run_id 后重跑。
 
 LLM/provider 灵活配置方向也已完成设计：
 [LLM Provider 与 Prompt 配置设计](docs/superpowers/specs/2026-06-21-llm-provider-config-design.md)。

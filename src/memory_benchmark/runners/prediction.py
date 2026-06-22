@@ -169,6 +169,7 @@ class _ConversationFailureBatch:
         traceback_text: 完整 traceback，写入事件和 checkpoint 方便定位。
         observations: 失败前已采集的效率观测。
         predictions: 失败前已生成并校验通过的问题回答。
+        retrievals: 失败前已生成并校验通过的 answer prompt 记录。
         ingested: 当前 conversation 的 memory state 是否已经写入完成。
     """
 
@@ -179,6 +180,7 @@ class _ConversationFailureBatch:
     traceback_text: str
     observations: tuple[EfficiencyObservation, ...] = ()
     predictions: tuple[dict[str, Any], ...] = ()
+    retrievals: tuple[dict[str, Any], ...] = ()
     ingested: bool = False
 
 
@@ -408,6 +410,7 @@ def run_predictions(
                 conversation_status=conversation_status,
                 question_status=question_status,
                 question_order=question_order,
+                answer_reader=answer_reader,
             )
         else:
             ingest_conversations = [
@@ -1069,7 +1072,10 @@ def _split_work_items_by_stable_conversation_order(
 def _run_isolated_worker_pipeline(
     *,
     work_plan: _PredictionWorkPlan,
-    system_factory: Callable[[MethodBuildContext], BaseMemorySystem],
+    system_factory: Callable[
+        [MethodBuildContext],
+        BaseMemorySystem | BaseMemoryProvider,
+    ],
     build_context_template: MethodBuildContext,
     policy: PredictionRunPolicy,
     paths: ExperimentPaths,
@@ -1082,6 +1088,7 @@ def _run_isolated_worker_pipeline(
     conversation_status: dict[str, Any],
     question_status: dict[str, Any],
     question_order: list[str],
+    answer_reader: FrameworkAnswerReader | None = None,
 ) -> None:
     """使用独立 method instance 并行处理 conversation 的 ingest 与 answer。
 
@@ -1117,6 +1124,13 @@ def _run_isolated_worker_pipeline(
     conversation_ingested: int = len(work_plan.ingested_conversation_ids)
     question_answered: int = len(work_plan.completed_question_ids)
     cancellation_event = Event()
+    answer_prompt_records = {
+        record["question_id"]: record
+        for record in read_jsonl(
+            paths.answer_prompts_path,
+            recover_torn_tail=policy.resume,
+        )
+    }
 
     with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
         future_to_chunk: dict[
@@ -1149,6 +1163,8 @@ def _run_isolated_worker_pipeline(
                 tuple(chunk),
                 efficiency_collector,
                 retrieval_observation_contract,
+                answer_reader,
+                answer_prompt_records,
                 cancellation_event,
                 policy.max_consecutive_failures,
             )
@@ -1201,6 +1217,10 @@ def _run_isolated_worker_pipeline(
                 for batch in batches:
                     efficiency_store.merge_observations(batch.observations)
             for batch in batches:
+                for answer_prompt_record in batch.retrievals:
+                    answer_prompt_records[answer_prompt_record["question_id"]] = (
+                        answer_prompt_record
+                    )
                 if isinstance(batch, _ConversationFailureBatch):
                     for record in batch.predictions:
                         prediction_records[record["question_id"]] = record
@@ -1284,6 +1304,11 @@ def _run_isolated_worker_pipeline(
                     if qid in question_status
                 ],
             )
+            _persist_answer_prompt_records(
+                paths=paths,
+                answer_prompt_records=answer_prompt_records,
+                question_order=question_order,
+            )
             atomic_write_json(paths.conversation_status_path, conversation_status)
 
     progress.set_stage("Completed", step_index=2, step_count=2)
@@ -1291,10 +1316,15 @@ def _run_isolated_worker_pipeline(
 
 def _isolated_worker(
     build_context: MethodBuildContext,
-    system_factory: Callable[[MethodBuildContext], BaseMemorySystem],
+    system_factory: Callable[
+        [MethodBuildContext],
+        BaseMemorySystem | BaseMemoryProvider,
+    ],
     work_items: tuple[_ConversationWorkItem, ...],
     efficiency_collector: EfficiencyCollector | None,
     retrieval_observation_contract: RetrievalObservationContract | None,
+    answer_reader: FrameworkAnswerReader | None,
+    existing_retrieval_records: dict[str, dict[str, Any]],
     cancellation_event: Event | None = None,
     max_consecutive_failures: int | None = 3,
 ) -> tuple[_ConversationAnswerBatch | _ConversationFailureBatch, ...]:
@@ -1312,6 +1342,7 @@ def _isolated_worker(
             break
         conversation = work_item.conversation
         conv_predictions: list[dict[str, Any]] = []
+        conv_retrievals: list[dict[str, Any]] = []
         conv_observations: list[EfficiencyObservation] = []
         ingested = not work_item.needs_ingest
         try:
@@ -1325,13 +1356,19 @@ def _isolated_worker(
                     with efficiency_collector.conversation_scope(
                         conversation.conversation_id,
                     ) as conv_scope:
-                        system.add([public_conversation])
+                        _add_public_conversation_coarse(
+                            system=system,
+                            public_conversation=public_conversation,
+                        )
                         efficiency_collector.record_memory_build_total_latency(
                             latency_ms=_elapsed_ms(started_ns),
                         )
                     conv_observations.extend(conv_scope.records)
                 else:
-                    system.add([public_conversation])
+                    _add_public_conversation_coarse(
+                        system=system,
+                        public_conversation=public_conversation,
+                    )
                 ingested = True
             for source_question in work_item.pending_questions:
                 question = _make_public_question(source_question)
@@ -1340,29 +1377,55 @@ def _isolated_worker(
                     efficiency_collector is not None
                     and efficiency_collector.enabled
                 ):
-                    if not isinstance(
-                        retrieval_observation_contract,
-                        RetrievalObservationContract,
-                    ):
-                        raise ConfigurationError(
-                            "Enabled efficiency observability requires an "
-                            "explicit retrieval observation contract"
-                        )
                     with efficiency_collector.question_scope(
                         conversation.conversation_id,
                         question.question_id,
                     ) as scope:
-                        prediction = system.get_answer(question)
-                        if (
-                            not retrieval_observation_contract.supported_by_method
-                        ):
-                            efficiency_collector.record_retrieval_unsupported_if_missing(
-                                retrieval_observation_contract.unsupported_reason
-                                or ""
+                        if isinstance(system, BaseMemoryProvider):
+                            prediction, retrieval_record = (
+                                _answer_question_retrieve_first_or_reuse(
+                                    provider=system,
+                                    question=question,
+                                    answer_reader=answer_reader,
+                                    efficiency_collector=efficiency_collector,
+                                    existing_retrieval_records=existing_retrieval_records,
+                                )
                             )
+                            if retrieval_record is not None:
+                                conv_retrievals.append(retrieval_record)
+                        else:
+                            if not isinstance(
+                                retrieval_observation_contract,
+                                RetrievalObservationContract,
+                            ):
+                                raise ConfigurationError(
+                                    "Enabled efficiency observability requires an "
+                                    "explicit retrieval observation contract"
+                                )
+                            prediction = system.get_answer(question)
+                            if (
+                                not retrieval_observation_contract.supported_by_method
+                            ):
+                                efficiency_collector.record_retrieval_unsupported_if_missing(
+                                    retrieval_observation_contract.unsupported_reason
+                                    or ""
+                                )
                     conv_observations.extend(scope.records)
                 else:
-                    prediction = system.get_answer(question)
+                    if isinstance(system, BaseMemoryProvider):
+                        prediction, retrieval_record = (
+                            _answer_question_retrieve_first_or_reuse(
+                                provider=system,
+                                question=question,
+                                answer_reader=answer_reader,
+                                efficiency_collector=None,
+                                existing_retrieval_records=existing_retrieval_records,
+                            )
+                        )
+                        if retrieval_record is not None:
+                            conv_retrievals.append(retrieval_record)
+                    else:
+                        prediction = system.get_answer(question)
                 _validate_prediction(prediction, question)
                 validate_no_private_keys(prediction.metadata)
                 conv_predictions.append(
@@ -1386,6 +1449,10 @@ def _isolated_worker(
                     ),
                     observations=tuple(conv_observations),
                     predictions=tuple(conv_predictions),
+                    retrievals=tuple(
+                        conv_retrievals
+                        + list(getattr(exc, "retrievals", ()))
+                    ),
                     ingested=ingested,
                 )
             )
@@ -1402,12 +1469,33 @@ def _isolated_worker(
             _ConversationAnswerBatch(
                 conversation_id=conversation.conversation_id,
                 predictions=tuple(conv_predictions),
+                retrievals=tuple(conv_retrievals),
                 observations=tuple(conv_observations),
                 ingested=work_item.needs_ingest,
             )
         )
         consecutive_failures = 0
     return tuple(results)
+
+
+def _add_public_conversation_coarse(
+    *,
+    system: BaseMemorySystem | BaseMemoryProvider,
+    public_conversation: Conversation,
+) -> None:
+    """isolated worker 使用的 conversation 级写入，不处理逐 turn checkpoint。"""
+
+    if isinstance(system, BaseMemoryProvider):
+        result = system.add(public_conversation)
+    else:
+        result = system.add([public_conversation])
+    if result is None and not isinstance(system, BaseMemoryProvider):
+        return
+    if public_conversation.conversation_id not in result.conversation_ids:
+        raise ConfigurationError(
+            "Method add result did not include expected conversation_id: "
+            f"{public_conversation.conversation_id}"
+        )
 
 
 def _ingest_pending_conversations(

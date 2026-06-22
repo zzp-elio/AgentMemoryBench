@@ -39,6 +39,21 @@
 
 ## 当前断点
 
+- 2026-06-22 最新交接：
+  `docs/handoffs/2026-06-22-retrieve-first-locomo-smoke-and-isolated-fix.md`。
+  用户已运行四个 LoCoMo retrieve-first 极小真实 smoke：
+  `retrieve-first-locomo-{mem0,memoryos,amem,lightmem}-smoke-2c20t-20260622`。
+  四个 run 均完成 2 conversations / 2 questions，且写出了 prediction 与 efficiency
+  observation；日志无结构化失败事件。但复核发现这些 run 没有
+  `artifacts/answer_prompts.prediction.jsonl`，根因是 isolated worker 路径仍调用 legacy
+  `get_answer()`，没有进入 `BaseMemoryProvider.retrieve() -> FrameworkAnswerReader`。
+  本轮已修复 isolated retrieve-first 路径、answer prompt artifact 合并和 provider
+  conversation 级 add 兼容，并新增红绿测试。验证：isolated prompt artifact 单测
+  `1 passed`；runner/reader/efficiency focused `80 passed`；四 adapter / registry /
+  calibrate-smoke focused `241 passed, 2 warnings, 2 subtests passed`。因此，上述四个
+  真实 run 只能作为“小规模真实 API legacy isolated path 可完成 + observation 可写出”的
+  证据；严格 retrieve-first smoke 需要用新 run_id 重跑，并确认
+  `answer_prompts.prediction.jsonl` 存在且含 `prompt_messages`。
 - 2026-06-22 最新 P0 已完成主体：`AnswerPromptResult` 已升级为 message role 结构。
   主类型为 `PromptMessage(role, content)`，主字段为
   `AnswerPromptResult.prompt_messages`，语义是“交给 answer LLM 的完整 prompt
@@ -54,8 +69,9 @@
   `204 passed, 2 warnings, 2 subtests passed`；完整 runner/protocol/registered/CLI/
   efficiency/artifact focused 为 `188 passed`；文档规范 `5 passed`；`compileall`
   和 `git diff --check` exit 0。2026-06-22 checkpoint 前完整离线回归为
-  `669 passed, 3 deselected, 2 warnings, 6 subtests passed`。尚未执行真实 API smoke；
-  下一步仍需用户确认规模、run_id 和预算。
+  `669 passed, 3 deselected, 2 warnings, 6 subtests passed`。真实 API smoke 已暴露并修复
+  isolated 路径缺口；下一步仍需用户确认新规模、run_id 和预算后重跑严格
+  retrieve-first smoke。
 - 2026-06-22 answer LLM 参数显式化已完成：当前代码已新增 `AnswerLLMSettings`，
   并在 registered prediction 中按 method × benchmark 解析官方 answer 参数：Mem0
   LoCoMo/LongMemEval `temperature=0,max_tokens=4096`；A-Mem LoCoMo

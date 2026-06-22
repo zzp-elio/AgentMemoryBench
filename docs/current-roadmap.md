@@ -357,8 +357,12 @@ MemoryOS PyPI backend 已降为低优先级，本阶段不实现。
   10 conversations、1540 questions completed，并生成 F1、Judge 和 efficiency summary。
   OpenCode 发现全局 `reference_date` 只传年份，但每条检索记忆自带完整日期；当前记录为
   informational，不判定 full-v4 作废。
-- [ ] API 条件允许并经用户确认后运行四个 method 在 LoCoMo 上的 retrieve-first 极小
-  smoke，确认 `add(conversation) -> retrieve(question) -> framework reader` 真实链路。
+- [ ] 四个 method 在 LoCoMo 上的 retrieve-first 极小 smoke 已由用户真实运行：
+  `retrieve-first-locomo-{mem0,memoryos,amem,lightmem}-smoke-2c20t-20260622` 均完成
+  2 conversations / 2 questions，并写出 prediction 与 efficiency observation；但复核发现
+  这些 run 进入 isolated worker legacy `get_answer()` path，缺
+  `answer_prompts.prediction.jsonl`，不能作为严格 retrieve-first 链路证据。Codex 已修复
+  isolated retrieve-first path；需用新 run_id 重跑并确认 prompt artifact。
 - [ ] 讨论并确认 LongMemEval-S 最小 smoke 方案：reader answer prompt、LLM judge
   prompt/model、question_time 使用、以及 A-Mem/MemoryOS 是否在 retrieve-first 下可纳入。
 - [ ] 复用 prediction artifact 计算 LoCoMo F1。
@@ -464,7 +468,10 @@ evaluate
   主字段命名为 `prompt_messages`，元素为 `PromptMessage(role, content)`；`answer_prompt`
   仅保留为兼容和 artifact 文本视图。四个内置 method 已返回各自官方 answer LLM 的
   system/user message 结构，runner artifact/resume 已保留 `prompt_messages`。
-- [ ] 在用户确认 API 预算、规模、run_id 和 worker 后执行 retrieve-first 真实极小 smoke。
+- [ ] 已执行一轮 LoCoMo 2c20t 真实 smoke，但发现 isolated worker 未走 retrieve-first。
+  修复已完成；下一步在用户确认 API 预算、规模、新 run_id 和 worker 后重跑严格
+  retrieve-first 真实极小 smoke，并检查 `answer_prompts.prediction.jsonl` 的
+  `prompt_messages`。
 
 ### Phase L：后续扩展
 
