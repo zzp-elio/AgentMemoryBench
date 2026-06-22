@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 import unittest
 
 import pytest
@@ -137,7 +138,7 @@ class JudgePromptBuilderTest(unittest.TestCase):
         self.assertNotIn("is_correct", prompt)
 
     def test_longmemeval_compact_prompt_requests_true_false_not_json(self) -> None:
-        """LongMemEval compact 模式的 prompt 必须和 true/false parser 对齐。"""
+        """LongMemEval compact 模式应按 LightMem 流程请求 yes/no 输出。"""
 
         prompt = LongMemEvalJudgeEvaluator(mode="compact").build_prompt(
             self.question,
@@ -145,10 +146,51 @@ class JudgePromptBuilderTest(unittest.TestCase):
             self.gold,
         )
 
-        self.assertIn("true", prompt.lower())
-        self.assertIn("false", prompt.lower())
+        self.assertIn("Answer yes or no only.", prompt)
         self.assertNotIn("Return JSON", prompt)
         self.assertNotIn("is_correct", prompt)
+
+    def test_longmemeval_compact_evaluate_parses_lightmem_yes_no(self) -> None:
+        """LongMemEval compact judge 应把 LightMem 风格 yes/no 映射为布尔分数。"""
+
+        yes_client = _FakeJudgeChatClient(response_text="yes")
+        no_client = _FakeJudgeChatClient(response_text="no")
+
+        yes_result = LongMemEvalJudgeEvaluator(
+            mode="compact",
+            model="gpt-4o-mini",
+            client=yes_client,
+        ).evaluate(self.question, self.prediction, self.gold)
+        no_result = LongMemEvalJudgeEvaluator(
+            mode="compact",
+            model="gpt-4o-mini",
+            client=no_client,
+        ).evaluate(self.question, self.prediction, self.gold)
+
+        self.assertTrue(yes_result.is_correct)
+        self.assertEqual(yes_result.score, 1.0)
+        self.assertFalse(no_result.is_correct)
+        self.assertEqual(no_result.score, 0.0)
+
+    def test_longmemeval_judge_uses_lightmem_chat_completion_parameters(self) -> None:
+        """真实 LongMemEval judge 调用参数应对齐 LightMem LongMemEval wrapper。"""
+
+        client = _FakeJudgeChatClient(response_text="yes")
+
+        LongMemEvalJudgeEvaluator(
+            mode="compact",
+            model="gpt-4o-mini",
+            client=client,
+        ).evaluate(self.question, self.prediction, self.gold)
+
+        kwargs = client.calls[0]
+        self.assertEqual(kwargs["model"], "gpt-4o-mini")
+        self.assertEqual(kwargs["temperature"], 0.0)
+        self.assertEqual(kwargs["top_p"], 0.8)
+        self.assertEqual(kwargs["max_tokens"], 2000)
+        self.assertEqual(len(kwargs["messages"]), 1)
+        self.assertEqual(kwargs["messages"][0]["role"], "user")
+        self.assertIn("Answer yes or no only.", kwargs["messages"][0]["content"])
 
     def test_longmemeval_temporal_prompt_allows_off_by_one_errors(self) -> None:
         """temporal-reasoning 分支应迁移官方 off-by-one 容错规则。"""
@@ -168,7 +210,7 @@ class JudgePromptBuilderTest(unittest.TestCase):
 
         self.assertIn("do not penalize off-by-one errors", prompt)
         self.assertIn("19 days when the answer is 18", prompt)
-        self.assertIn("Return exactly one lowercase word: true or false.", prompt)
+        self.assertIn("Answer yes or no only.", prompt)
 
     def test_longmemeval_knowledge_update_prompt_allows_previous_information(
         self,
@@ -234,6 +276,32 @@ class JudgePromptBuilderTest(unittest.TestCase):
         self.assertIn("unanswerable question", prompt)
         self.assertIn("Explanation:", prompt)
         self.assertIn("correctly identify the question as unanswerable", prompt)
+
+
+class _FakeJudgeChatClient:
+    """只实现 LongMemEval judge 需要的 OpenAI-compatible chat completions。"""
+
+    def __init__(self, response_text: str) -> None:
+        """保存固定响应文本和调用记录。"""
+
+        self.response_text = response_text
+        self.calls: list[dict[str, object]] = []
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(create=self._create_completion)
+        )
+
+    def _create_completion(self, **kwargs: object) -> object:
+        """记录调用参数并返回带 usage 的 fake completion。"""
+
+        self.calls.append(dict(kwargs))
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=self.response_text)
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=11, completion_tokens=1),
+        )
 
 
 if __name__ == "__main__":

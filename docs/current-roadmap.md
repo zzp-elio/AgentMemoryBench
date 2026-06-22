@@ -1,6 +1,6 @@
 # 当前动态路线图
 
-更新日期：2026-06-21
+更新日期：2026-06-22
 
 本文件只记录当前主线、完成状态和阶段依赖。每完成一个任务必须立即勾选并同步
 `AGENTS.md`；逐项 open/closed 状态和历史文档状态以 `docs/task-ledger.md` 为准。
@@ -371,8 +371,13 @@ MemoryOS PyPI backend 已降为低优先级，本阶段不实现。
   但必须保留各自 method-specific 检索上下文。A-Mem / MemoryOS 现复用
   LightMem-style LongMemEval reader prompt，并分别保留 A-Mem memory context、query
   keywords、category k，以及 MemoryOS recent context、retrieval queue、user profile、
-  long-term knowledge 和 assistant knowledge。LongMemEval judge prompt 已迁移为官方
-  task-specific 规则。真实 LongMemEval-S smoke 仍需用户确认 run_id、规模和预算。
+  long-term knowledge 和 assistant knowledge。MemoryOS 新增可选
+  `memoryos_pypi_generic_v1` profile，用于复用 MemoryOS PyPI generic prompt 结构；
+  默认仍保持 LightMem-style LongMemEval QA prompt。A-Mem 本地仓库未发现同等级 generic
+  answer-reader prompt，当前不新增 generic profile。LongMemEval judge 默认走 LightMem
+  LongMemEval 流程：task-specific yes/no prompt、Chat Completions、
+  `temperature=0.0`、`top_p=0.8`、`max_tokens=2000`。真实 LongMemEval-S smoke
+  仍需用户确认 run_id、规模和预算。
 - [ ] 复用 prediction artifact 计算 LoCoMo F1。
 - [x] LoCoMo LLM judge prompt 已由用户/OpenCode 对齐为 LightMem 官方风格，compact
   模式解析 CORRECT/WRONG；evaluator runner 已支持 `--max-eval-workers` 并行 judge，

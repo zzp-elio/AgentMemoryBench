@@ -50,10 +50,15 @@
   context 和 metadata；MemoryOS 保留 recent context、retrieval queue、user profile、
   long-term knowledge 和 assistant knowledge。A-Mem / MemoryOS LongMemEval answer LLM
   参数已设为 `temperature=0.0, top_p=0.8, max_tokens=2000`。LongMemEval judge prompt
-  已迁移为官方 `evaluate_qa.py` task-specific 规则，并保持本项目 compact/detailed
-  parser 兼容。已验证 focused 回归
+  默认按 LightMem LongMemEval 流程运行：task-specific yes/no prompt、Chat Completions、
+  `temperature=0.0`、`top_p=0.8`、`max_tokens=2000`，用于和 LightMem 论文结果对比。
+  MemoryOS 额外支持可选 `memoryos_pypi_generic_v1` LongMemEval reader profile，复用
+  `memoryos-pypi/prompts.py` 的 generic prompt 结构；默认仍保持
+  `lightmem_longmemeval_reader_v1`。A-Mem 本地仓库未发现同级 generic answer-reader prompt，
+  当前不新增 A-Mem generic profile。已验证 focused 回归
   `tests/test_amem_adapter.py tests/test_memoryos_adapter.py tests/test_config_profiles.py tests/test_llm_judge_parsing.py`
-  为 `176 passed, 1 warning, 2 subtests passed`；尚未执行真实 LongMemEval-S API smoke。
+  旧记录为 `176 passed, 1 warning, 2 subtests passed`；本轮新增 profile/judge focused
+  验证为 `164 passed, 2 subtests passed`。尚未执行真实 LongMemEval-S API smoke。
 - 2026-06-22 最新 smoke 结论：
   `docs/handoffs/2026-06-22-strict-retrieve-first-locomo-smoke-success.md`。
   用户已用新 run id 严格重跑 LoCoMo retrieve-first 极小真实 smoke：

@@ -58,6 +58,13 @@ MEMORYOS_VENDORED_SOURCE_MODE = "vendored-official-eval"
 MEMORYOS_COMBINED_SOURCE_MODE = "vendored-official-eval-with-framework-wrapper"
 MEMORYOS_WRAPPER_LOGICAL_PATH = "src/memory_benchmark/methods/memoryos_adapter.py"
 MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION = "lightmem_longmemeval_reader_v1"
+MEMORYOS_PYPI_GENERIC_READER_PROMPT_VERSION = "memoryos_pypi_generic_v1"
+MEMORYOS_LONGMEMEVAL_READER_PROMPT_PROFILES = frozenset(
+    {
+        MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION,
+        MEMORYOS_PYPI_GENERIC_READER_PROMPT_VERSION,
+    }
+)
 LONGMEMEVAL_QUESTION_TYPES = frozenset(
     {
         "single-session-user",
@@ -105,6 +112,8 @@ class MemoryOSPaperConfig:
         api_retry_max_wait_seconds: 单次重试等待时间上限。
         suppress_official_stdout: 是否屏蔽 MemoryOS 官方脚本中的 print 输出。
         max_workers: conversation 级建议并发数，当前固定为 1。
+        longmemeval_prompt_profile: LongMemEval reader prompt profile。默认使用
+            LightMem-style QA prompt；可选 MemoryOS PyPI generic prompt。
         profile_name: 可审计的 profile 名称。
     """
 
@@ -127,6 +136,7 @@ class MemoryOSPaperConfig:
     api_retry_max_wait_seconds: float = 60.0
     suppress_official_stdout: bool = True
     max_workers: int = 1
+    longmemeval_prompt_profile: str = MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION
     profile_name: str = "custom"
 
     def __post_init__(self) -> None:
@@ -135,6 +145,19 @@ class MemoryOSPaperConfig:
         _require_non_empty_string(self.llm_model, "llm_model")
         _require_non_empty_string(self.embedding_model_name, "embedding_model_name")
         _require_non_empty_string(self.profile_name, "profile_name")
+        _require_non_empty_string(
+            self.longmemeval_prompt_profile,
+            "longmemeval_prompt_profile",
+        )
+        if (
+            self.longmemeval_prompt_profile
+            not in MEMORYOS_LONGMEMEVAL_READER_PROMPT_PROFILES
+        ):
+            allowed = ", ".join(sorted(MEMORYOS_LONGMEMEVAL_READER_PROMPT_PROFILES))
+            raise ConfigurationError(
+                "MemoryOS longmemeval_prompt_profile must be one of: "
+                f"{allowed}"
+            )
 
         for field_name in (
             "short_term_capacity",
@@ -215,8 +238,8 @@ def build_memoryos_source_identity(
         dict: 组合 SHA-256、vendored 官方文件列表以及稳定 wrapper 审计字段。
 
     说明:
-        vendored 部分只覆盖 `MemoryOS-main/eval/*.py`、根 `README.md` 和
-        `LICENSE`；wrapper 部分只覆盖当前执行的
+        vendored 部分覆盖 `MemoryOS-main/eval/*.py`、根 `README.md`、`LICENSE` 和
+        可选 PyPI prompt profile 使用的 `memoryos-pypi/prompts.py`；wrapper 部分只覆盖当前执行的
         `src/memory_benchmark/methods/memoryos_adapter.py`。输出不暴露绝对路径。
     """
 
@@ -230,7 +253,11 @@ def build_memoryos_source_identity(
         ]
         + [
             path
-            for path in (memoryos_root / "README.md", memoryos_root / "LICENSE")
+            for path in (
+                memoryos_root / "README.md",
+                memoryos_root / "LICENSE",
+                memoryos_root / "memoryos-pypi" / "prompts.py",
+            )
             if path.is_file()
         ],
         key=lambda path: path.relative_to(memoryos_root).as_posix(),
@@ -624,6 +651,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem):
             query=effective_text,
             state=state,
             retrieval_result=retrieval_result,
+            longmemeval_prompt_profile=self.config.longmemeval_prompt_profile,
         )
         if collector is not None and collector.enabled:
             collector.record_retrieval_result(
@@ -646,7 +674,10 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem):
                 "answer_context": memory_context,
                 "retrieved_page_count": len(retrieval_queue),
                 "retrieved_knowledge_count": len(long_term_knowledge),
-                "answer_prompt_profile": _answer_prompt_profile_for_question(question),
+                "answer_prompt_profile": _answer_prompt_profile_for_question(
+                    question,
+                    self.config.longmemeval_prompt_profile,
+                ),
             },
         )
 
@@ -1360,11 +1391,14 @@ def _is_longmemeval_question(question: Question) -> bool:
     return category in LONGMEMEVAL_QUESTION_TYPES
 
 
-def _answer_prompt_profile_for_question(question: Question) -> str:
+def _answer_prompt_profile_for_question(
+    question: Question,
+    longmemeval_prompt_profile: str = MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION,
+) -> str:
     """返回当前 question 对应的 answer prompt profile 名称。"""
 
     if _is_longmemeval_question(question):
-        return MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION
+        return longmemeval_prompt_profile
     return "memoryos_official_eval"
 
 
@@ -1429,6 +1463,7 @@ def _build_memoryos_answer_prompt(
     query: str,
     state: MemoryOSConversationState,
     retrieval_result: dict[str, Any],
+    longmemeval_prompt_profile: str = MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION,
 ) -> tuple[list[PromptMessage], str, str]:
     """按 MemoryOS 官方 eval prompt 逻辑构造完整 answer role messages。"""
 
@@ -1515,6 +1550,66 @@ def _build_memoryos_answer_prompt(
                 "MemoryOS LongMemEval reader prompt requires question_time: "
                 f"{question.question_id}"
             )
+        if longmemeval_prompt_profile == MEMORYOS_PYPI_GENERIC_READER_PROMPT_VERSION:
+            query_with_time = (
+                f"Question time:{question.question_time} and question:{question.text}"
+            )
+            meta_data_text = "\n".join(
+                item
+                for item in (
+                    f"Question time: {question.question_time}",
+                    f"Question type: {question.category}" if question.category else "",
+                )
+                if item
+            )
+            system_prompt = (
+                "As a communication expert with outstanding communication habits, "
+                f"you embody the role of {speaker_b} throughout the following dialogues.\n"
+                "Here are some of your distinctive personal traits and knowledge:\n"
+                f"{assistant_knowledge_text}\n"
+                "User's profile:\n"
+                f"{meta_data_text or 'None'}\n"
+                "Your task is to generate responses that align with these traits "
+                "and maintain the tone.\n"
+            )
+            user_prompt = (
+                "<CONTEXT>\n"
+                "Drawing from your recent conversation with the user:\n"
+                f"{history_text}\n\n"
+                "<MEMORY>\n"
+                "The memories linked to the ongoing conversation are:\n"
+                f"{retrieval_text or '(No relevant historical memories found)'}\n\n"
+                "<USER TRAITS>\n"
+                "During the conversation process between you and the user in the "
+                "past, you found that the user has the following characteristics:\n"
+                f"{background}\n\n"
+                f"Now, please role-play as {speaker_b} to continue the dialogue "
+                "between you and the user.\n"
+                f"The user just said: {query_with_time}\n"
+                "Please respond to the user's statement using the following format "
+                "(maximum 30 words, must be in English):\n "
+                "When answering questions, be sure to check whether the timestamp "
+                "of the referenced information matches the timeframe of the question"
+            )
+            prompt_messages = [
+                PromptMessage(role="system", content=system_prompt),
+                PromptMessage(role="user", content=user_prompt),
+            ]
+            answer_prompt = "\n\n".join(
+                f"[{message.role}]\n{message.content}" for message in prompt_messages
+            )
+            memory_context = "\n\n".join(
+                text
+                for text in (
+                    history_text,
+                    retrieval_text,
+                    background,
+                    assistant_knowledge_text,
+                )
+                if text.strip()
+            )
+            return prompt_messages, answer_prompt, memory_context
+
         memory_sections = [
             "<CONTEXT>\n"
             f"Recent conversation between {speaker_a} and {speaker_b}:\n"

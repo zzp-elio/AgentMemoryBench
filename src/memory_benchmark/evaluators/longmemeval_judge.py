@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from memory_benchmark.core import AnswerResult, GoldAnswerInfo, Question
-from memory_benchmark.core.exceptions import ConfigurationError
+from memory_benchmark.core import AnswerResult, GoldAnswerInfo, MetricResult, Question
+from memory_benchmark.core.exceptions import ConfigurationError, JudgeOutputError
+from memory_benchmark.observability.efficiency import resolve_token_usage
 
-from .llm_judge import LLMJudgeEvaluator
+from .llm_judge import (
+    JudgeModelResponse,
+    LLMJudgeEvaluator,
+    _TiktokenCounter,
+    _extract_usage_tokens,
+    parse_judge_response,
+)
 
 
 _COMMON_QA_TASKS = frozenset(
@@ -22,6 +29,44 @@ class LongMemEvalJudgeEvaluator(LLMJudgeEvaluator):
 
     metric_name = "longmemeval_judge_accuracy"
     benchmark_name = "LongMemEval"
+
+    def evaluate(
+        self,
+        question: Question,
+        prediction: AnswerResult | str,
+        gold_answer: GoldAnswerInfo | str,
+    ) -> MetricResult:
+        """调用 LongMemEval judge 并返回单题 metric。
+
+        compact 模式按 LightMem LongMemEval 脚本解析 yes/no 输出，方便和
+        LightMem 论文结果比较；detailed 模式保留项目统一 JSON parser 供调试。
+        """
+
+        prompt = self.build_prompt(question, prediction, gold_answer)
+        model_response = self._call_model_with_usage(prompt)
+        self._record_judge_llm_call(model_response)
+        if self.mode.strip().lower() == "compact":
+            is_correct = _parse_lightmem_yes_no(model_response.text)
+            return MetricResult(
+                metric_name=self.metric_name,
+                score=1.0 if is_correct else 0.0,
+                is_correct=is_correct,
+                details={
+                    "reason": "",
+                    "raw_judge_response": model_response.text,
+                },
+            )
+
+        decision = parse_judge_response(model_response.text, mode=self.mode)
+        return MetricResult(
+            metric_name=self.metric_name,
+            score=1.0 if decision.is_correct else 0.0,
+            is_correct=decision.is_correct,
+            details={
+                "reason": decision.reason,
+                "raw_judge_response": model_response.text,
+            },
+        )
 
     def build_prompt(
         self,
@@ -53,12 +98,46 @@ class LongMemEvalJudgeEvaluator(LLMJudgeEvaluator):
             response=prediction_text,
             abstention=_is_abstention_question(question),
         )
+        if self.mode.strip().lower() == "compact":
+            return f"{body} Answer yes or no only."
+
         return (
             f"{body}\n\n"
             "Follow the LongMemEval rule above, but use the framework output format below.\n"
             "If the official yes/no decision is yes, output true. "
             "If the official yes/no decision is no, output false.\n"
             f"{self._output_instruction()}"
+        )
+
+    def _call_model_with_usage(self, prompt: str) -> JudgeModelResponse:
+        """按 LightMem LongMemEval wrapper 使用 Chat Completions 参数。"""
+
+        client = self._get_client()
+        model = self.model or self._get_settings().openai.model
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=2000,
+            temperature=0.0,
+            top_p=0.8,
+            stream=False,
+        )
+        text = response.choices[0].message.content
+        if not isinstance(text, str) or not text.strip():
+            raise JudgeOutputError("model response is empty")
+        input_tokens, output_tokens = _extract_usage_tokens(response)
+        usage = resolve_token_usage(
+            api_input_tokens=input_tokens,
+            api_output_tokens=output_tokens,
+            prompt_text=prompt,
+            output_text=text,
+            tokenizer=_TiktokenCounter(model),
+        )
+        return JudgeModelResponse(
+            text=text,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            token_measurement_source=usage.source,
         )
 
 
@@ -86,6 +165,32 @@ def _is_abstention_question(question: Question | str) -> bool:
     """LongMemEval 官方用 question_id 中 `_abs` 判断不可回答题。"""
 
     return isinstance(question, Question) and "_abs" in question.question_id
+
+
+def _parse_lightmem_yes_no(response: str) -> bool:
+    """按 LightMem LongMemEval `true_or_false()` 逻辑解析 yes/no。
+
+    LightMem 对无法识别的输出按错误答案处理，而不是抛异常。这里保留该行为，
+    便于论文结果对齐。
+    """
+
+    normalized = str(response).strip().lower()
+    if not normalized:
+        return False
+    first_line = normalized.splitlines()[0].strip()
+    tokens = first_line.replace(".", "").replace("!", "").replace(":", "").replace(";", "").split()
+    if not tokens:
+        return False
+    head = tokens[0]
+    if head in ("yes", "y"):
+        return True
+    if head in ("no", "n"):
+        return False
+    if "yes" in first_line:
+        return True
+    if "no" in first_line:
+        return False
+    return False
 
 
 def _build_official_longmemeval_judge_body(

@@ -340,6 +340,89 @@ class MemoryOSAdapterTests(unittest.TestCase):
         )
         self.assertIn("The user ordered jasmine tea.", retrieval.metadata["answer_context"])
 
+    def test_longmemeval_retrieve_can_use_memoryos_pypi_generic_prompt(self):
+        """MemoryOS 可选 PyPI generic prompt profile 应保留完整记忆上下文。
+
+        该 profile 不替代默认 LightMem-style LongMemEval QA prompt，只作为
+        MemoryOS-native 通用会话 prompt 的可选对照。
+        """
+
+        conversation = build_longmemeval_conversation()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            system = MemoryOS(
+                openai_api_key="unit-test-key",
+                openai_base_url="https://example.invalid/v1",
+                storage_root=Path(temp_dir),
+                config=MemoryOSPaperConfig(
+                    longmemeval_prompt_profile="memoryos_pypi_generic_v1"
+                ),
+            )
+            system.add(conversation)
+            state = system.get_debug_state(conversation.conversation_id)
+            state.long_memory.user_profiles[conversation.conversation_id] = {
+                "data": "User profile says the user prefers jasmine tea.",
+                "last_updated": "2026-01-02",
+            }
+            state.long_memory.assistant_knowledge.append(
+                {
+                    "knowledge": "I should answer drink questions concisely.",
+                    "timestamp": "2026-01-02",
+                }
+            )
+
+            def fake_retrieve(*_: object, **__: object) -> dict[str, object]:
+                """返回固定检索结果，避免调用官方检索 LLM。"""
+
+                return {
+                    "retrieval_queue": [
+                        {
+                            "user_input": "The user ordered jasmine tea.",
+                            "agent_response": "Tea preference noted.",
+                            "timestamp": "2026-01-03",
+                            "meta_info": "drink preference chain",
+                        }
+                    ],
+                    "long_term_knowledge": [
+                        {"knowledge": "Long-term knowledge: user avoids coffee."}
+                    ],
+                }
+
+            state.retrieval_system.retrieve = fake_retrieve
+
+            retrieval = system.retrieve(conversation.questions[0])
+
+        self.assertEqual(
+            [message.role for message in retrieval.prompt_messages],
+            ["system", "user"],
+        )
+        self.assertIn(
+            "As a communication expert",
+            retrieval.prompt_messages[0].content,
+        )
+        self.assertIn("role of assistant", retrieval.prompt_messages[0].content)
+        self.assertIn("User's profile:", retrieval.prompt_messages[0].content)
+        user_prompt = retrieval.prompt_messages[1].content
+        self.assertIn("<CONTEXT>", user_prompt)
+        self.assertIn("I prefer jasmine tea.", user_prompt)
+        self.assertIn("<MEMORY>", user_prompt)
+        self.assertIn("The user ordered jasmine tea.", user_prompt)
+        self.assertIn("drink preference chain", user_prompt)
+        self.assertIn("<USER TRAITS>", user_prompt)
+        self.assertIn("Long-term knowledge: user avoids coffee.", user_prompt)
+        self.assertIn("The user just said:", user_prompt)
+        self.assertIn(
+            "Question time:2026-01-04 and question:What drink does the user prefer?",
+            user_prompt,
+        )
+        self.assertEqual(
+            retrieval.metadata["answer_prompt_profile"],
+            "memoryos_pypi_generic_v1",
+        )
+        self.assertIn(
+            "user profile says the user prefers jasmine tea.",
+            retrieval.metadata["answer_context"],
+        )
+
     def test_estimate_add_workload_counts_pages_and_update_batches(self):
         """add 前应能估算 page 数和会触发的 MemoryOS 更新批次数。"""
 
@@ -1403,10 +1486,18 @@ def test_build_memoryos_source_identity_is_deterministic_and_scoped() -> None:
     assert first["vendored_source_mode"] == "vendored-official-eval"
     assert all(not path.startswith("/") for path in first["files"])
     assert all(
-        path == "README.md" or path == "LICENSE" or path.startswith("eval/")
+        path == "README.md"
+        or path == "LICENSE"
+        or path == "memoryos-pypi/prompts.py"
+        or path.startswith("eval/")
         for path in first["files"]
     )
-    assert all("/" not in path.removeprefix("eval/") or path.startswith("eval/") for path in first["files"])
+    assert all(
+        path == "memoryos-pypi/prompts.py"
+        or "/" not in path.removeprefix("eval/")
+        or path.startswith("eval/")
+        for path in first["files"]
+    )
     assert all("__pycache__" not in path for path in first["files"])
     assert all(not path.lower().endswith((".png", ".jpg", ".jpeg", ".pdf")) for path in first["files"])
     assert first["source_sha256"] != first["vendored_source_sha256"]

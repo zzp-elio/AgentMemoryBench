@@ -76,6 +76,7 @@ framework answer LLM(prompt_messages) -> answer
 事实来源：
 
 - `third_party/methods/MemoryOS-main/memoryos-pypi/memoryos.py`
+- `third_party/methods/MemoryOS-main/memoryos-pypi/prompts.py`
 - `third_party/methods/MemoryOS-main/eval/main_loco_parse.py`
 - `third_party/methods/MemoryOS-main/eval/retrieval_and_answer.py`
 - `src/memory_benchmark/methods/memoryos_adapter.py`
@@ -89,7 +90,8 @@ framework answer LLM(prompt_messages) -> answer
 | 官方回答流程 | `retrieve(...) -> generate_system_response_with_meta(...)` |
 | 模型配置 | 论文优先；当前 LoCoMo 运行使用 `gpt-4o-mini` 与本地/缓存 `all-MiniLM-L6-v2` |
 | API 配置 | OpenAI-compatible key/base URL 传给 MemoryOS eval client |
-| 当前 adapter 状态 | LoCoMo 路径基本按官方 eval wrapper 包装。`retrieve()` 已调用 `retrieval_system.retrieve(...)`；LoCoMo 分支按官方 eval prompt 结构把 retrieval queue 和 long-term knowledge 构造成 system+user `AnswerPromptResult.prompt_messages`；LongMemEval 分支复用 LightMem-style reader prompt，并保留 recent context、retrieval queue、user profile、long-term knowledge 和 assistant knowledge。旧 `get_answer()` 暂时保持原官方 `generate_system_response_with_meta(...)` 行为，避免破坏 system prompt observer 和历史复查路径 |
+| LongMemEval prompt profile | 默认 `lightmem_longmemeval_reader_v1`，用于和 LightMem LongMemEval QA 流程对比；可选 `memoryos_pypi_generic_v1`，复用 MemoryOS PyPI generic prompt 结构，但它不是 LongMemEval 专用 QA prompt |
+| 当前 adapter 状态 | LoCoMo 路径基本按官方 eval wrapper 包装。`retrieve()` 已调用 `retrieval_system.retrieve(...)`；LoCoMo 分支按官方 eval prompt 结构把 retrieval queue 和 long-term knowledge 构造成 system+user `AnswerPromptResult.prompt_messages`；LongMemEval 默认分支复用 LightMem-style reader prompt，并保留 recent context、retrieval queue、user profile、long-term knowledge 和 assistant knowledge；可选 PyPI generic 分支也保留这些上下文。旧 `get_answer()` 暂时保持原官方 `generate_system_response_with_meta(...)` 行为，避免破坏 system prompt observer 和历史复查路径 |
 
 ## A-Mem
 
@@ -111,6 +113,7 @@ framework answer LLM(prompt_messages) -> answer
 | 私有字段冲突 | `answer_question(..., answer)` 对 adversarial 类别会使用 gold answer 构造二选一 prompt，和本项目普通 public-input 规则冲突 |
 | 模型配置 | Table 1 GPT-4o-mini profile 使用 `gpt-4o-mini`；embedding `all-MiniLM-L6-v2`；按类别 Table 8 `k` |
 | API 配置 | robust LLM controller 需要 API key/base URL；当前 adapter 在 wrapper 层显式替换官方 OpenAI client，保证 OpenAI-compatible `base_url` 生效 |
+| generic reader prompt | 本地 A-Mem 仓库未发现类似 MemoryOS PyPI `prompts.py` 的通用 answer-reader prompt；只有 LoCoMo 评测 reader prompt 和 memory construction/evolution prompt |
 | 当前 adapter 状态 | 写入粒度对齐；QA 已补齐官方 `generate_query_llm()` 等价关键词生成和 Table 8 GPT-4o-mini 类别 `k`；category 5 adversarial 因官方 prompt 需要 gold answer，当前按 public-input 规则显式拒绝。`retrieve()` 已保留 query keyword generation、category `k`、retriever 输出和 answer prompt 构造；LoCoMo 使用 A-Mem 官方 prompt 结构，LongMemEval 复用 LightMem-style reader prompt 并填入 A-Mem memory context，返回 system+user `AnswerPromptResult.prompt_messages`；旧 `get_answer()` 暂时作为兼容 wrapper |
 
 ## LightMem

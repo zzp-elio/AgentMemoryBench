@@ -59,9 +59,13 @@ LongMemEval 适配正在收尾：Mem0 和 LightMem 使用各自已有 LongMemEva
 A-Mem 和 MemoryOS 已补 retrieve-first LongMemEval 分支，复用 LightMem-style reader
 prompt，同时保留各自 method-specific 记忆上下文。A-Mem 保留 query keywords、category
 k 和 memory context；MemoryOS 保留 recent context、retrieval queue、user profile、
-long-term knowledge 和 assistant knowledge。LongMemEval judge prompt 已迁移为官方
-task-specific 规则。上述代码路径已通过离线 focused 测试，但真实 LongMemEval-S API
-smoke 仍需用户确认规模、预算和 `run_id` 后执行。
+long-term knowledge 和 assistant knowledge。MemoryOS 还额外支持可选
+`memoryos_pypi_generic_v1` reader profile，用于复用 MemoryOS PyPI generic prompt
+结构，但默认仍是 LightMem-style LongMemEval QA prompt。LongMemEval judge 默认走
+LightMem LongMemEval 流程：task-specific yes/no prompt、Chat Completions、
+`temperature=0.0`、`top_p=0.8`、`max_tokens=2000`，便于和 LightMem 论文结果对比。
+上述代码路径已通过离线 focused 测试，但真实 LongMemEval-S API smoke 仍需用户确认
+规模、预算和 `run_id` 后执行。
 
 LLM/provider 灵活配置方向也已完成设计：
 [LLM Provider 与 Prompt 配置设计](docs/superpowers/specs/2026-06-21-llm-provider-config-design.md)。
