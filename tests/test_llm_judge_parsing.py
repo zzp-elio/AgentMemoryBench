@@ -107,7 +107,7 @@ class JudgePromptBuilderTest(unittest.TestCase):
         self.assertNotIn("OPENAI", prompt.upper())
 
     def test_longmemeval_prompt_includes_inputs_without_api_key(self) -> None:
-        """LongMemEval prompt 应包含题目、预测和标准答案，但不包含 API key。"""
+        """LongMemEval prompt 应包含官方 common QA 规则和三类输入。"""
 
         prompt = LongMemEvalJudgeEvaluator().build_prompt(
             self.question,
@@ -115,7 +115,7 @@ class JudgePromptBuilderTest(unittest.TestCase):
             self.gold,
         )
 
-        self.assertIn("LongMemEval", prompt)
+        self.assertIn("If the response only contains a subset", prompt)
         self.assertIn(self.question.text, prompt)
         self.assertIn(self.prediction.answer, prompt)
         self.assertIn(self.gold.answer, prompt)
@@ -149,6 +149,91 @@ class JudgePromptBuilderTest(unittest.TestCase):
         self.assertIn("false", prompt.lower())
         self.assertNotIn("Return JSON", prompt)
         self.assertNotIn("is_correct", prompt)
+
+    def test_longmemeval_temporal_prompt_allows_off_by_one_errors(self) -> None:
+        """temporal-reasoning 分支应迁移官方 off-by-one 容错规则。"""
+
+        temporal_question = Question(
+            question_id="q-temporal",
+            conversation_id="conv1",
+            text="How many days passed?",
+            category="temporal-reasoning",
+        )
+
+        prompt = LongMemEvalJudgeEvaluator(mode="compact").build_prompt(
+            temporal_question,
+            self.prediction,
+            self.gold,
+        )
+
+        self.assertIn("do not penalize off-by-one errors", prompt)
+        self.assertIn("19 days when the answer is 18", prompt)
+        self.assertIn("Return exactly one lowercase word: true or false.", prompt)
+
+    def test_longmemeval_knowledge_update_prompt_allows_previous_information(
+        self,
+    ) -> None:
+        """knowledge-update 分支应迁移官方“旧信息+更新答案”规则。"""
+
+        update_question = Question(
+            question_id="q-update",
+            conversation_id="conv1",
+            text="Where does Alice live now?",
+            category="knowledge-update",
+        )
+
+        prompt = LongMemEvalJudgeEvaluator(mode="compact").build_prompt(
+            update_question,
+            self.prediction,
+            self.gold,
+        )
+
+        self.assertIn("previous information along with an updated answer", prompt)
+        self.assertIn("updated answer is the required answer", prompt)
+
+    def test_longmemeval_preference_prompt_uses_rubric_wording(self) -> None:
+        """single-session-preference 分支应把 gold answer 当作 personalized rubric。"""
+
+        preference_question = Question(
+            question_id="q-preference",
+            conversation_id="conv1",
+            text="Recommend a drink for Alice.",
+            category="single-session-preference",
+        )
+
+        prompt = LongMemEvalJudgeEvaluator(mode="compact").build_prompt(
+            preference_question,
+            self.prediction,
+            self.gold,
+        )
+
+        self.assertIn("rubric for desired personalized response", prompt)
+        self.assertIn("Rubric: green tea", prompt)
+        self.assertIn("utilizes the user's personal information correctly", prompt)
+
+    def test_longmemeval_abstention_prompt_uses_unanswerable_rule(self) -> None:
+        """question_id 含 `_abs` 时应走官方不可回答题判分规则。"""
+
+        abstention_question = Question(
+            question_id="q_abs_1",
+            conversation_id="conv1",
+            text="What is Alice's passport number?",
+            category="single-session-user",
+        )
+        gold = GoldAnswerInfo(
+            question_id="q_abs_1",
+            answer="The conversation never mentions Alice's passport number.",
+        )
+
+        prompt = LongMemEvalJudgeEvaluator(mode="compact").build_prompt(
+            abstention_question,
+            self.prediction,
+            gold,
+        )
+
+        self.assertIn("unanswerable question", prompt)
+        self.assertIn("Explanation:", prompt)
+        self.assertIn("correctly identify the question as unanswerable", prompt)
 
 
 if __name__ == "__main__":

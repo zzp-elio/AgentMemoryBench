@@ -78,6 +78,51 @@ def build_small_conversation() -> Conversation:
     )
 
 
+def build_longmemeval_conversation() -> Conversation:
+    """构造 LongMemEval 风格 conversation。
+
+    输入:
+        无。
+
+    输出:
+        Conversation: 一个 LongMemEval instance 映射成的 conversation；speaker 使用
+        `user` / `assistant`，haystack date 放在 `session_time`，question date 放在
+        `question_time`。
+    """
+
+    question = Question(
+        question_id="lme:q1",
+        conversation_id="lme:q1",
+        text="What drink does the user prefer?",
+        question_time="2026-01-04",
+        category="single-session-user",
+        metadata={"source_format": "longmemeval"},
+    )
+    return Conversation(
+        conversation_id="lme:q1",
+        sessions=[
+            Session(
+                session_id="haystack-1",
+                session_time="2026-01-01",
+                turns=[
+                    Turn(turn_id="haystack-1:t0", speaker="user", content="I prefer jasmine tea."),
+                    Turn(turn_id="haystack-1:t1", speaker="assistant", content="I will remember that."),
+                ],
+                metadata={"source_format": "longmemeval_haystack_session"},
+            )
+        ],
+        questions=[question],
+        gold_answers={
+            question.question_id: GoldAnswerInfo(
+                question_id=question.question_id,
+                answer="jasmine tea",
+                evidence=["haystack-1"],
+            )
+        },
+        metadata={"source_path": "data/longmemeval/longmemeval_s_cleaned.json"},
+    )
+
+
 class MemoryOSAdapterTests(unittest.TestCase):
     """验证 MemoryOS wrapper 的核心无网络行为。"""
 
@@ -211,6 +256,89 @@ class MemoryOSAdapterTests(unittest.TestCase):
         self.assertEqual(retrieval.metadata["method"], "MemoryOS")
         self.assertEqual(retrieval.metadata["retrieved_page_count"], 1)
         self.assertEqual(retrieval.metadata["retrieved_knowledge_count"], 1)
+
+    def test_longmemeval_retrieve_preserves_memoryos_context_sections(self):
+        """LongMemEval prompt 不能丢掉 MemoryOS 的短中长期记忆上下文。
+
+        MemoryOS 的核心不是单一 retrieval string；LongMemEval reader prompt 必须保留
+        recent short memory、retrieval queue、user profile、long-term knowledge 和
+        assistant knowledge，再使用 LightMem-style question_time 入口。
+        """
+
+        conversation = build_longmemeval_conversation()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            system = MemoryOS(
+                openai_api_key="unit-test-key",
+                openai_base_url="https://example.invalid/v1",
+                storage_root=Path(temp_dir),
+            )
+            system.add(conversation)
+            state = system.get_debug_state(conversation.conversation_id)
+            state.long_memory.user_profiles[conversation.conversation_id] = {
+                "data": "User profile says the user prefers tea.",
+                "last_updated": "2026-01-02",
+            }
+            state.long_memory.assistant_knowledge.append(
+                {
+                    "knowledge": "I should answer drink questions concisely.",
+                    "timestamp": "2026-01-02",
+                }
+            )
+
+            def fake_retrieve(*_: object, **__: object) -> dict[str, object]:
+                """返回固定检索结果，避免调用官方检索 LLM。"""
+
+                return {
+                    "retrieval_queue": [
+                        {
+                            "user_input": "The user ordered jasmine tea.",
+                            "agent_response": "Tea preference noted.",
+                            "timestamp": "2026-01-03",
+                            "meta_info": "drink preference chain",
+                        }
+                    ],
+                    "long_term_knowledge": [
+                        {"knowledge": "Long-term knowledge: user avoids coffee."}
+                    ],
+                }
+
+            state.retrieval_system.retrieve = fake_retrieve
+
+            retrieval = system.retrieve(conversation.questions[0])
+
+        self.assertEqual(
+            [message.role for message in retrieval.prompt_messages],
+            ["system", "user"],
+        )
+        self.assertEqual(
+            retrieval.prompt_messages[0].content,
+            "You are a helpful assistant.",
+        )
+        user_prompt = retrieval.prompt_messages[1].content
+        self.assertIn(
+            "Question time:2026-01-04 and question:What drink does the user prefer?",
+            user_prompt,
+        )
+        self.assertIn("Please answer the question based on the following memories:", user_prompt)
+        self.assertIn("<CONTEXT>", user_prompt)
+        self.assertIn("user: I prefer jasmine tea.", user_prompt)
+        self.assertIn("<MEMORY>", user_prompt)
+        self.assertIn("The user ordered jasmine tea.", user_prompt)
+        self.assertIn("drink preference chain", user_prompt)
+        self.assertIn("<CHARACTER TRAITS>", user_prompt)
+        self.assertIn("user profile says the user prefers tea.", user_prompt)
+        self.assertIn("Long-term knowledge: user avoids coffee.", user_prompt)
+        self.assertIn("<ASSISTANT KNOWLEDGE>", user_prompt)
+        self.assertIn("assistant should answer drink questions concisely.", user_prompt)
+        self.assertEqual(
+            retrieval.metadata["answer_prompt_profile"],
+            "lightmem_longmemeval_reader_v1",
+        )
+        self.assertIn(
+            "user profile says the user prefers tea.",
+            retrieval.metadata["answer_context"],
+        )
+        self.assertIn("The user ordered jasmine tea.", retrieval.metadata["answer_context"])
 
     def test_estimate_add_workload_counts_pages_and_update_batches(self):
         """add 前应能估算 page 数和会触发的 MemoryOS 更新批次数。"""

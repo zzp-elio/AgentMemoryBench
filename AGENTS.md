@@ -39,6 +39,21 @@
 
 ## 当前断点
 
+- 2026-06-22 最新 LongMemEval 适配进展：
+  `docs/superpowers/specs/2026-06-22-amem-memoryos-longmemeval-design.md` 和
+  `docs/superpowers/plans/2026-06-22-amem-memoryos-longmemeval.md`；交接为
+  `docs/handoffs/2026-06-22-amem-memoryos-longmemeval-adapter.md`。A-Mem / MemoryOS
+  已完成 LongMemEval retrieve-first 代码主体适配：二者都复用 LightMem-style
+  LongMemEval reader prompt（`system: You are a helpful assistant.` +
+  `Question time:<date> and question:<question>`），但必须保留各自 method-specific
+  记忆上下文。A-Mem 保留官方 query keyword generation、category k、memory
+  context 和 metadata；MemoryOS 保留 recent context、retrieval queue、user profile、
+  long-term knowledge 和 assistant knowledge。A-Mem / MemoryOS LongMemEval answer LLM
+  参数已设为 `temperature=0.0, top_p=0.8, max_tokens=2000`。LongMemEval judge prompt
+  已迁移为官方 `evaluate_qa.py` task-specific 规则，并保持本项目 compact/detailed
+  parser 兼容。已验证 focused 回归
+  `tests/test_amem_adapter.py tests/test_memoryos_adapter.py tests/test_config_profiles.py tests/test_llm_judge_parsing.py`
+  为 `176 passed, 1 warning, 2 subtests passed`；尚未执行真实 LongMemEval-S API smoke。
 - 2026-06-22 最新 smoke 结论：
   `docs/handoffs/2026-06-22-strict-retrieve-first-locomo-smoke-success.md`。
   用户已用新 run id 严格重跑 LoCoMo retrieve-first 极小真实 smoke：
@@ -89,8 +104,9 @@
   并在 registered prediction 中按 method × benchmark 解析官方 answer 参数：Mem0
   LoCoMo/LongMemEval `temperature=0,max_tokens=4096`；A-Mem LoCoMo
   `temperature=0.7,max_tokens=1000`；LightMem LoCoMo `temperature=0.0`；
-  LightMem LongMemEval `temperature=0.0,top_p=0.8,max_tokens=2000`；MemoryOS
-  LoCoMo `temperature=0.7,max_tokens=2000`。OpenAI-compatible answer client
+  A-Mem / LightMem / MemoryOS LongMemEval
+  `temperature=0.0,top_p=0.8,max_tokens=2000`；MemoryOS LoCoMo
+  `temperature=0.7,max_tokens=2000`。OpenAI-compatible answer client
   只传非空参数，manifest 写入 `answer_parameters`，framework answer model
   inventory 使用最终 model。实现交接：
   `docs/handoffs/2026-06-22-answer-llm-settings-implementation.md`。

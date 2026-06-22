@@ -192,6 +192,58 @@ def _conversation_with_private_gold() -> Conversation:
     )
 
 
+def _longmemeval_conversation() -> Conversation:
+    """构造 LongMemEval 风格 conversation，用于验证 question_time reader prompt。
+
+    输入:
+        无。
+
+    输出:
+        Conversation: 一个 LongMemEval instance 映射成的 conversation；haystack
+        date 放在 `session_time`，question date 放在 `question_time`。
+    """
+
+    question = Question(
+        question_id="lme:q1",
+        conversation_id="lme:q1",
+        text="What tea does the user like?",
+        question_time="2026-01-04",
+        category="single-session-user",
+        metadata={"source_format": "longmemeval"},
+    )
+    return Conversation(
+        conversation_id="lme:q1",
+        sessions=[
+            Session(
+                session_id="haystack-1",
+                session_time="2026-01-01",
+                turns=[
+                    Turn(
+                        turn_id="haystack-1:t0",
+                        speaker="user",
+                        content="I like jasmine tea.",
+                    ),
+                    Turn(
+                        turn_id="haystack-1:t1",
+                        speaker="assistant",
+                        content="I will remember that.",
+                    ),
+                ],
+                metadata={"source_format": "longmemeval_haystack_session"},
+            )
+        ],
+        questions=[question],
+        gold_answers={
+            question.question_id: GoldAnswerInfo(
+                question_id=question.question_id,
+                answer="jasmine tea",
+                evidence=["haystack-1"],
+            )
+        },
+        metadata={"source_path": "data/longmemeval/longmemeval_s_cleaned.json"},
+    )
+
+
 def test_amem_add_and_get_answer_never_pass_private_gold_to_method(tmp_path) -> None:
     """A-Mem wrapper 只能把公开 conversation 和 question 传给第三方 runtime。"""
 
@@ -273,6 +325,51 @@ def test_amem_retrieve_returns_query_keywords_and_context(tmp_path) -> None:
     assert "generate several keywords separated by commas" in str(
         llm.prompts[0]["prompt"]
     )
+
+
+def test_amem_longmemeval_retrieve_uses_lightmem_style_reader_prompt(tmp_path) -> None:
+    """A-Mem LongMemEval prompt 应保留 method-specific memory context。
+
+    该测试不调用真实 API；fake LLM 只返回检索关键词，fake runtime 返回固定
+    `memory content/context/keywords/tags` 字符串，验证 adapter 不会把 A-Mem 的
+    检索上下文丢掉。
+    """
+
+    runtime = FakeAMemRuntime()
+    llm = FakeAMemLLM()
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=3,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda conversation_id: runtime,
+        answer_llm=llm,
+        storage_root=tmp_path,
+    )
+    conversation = _longmemeval_conversation()
+
+    method.add(conversation)
+    retrieval = method.retrieve(conversation.questions[0])
+
+    assert [message.role for message in retrieval.prompt_messages] == [
+        "system",
+        "user",
+    ]
+    assert retrieval.prompt_messages[0].content == "You are a helpful assistant."
+    user_prompt = retrieval.prompt_messages[1].content
+    assert (
+        "Question time:2026-01-04 and question:What tea does the user like?"
+        in user_prompt
+    )
+    assert "Please answer the question based on the following memories:" in user_prompt
+    assert "memory content from fake runtime" in user_prompt
+    assert retrieval.metadata["answer_context"] == "memory content from fake runtime"
+    assert retrieval.metadata["answer_prompt_profile"] == "lightmem_longmemeval_reader_v1"
+    assert retrieval.metadata["query_keywords"] == "generated keywords"
+    assert retrieval.metadata["retrieve_k"] == 3
 
 
 def test_amem_add_persists_conversation_state(tmp_path) -> None:

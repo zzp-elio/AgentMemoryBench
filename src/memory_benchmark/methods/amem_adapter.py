@@ -43,9 +43,20 @@ from memory_benchmark.storage import atomic_write_json
 AMEM_METHOD_DIRECTORY = "A-mem"
 AMEM_ADAPTER_VERSION = "conversation-qa-v1"
 AMEM_READER_PROMPT_VERSION = "amem-reader-v1"
+AMEM_LONGMEMEVAL_READER_PROMPT_VERSION = "lightmem_longmemeval_reader_v1"
 AMEM_QUERY_KEYWORD_PROMPT_VERSION = "amem-query-keywords-v1"
 AMEM_ANSWER_SYSTEM_MESSAGE = (
     "Follow the format specified in the prompt exactly. Do not add extra commentary."
+)
+LONGMEMEVAL_QUESTION_TYPES = frozenset(
+    {
+        "single-session-user",
+        "single-session-assistant",
+        "single-session-preference",
+        "temporal-reasoning",
+        "knowledge-update",
+        "multi-session",
+    }
 )
 AMEM_STATE_SCHEMA_VERSION = 1
 AMEM_MEMORIES_FILENAME = "memories.pkl"
@@ -350,6 +361,10 @@ class AMem(BaseMemoryProvider, BaseMemorySystem):
             question=question,
             memory_context=memory_context,
         )
+        prompt_messages = self._build_prompt_messages(
+            question=question,
+            answer_prompt=answer_prompt,
+        )
         if collector is not None and collector.enabled:
             collector.record_retrieval_result(
                 latency_ms=retrieval_latency_ms,
@@ -363,16 +378,13 @@ class AMem(BaseMemoryProvider, BaseMemorySystem):
             question_id=question.question_id,
             conversation_id=question.conversation_id,
             answer_prompt=answer_prompt,
-            prompt_messages=[
-                PromptMessage(role="system", content=AMEM_ANSWER_SYSTEM_MESSAGE),
-                PromptMessage(role="user", content=answer_prompt),
-            ],
+            prompt_messages=prompt_messages,
             metadata={
                 "method": "amem",
                 "answer_context": memory_context,
                 "retrieve_k": retrieve_k,
                 "query_keywords": query_keywords,
-                "answer_prompt_profile": AMEM_READER_PROMPT_VERSION,
+                "answer_prompt_profile": _answer_prompt_profile_for_question(question),
                 "query_keyword_prompt_version": AMEM_QUERY_KEYWORD_PROMPT_VERSION,
             },
         )
@@ -683,6 +695,19 @@ class AMem(BaseMemoryProvider, BaseMemorySystem):
     def _build_answer_prompt(self, question: Question, memory_context: str) -> str:
         """构造不含 gold answer 的固定 reader prompt。"""
 
+        if _is_longmemeval_question(question):
+            if not question.question_time:
+                raise ConfigurationError(
+                    "A-Mem LongMemEval reader prompt requires question_time: "
+                    f"{question.question_id}"
+                )
+            memories = memory_context.strip() or "(No relevant memories found)"
+            return (
+                f"Question time:{question.question_time} and question:{question.text}\n"
+                "Please answer the question based on the following memories: "
+                f"{memories}"
+            )
+
         question_text = _effective_question_text(question)
         if question.category == "2":
             return (
@@ -697,6 +722,28 @@ class AMem(BaseMemoryProvider, BaseMemorySystem):
             "short phrase for the following question. Answer with exact words from the "
             f"context whenever possible.\n\nQuestion: {question_text} Short answer:"
         )
+
+    def _build_prompt_messages(
+        self,
+        *,
+        question: Question,
+        answer_prompt: str,
+    ) -> list[PromptMessage]:
+        """构造 answer LLM role messages。
+
+        LongMemEval 使用 LightMem 论文脚本里的通用 reader 形态；其他 benchmark
+        保持 A-Mem robust LoCoMo prompt 的 system + user 结构。
+        """
+
+        if _is_longmemeval_question(question):
+            return [
+                PromptMessage(role="system", content="You are a helpful assistant."),
+                PromptMessage(role="user", content=answer_prompt),
+            ]
+        return [
+            PromptMessage(role="system", content=AMEM_ANSWER_SYSTEM_MESSAGE),
+            PromptMessage(role="user", content=answer_prompt),
+        ]
 
     def _generate_query_keywords(self, question: Question, runtime: Any) -> str:
         """按 A-Mem 官方 robust QA 脚本先把问题改写为检索关键词。
@@ -879,6 +926,23 @@ def _normalize_category(category: object) -> str | None:
         return None
     category_text = str(category).strip()
     return category_text or None
+
+
+def _is_longmemeval_question(question: Question) -> bool:
+    """判断问题是否应使用 LongMemEval reader prompt。"""
+
+    if question.question_time:
+        return True
+    category = _normalize_category(question.category)
+    return category in LONGMEMEVAL_QUESTION_TYPES
+
+
+def _answer_prompt_profile_for_question(question: Question) -> str:
+    """返回当前 question 对应的 answer prompt profile 名称。"""
+
+    if _is_longmemeval_question(question):
+        return AMEM_LONGMEMEVAL_READER_PROMPT_VERSION
+    return AMEM_READER_PROMPT_VERSION
 
 
 def _parse_keywords_response(response: str) -> str:

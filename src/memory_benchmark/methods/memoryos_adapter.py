@@ -57,6 +57,17 @@ MEMORYOS_WRAPPER_SOURCE_MODE = "official-eval-wrapper"
 MEMORYOS_VENDORED_SOURCE_MODE = "vendored-official-eval"
 MEMORYOS_COMBINED_SOURCE_MODE = "vendored-official-eval-with-framework-wrapper"
 MEMORYOS_WRAPPER_LOGICAL_PATH = "src/memory_benchmark/methods/memoryos_adapter.py"
+MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION = "lightmem_longmemeval_reader_v1"
+LONGMEMEVAL_QUESTION_TYPES = frozenset(
+    {
+        "single-session-user",
+        "single-session-assistant",
+        "single-session-preference",
+        "temporal-reasoning",
+        "knowledge-update",
+        "multi-session",
+    }
+)
 MEMORYOS_EVAL_MODULE_NAMES = [
     "utils",
     "short_term_memory",
@@ -609,6 +620,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem):
                     client=self._client,
                 )
         prompt_messages, answer_prompt, memory_context = _build_memoryos_answer_prompt(
+            question=question,
             query=effective_text,
             state=state,
             retrieval_result=retrieval_result,
@@ -634,7 +646,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem):
                 "answer_context": memory_context,
                 "retrieved_page_count": len(retrieval_queue),
                 "retrieved_knowledge_count": len(long_term_knowledge),
-                "answer_prompt_profile": "memoryos_official_eval",
+                "answer_prompt_profile": _answer_prompt_profile_for_question(question),
             },
         )
 
@@ -1330,6 +1342,32 @@ def _effective_question_text(question: Question) -> str:
     return str(question.text)
 
 
+def _normalize_category(category: object) -> str | None:
+    """把 question category 归一为非空字符串。"""
+
+    if category is None:
+        return None
+    category_text = str(category).strip()
+    return category_text or None
+
+
+def _is_longmemeval_question(question: Question) -> bool:
+    """判断问题是否应使用 LongMemEval reader prompt。"""
+
+    if question.question_time:
+        return True
+    category = _normalize_category(question.category)
+    return category in LONGMEMEVAL_QUESTION_TYPES
+
+
+def _answer_prompt_profile_for_question(question: Question) -> str:
+    """返回当前 question 对应的 answer prompt profile 名称。"""
+
+    if _is_longmemeval_question(question):
+        return MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION
+    return "memoryos_official_eval"
+
+
 def _elapsed_ms(started_ns: int) -> float:
     """把 perf_counter_ns 起点转换为非负毫秒。"""
 
@@ -1387,6 +1425,7 @@ def _memoryos_retrieved_context_text(retrieval_result: dict[str, Any]) -> str:
 
 def _build_memoryos_answer_prompt(
     *,
+    question: Question,
     query: str,
     state: MemoryOSConversationState,
     retrieval_result: dict[str, Any],
@@ -1470,6 +1509,42 @@ def _build_memoryos_answer_prompt(
         )
         if text.strip()
     )
+    if _is_longmemeval_question(question):
+        if not question.question_time:
+            raise ConfigurationError(
+                "MemoryOS LongMemEval reader prompt requires question_time: "
+                f"{question.question_id}"
+            )
+        memory_sections = [
+            "<CONTEXT>\n"
+            f"Recent conversation between {speaker_a} and {speaker_b}:\n"
+            f"{history_text}",
+            "<MEMORY>\n"
+            "Relevant past conversations:\n"
+            f"{retrieval_text or '(No relevant historical memories found)'}",
+            "<CHARACTER TRAITS>\n"
+            f"Characteristics of {speaker_a}:\n"
+            f"{background}",
+            "<ASSISTANT KNOWLEDGE>\n"
+            f"{assistant_knowledge_text}",
+        ]
+        longmemeval_memory_context = "\n\n".join(
+            section for section in memory_sections if section.strip()
+        )
+        user_prompt = (
+            f"Question time:{question.question_time} and question:{question.text}\n"
+            "Please answer the question based on the following memories: "
+            f"{longmemeval_memory_context}"
+        )
+        prompt_messages = [
+            PromptMessage(role="system", content="You are a helpful assistant."),
+            PromptMessage(role="user", content=user_prompt),
+        ]
+        answer_prompt = "\n\n".join(
+            f"[{message.role}]\n{message.content}" for message in prompt_messages
+        )
+        return prompt_messages, answer_prompt, longmemeval_memory_context
+
     prompt_messages = [
         PromptMessage(role="system", content=system_prompt),
         PromptMessage(role="user", content=user_prompt),

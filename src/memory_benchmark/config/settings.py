@@ -264,7 +264,11 @@ def resolve_answer_llm_settings(
             max_tokens=None,
             top_p=None,
         )
-    if key == ("lightmem", "longmemeval"):
+    if key in {
+        ("amem", "longmemeval"),
+        ("lightmem", "longmemeval"),
+        ("memoryos", "longmemeval"),
+    }:
         return AnswerLLMSettings(
             model=model,
             message_role="user",

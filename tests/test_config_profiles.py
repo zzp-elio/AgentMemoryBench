@@ -12,7 +12,11 @@ from pathlib import Path
 import pytest
 
 from memory_benchmark.config.profiles import load_typed_profile
-from memory_benchmark.config.settings import load_openai_settings, load_path_settings
+from memory_benchmark.config.settings import (
+    load_openai_settings,
+    load_path_settings,
+    resolve_answer_llm_settings,
+)
 from memory_benchmark.core import ConfigurationError
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.methods.memoryos_adapter import MemoryOSPaperConfig
@@ -238,3 +242,26 @@ def test_load_path_settings_exposes_phase_e_project_roots() -> None:
     assert paths.data_root == PROJECT_ROOT / "data"
     assert paths.third_party_benchmarks_root == PROJECT_ROOT / "third_party" / "benchmarks"
     assert paths.third_party_methods_root == PROJECT_ROOT / "third_party" / "methods"
+
+
+@pytest.mark.parametrize("method_name", ["amem", "lightmem", "memoryos"])
+def test_longmemeval_answer_llm_settings_follow_lightmem_profile(
+    method_name: str,
+) -> None:
+    """LongMemEval reader LLM 参数应复用 LightMem 表格实验配置。
+
+    A-Mem 和 MemoryOS 没有官方 LongMemEval reader 脚本；当前框架按用户决策复用
+    LightMem LongMemEval 的 reader profile，因此 answer LLM 参数也必须保持一致。
+    """
+
+    settings = resolve_answer_llm_settings(
+        method_name=method_name,
+        benchmark_name="longmemeval",
+        model="gpt-4o-mini",
+    )
+
+    assert settings.model == "gpt-4o-mini"
+    assert settings.message_role == "user"
+    assert settings.temperature == 0.0
+    assert settings.top_p == 0.8
+    assert settings.max_tokens == 2000

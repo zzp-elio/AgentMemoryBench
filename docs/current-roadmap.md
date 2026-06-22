@@ -366,8 +366,13 @@ MemoryOS PyPI backend 已降为低优先级，本阶段不实现。
   `retrieve-first-strict-locomo-{mem0,memoryos,amem,lightmem}-smoke-2c20t-w2-20260622`
   严格重跑并确认四个 run 均有 `answer_prompts.prediction.jsonl` 和非空
   `prompt_messages`。
-- [ ] 讨论并确认 LongMemEval-S 最小 smoke 方案：reader answer prompt、LLM judge
-  prompt/model、question_time 使用、以及 A-Mem/MemoryOS 是否在 retrieve-first 下可纳入。
+- [x] 讨论并确认 LongMemEval-S 最小 smoke 方案的核心适配口径：LongMemEval 的
+  `question_time` 必须进入 answer prompt；A-Mem / MemoryOS 可在 retrieve-first 下纳入，
+  但必须保留各自 method-specific 检索上下文。A-Mem / MemoryOS 现复用
+  LightMem-style LongMemEval reader prompt，并分别保留 A-Mem memory context、query
+  keywords、category k，以及 MemoryOS recent context、retrieval queue、user profile、
+  long-term knowledge 和 assistant knowledge。LongMemEval judge prompt 已迁移为官方
+  task-specific 规则。真实 LongMemEval-S smoke 仍需用户确认 run_id、规模和预算。
 - [ ] 复用 prediction artifact 计算 LoCoMo F1。
 - [x] LoCoMo LLM judge prompt 已由用户/OpenCode 对齐为 LightMem 官方风格，compact
   模式解析 CORRECT/WRONG；evaluator runner 已支持 `--max-eval-workers` 并行 judge，
@@ -441,13 +446,17 @@ evaluate
   和官方 LoCoMo / LongMemEval prompt 构造，旧 `get_answer()` 暂时作为兼容 wrapper。
 - [x] A-Mem adapter 已迁移到 `retrieve(question) -> AnswerPromptResult`：保留官方 query
   keyword generation、Table 8 category k、adversarial public-input 拒绝、retrieval
-  efficiency observation 和 answer prompt 构造；旧 `get_answer()` 暂时作为兼容 wrapper。
+  efficiency observation 和 answer prompt 构造；LongMemEval 分支复用 LightMem-style
+  reader prompt，并保留 A-Mem 检索出的完整 memory context；旧 `get_answer()` 暂时作为
+  兼容 wrapper。
 - [x] LightMem adapter 已迁移到 `retrieve(question) -> AnswerPromptResult`：LoCoMo 继续走
   `search_locomo.py` 风格 Qdrant payload/vector combined 检索，LongMemEval 继续走
   `LightMemory.retrieve()` online 路径，并由 adapter 构造完整 answer prompt；旧
   `get_answer()` 暂时作为兼容 wrapper。
 - [x] MemoryOS adapter 已迁移到 `retrieve(question) -> AnswerPromptResult`：调用官方 eval
-  `retrieval_system.retrieve(...)`，并按官方 eval prompt 结构构造完整 answer prompt；旧
+  `retrieval_system.retrieve(...)`；LoCoMo 按官方 eval prompt 结构构造完整 answer
+  prompt，LongMemEval 分支复用 LightMem-style reader prompt，并保留 recent context、
+  retrieval queue、user profile、long-term knowledge 和 assistant knowledge；旧
   `get_answer()` 保持原行为，避免破坏 system prompt observer 和历史复查路径。
 - [x] Mem0/A-Mem/LightMem/MemoryOS 已继承 `BaseMemoryProvider`，并让 `add()` 在迁移期同时兼容单个
   `Conversation` 和旧 list 输入；普通 runner 可进入 retrieve-first 分支。
