@@ -26,9 +26,34 @@
 - Registry / capability 减重方向已记录在
   `docs/superpowers/specs/2026-06-21-registry-capability-simplification-design.md`。
   当前结论：保留轻量 registry 作为 CLI 名称到 factory/config/source identity 的集中映射，
-  不回退到分散 `if/else`；但 capability 枚举和旧 `BaseMemorySystem` /
-  `BaseResumableMemorySystem` / `BaseMemoryRetriever` 属于迁移期负担，retrieve-first
-  全链路稳定后应逐步删除或降级，新 method 接入文档只面向 `BaseMemoryProvider`。
+  不回退到分散 `if/else`；但 capability 枚举和旧 `BaseResumableMemorySystem` /
+  `BaseMemoryRetriever` 属于迁移期负担，retrieve-first 全链路稳定后应逐步删除或降级。
+  `BaseMemorySystem` 暂时保留为 `add + get_answer` 后备兼容接口；新 method 接入文档只
+  面向 `BaseMemoryProvider`。
+- 2026-06-24 新增主线设计任务：Method 接入轻量化与失败重试干净状态。设计草案位于
+  `docs/superpowers/specs/2026-06-24-method-onboarding-simplification-and-clean-retry-design.md`。
+  当前结论：必须区分普通用户轻量接入和框架开发者深度接入。普通用户最小路径只应实现
+  `BaseMemoryProvider.add(conversation)` 和 `BaseMemoryProvider.retrieve(question)`；
+  第一版自定义 method 通过 `--method-class module:ClassName` 加载并要求无参数构造，
+  不强制 TOML、source identity、internal efficiency inventory、official profile 或
+  method state 深度管理；这些属于内置 method 白盒集成。用户自定义 method 默认只允许
+  `workers=1`；如显式传 `--allow-unsafe-custom-parallel`，可允许 `workers>1`，但框架
+  不证明用户后端并发安全，用户必须自行保证 run/benchmark/worker/conversation 隔离。
+  `--retry-failed` 需要重新 `add()` 失败 conversation 时必须先保证 clean state；不能保证
+  时 fail closed，避免重复记忆污染。已确认的 resume/retry 状态机：
+  `pending -> ingesting -> ingested -> answering -> completed`，失败分为
+  `failed_ingest` 和 `failed_answer`；`failed_answer` 可只补 pending questions，
+  `failed_ingest` 默认跳过，当前没有 clean retry support 时显式 `--retry-failed` 会
+  fail closed。实施计划已写入
+  `docs/superpowers/plans/2026-06-24-method-onboarding-clean-retry.md`；主体已完成：
+  custom loader、CLI `--method-class`、custom prediction service path、端到端 fake smoke、
+  unsafe parallel guard 和 failed-ingest fail-closed 均已实现。手把手指南为
+  `docs/custom-method-onboarding.md`；最新交接为
+  `docs/handoffs/2026-06-25-custom-method-onboarding-clean-retry.md`。Focused 验证：
+  `uv run pytest tests/test_custom_method_loader.py tests/test_main_cli.py tests/test_prediction_cli.py tests/test_prediction_runner.py -q`
+  为 `131 passed`。下一步不要重复实现用户轻量路径；继续处理四个内置 method 的
+  clean retry hook / attempt namespace 证明、可选 `--method-file` 和 legacy base class /
+  capability 减重。
 - LLM/provider 灵活配置方向已对齐并写入
   `docs/superpowers/specs/2026-06-21-llm-provider-config-design.md`。当前结论：第一版只实现
   OpenAI-compatible provider；Anthropic/Gemini、本地进程内 Hugging Face provider 作为
@@ -39,6 +64,47 @@
 
 ## 当前断点
 
+- 2026-06-23 CLI v2 整治主体已完成：新增推荐入口
+  `memory-benchmark predict smoke ...` 和 `memory-benchmark predict formal ...`。
+  `smoke` 用 `--conversations`、`--rounds`、`--questions-per-conversation`、`--workers`
+  表达小样本连通性测试，不支持 `--resume` / `--retry-failed`；`formal` 用
+  `--conversation-budget`、`--workers`、`--resume`、`--retry-failed` 表达正式 profile
+  分批推进。`--allow-api` 是 `--confirm-api` 的新别名；`evaluate --workers` 是
+  `--max-eval-workers` 的新别名。CLI v2 新 run 默认写入
+  `outputs/runs/{method}/{benchmark}/{variant?}/{smoke|formal}/{run_id}/`，旧
+  `predict --profile ...` 仍写入 legacy `outputs/{run_id}/`。`evaluate --run-id`
+  已兼容新旧目录；同名 run_id 在新旧目录或新布局多处同时出现时会报 ambiguity，
+  要求用户消歧。旧 CLI 暂时必须保留兼容，不能现在删除；清理节奏是：
+  先让四个 method 的 LoCoMo/LongMemEval 新 CLI smoke 稳定，再给旧 `--profile`
+  写法加 deprecated warning；至少完成一次 v2 formal 小规模 run 后，再从 README
+  示例中移除旧写法；对外发布前再决定是否彻底删除旧参数。
+  Focused 验证：`tests/test_main_cli.py tests/test_prediction_cli.py` 为 `64 passed`；
+  `compileall` 通过。设计记录：
+  `docs/superpowers/specs/2026-06-23-cli-v2-output-layout-design.md`。交接记录：
+  `docs/handoffs/2026-06-23-cli-v2-output-layout.md`。
+- 2026-06-23 最新 OpenCode 同步复核：
+  `docs/handoffs/2026-06-23-opencode-6.22-sync.md`。等待额度期间 OpenCode 完成
+  LongMemEval-S `s_cleaned` 四 method 1-conv cost pilot、by-question efficiency
+  聚合修复、`--max-new-conversations` 进度显示修复和分批 prediction 的 artifact
+  evaluation 兼容修复。Codex 已复核四个输出目录：
+  `outputs/{lightmem,mem0,memoryos,amem}-longmemeval-s-1conv-costpilot-20260622-s-cleaned`
+  均为 1/500 conversations、1/500 questions completed，且
+  `summary.longmemeval_judge_accuracy.json` 均为 1/1 correct。美元估算只按 OpenAI
+  官方 GPT-4o-mini 价格作参考；真实费用必须按 ohmygpt 实际价格离线换算。Mem0 LoCoMo
+  全局 `reference_date` 完整日期缺口已于 2026-06-23 修复：后续 run 会把公开 history
+  中最后一个 session time 写入官方 answer prompt 的 `reference_date`；旧
+  `outputs/mem0-locomo-full-v4/` 不自动作废，但如需最严谨复现可用新 run_id 重跑
+  Mem0 LoCoMo。OpenCode 6.22 还修复了
+  `efficiency_by_question.prediction.json` 中 LLM token 被后到的 question observation
+  覆盖成 0 的聚合 bug，以及 `--max-new-conversations` 下 progress/logger 显示全量
+  dataset 数量的问题；Codex 已做 focused 复核。
+- 2026-06-22 最新低额度交接：
+  `docs/handoffs/2026-06-22-longmemeval-smoke-to-full-instance.md`。四个 method
+  已完成 LongMemEval-S `s_cleaned` 20-round 极小 smoke，结构性均成功；LightMem
+  `invalid source_id ... Auto-corrected` 和 tokenizer length 是 warning，不是 run 失败。
+  efficiency observation 已足够按 conversation 粒度估算成本；A-Mem 原始 observation
+  有 answer/retrieval LLM token，早先 `efficiency_by_question.prediction.json` 未聚合进去
+  的 summary bug 已被 OpenCode 6.22 修复。该交接已被 2026-06-23 OpenCode 同步复核覆盖。
 - 2026-06-22 最新 LongMemEval 适配进展：
   `docs/superpowers/specs/2026-06-22-amem-memoryos-longmemeval-design.md` 和
   `docs/superpowers/plans/2026-06-22-amem-memoryos-longmemeval.md`；交接为
@@ -447,9 +513,9 @@
   成本依据。交接见 `docs/handoffs/2026-06-20-mem0-smoke10-worker10.md`。
 - Mem0 + LoCoMo full-v4 已完成于 `outputs/mem0-locomo-full-v4/`：10 conversations、
   1540 questions completed，并生成 F1、LLM judge 和 efficiency summary。OpenCode 审计
-  发现 Mem0 LoCoMo 全局 `reference_date` 只传年份，但每条检索记忆已带完整日期；
-  当前记录为 informational，不判定 full-v4 作废。如未来要修，应在 conversation metadata
-  中记录最后 session 的完整日期，并在新 run_id 中复验。
+  发现 Mem0 LoCoMo 全局 `reference_date` 只传年份；Codex 已在 2026-06-23 修复后续
+  run 的完整日期传递。full-v4 不自动作废，但最终论文/报告若要求最严谨 Mem0 LoCoMo
+  复现，应使用新 run_id 重跑 Mem0 LoCoMo。
 - 2026-06-19 Codex 本轮新增 prediction efficiency 人类可读摘要：
   `summaries/efficiency_overall.prediction.json`、
   `summaries/efficiency_by_conversation.prediction.json`、
@@ -620,10 +686,11 @@ adapter 可以把这些放入 `GoldAnswerInfo` 或 evaluator-only artifact，但
 - `third_party/methods/`: 第三方 method 源码，不参与第一方 package 发现或中文文档规范扫描。
 - `data/`: adapter 运行时唯一 dataset 入口。
 - `third_party/benchmarks/`: 官方 benchmark 仓库当前位置，只用于事实核验、论文和源码参考。
-- `outputs/<run_id>/artifacts/`: 可复用实验产物。
-- `outputs/<run_id>/logs/`: `run.log`、`events.jsonl` 等运行日志。
-- `outputs/<run_id>/checkpoints/`: 断点续跑状态。
-- `outputs/<run_id>/summaries/`: 摘要结果。
+- `outputs/<run_id>/`: legacy 平铺 run 目录，旧 CLI 与历史实验继续使用。
+- `outputs/runs/{method}/{benchmark}/{variant?}/{smoke|formal}/{run_id}/`: CLI v2
+  新 run 目录。`evaluate --run-id` 已能兼容新旧目录。
+- 每个 run 目录下的 `artifacts/`、`logs/`、`checkpoints/`、`summaries/` 分别保存
+  可复用产物、运行日志、断点状态和摘要结果。
 - `docs/handoffs/`: 长任务和上下文压缩前的精确交接。
 - `docs/superpowers/`: 当前设计和实施计划。
 - `old/2026-06-02-legacy/`: 历史废纸篓，不作为当前事实来源。

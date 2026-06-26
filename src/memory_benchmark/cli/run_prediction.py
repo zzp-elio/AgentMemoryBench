@@ -38,7 +38,8 @@ from memory_benchmark.core import (
     validate_compatibility,
 )
 from memory_benchmark.core.exceptions import ConfigurationError
-from memory_benchmark.core.interfaces import BaseMemorySystem
+from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySystem
+from memory_benchmark.methods.custom_loader import load_custom_memory_provider
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.methods.registry import (
     MethodBuildContext,
@@ -197,15 +198,18 @@ def resolve_prediction_max_workers(
 
 def run_registered_conversation_qa_prediction(
     project_root: str | Path,
-    method_name: str,
+    method_name: str | None,
     benchmark_name: str,
     profile_name: str = "smoke",
+    method_class: str | None = None,
+    allow_unsafe_custom_parallel: bool = False,
     variant: str | None = None,
     run_id: str | None = None,
     resume: bool = False,
     confirm_api: bool = False,
     confirm_full: bool = False,
     smoke_turn_limit: int = DEFAULT_SMOKE_TURN_LIMIT,
+    smoke_round_limit: int | None = None,
     smoke_conversation_limit: int = 1,
     smoke_max_workers: int | None = None,
     max_new_conversations: int | None = None,
@@ -215,6 +219,7 @@ def run_registered_conversation_qa_prediction(
     answer_prompt_file: str | Path | None = None,
     answer_prompt_profile: str = "default",
     progress_enabled: bool = True,
+    output_layout: str = "flat",
 ) -> PredictionBatchResult:
     """通过 benchmark/method registration 运行 conversation-QA prediction。
 
@@ -229,6 +234,8 @@ def run_registered_conversation_qa_prediction(
         confirm_api: 是否允许真实付费 API 调用。
         confirm_full: 是否额外允许全量实验。
         smoke_turn_limit: smoke 最多写入的历史 turn 数。
+        smoke_round_limit: CLI v2 smoke 的历史 round 上限；为空时沿用 legacy
+            `smoke_turn_limit` 语义。
         smoke_conversation_limit: smoke 选择 1 或 2 个 conversation。
         smoke_max_workers: smoke runner 的可选并发覆盖，最多为 10。
         max_new_conversations: 本次命令最多推进多少个未完成 conversation；它只属于
@@ -241,6 +248,8 @@ def run_registered_conversation_qa_prediction(
         answer_prompt_file: retrieve-first framework reader 的可选自定义 prompt 文件。
         answer_prompt_profile: retrieve-first framework reader 的 prompt profile 名称。
         progress_enabled: 是否在终端渲染 Rich 进度条；并行校准模式下应关闭。
+        output_layout: 输出目录布局；`flat` 保持 legacy `outputs/{run_id}`，
+            `hierarchical` 使用 `outputs/runs/{method}/{benchmark}/.../{run_id}`。
 
     输出:
         PredictionBatchResult: 按 concrete variant 拆开的 child run 结果。
@@ -249,6 +258,37 @@ def run_registered_conversation_qa_prediction(
     root = Path(project_root).expanduser().resolve()
     path_settings = load_path_settings(project_root=root)
     benchmark_registration = get_benchmark_registration(benchmark_name)
+    if bool(method_name) == bool(method_class):
+        raise ConfigurationError("Pass exactly one of method_name or method_class")
+    if method_class is not None:
+        return _run_custom_conversation_qa_prediction(
+            project_root=root,
+            path_settings=path_settings,
+            benchmark_registration=benchmark_registration,
+            benchmark_name=benchmark_name,
+            profile_name=profile_name,
+            method_class=method_class,
+            allow_unsafe_custom_parallel=allow_unsafe_custom_parallel,
+            variant=variant,
+            run_id=run_id,
+            resume=resume,
+            confirm_api=confirm_api,
+            confirm_full=confirm_full,
+            smoke_turn_limit=smoke_turn_limit,
+            smoke_round_limit=smoke_round_limit,
+            smoke_conversation_limit=smoke_conversation_limit,
+            smoke_max_workers=smoke_max_workers,
+            max_new_conversations=max_new_conversations,
+            retry_failed_conversations=retry_failed_conversations,
+            question_limit_per_conversation=question_limit_per_conversation,
+            enable_efficiency_observability=enable_efficiency_observability,
+            answer_prompt_file=answer_prompt_file,
+            answer_prompt_profile=answer_prompt_profile,
+            progress_enabled=progress_enabled,
+            output_layout=output_layout,
+        )
+    if method_name is None:
+        raise ConfigurationError("method_name is required")
     method_registration = get_method_registration(method_name)
     if not benchmark_registration.prediction_enabled:
         raise ConfigurationError(
@@ -288,9 +328,29 @@ def run_registered_conversation_qa_prediction(
         variants=selected_variants,
         registration=benchmark_registration,
     )
+    multi_variant_registration = len(benchmark_registration.variant_names()) > 1
+    selected_output_roots = tuple(
+        _resolve_child_output_root(
+            outputs_root=path_settings.outputs_root,
+            method_name=method_name,
+            benchmark_name=benchmark_name,
+            profile_name=config.profile_name,
+            variant=concrete_variant,
+            multi_variant_registration=multi_variant_registration,
+            output_layout=output_layout,
+        )
+        for concrete_variant in selected_variants
+    )
     _validate_child_run_destinations(
         path_settings.outputs_root,
-        selected_run_ids,
+        tuple(
+            output_root / selected_run_id
+            for output_root, selected_run_id in zip(
+                selected_output_roots,
+                selected_run_ids,
+                strict=True,
+            )
+        ),
     )
     source_identity = method_registration.source_identity_factory(path_settings)
     max_workers = method_registration.max_workers_getter(config)
@@ -325,9 +385,10 @@ def run_registered_conversation_qa_prediction(
         else None
     )
     children: list[_PreparedPredictionChild] = []
-    for concrete_variant, selected_run_id in zip(
+    for concrete_variant, selected_run_id, selected_output_root in zip(
         selected_variants,
         selected_run_ids,
+        selected_output_roots,
         strict=True,
     ):
         prepared = benchmark_registration.prepare(
@@ -335,7 +396,11 @@ def run_registered_conversation_qa_prediction(
             BenchmarkLoadRequest(
                 variant=concrete_variant,
                 run_scope=run_scope,
-                smoke_turn_limit=smoke_turn_limit,
+                smoke_turn_limit=_resolve_adapter_smoke_history_limit(
+                    benchmark_name=benchmark_name,
+                    smoke_turn_limit=smoke_turn_limit,
+                    smoke_round_limit=smoke_round_limit,
+                ),
                 smoke_conversation_limit=smoke_conversation_limit,
             ),
         )
@@ -366,7 +431,7 @@ def run_registered_conversation_qa_prediction(
             benchmark_name=benchmark_name,
             method_name=method_registration.display_name,
             model_name=method_registration.model_name_getter(config),
-            output_root=path_settings.outputs_root,
+            output_root=selected_output_root,
             resume=resume,
             ensure_directories=False,
         )
@@ -526,6 +591,367 @@ def run_registered_conversation_qa_prediction(
     )
 
 
+def _run_custom_conversation_qa_prediction(
+    *,
+    project_root: Path,
+    path_settings,
+    benchmark_registration,
+    benchmark_name: str,
+    profile_name: str,
+    method_class: str,
+    allow_unsafe_custom_parallel: bool,
+    variant: str | None,
+    run_id: str | None,
+    resume: bool,
+    confirm_api: bool,
+    confirm_full: bool,
+    smoke_turn_limit: int,
+    smoke_round_limit: int | None,
+    smoke_conversation_limit: int,
+    smoke_max_workers: int | None,
+    max_new_conversations: int | None,
+    retry_failed_conversations: bool,
+    question_limit_per_conversation: int | None,
+    enable_efficiency_observability: bool,
+    answer_prompt_file: str | Path | None,
+    answer_prompt_profile: str,
+    progress_enabled: bool,
+    output_layout: str,
+) -> PredictionBatchResult:
+    """运行用户自定义 `BaseMemoryProvider` 的轻量 prediction 路径。
+
+    该路径刻意绕开内置 method registry、TOML profile 和 source identity。用户只需
+    提供无参构造的 `BaseMemoryProvider` 子类；framework 负责 benchmark 读取、answer
+    LLM、artifact、resume 和基础效率观测。
+    """
+
+    if not benchmark_registration.prediction_enabled:
+        raise ConfigurationError(
+            f"Benchmark '{benchmark_name}' prediction is not enabled"
+        )
+    _confirm_prediction_cost(
+        method_display_name=f"custom method '{method_class}'",
+        profile_name=profile_name,
+        requires_api=True,
+        confirm_api=confirm_api,
+        confirm_full=confirm_full,
+    )
+    if resume and run_id is None:
+        raise ConfigurationError(
+            "custom method resume requires an explicit existing run_id"
+        )
+
+    run_scope = _resolve_profile_run_scope(profile_name)
+    selector = variant or benchmark_registration.default_variant
+    selected_variants = resolve_variant_selector(benchmark_registration, variant)
+    selected_run_ids = _resolve_batch_run_ids(
+        method_name="custom",
+        benchmark_name=benchmark_name,
+        profile_name=profile_name,
+        explicit_base_run_id=run_id,
+        variants=selected_variants,
+        registration=benchmark_registration,
+    )
+    multi_variant_registration = len(benchmark_registration.variant_names()) > 1
+    selected_output_roots = tuple(
+        _resolve_child_output_root(
+            outputs_root=path_settings.outputs_root,
+            method_name="custom",
+            benchmark_name=benchmark_name,
+            profile_name=profile_name,
+            variant=concrete_variant,
+            multi_variant_registration=multi_variant_registration,
+            output_layout=output_layout,
+        )
+        for concrete_variant in selected_variants
+    )
+    _validate_child_run_destinations(
+        path_settings.outputs_root,
+        tuple(
+            output_root / selected_run_id
+            for output_root, selected_run_id in zip(
+                selected_output_roots,
+                selected_run_ids,
+                strict=True,
+            )
+        ),
+    )
+
+    max_workers = _resolve_custom_max_workers(
+        smoke_max_workers=smoke_max_workers,
+        allow_unsafe_custom_parallel=allow_unsafe_custom_parallel,
+    )
+    answer_llm_settings = resolve_answer_llm_settings(
+        method_name="custom",
+        benchmark_name=benchmark_name,
+        model=DEFAULT_OPENAI_MODEL,
+    )
+    answer_reader_manifest = _build_answer_reader_manifest(
+        project_root=project_root,
+        prompt_file=answer_prompt_file,
+        profile_name=answer_prompt_profile,
+        answer_settings=answer_llm_settings,
+    )
+
+    children: list[_PreparedPredictionChild] = []
+    for concrete_variant, selected_run_id, selected_output_root in zip(
+        selected_variants,
+        selected_run_ids,
+        selected_output_roots,
+        strict=True,
+    ):
+        prepared = benchmark_registration.prepare(
+            path_settings.project_root,
+            BenchmarkLoadRequest(
+                variant=concrete_variant,
+                run_scope=run_scope,
+                smoke_turn_limit=_resolve_adapter_smoke_history_limit(
+                    benchmark_name=benchmark_name,
+                    smoke_turn_limit=smoke_turn_limit,
+                    smoke_round_limit=smoke_round_limit,
+                ),
+                smoke_conversation_limit=smoke_conversation_limit,
+            ),
+        )
+        method_manifest = _build_custom_method_manifest(
+            method_class=method_class,
+            answer_reader_manifest=answer_reader_manifest,
+            allow_unsafe_custom_parallel=allow_unsafe_custom_parallel,
+        )
+        policy = PredictionRunPolicy(
+            max_workers=max_workers,
+            question_limit_per_conversation=_question_limit_for_scope(
+                run_scope,
+                explicit_limit=question_limit_per_conversation,
+            ),
+            resume=resume,
+            max_new_conversations=max_new_conversations,
+            retry_failed_conversations=retry_failed_conversations,
+            progress_enabled=progress_enabled,
+        )
+        run_context = RunContext.create(
+            run_id=selected_run_id,
+            benchmark_name=benchmark_name,
+            method_name="CustomMethod",
+            model_name=answer_llm_settings.model,
+            output_root=selected_output_root,
+            resume=resume,
+            ensure_directories=False,
+        )
+        (
+            efficiency_collector,
+            model_inventory,
+            instrumentation_identity,
+            retrieval_observation_contract,
+        ) = _build_custom_efficiency_dependencies(
+            enabled=enable_efficiency_observability,
+            method_class=method_class,
+            answer_settings=answer_llm_settings,
+            run_id=selected_run_id,
+        )
+        children.append(
+            _PreparedPredictionChild(
+                variant=prepared.variant,
+                run_scope=prepared.run_scope,
+                dataset=prepared.dataset,
+                run_id=selected_run_id,
+                run_context=run_context,
+                policy=policy,
+                method_manifest=method_manifest,
+                source_paths=tuple(
+                    path_settings.project_root / relative_path
+                    for relative_path in prepared.source_relative_paths
+                ),
+                efficiency_collector=efficiency_collector,
+                model_inventory=model_inventory,
+                instrumentation_identity=instrumentation_identity,
+                retrieval_observation_contract=retrieval_observation_contract,
+            )
+        )
+
+    for child in children:
+        _preflight_prediction_run(
+            dataset=child.dataset,
+            run_context=child.run_context,
+            policy=child.policy,
+            method_manifest=child.method_manifest,
+            benchmark_variant=child.variant,
+            run_scope=child.run_scope,
+            source_paths=child.source_paths,
+            efficiency_collector=child.efficiency_collector,
+            model_inventory=child.model_inventory,
+            instrumentation_identity=child.instrumentation_identity,
+            retrieval_observation_contract=child.retrieval_observation_contract,
+        )
+
+    openai_settings = load_openai_settings(project_root=path_settings.project_root)
+    if openai_settings.model != DEFAULT_OPENAI_MODEL:
+        raise ConfigurationError(
+            "Framework answer reader currently requires model "
+            f"{DEFAULT_OPENAI_MODEL}; got {openai_settings.model}"
+        )
+    answer_reader = FrameworkAnswerReader(
+        client=OpenAICompatibleAnswerLLMClient(
+            settings=openai_settings,
+            answer_settings=answer_llm_settings,
+        ),
+        prompt_template=load_answer_prompt_template(
+            project_root=path_settings.project_root,
+            prompt_file=answer_prompt_file,
+            profile_name=answer_prompt_profile,
+        ),
+    )
+
+    def build_custom_system(_context: MethodBuildContext) -> BaseMemoryProvider:
+        """为 root 或 isolated worker 创建新的用户 provider 实例。"""
+
+        return load_custom_memory_provider(method_class)
+
+    results: list[PredictionVariantResult] = []
+    for child in children:
+        child.run_context.ensure_directories()
+        completed_conversation_ids = (
+            load_completed_conversation_ids(
+                child.run_context.run_dir,
+                conversations=child.dataset.conversations,
+            )
+            if resume
+            else set()
+        )
+        completed_conversations = tuple(
+            _make_public_conversation(conversation)
+            for conversation in child.dataset.conversations
+            if conversation.conversation_id in completed_conversation_ids
+        )
+        build_context = MethodBuildContext(
+            config=None,
+            openai_settings=openai_settings,
+            path_settings=path_settings,
+            storage_root=child.run_context.method_state_dir,
+            completed_conversations=completed_conversations,
+            efficiency_collector=child.efficiency_collector,
+        )
+        use_isolated_worker_instances = child.policy.max_workers > 1
+        system: BaseMemorySystem | BaseMemoryProvider = (
+            _UnusedRootSystem()
+            if use_isolated_worker_instances
+            else build_custom_system(build_context)
+        )
+        summary = run_predictions(
+            dataset=child.dataset,
+            system=system,
+            run_context=child.run_context,
+            policy=child.policy,
+            method_manifest=child.method_manifest,
+            benchmark_variant=child.variant,
+            run_scope=child.run_scope,
+            source_paths=child.source_paths,
+            efficiency_collector=child.efficiency_collector,
+            model_inventory=child.model_inventory,
+            instrumentation_identity=child.instrumentation_identity,
+            retrieval_observation_contract=child.retrieval_observation_contract,
+            system_factory=build_custom_system,
+            build_context_template=build_context,
+            supports_shared_instance_parallelism=False,
+            answer_reader=answer_reader,
+        )
+        results.append(
+            PredictionVariantResult(
+                variant=child.variant,
+                run_id=child.run_id,
+                summary=summary,
+            )
+        )
+
+    return PredictionBatchResult(
+        benchmark=benchmark_name,
+        selector=selector,
+        runs=tuple(results),
+    )
+
+
+def _resolve_custom_max_workers(
+    *,
+    smoke_max_workers: int | None,
+    allow_unsafe_custom_parallel: bool,
+) -> int:
+    """解析用户自定义 method 的 worker 数并执行 unsafe parallel 确认。"""
+
+    max_workers = 1 if smoke_max_workers is None else smoke_max_workers
+    if max_workers < 1:
+        raise ConfigurationError("workers must be at least 1")
+    if max_workers > MAX_SMOKE_WORKERS:
+        raise ConfigurationError(f"workers must be at most {MAX_SMOKE_WORKERS}")
+    if max_workers > 1 and not allow_unsafe_custom_parallel:
+        raise ConfigurationError(
+            "Custom method workers > 1 requires --allow-unsafe-custom-parallel"
+        )
+    return max_workers
+
+
+def _build_custom_method_manifest(
+    *,
+    method_class: str,
+    answer_reader_manifest: dict[str, object],
+    allow_unsafe_custom_parallel: bool,
+) -> dict[str, object]:
+    """构造用户自定义 method 的公开 manifest。"""
+
+    return {
+        "method_name": "custom",
+        "method_class": method_class,
+        "method_protocol": "BaseMemoryProvider",
+        "integration_depth": "user_lightweight",
+        "custom_method_contract": {
+            "no_arg_constructor": True,
+            "conversation_isolation_required": True,
+            "parallel_requires_allow_unsafe_custom_parallel": True,
+            "allow_unsafe_custom_parallel": allow_unsafe_custom_parallel,
+        },
+        "answer_reader": answer_reader_manifest,
+    }
+
+
+def _build_custom_efficiency_dependencies(
+    *,
+    enabled: bool,
+    method_class: str,
+    answer_settings: AnswerLLMSettings,
+    run_id: str,
+) -> tuple[
+    EfficiencyCollector | None,
+    tuple[ModelDescriptor, ...],
+    dict[str, object] | None,
+    RetrievalObservationContract | None,
+]:
+    """为用户轻量接入路径构造框架可观测的最小 efficiency 依赖。"""
+
+    if not enabled:
+        return None, (), None, None
+    return (
+        EfficiencyCollector(run_id=run_id, enabled=True),
+        (
+            ModelDescriptor(
+                model_id=answer_settings.model,
+                model_name=answer_settings.model,
+                model_role="answer_llm",
+                execution_mode="api",
+                tokenizer_name=answer_settings.model,
+            ),
+        ),
+        {
+            "collector_schema": 1,
+            "integration_depth": "user_lightweight",
+            "method_class": method_class,
+            "framework_observed_only": True,
+        },
+        RetrievalObservationContract(
+            required_by_profile=False,
+            supported_by_method=True,
+        ),
+    )
+
+
 def _build_efficiency_observability_dependencies(
     *,
     enabled: bool,
@@ -605,6 +1031,28 @@ def _resolve_profile_run_scope(profile_name: str) -> RunScope:
     return RunScope.FULL
 
 
+def _resolve_adapter_smoke_history_limit(
+    *,
+    benchmark_name: str,
+    smoke_turn_limit: int,
+    smoke_round_limit: int | None,
+) -> int:
+    """把 CLI smoke 历史预算转换成当前 adapter 的裁剪单位。
+
+    legacy `--smoke-turn-limit` 继续按原有 turn 语义传递；CLI v2 `--rounds`
+    使用 `smoke_round_limit`，LoCoMo 转成双 turn round，LongMemEval 已在
+    adapter registry 内按完整 round 裁剪。
+    """
+
+    if smoke_round_limit is None:
+        return smoke_turn_limit
+    if smoke_round_limit < 1:
+        raise ConfigurationError("rounds must be at least 1")
+    if benchmark_name == "locomo":
+        return smoke_round_limit * 2
+    return smoke_round_limit
+
+
 def _question_limit_for_scope(
     run_scope: RunScope,
     *,
@@ -625,14 +1073,13 @@ def _question_limit_for_scope(
 
 def _validate_child_run_destinations(
     outputs_root: str | Path,
-    run_ids: tuple[str, ...],
+    child_destinations: tuple[Path, ...],
 ) -> None:
     """在任何目录、secret 或 method 副作用前校验 child run 目标路径。"""
 
     canonical_outputs_root = Path(outputs_root).expanduser().resolve()
     seen_destinations: dict[str, Path] = {}
-    for run_id in run_ids:
-        child_destination = canonical_outputs_root / run_id
+    for child_destination in child_destinations:
         canonical_destination = child_destination.resolve(strict=False)
         try:
             canonical_destination.relative_to(canonical_outputs_root)
@@ -650,6 +1097,42 @@ def _validate_child_run_destinations(
                 f"'{existing_destination}' vs '{child_destination}'"
             )
         seen_destinations[destination_key] = child_destination
+
+
+def _resolve_child_output_root(
+    *,
+    outputs_root: str | Path,
+    method_name: str,
+    benchmark_name: str,
+    profile_name: str,
+    variant: str,
+    multi_variant_registration: bool,
+    output_layout: str,
+) -> Path:
+    """根据 CLI 布局模式返回单个 child run 的 output_root。
+
+    `RunContext.run_dir` 始终是 `output_root / run_id`。因此这里返回的是
+    run_id 上一级目录，而不是最终 run 目录。
+    """
+
+    canonical_outputs_root = Path(outputs_root).expanduser().resolve()
+    if output_layout == "flat":
+        return canonical_outputs_root
+    if output_layout != "hierarchical":
+        raise ConfigurationError(
+            f"Unknown prediction output_layout '{output_layout}'"
+        )
+    mode_directory = "smoke" if profile_name == "smoke" else "formal"
+    path_parts = [
+        canonical_outputs_root,
+        Path("runs"),
+        Path(method_name),
+        Path(benchmark_name),
+    ]
+    if multi_variant_registration:
+        path_parts.append(Path(normalize_variant_run_id_token(variant)))
+    path_parts.append(Path(mode_directory))
+    return Path(*path_parts).resolve()
 
 
 def _resolve_batch_run_ids(
@@ -794,23 +1277,19 @@ def _resolve_smoke_max_workers(
     configured_max_workers: int,
     allow_override: bool,
 ) -> int:
-    """校验 smoke 专用 conversation 并发覆盖。"""
+    """校验用户传入的 conversation 并发覆盖。"""
 
     if smoke_max_workers is None:
         return configured_max_workers
-    if profile_name != "smoke":
-        raise ConfigurationError(
-            "--smoke-max-workers is a smoke-only diagnostic option"
-        )
     if not allow_override:
         raise ConfigurationError(
-            f"{method_display_name} does not support --smoke-max-workers override"
+            f"{method_display_name} does not support --workers override"
         )
     if smoke_max_workers < 1:
-        raise ConfigurationError("smoke_max_workers must be at least 1")
+        raise ConfigurationError("workers must be at least 1")
     if smoke_max_workers > MAX_SMOKE_WORKERS:
         raise ConfigurationError(
-            f"smoke_max_workers must be at most {MAX_SMOKE_WORKERS}"
+            f"workers must be at most {MAX_SMOKE_WORKERS}"
         )
     return smoke_max_workers
 

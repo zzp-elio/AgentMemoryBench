@@ -1,6 +1,6 @@
 # 当前动态路线图
 
-更新日期：2026-06-22
+更新日期：2026-06-24
 
 本文件只记录当前主线、完成状态和阶段依赖。每完成一个任务必须立即勾选并同步
 `AGENTS.md`；逐项 open/closed 状态和历史文档状态以 `docs/task-ledger.md` 为准。
@@ -169,11 +169,54 @@ Table 级实验设置对齐。
   method interface inventory、handoff 与 legacy `get_answer()` 兼容说明。
 - [ ] 在 retrieve-first 主路径稳定后，逐步弱化 `MethodCapability` 推理，把
   conversation-QA method 兼容性收敛到 `BaseMemoryProvider` 继承关系。
-- [ ] 清理或废弃 `BaseMemorySystem`、`BaseResumableMemorySystem` 和
-  `BaseMemoryRetriever` 等历史接口；删除前必须保证四个内置 method、fake/offline
-  测试和 artifact-only evaluation 不依赖旧主路径。
+- [ ] 保留 `BaseMemorySystem` 作为后备兼容接口；短期只清理或降级
+  `BaseResumableMemorySystem`、`BaseMemoryRetriever`、历史 turn-level resume 文档和
+  过重 capability 推理。删除任何旧接口前必须保证四个内置 method、fake/offline 测试和
+  artifact-only evaluation 不依赖旧主路径。
 - [ ] 减重 evaluator registry：F1 / LLM judge 尽量统一为 metric profile + prompt
   profile，不为每个 benchmark 复制过重 evaluator 类。
+
+### Phase H.6：Method 接入轻量化与失败重试干净状态（主体已实现）
+
+用户已明确要求重新区分“普通用户接入新 method”和“开发者深度接入内置 method”：
+普通用户路径只应要求 `BaseMemoryProvider.add(conversation)` 和
+`BaseMemoryProvider.retrieve(question)`，不应强制理解 TOML、source identity、
+efficiency inventory、official profile 或复杂 registry factory。内置 method 的 TOML、
+内部 LLM/embedding 参数、深度 efficiency 插桩和 method state 管理属于框架开发者维护的
+白盒深度接入路径。
+
+设计草案：
+`docs/superpowers/specs/2026-06-24-method-onboarding-simplification-and-clean-retry-design.md`
+
+- [x] 写入初版 spec，明确用户/开发者角色边界、CLI/TOML 边界、outputs 边界。
+- [x] 将 failed conversation retry 脏状态风险纳入同一任务：`--retry-failed` 需要重新
+  `add()` 时必须先保证 clean state；不能保证时 fail closed。
+- [x] 对齐用户自定义 method 并行策略：默认 `workers=1`；若用户显式传
+  `--allow-unsafe-custom-parallel`，允许 `workers>1`，但框架不证明用户后端并发安全。
+- [x] 对齐用户自定义 method 第一版加载和构造策略：通过
+  `--method-class module:ClassName` 加载，要求无参数构造，不向用户 adapter 传
+  `state_dir`、`run_id`、`worker_id`、API key、logger 或 observer；状态、配置和并行
+  安全先靠清晰软契约。
+- [x] 对齐 resume/retry 状态机：`pending`、`ingesting`、`ingested`、`answering`、
+  `completed`、`failed_ingest`、`failed_answer`；`failed_answer` 可只补 pending
+  questions，`failed_ingest` 默认跳过，只有 clean retry preflight 通过才可重跑。
+- [x] 写实施计划，先用 fake user method 锁定“只实现 add/retrieve 即可跑”的 contract：
+  `docs/superpowers/plans/2026-06-24-method-onboarding-clean-retry.md`。
+- [x] 提供 `--method-class module:ClassName` 轻量加载路径，避免用户路径暴露内置 method
+  深度字段；后续再评估 `--method-file` 单文件快速测试形式。
+- [x] 实现 custom method 并行 guard：自定义 method `workers>1` 必须传
+  `--allow-unsafe-custom-parallel`。
+- [x] 实现 failed ingest retry preflight；无法 clean retry 的 method 在
+  `--retry-failed` 时明确报错。
+- [x] 新增用户自定义 method loader、custom prediction service path 和端到端 fake smoke
+  测试，验证无需内置 registry/TOML 也能写出标准 prediction / answer prompt artifact。
+- [x] 写入普通用户接入指南：
+  `docs/custom-method-onboarding.md`。
+- [ ] 为四个内置 method 分别补 clean retry hook 或 attempt namespace 证明。
+- [ ] 后续评估 `--method-file` 单文件快速测试形式。
+- [ ] 后续清理 legacy capability 重逻辑、`BaseResumableMemorySystem` 和
+  `BaseMemoryRetriever` 时，同步更新老师汇报材料和对外文档；`BaseMemorySystem`
+  暂时保留为后备兼容接口。
 
 ### Phase I：Conversation 级并行与 Resume（当前边界）
 
@@ -203,10 +246,27 @@ conversation 级并行**。不继续推进 shared method instance、method execu
   不同 worker state 目录；Mem0 切 isolated 前必须固定 conversation 到 state root 的映射。
 - [x] 新增 `max_new_conversations` 本次运行预算：每次只推进 N 个未完成 conversation，
   后续允许用同一 `run_id` 和不同预算 resume。
-- [x] 统一实验裁剪配置：smoke 支持最多 N 个 conversation 与每 conversation 最多
-  N 个 turns；`--question-limit-per-conversation` 和 `--max-new-conversations` 是本次
-  命令预算，不进入 resume identity，允许首次运行和后续 resume 分批推进。full 不随意
-  截断历史 turn，保持 official profile 语义。
+- [x] 统一实验裁剪配置：CLI v2 smoke 支持最多 N 个 conversation 与每 conversation
+  最多 N 个 rounds；legacy `--smoke-turn-limit` 仍保留旧 turn 语义。
+  `--questions-per-conversation` 和 `--conversation-budget` 是本次命令预算，不进入
+  resume identity，允许首次运行和后续 resume 分批推进。formal 不随意截断历史，
+  保持 official profile 语义。
+- [x] 完成 CLI v2 主体整治：
+  - `predict smoke`：小样本连通性测试，使用 `--conversations`、`--rounds`、
+    `--questions-per-conversation`、`--workers`，不支持 `--resume` /
+    `--retry-failed`。
+  - `predict formal`：正式 profile 运行，使用 `--conversation-budget`、
+    `--workers`、`--resume`、`--retry-failed`，不允许裁剪历史或问题。
+  - 新增 `--allow-api` / `--workers` 直观别名，同时保留旧参数兼容。
+  - CLI v2 新 run 写入 `outputs/runs/{method}/{benchmark}/{variant?}/{smoke|formal}/{run_id}/`；
+    legacy `predict --profile ...` 仍写入 `outputs/{run_id}/`。
+  - `evaluate --run-id` 已兼容新旧布局，同名 run_id 在新旧布局或新布局多处出现时会报
+    ambiguity。
+  Focused 验证：`tests/test_main_cli.py tests/test_prediction_cli.py` 为 `64 passed`；
+  `compileall` 通过。
+- [ ] 分阶段清理 legacy CLI：当前不要删除 `predict --profile ...` 和旧参数。先完成四个
+  method 的 LoCoMo/LongMemEval v2 smoke 稳定验证，再加 deprecated warning；至少完成一次
+  v2 formal 小规模 run 后，再从 README 示例中移除旧写法；对外发布前再决定是否彻底删除旧参数。
 - [x] 修复 isolated worker 失败可诊断性：记录完整异常 traceback，并能写入具体
   conversation failed checkpoint。该条早期 fail-fast 语义已被下方“局部失败 continue”
   语义替代。
@@ -355,8 +415,9 @@ MemoryOS PyPI backend 已降为低优先级，本阶段不实现。
   当前 A-Mem observation 链路以 `outputs/amem-smoke-4c20t-w4-20260620/` 为证据。
 - [x] Mem0-LoCoMo `official-full` prediction 已以 `outputs/mem0-locomo-full-v4/` 跑完：
   10 conversations、1540 questions completed，并生成 F1、Judge 和 efficiency summary。
-  OpenCode 发现全局 `reference_date` 只传年份，但每条检索记忆自带完整日期；当前记录为
-  informational，不判定 full-v4 作废。
+  OpenCode 发现全局 `reference_date` 只传年份；Codex 已在 2026-06-23 修复后续 run 的
+  完整日期传递。full-v4 不自动作废；若最终报告要求最严谨 Mem0 LoCoMo prompt 复现，
+  应使用新 run_id 重跑 Mem0 LoCoMo。
 - [x] 四个 method 在 LoCoMo 上的 retrieve-first 极小 smoke 已由用户真实运行：
   `retrieve-first-locomo-{mem0,memoryos,amem,lightmem}-smoke-2c20t-20260622` 均完成
   2 conversations / 2 questions，并写出 prediction 与 efficiency observation；但复核发现
@@ -376,16 +437,21 @@ MemoryOS PyPI backend 已降为低优先级，本阶段不实现。
   默认仍保持 LightMem-style LongMemEval QA prompt。A-Mem 本地仓库未发现同等级 generic
   answer-reader prompt，当前不新增 generic profile。LongMemEval judge 默认走 LightMem
   LongMemEval 流程：task-specific yes/no prompt、Chat Completions、
-  `temperature=0.0`、`top_p=0.8`、`max_tokens=2000`。真实 LongMemEval-S smoke
-  仍需用户确认 run_id、规模和预算。
+  `temperature=0.0`、`top_p=0.8`、`max_tokens=2000`。
+- [x] LongMemEval-S `s_cleaned` 四 method official-full 1-conv cost pilot 已完成：
+  `outputs/{lightmem,mem0,memoryos,amem}-longmemeval-s-1conv-costpilot-20260622-s-cleaned`
+  均为 1/500 conversations、1/500 questions completed，并均通过
+  `longmemeval_judge_accuracy` 1/1。OpenCode 给出的美元估算是 OpenAI 官方价参考；
+  真实费用需要基于这些 run 的 token/latency observation 按 ohmygpt 价格离线换算。
 - [ ] 复用 prediction artifact 计算 LoCoMo F1。
 - [x] LoCoMo LLM judge prompt 已由用户/OpenCode 对齐为 LightMem 官方风格，compact
   模式解析 CORRECT/WRONG；evaluator runner 已支持 `--max-eval-workers` 并行 judge，
   LightMem/MemoryOS LoCoMo judge 已真实并行运行。
 - [ ] 完成 Mem0/MemoryOS/A-Mem/LightMem × LoCoMo/LongMemEval 的可选实验矩阵；
   retrieve-first 后不再因为缺 method-specific answer prompt 直接排除某 method，但仍需
-  审计每个 adapter 的 LongMemEval 写入/检索路径是否成立。
-- [ ] 基于 Phase G 保存的原始 observation 离线计算真实服务商费用。
+  审计扩大规模后的稳定性、失败恢复和成本波动。
+- [ ] 基于 Phase G 保存的原始 observation 离线计算真实服务商费用；LongMemEval-S
+  1-conv cost pilot 已有四 method 原始依据。
 
 ### Phase K：Retrieve-First Memory Module 协议重构（当前设计）
 
@@ -490,6 +556,36 @@ evaluate
   retrieve-first 真实极小 smoke，并检查 `answer_prompts.prediction.jsonl` 的
   `prompt_messages`。严格重跑已完成，见
   `docs/handoffs/2026-06-22-strict-retrieve-first-locomo-smoke-success.md`。
+
+### 当前任务队列（2026-06-23）
+
+本节是从 `docs/task-ledger.md` 抽出的执行队列；若与旧 handoff 冲突，以
+`docs/task-ledger.md` 和当前代码为准。
+
+- [x] 复核 OpenCode 6.22 改动：by-question efficiency 聚合、`--max-new-conversations`
+  progress/logger、partial prediction artifact evaluation 已通过 Codex focused 验证。
+- [x] 修复 Mem0 LoCoMo 全局 `reference_date` 完整日期传递：后续 run 会把公开 history
+  中最后一个 session time 写入官方 answer prompt；旧 `mem0-locomo-full-v4` 不自动作废。
+- [ ] 基于 LongMemEval-S 1-conv cost pilot 的真实 observation，按 ohmygpt 实际价格整理
+  经费/时间估算报告；不要直接使用 OpenAI 官方美元估算作为最终结论。
+- [ ] 对当前脏 worktree 做功能边界整理，确认没有 `data/`、`models/`、`outputs/` 入库后
+  小步 commit/push。
+- [ ] 根据预算决定 LongMemEval-S 扩大规模：建议先 5 或 10 conversations / method，
+  保持同一 run_id 可 resume，再决定是否 full 500。
+- [ ] 汇总 LoCoMo 已完成 run 的 F1、LLM judge 和 efficiency 表，区分历史 run 与当前
+  retrieve-first/AnswerPromptResult 后续 run。
+- [ ] 补充用户可读的 smoke/full 参数语义说明：`smoke-conversation-limit`、
+  `smoke-turn-limit`、`question-limit-per-conversation`、`max-new-conversations`
+  都是上限预算；过小历史导致无完整 evidence 时必须 fail closed。
+- [ ] 治理 isolated worker 长时间无中间进度、第三方 warning/tqdm 插入 Rich 终端的问题；
+  当前不影响 artifact 正确性。
+- [ ] 做 registry/capability 减重实施：保留轻量 registry，逐步删除或降级旧
+  `BaseResumableMemorySystem` / `BaseMemoryRetriever` 迁移负担；`BaseMemorySystem`
+  暂时保留为后备兼容接口。
+- [ ] 将当前 `OpenAISettings` 小步实现迁移到统一 `LLMRuntimeConfig` / `LLMResponse`；
+  第一版仍只实现 OpenAI-compatible provider。
+- [ ] 定期审计 handoff/spec/plan 状态，把已关闭、已覆盖、仍 active 的文档状态同步到
+  `docs/task-ledger.md`。
 
 ### Phase L：后续扩展
 

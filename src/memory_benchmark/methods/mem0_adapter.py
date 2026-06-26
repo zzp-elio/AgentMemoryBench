@@ -462,10 +462,9 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
             self._reserve_namespace(conversation.conversation_id)
         else:
             self._attach_existing_namespace(conversation.conversation_id)
-        self._conversation_metadata[conversation.conversation_id] = {
-            **conversation.metadata,
-            "conversation_id": conversation.conversation_id,
-        }
+        self._conversation_metadata[conversation.conversation_id] = (
+            self._conversation_public_metadata(conversation)
+        )
 
         speaker_roles = self._build_speaker_roles(conversation)
         if self._is_longmemeval_conversation(conversation):
@@ -525,10 +524,9 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
                 f"Mem0 conversation has no turns: {conversation.conversation_id}"
             )
         self._reserve_namespace(conversation.conversation_id)
-        self._conversation_metadata[conversation.conversation_id] = {
-            **conversation.metadata,
-            "conversation_id": conversation.conversation_id,
-        }
+        self._conversation_metadata[conversation.conversation_id] = (
+            self._conversation_public_metadata(conversation)
+        )
 
         speaker_roles = self._build_speaker_roles(conversation)
         written_turn_count = 0
@@ -1066,6 +1064,31 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
             if value is not None
         ).lower()
         return "longmemeval" in source_text
+
+    @staticmethod
+    def _conversation_public_metadata(conversation: Conversation) -> dict[str, Any]:
+        """构造 Mem0 reader 可使用的公开 conversation metadata。
+
+        LoCoMo 官方 answer prompt 需要全局 `reference_date` 辅助相对时间推理。
+        数据集未单独提供时，使用当前 conversation 最后一个有值的 session time；
+        该时间来自公开历史，不包含 gold answer 或 evidence。
+        """
+
+        metadata: dict[str, Any] = {
+            **conversation.metadata,
+            "conversation_id": conversation.conversation_id,
+        }
+        explicit_reference_date = (
+            metadata.get("reference_date") or metadata.get("question_reference_date")
+        )
+        if explicit_reference_date is not None and str(explicit_reference_date).strip():
+            metadata["reference_date"] = str(explicit_reference_date).strip()
+            return metadata
+        for session in reversed(conversation.sessions):
+            if session.session_time and session.session_time.strip():
+                metadata["reference_date"] = session.session_time.strip()
+                break
+        return metadata
 
     @staticmethod
     def _observation_time_prompt(session_time: str | None) -> str | None:

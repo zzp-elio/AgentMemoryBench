@@ -280,15 +280,11 @@ def build_locomo_smoke_dataset(
         raise ConfigurationError("LoCoMo smoke turn_limit must be at least 1")
     if not dataset.conversations:
         raise ConfigurationError("LoCoMo smoke requires at least one conversation")
-    if len(dataset.conversations) < conversation_limit:
-        raise ConfigurationError(
-            "LoCoMo smoke dataset has fewer conversations than requested: "
-            f"{len(dataset.conversations)} < {conversation_limit}"
-        )
+    selected_conversation_limit = min(conversation_limit, len(dataset.conversations))
 
     smoke_conversations = [
         _build_locomo_smoke_conversation(source, turn_limit)
-        for source in dataset.conversations[:conversation_limit]
+        for source in dataset.conversations[:selected_conversation_limit]
     ]
     return Dataset(
         dataset_name=dataset.dataset_name,
@@ -298,6 +294,7 @@ def build_locomo_smoke_dataset(
             "run_scope": "smoke",
             "smoke_turn_limit": turn_limit,
             "smoke_conversation_limit": conversation_limit,
+            "smoke_selected_conversation_count": selected_conversation_limit,
         },
     )
 
@@ -347,10 +344,18 @@ def _build_locomo_smoke_conversation(
             selected_question = copy.deepcopy(question)
             selected_questions.append(selected_question)
             selected_gold_answers[selected_question.question_id] = copy.deepcopy(gold)
+    context_truncated = False
     if not selected_questions:
-        raise ConfigurationError(
-            "LoCoMo smoke history does not cover any complete private evidence set "
-            f"for {source.conversation_id}; increase --smoke-turn-limit"
+        if not source.questions:
+            raise ConfigurationError(
+                f"LoCoMo smoke source conversation has no questions: "
+                f"{source.conversation_id}"
+            )
+        context_truncated = True
+        selected_question = copy.deepcopy(source.questions[0])
+        selected_questions.append(selected_question)
+        selected_gold_answers[selected_question.question_id] = copy.deepcopy(
+            source.gold_answers[selected_question.question_id]
         )
 
     return Conversation(
@@ -361,6 +366,7 @@ def _build_locomo_smoke_conversation(
         metadata={
             **copy.deepcopy(source.metadata),
             "smoke_turn_limit": turn_limit,
+            "smoke_context_truncated": context_truncated,
             "smoke_selected_question_id": selected_questions[0].question_id,
             "smoke_selected_question_ids": [
                 question.question_id for question in selected_questions

@@ -457,6 +457,44 @@ def _make_build_context(tmp_path: Path):
     )
 
 
+def _write_resume_manifest(
+    *,
+    dataset: Dataset,
+    run_context: RunContext,
+    policy: PredictionRunPolicy,
+    method_manifest: dict[str, object],
+    benchmark_variant: str = "default",
+    run_scope: RunScope = RunScope.FULL,
+) -> None:
+    """为手工 checkpoint 测试写入与 runner 一致的 manifest。
+
+    输入:
+        dataset: 当前测试使用的统一数据集。
+        run_context: resume 目标 run。
+        policy: 当前测试的 runner policy。
+        method_manifest: 公开 method 身份。
+        benchmark_variant: concrete benchmark variant。
+        run_scope: smoke/full scope。
+
+    输出:
+        None。函数只写 `manifest.json`，其余 checkpoint 由测试单独构造。
+    """
+
+    from memory_benchmark.runners import prediction as prediction_module
+
+    _, manifest = prediction_module._build_prediction_resume_artifacts(
+        dataset=dataset,
+        run_context=run_context,
+        policy=policy,
+        method_manifest=method_manifest,
+        benchmark_variant=benchmark_variant,
+        run_scope=run_scope,
+        source_paths=(),
+    )
+    run_context.run_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(run_context.run_dir / "manifest.json", manifest)
+
+
 def test_preflight_prediction_run_accepts_matching_resume_without_writes(
     tmp_path: Path,
 ) -> None:
@@ -1678,7 +1716,8 @@ def test_prediction_work_plan_quarantines_failed_conversations_by_default() -> N
         prediction_records: 空，表示没有任何问题已经完成。
 
     输出:
-        默认 policy 只推进 `conv-2`；显式 retry policy 才会重新纳入 `conv-1`。
+        默认 policy 只推进 `conv-2`；显式 retry policy 对没有 `ingested=true`
+        的 legacy failed 直接 fail closed。
     """
 
     from memory_benchmark.runners.prediction import _build_prediction_work_plan
@@ -1707,16 +1746,17 @@ def test_prediction_work_plan_quarantines_failed_conversations_by_default() -> N
         item.conversation.conversation_id for item in default_plan.items
     ] == ["conv-2"]
 
-    retry_plan = _build_prediction_work_plan(
-        conversations=list(dataset.conversations),
-        selected_questions=selected_questions,
-        conversation_status=conversation_status,
-        prediction_records={},
-        policy=PredictionRunPolicy(resume=True, retry_failed_conversations=True),
-    )
-    assert [
-        item.conversation.conversation_id for item in retry_plan.items
-    ] == ["conv-1", "conv-2"]
+    with pytest.raises(ConfigurationError, match="clean retry"):
+        _build_prediction_work_plan(
+            conversations=list(dataset.conversations),
+            selected_questions=selected_questions,
+            conversation_status=conversation_status,
+            prediction_records={},
+            policy=PredictionRunPolicy(
+                resume=True,
+                retry_failed_conversations=True,
+            ),
+        )
 
 
 def test_retry_failed_ingested_conversation_resumes_pending_questions_only() -> None:
@@ -1769,6 +1809,137 @@ def test_retry_failed_ingested_conversation_resumes_pending_questions_only() -> 
     assert [question.question_id for question in plan.items[0].pending_questions] == [
         "conv-1:q2"
     ]
+
+
+def test_failed_answer_resume_does_not_reingest(tmp_path: Path) -> None:
+    """answer 阶段失败后，retry-failed 只补问题，不重新 add。
+
+    输入:
+        conversation_status: `failed_answer + ingested=true` 表示上次写入记忆已经完成，
+            只是回答问题阶段失败。
+
+    输出:
+        runner 只回答未完成的 `q2`，不会再次调用 provider.add()。
+    """
+
+    dataset = _build_two_question_dataset()
+    run_context = RunContext.create(
+        run_id="failed-answer-resume",
+        benchmark_name="fake",
+        method_name="fake",
+        model_name="fake",
+        output_root=tmp_path,
+        resume=True,
+    )
+    policy = PredictionRunPolicy(
+        resume=True,
+        retry_failed_conversations=True,
+    )
+    method_manifest = {"method_name": "fake"}
+    _write_resume_manifest(
+        dataset=dataset,
+        run_context=run_context,
+        policy=policy,
+        method_manifest=method_manifest,
+    )
+    run_dir = tmp_path / "failed-answer-resume"
+    atomic_write_json(
+        run_dir / "checkpoints" / "conversation_status.json",
+        {
+            "conv-1": {
+                "status": "failed_answer",
+                "ingested": True,
+                "stage": "answer",
+            }
+        },
+    )
+    atomic_write_jsonl(
+        run_dir / "artifacts" / "method_predictions.jsonl",
+        [
+            {
+                "question_id": "conv-1:q1",
+                "conversation_id": "conv-1",
+                "question_text": "问题 1",
+                "answer": "old answer",
+                "metadata": {},
+            }
+        ],
+    )
+    provider = RecordingMemoryProvider()
+
+    run_predictions(
+        dataset=dataset,
+        system=provider,
+        run_context=run_context,
+        policy=policy,
+        method_manifest=method_manifest,
+        benchmark_variant="default",
+        run_scope=RunScope.FULL,
+        answer_reader=FrameworkAnswerReader(client=FakeAnswerLLMClient("new answer")),
+    )
+
+    assert provider.added_conversation_ids == []
+    assert provider.retrieved_question_ids == ["conv-1:q2"]
+
+
+def test_failed_ingest_retry_without_clean_support_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """ingest 阶段失败的 conversation 不能在脏状态上直接重跑。
+
+    输入:
+        conversation_status: `failed_ingest + ingested=false` 表示上次 add 可能只写入
+            了部分第三方 memory state。
+
+    输出:
+        即使用户传了 retry_failed_conversations，runner 也拒绝在未知脏状态上重试。
+    """
+
+    dataset = _build_dataset()
+    run_context = RunContext.create(
+        run_id="failed-ingest-resume",
+        benchmark_name="fake",
+        method_name="fake",
+        model_name="fake",
+        output_root=tmp_path,
+        resume=True,
+    )
+    policy = PredictionRunPolicy(
+        resume=True,
+        retry_failed_conversations=True,
+    )
+    method_manifest = {"method_name": "fake"}
+    _write_resume_manifest(
+        dataset=dataset,
+        run_context=run_context,
+        policy=policy,
+        method_manifest=method_manifest,
+    )
+    run_dir = tmp_path / "failed-ingest-resume"
+    atomic_write_json(
+        run_dir / "checkpoints" / "conversation_status.json",
+        {
+            "conv-1": {
+                "status": "failed_ingest",
+                "ingested": False,
+                "stage": "ingest",
+            }
+        },
+    )
+
+    with pytest.raises(ConfigurationError, match="clean retry"):
+        run_predictions(
+            dataset=dataset,
+            system=RecordingMemoryProvider(),
+            run_context=run_context,
+            policy=policy,
+            method_manifest=method_manifest,
+            benchmark_variant="default",
+            run_scope=RunScope.FULL,
+            answer_reader=FrameworkAnswerReader(
+                client=FakeAnswerLLMClient("unused")
+            ),
+        )
 
 
 @pytest.mark.parametrize(
@@ -2424,7 +2595,7 @@ def test_isolated_worker_marks_failed_conversation_and_continues_work(
 
     assert ("worker_0", "add", "conv-3") in calls
     assert ("worker_1", "add", "conv-4") in calls
-    assert conversation_status["conv-1"]["status"] == "failed"
+    assert conversation_status["conv-1"]["status"] == "failed_ingest"
     assert conversation_status["conv-1"]["stage"] == "isolated_worker"
     assert conversation_status["conv-1"]["error_type"] == "RuntimeError"
     assert conversation_status["conv-2"]["status"] == "completed"
@@ -2432,7 +2603,7 @@ def test_isolated_worker_marks_failed_conversation_and_continues_work(
     assert conversation_status["conv-4"]["status"] == "completed"
     assert set(prediction_records) == {"conv-2:q1", "conv-3:q1", "conv-4:q1"}
     persisted_status = json.loads(paths.conversation_status_path.read_text())
-    assert persisted_status["conv-1"]["status"] == "failed"
+    assert persisted_status["conv-1"]["status"] == "failed_ingest"
     assert persisted_status["conv-3"]["status"] == "completed"
     events = read_jsonl(paths.logs_dir / "events.jsonl")
     failure_events = [
@@ -2519,8 +2690,8 @@ def test_isolated_worker_stops_after_consecutive_failure_threshold(
         )
 
     assert calls == ["conv-1", "conv-2"]
-    assert conversation_status["conv-1"]["status"] == "failed"
-    assert conversation_status["conv-2"]["status"] == "failed"
+    assert conversation_status["conv-1"]["status"] == "failed_ingest"
+    assert conversation_status["conv-2"]["status"] == "failed_ingest"
     assert "conv-3" not in conversation_status
 
 

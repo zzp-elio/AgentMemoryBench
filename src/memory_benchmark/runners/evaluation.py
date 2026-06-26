@@ -136,6 +136,9 @@ def run_artifact_evaluation(
             )
         model_inventory = _get_evaluator_model_inventory(evaluator)
 
+    ordered_question_ids = [
+        qid for qid in ordered_question_ids if qid in prediction_by_id
+    ]
     eval_results = _evaluate_questions(
         evaluator=evaluator,
         public_by_id=public_by_id,
@@ -400,13 +403,23 @@ def _validate_matching_question_ids(
     prediction_by_id: dict[str, dict[str, Any]],
     private_by_id: dict[str, dict[str, Any]],
 ) -> None:
-    """校验三类 artifacts 的 question id 集合完全一致。"""
+    """校验 artifacts 的 question id 集合关系：predictions 必须是 public/private 的子集。
+
+    在分批实验（--max-new-conversations）场景下，predictions 可能只包含部分
+    conversation 的 question，此时允许 predictions 为 public/private 的子集。
+    public 和 private 仍需完全一致。
+    """
 
     public_ids = set(public_by_id)
     prediction_ids = set(prediction_by_id)
     private_ids = set(private_by_id)
-    if public_ids != prediction_ids or public_ids != private_ids:
-        raise ConfigurationError("artifact question id sets do not match")
+    if public_ids != private_ids:
+        raise ConfigurationError("public question and private label id sets do not match")
+    if not prediction_ids.issubset(public_ids):
+        extra = prediction_ids - public_ids
+        raise ConfigurationError(
+            f"prediction contains question ids not in public questions: {sorted(extra)}"
+        )
 
 
 def _rebuild_entities(

@@ -37,7 +37,9 @@ turn-level resume；现在统一改为框架 isolated conversation 并发和 con
 resume。`mem0-locomo-full-v3` 已定位到 embedding API SSL 断连，当前已补 retry/timeout
 兜底。后续 `outputs/mem0-locomo-full-v4/` 已跑完 10 conversations / 1540 questions，并
 生成 F1、LLM judge 和 efficiency summary；OpenCode 发现的全局 `reference_date` 只传年份
-问题已记录为 informational，因为每条检索记忆自带完整日期，不判定 full-v4 作废。
+问题已在 2026-06-23 修复：后续 Mem0 LoCoMo run 会把公开 history 中最后一个 session time
+写入官方 answer prompt 的 `reference_date`。这不自动重写或判定 full-v4 作废；如需最严谨
+复现 Mem0 官方 LoCoMo prompt，应使用新 run_id 重新跑 Mem0 LoCoMo。
 最新任务状态见
 [docs/task-ledger.md](docs/task-ledger.md)。
 
@@ -55,7 +57,7 @@ smoke，但发现 isolated worker 仍走 legacy answer path；当前代码已修
 retrieve-first API smoke 已用新 run id 重跑通过，四个内置 method 均写出
 `answer_prompts.prediction.jsonl` 和非空 `prompt_messages`。
 
-LongMemEval 适配正在收尾：Mem0 和 LightMem 使用各自已有 LongMemEval prompt/检索路径；
+LongMemEval 适配已完成第一轮真实闭环：Mem0 和 LightMem 使用各自已有 LongMemEval prompt/检索路径；
 A-Mem 和 MemoryOS 已补 retrieve-first LongMemEval 分支，复用 LightMem-style reader
 prompt，同时保留各自 method-specific 记忆上下文。A-Mem 保留 query keywords、category
 k 和 memory context；MemoryOS 保留 recent context、retrieval queue、user profile、
@@ -64,8 +66,12 @@ long-term knowledge 和 assistant knowledge。MemoryOS 还额外支持可选
 结构，但默认仍是 LightMem-style LongMemEval QA prompt。LongMemEval judge 默认走
 LightMem LongMemEval 流程：task-specific yes/no prompt、Chat Completions、
 `temperature=0.0`、`top_p=0.8`、`max_tokens=2000`，便于和 LightMem 论文结果对比。
-上述代码路径已通过离线 focused 测试，但真实 LongMemEval-S API smoke 仍需用户确认
-规模、预算和 `run_id` 后执行。
+上述代码路径已通过离线 focused 测试，并已完成四个 method 的 LongMemEval-S `s_cleaned`
+official-full 1-conv cost pilot：
+`outputs/{lightmem,mem0,memoryos,amem}-longmemeval-s-1conv-costpilot-20260622-s-cleaned`
+均为 1/500 conversations、1/500 questions completed，LongMemEval judge 均为 1/1。
+这些 run 可继续用同一 `run_id` 加 `--resume` 扩大规模。OpenCode 文档里的美元估算使用
+OpenAI 官方 GPT-4o-mini 价格，只作参考；真实费用需要按 ohmygpt 实际价格离线换算。
 
 LLM/provider 灵活配置方向也已完成设计：
 [LLM Provider 与 Prompt 配置设计](docs/superpowers/specs/2026-06-21-llm-provider-config-design.md)。
@@ -133,11 +139,12 @@ uv run pytest -m api --collect-only -q
 本地运行时约定：
 
 ```text
-data/                    # adapter 读取的 canonical runtime dataset
-models/                  # 本地 embedding / compressor / NLP 模型资源
-outputs/<run_id>/        # prediction、evaluation、日志、checkpoint 和 method state
-third_party/benchmarks/  # 官方 benchmark 仓库，只用于事实核验和源码参考
-third_party/methods/     # 项目提供并固定版本的第三方 method 源码
+data/                            # adapter 读取的 canonical runtime dataset
+models/                          # 本地 embedding / compressor / NLP 模型资源
+outputs/<run_id>/                # legacy run 输出目录
+outputs/runs/{method}/...        # CLI v2 分层 run 输出目录
+third_party/benchmarks/          # 官方 benchmark 仓库，只用于事实核验和源码参考
+third_party/methods/             # 项目提供并固定版本的第三方 method 源码
 ```
 
 LightMem 当前需要本地模型：
@@ -304,8 +311,14 @@ OpenAI-compatible framework reader；完整多 provider 配置仍处于设计后
 - 旧 `get_answer()` / `BaseMemorySystem` 路径只属于迁移期兼容；不要把它作为新 method
   接入接口。
 
-自定义 method 当前通过 Python API 传入实现接口的实例；CLI 只运行官方集成。当前原生
-接口审计见 [docs/method-interface-inventory.md](docs/method-interface-inventory.md)。
+自定义 method 现在也可以通过 CLI 轻量接入：传
+`--method-class module:ClassName`，并让该类无参数构造且继承 `BaseMemoryProvider`。
+该路径不要求用户写 AgentMemoryBench 的 TOML profile、不要求接入 source identity，也不
+强制内部 LLM/embedding 观测。自定义 method 默认 `workers=1`；如果用户显式传
+`--allow-unsafe-custom-parallel`，框架才允许 `workers>1`，并由用户自行保证外部数据库、
+文件、namespace 和 conversation 隔离安全。手把手示例见
+[docs/custom-method-onboarding.md](docs/custom-method-onboarding.md)。当前内置 method
+原生接口审计见 [docs/method-interface-inventory.md](docs/method-interface-inventory.md)。
 
 ## 统一命令行入口
 
@@ -318,36 +331,29 @@ OpenAI-compatible framework reader；完整多 provider 配置仍处于设计后
 正式实验建议优先使用可独立恢复的 `predict` 和 `evaluate`。`run` 不复制业务逻辑。
 `predict` / `run` 默认写出 prediction 阶段的 token、latency 和模型身份 observation；
 只有临时调试时才建议显式传 `--disable-efficiency-observability` 关闭。
-小量调试可以用以下预算参数控制规模：
+当前推荐使用 CLI v2：
 
-- `--smoke-turn-limit N`：smoke profile 中每个 conversation/instance 最多写入的历史 turn
-  或完整 round。
-- `--smoke-conversation-limit N`：smoke profile 中最多加载的 conversation/instance 数。
-- `--question-limit-per-conversation N`：本次命令每个 conversation 最多回答的问题数；这是
-  可变命令预算，不进入 resume identity，后续可以用同一 `run_id --resume` 增加题数。
-- `--max-new-conversations N`：本次命令最多推进多少个未完成 conversation；用于 full
-  实验分批运行，不改变实验 identity。
-- `--retry-failed`：默认 resume 会跳过 checkpoint 中已标记 failed 的 conversation，
-  避免失败项反复触发付费调用；只有显式传入该参数才会重新尝试这些 conversation。
+- `predict smoke`：极小真实链路测试。允许裁剪 conversation、历史 round 和每个
+  conversation 的问题数；不支持 `--resume` 或 `--retry-failed`。
+- `predict formal`：正式 profile 运行。不能裁剪历史或问题；可用
+  `--conversation-budget` 分批推进，并可用 `--resume` 继续同一个 `run_id`。
+- `--allow-api` 是 `--confirm-api` 的直观别名；旧名称仍兼容。
 
-这些参数语义都是上限：如果设置值大于当前 dataset / variant 的实际数量，框架应按实际
-可用数量运行。LoCoMo smoke adapter 会保留所有 evidence 完整落在截断历史里的问题，
-再由 runner 按 `--question-limit-per-conversation` 做本次命令预算裁剪；如果
-`--smoke-turn-limit` 小到没有任何完整 evidence 覆盖题，框架会 fail closed，要求提高
-turn limit，而不是执行无意义的付费 smoke。
+这些预算参数语义都是上限：如果设置值大于当前 dataset / variant 的实际数量，框架按实际
+可用数量运行；worker 数量也会由 runner 按实际 work item 做边界处理。
 
 LoCoMo 小量真实链路示例：
 
 ```bash
-uv run memory-benchmark predict \
+uv run memory-benchmark predict smoke \
   --method mem0 \
   --benchmark locomo \
-  --profile smoke \
   --run-id mem0-locomo-smoke \
-  --confirm-api \
-  --smoke-turn-limit 20 \
-  --smoke-conversation-limit 5 \
-  --question-limit-per-conversation 2
+  --allow-api \
+  --conversations 5 \
+  --rounds 20 \
+  --questions-per-conversation 2 \
+  --workers 2
 ```
 
 已有回答可以离线计算 LoCoMo F1，不读取 `.env`，也不会再次调用 method：
@@ -365,54 +371,63 @@ uv run memory-benchmark evaluate \
   --run-id mem0-locomo-smoke \
   --metric locomo-judge \
   --judge-profile compact \
-  --confirm-api
+  --allow-api \
+  --workers 4
 ```
 
 LongMemEval-S 小量示例：
 
 ```bash
-uv run memory-benchmark predict \
+uv run memory-benchmark predict smoke \
   --method mem0 \
   --benchmark longmemeval \
-  --profile smoke \
   --variant s_cleaned \
   --run-id mem0-longmemeval-smoke \
-  --confirm-api
+  --allow-api \
+  --conversations 1 \
+  --rounds 20 \
+  --questions-per-conversation 1
 ```
 
 LongMemEval 支持 `s_cleaned`、`m_cleaned` 和命令层 selector `all`。`--variant all` 不会把
 S/M 合并成一个 dataset，而是创建独立 child run，保证 resume、指标比较和排行榜口径清晰。
 
-full profile 会产生大量真实 API 调用，必须额外提供 `--confirm-full`：
+formal profile 会产生大量真实 API 调用；新入口只需要显式 `--allow-api`，并建议先用
+`--conversation-budget` 分批推进：
 
 ```bash
-uv run memory-benchmark predict \
+uv run memory-benchmark predict formal \
   --method mem0 \
   --benchmark locomo \
-  --profile official-full \
   --run-id mem0-locomo-full-YYYYMMDD \
-  --confirm-api \
-  --confirm-full
+  --allow-api \
+  --conversation-budget 2 \
+  --workers 2
 ```
 
 分批续跑选项：
 
 ```bash
-uv run memory-benchmark predict \
+uv run memory-benchmark predict formal \
   --method mem0 \
   --benchmark locomo \
-  --profile official-full \
   --run-id mem0-locomo-full-YYYYMMDD \
-  --confirm-api \
-  --confirm-full \
-  --max-new-conversations 2
+  --allow-api \
+  --resume \
+  --conversation-budget 2 \
+  --workers 2
 ```
 
-`--max-new-conversations` 的语义是“本次命令最多推进 N 个尚未完成的 conversation”。
+`--conversation-budget` 的语义是“本次命令最多推进 N 个尚未完成的 conversation”。
 它是运行预算，不是实验 identity；同一个 `run_id` 后续可以用不同预算继续 `--resume`。
-该选项已接入 `predict` / `run` / `calibrate-smoke`，用于把长实验拆成多次可恢复的小批次。
 如果某个 conversation 已在 `checkpoints/conversation_status.json` 中标记为 `failed`，默认
 `--resume` 不会再次处理它；确认资源和修复原因后，可用 `--retry-failed` 显式重试。
+
+旧写法 `predict --profile smoke` / `predict --profile official-full` 仍保留兼容；新实验建议
+优先使用 `predict smoke` / `predict formal`。
+旧 CLI 不会立刻删除：等四个内置 method 的 LoCoMo/LongMemEval 新 CLI smoke 稳定后，
+再为旧写法加 deprecated warning；至少完成一次 v2 formal 小规模 run 后，再从公开示例中
+移除旧写法；对外发布前再决定是否彻底删除旧参数。
 
 当前 prediction/full run 的并行边界是 conversation 级：单个 method × 单个 benchmark
 内部可以用 worker 并行处理不同 conversation。多个 method 或多个 benchmark 同时跑实验时，
@@ -453,10 +468,13 @@ profile 类型：
 
 ## 实验输出
 
-长实验输出位于 `outputs/<run_id>/`：
+CLI v2 新实验输出按 method、benchmark 和模式分层；legacy 命令和历史实验仍保留
+`outputs/<run_id>/` 平铺布局。两种布局的 run 目录内部结构一致，`evaluate --run-id`
+可以兼容读取；如果同名 `run_id` 同时出现在 legacy 和 v2 目录，或在 v2 目录中出现多处，
+框架会报 ambiguity，要求换明确的 run id。
 
 ```text
-outputs/<run_id>/
+outputs/runs/{method}/{benchmark}/{variant?}/{smoke|formal}/{run_id}/
   manifest.json
   config.redacted.json
   artifacts/

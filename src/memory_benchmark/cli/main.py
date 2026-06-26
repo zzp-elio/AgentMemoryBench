@@ -95,9 +95,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default="compact",
         choices=["compact", "detailed"],
     )
-    evaluate_parser.add_argument("--confirm-api", action="store_true")
     evaluate_parser.add_argument(
+        "--allow-api",
+        "--confirm-api",
+        dest="confirm_api",
+        action="store_true",
+    )
+    evaluate_parser.add_argument(
+        "--workers",
         "--max-eval-workers",
+        dest="max_eval_workers",
         type=int,
         default=1,
         metavar="N",
@@ -143,25 +150,56 @@ def _add_common_root_argument(parser: argparse.ArgumentParser) -> None:
 def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
     """为 predict/run 添加一致的 prediction 参数。"""
 
+    parser.add_argument(
+        "prediction_mode",
+        nargs="?",
+        choices=["smoke", "formal"],
+        help=(
+            "CLI v2 mode: smoke for tiny connectivity tests, formal for "
+            "official-profile runs."
+        ),
+    )
     _add_common_root_argument(parser)
-    parser.add_argument("--method", required=True, choices=list_methods())
+    parser.add_argument("--method", choices=list_methods(), default=None)
+    parser.add_argument(
+        "--method-class",
+        default=None,
+        help="Custom user method class in module:ClassName format.",
+    )
+    parser.add_argument(
+        "--allow-unsafe-custom-parallel",
+        action="store_true",
+        help=(
+            "Allow workers>1 for a custom --method-class. The user is "
+            "responsible for run, benchmark, worker and conversation "
+            "isolation."
+        ),
+    )
     parser.add_argument(
         "--benchmark",
         required=True,
         choices=list_prediction_benchmarks(),
     )
-    parser.add_argument("--profile", default="smoke")
+    parser.add_argument("--profile", choices=["smoke", "official-full"], default=None)
     parser.add_argument("--variant", default=None)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--confirm-api", action="store_true")
+    parser.add_argument(
+        "--allow-api",
+        "--confirm-api",
+        dest="confirm_api",
+        action="store_true",
+    )
     parser.add_argument("--confirm-full", action="store_true")
-    parser.add_argument("--smoke-turn-limit", type=int, default=20)
+    parser.add_argument("--rounds", type=int, default=None)
+    parser.add_argument("--smoke-turn-limit", type=int, default=None)
+    parser.add_argument("--conversations", type=int, default=None)
     parser.add_argument(
         "--smoke-conversation-limit",
         type=int,
-        default=1,
+        default=None,
     )
+    parser.add_argument("--workers", type=int, default=None)
     parser.add_argument(
         "--smoke-max-workers",
         type=int,
@@ -192,6 +230,15 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
         help=MAX_NEW_CONVERSATIONS_HELP,
     )
     parser.add_argument(
+        "--conversation-budget",
+        type=int,
+        default=None,
+        help=(
+            "formal mode only: advance at most this many unfinished "
+            "conversations in this invocation."
+        ),
+    )
+    parser.add_argument(
         "--retry-failed",
         dest="retry_failed_conversations",
         action="store_true",
@@ -200,6 +247,12 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
             "failed conversations stay quarantined during resume to avoid "
             "repeated API burn."
         ),
+    )
+    parser.add_argument(
+        "--questions-per-conversation",
+        type=int,
+        default=None,
+        help="smoke mode only: maximum questions per selected conversation.",
     )
     parser.add_argument(
         "--question-limit-per-conversation",
@@ -324,22 +377,29 @@ def _dispatch(args: argparse.Namespace) -> Any:
 def _prediction_command_from_args(args: argparse.Namespace) -> PredictCommand:
     """从 predict/run 参数构造统一 prediction command。"""
 
+    normalized = _normalize_prediction_args(args)
+    _validate_method_selector(args, normalized)
     return PredictCommand(
         project_root=Path(args.root),
         method=args.method,
+        method_class=args.method_class,
+        allow_unsafe_custom_parallel=args.allow_unsafe_custom_parallel,
         benchmark=args.benchmark,
-        profile=args.profile,
+        profile=normalized["profile"],
         variant=args.variant,
         run_id=args.run_id,
         resume=args.resume,
         confirm_api=args.confirm_api,
-        confirm_full=args.confirm_full,
-        smoke_turn_limit=args.smoke_turn_limit,
-        smoke_conversation_limit=args.smoke_conversation_limit,
-        smoke_max_workers=args.smoke_max_workers,
-        max_new_conversations=args.max_new_conversations,
+        confirm_full=normalized["confirm_full"],
+        smoke_turn_limit=normalized["smoke_turn_limit"],
+        smoke_round_limit=normalized["smoke_round_limit"],
+        smoke_conversation_limit=normalized["smoke_conversation_limit"],
+        smoke_max_workers=normalized["workers"],
+        max_new_conversations=normalized["max_new_conversations"],
         retry_failed_conversations=args.retry_failed_conversations,
-        question_limit_per_conversation=args.question_limit_per_conversation,
+        question_limit_per_conversation=normalized[
+            "question_limit_per_conversation"
+        ],
         enable_efficiency_observability=args.enable_efficiency_observability,
         answer_prompt_file=(
             None
@@ -347,7 +407,232 @@ def _prediction_command_from_args(args: argparse.Namespace) -> PredictCommand:
             else Path(args.answer_prompt_file)
         ),
         answer_prompt_profile=args.answer_prompt_profile,
+        output_layout=normalized["output_layout"],
     )
+
+
+def _validate_method_selector(
+    args: argparse.Namespace,
+    normalized: dict[str, Any],
+) -> None:
+    """校验内置 method 和用户自定义 method class 的选择关系。"""
+
+    if bool(args.method) == bool(args.method_class):
+        raise MemoryBenchmarkError("Pass exactly one of --method or --method-class")
+    workers = normalized["workers"]
+    if args.method_class and workers is not None and workers > 1:
+        if not args.allow_unsafe_custom_parallel:
+            raise MemoryBenchmarkError(
+                "Custom --method-class uses workers=1 by default. Pass "
+                "--allow-unsafe-custom-parallel to use workers>1 after "
+                "confirming your adapter is safe for parallel runs."
+            )
+
+
+def _normalize_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
+    """把 CLI v2 和 legacy prediction 参数归一化为 command service 字段。"""
+
+    if args.prediction_mode is None:
+        return _normalize_legacy_prediction_args(args)
+    if args.profile is not None:
+        raise MemoryBenchmarkError(
+            "Do not pass --profile with 'predict smoke' or 'predict formal'; "
+            "the subcommand already selects the run mode."
+        )
+    if args.prediction_mode == "smoke":
+        return _normalize_smoke_prediction_args(args)
+    return _normalize_formal_prediction_args(args)
+
+
+def _normalize_legacy_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
+    """保持旧 `predict --profile ...` 写法可用，并接入新别名。"""
+
+    _reject_conflicting_aliases(args)
+    return {
+        "profile": args.profile or "smoke",
+        "confirm_full": args.confirm_full,
+        "smoke_turn_limit": _positive_or_default(
+            args.rounds if args.rounds is not None else args.smoke_turn_limit,
+            default=20,
+            field_name="rounds",
+        ),
+        "smoke_round_limit": None,
+        "smoke_conversation_limit": _positive_or_default(
+            (
+                args.conversations
+                if args.conversations is not None
+                else args.smoke_conversation_limit
+            ),
+            default=1,
+            field_name="conversations",
+        ),
+        "workers": _positive_or_none(
+            args.workers if args.workers is not None else args.smoke_max_workers,
+            field_name="workers",
+        ),
+        "max_new_conversations": _positive_or_none(
+            (
+                args.conversation_budget
+                if args.conversation_budget is not None
+                else args.max_new_conversations
+            ),
+            field_name="conversation budget",
+        ),
+        "question_limit_per_conversation": _positive_or_none(
+            (
+                args.questions_per_conversation
+                if args.questions_per_conversation is not None
+                else args.question_limit_per_conversation
+            ),
+            field_name="questions per conversation",
+        ),
+        "output_layout": "flat",
+    }
+
+
+def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
+    """校验并归一化 `predict smoke` 参数。"""
+
+    _reject_conflicting_aliases(args)
+    if args.resume:
+        raise MemoryBenchmarkError("predict smoke does not support --resume")
+    if args.retry_failed_conversations:
+        raise MemoryBenchmarkError("predict smoke does not support --retry-failed")
+    if args.conversation_budget is not None or args.max_new_conversations is not None:
+        raise MemoryBenchmarkError(
+            "predict smoke does not support --conversation-budget or "
+            "--max-new-conversations; use --conversations"
+        )
+    round_limit = (
+        args.rounds if args.rounds is not None else args.smoke_turn_limit
+    )
+    return {
+        "profile": "smoke",
+        "confirm_full": False,
+        "smoke_turn_limit": _positive_or_default(
+            round_limit,
+            default=20,
+            field_name="rounds",
+        ),
+        "smoke_round_limit": _positive_or_default(
+            round_limit,
+            default=20,
+            field_name="rounds",
+        ),
+        "smoke_conversation_limit": _positive_or_default(
+            (
+                args.conversations
+                if args.conversations is not None
+                else args.smoke_conversation_limit
+            ),
+            default=1,
+            field_name="conversations",
+        ),
+        "workers": _positive_or_none(
+            args.workers if args.workers is not None else args.smoke_max_workers,
+            field_name="workers",
+        ),
+        "max_new_conversations": None,
+        "question_limit_per_conversation": _positive_or_default(
+            (
+                args.questions_per_conversation
+                if args.questions_per_conversation is not None
+                else args.question_limit_per_conversation
+            ),
+            default=1,
+            field_name="questions per conversation",
+        ),
+        "output_layout": "hierarchical",
+    }
+
+
+def _normalize_formal_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
+    """校验并归一化 `predict formal` 参数。"""
+
+    _reject_conflicting_aliases(args)
+    if args.retry_failed_conversations and not args.resume:
+        raise MemoryBenchmarkError("--retry-failed requires --resume")
+    if args.rounds is not None or args.smoke_turn_limit is not None:
+        raise MemoryBenchmarkError("predict formal does not support --rounds")
+    if args.conversations is not None or args.smoke_conversation_limit is not None:
+        raise MemoryBenchmarkError("predict formal does not support --conversations")
+    if (
+        args.questions_per_conversation is not None
+        or args.question_limit_per_conversation is not None
+    ):
+        raise MemoryBenchmarkError(
+            "predict formal does not support --questions-per-conversation"
+        )
+    return {
+        "profile": "official-full",
+        "confirm_full": True,
+        "smoke_turn_limit": 20,
+        "smoke_round_limit": None,
+        "smoke_conversation_limit": 1,
+        "workers": _positive_or_none(
+            args.workers if args.workers is not None else args.smoke_max_workers,
+            field_name="workers",
+        ),
+        "max_new_conversations": _positive_or_none(
+            (
+                args.conversation_budget
+                if args.conversation_budget is not None
+                else args.max_new_conversations
+            ),
+            field_name="conversation budget",
+        ),
+        "question_limit_per_conversation": None,
+        "output_layout": "hierarchical",
+    }
+
+
+def _reject_conflicting_aliases(args: argparse.Namespace) -> None:
+    """拒绝新旧别名同时出现，避免用户误解最终生效值。"""
+
+    if args.workers is not None and args.smoke_max_workers is not None:
+        raise MemoryBenchmarkError("Use either --workers or --smoke-max-workers, not both")
+    if args.rounds is not None and args.smoke_turn_limit is not None:
+        raise MemoryBenchmarkError("Use either --rounds or --smoke-turn-limit, not both")
+    if args.conversations is not None and args.smoke_conversation_limit is not None:
+        raise MemoryBenchmarkError(
+            "Use either --conversations or --smoke-conversation-limit, not both"
+        )
+    if (
+        args.questions_per_conversation is not None
+        and args.question_limit_per_conversation is not None
+    ):
+        raise MemoryBenchmarkError(
+            "Use either --questions-per-conversation or "
+            "--question-limit-per-conversation, not both"
+        )
+    if args.conversation_budget is not None and args.max_new_conversations is not None:
+        raise MemoryBenchmarkError(
+            "Use either --conversation-budget or --max-new-conversations, not both"
+        )
+
+
+def _positive_or_default(
+    value: int | None,
+    *,
+    default: int,
+    field_name: str,
+) -> int:
+    """返回正整数参数；未提供时使用默认值。"""
+
+    normalized = default if value is None else value
+    if normalized < 1:
+        raise MemoryBenchmarkError(f"{field_name} must be at least 1")
+    return normalized
+
+
+def _positive_or_none(value: int | None, *, field_name: str) -> int | None:
+    """返回可选正整数参数；未提供时保持 None。"""
+
+    if value is None:
+        return None
+    if value < 1:
+        raise MemoryBenchmarkError(f"{field_name} must be at least 1")
+    return value
 
 
 def _print_result(result: Any) -> None:

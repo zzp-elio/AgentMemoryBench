@@ -20,22 +20,29 @@ from memory_benchmark.benchmark_adapters import (
 from memory_benchmark.benchmark_adapters.locomo import build_locomo_smoke_dataset
 from memory_benchmark.config import AnswerLLMSettings, OpenAISettings
 from memory_benchmark.core import (
+    AddResult,
+    AnswerPromptResult,
     Conversation,
     Dataset,
     GoldAnswerInfo,
     MethodCapability,
+    PromptMessage,
     Question,
     Session,
     TaskFamily,
     Turn,
 )
 from memory_benchmark.core.exceptions import ConfigurationError
+from memory_benchmark.core.interfaces import BaseMemoryProvider
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.observability.efficiency import (
     ModelDescriptor,
     RetrievalObservationContract,
 )
 from memory_benchmark.runners.ingest_resume import TurnIngestCheckpointStore
+from memory_benchmark.runners.prediction import PredictionRunSummary
+from memory_benchmark.readers.answer import AnswerLLMResponse
+from memory_benchmark.storage import read_jsonl
 from memory_benchmark.cli.run_prediction import (
     load_completed_conversation_ids,
     run_registered_conversation_qa_prediction,
@@ -344,14 +351,20 @@ def test_smoke_concurrency_override_is_bounded_and_does_not_change_full() -> Non
         resolve_prediction_max_workers(full, smoke_max_workers=2)
 
 
-def test_smoke_dataset_rejects_history_without_answerable_question() -> None:
-    """截断历史不覆盖任何 evidence 时应报错，不能执行无意义付费 smoke。"""
+def test_smoke_dataset_marks_truncated_evidence_without_rejecting() -> None:
+    """smoke 只验证链路，截断历史不覆盖 evidence 时保留问题并记录标记。"""
 
     dataset = _build_smoke_source_dataset()
     dataset.conversations[0].gold_answers["q-inside"].evidence = ["t3"]
 
-    with pytest.raises(ConfigurationError, match="evidence"):
-        build_locomo_smoke_dataset(dataset, turn_limit=2)
+    smoke_dataset = build_locomo_smoke_dataset(dataset, turn_limit=2)
+
+    conversation = smoke_dataset.conversations[0]
+    assert [question.question_id for question in conversation.questions] == [
+        "q-outside"
+    ]
+    assert conversation.metadata["smoke_context_truncated"] is True
+    assert conversation.metadata["smoke_selected_question_ids"] == ["q-outside"]
 
 
 def test_load_completed_conversation_ids_reads_only_completed_rows(
@@ -574,6 +587,270 @@ def test_registered_prediction_builds_system_from_registry_context(
     )
 
 
+def test_custom_method_class_runs_without_builtin_registry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """自定义 method class 应绕开内置 method TOML/profile/source identity。"""
+
+    calls: dict[str, dict[str, object]] = {}
+
+    class FakeProvider(BaseMemoryProvider):
+        """测试用自定义 provider，只实现用户最低接口。"""
+
+        def add(self, conversation: Conversation) -> AddResult:
+            """记录 conversation 写入成功。"""
+
+            return AddResult(conversation_ids=[conversation.conversation_id])
+
+        def retrieve(self, question: Question) -> AnswerPromptResult:
+            """返回完整 answer prompt messages。"""
+
+            return AnswerPromptResult(
+                question_id=question.question_id,
+                conversation_id=question.conversation_id,
+                prompt_messages=[PromptMessage(role="user", content=question.text)],
+            )
+
+    expected_summary = PredictionRunSummary(
+        run_id="custom-smoke",
+        dataset_name="locomo",
+        total_conversations=1,
+        completed_conversations=1,
+        total_questions=1,
+        completed_questions=1,
+        prediction_path="predictions.jsonl",
+        private_label_path="labels.jsonl",
+        summary_path="summary.json",
+    )
+    path_settings = SimpleNamespace(
+        project_root=tmp_path,
+        outputs_root=tmp_path / "outputs",
+    )
+    prepared_run = _build_prepared_run(
+        dataset_name="locomo",
+        variant="locomo10",
+        run_scope=RunScope.SMOKE,
+    )
+    benchmark_registration = SimpleNamespace(
+        name="locomo",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.MEMORY_RETRIEVAL,
+            }
+        ),
+        default_variant="locomo10",
+        variant_names=lambda: ("locomo10",),
+        prepare=lambda project_root, request: prepared_run,
+        prediction_enabled=True,
+    )
+
+    class FakeOpenAIAnswerClient:
+        """避免测试构造真实 OpenAI SDK client。"""
+
+        model_name = "fake-answer-llm"
+
+        def __init__(
+            self,
+            *,
+            settings: OpenAISettings,
+            answer_settings: AnswerLLMSettings,
+        ) -> None:
+            """自定义 path 只需可构造 answer reader。"""
+
+        def complete(self, *, prompt: str) -> str:
+            """本测试不会真正调用。"""
+
+            return "unused"
+
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_benchmark_registration",
+        lambda name: benchmark_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_method_registration",
+        lambda name: (_ for _ in ()).throw(
+            AssertionError("custom method must not use built-in registry")
+        ),
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_method_profile",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("custom method must not load built-in TOML")
+        ),
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_custom_memory_provider",
+        lambda class_path: FakeProvider(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_path_settings",
+        lambda project_root: path_settings,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_openai_settings",
+        lambda project_root: OpenAISettings(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            model="gpt-4o-mini",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "OpenAICompatibleAnswerLLMClient",
+        FakeOpenAIAnswerClient,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "_preflight_prediction_run",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "run_predictions",
+        lambda **kwargs: calls.setdefault("kwargs", kwargs) or expected_summary,
+    )
+
+    result = run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name=None,
+        method_class="my_pkg.adapter:MyMemory",
+        benchmark_name="locomo",
+        profile_name="smoke",
+        run_id="custom-smoke",
+        confirm_api=True,
+        smoke_conversation_limit=1,
+        smoke_round_limit=20,
+        question_limit_per_conversation=1,
+    )
+
+    assert result.runs[0].run_id == "custom-smoke"
+    assert calls["kwargs"]["method_manifest"]["method_name"] == "custom"
+    assert calls["kwargs"]["method_manifest"]["method_class"] == (
+        "my_pkg.adapter:MyMemory"
+    )
+    assert calls["kwargs"]["policy"].max_workers == 1
+
+
+def test_custom_method_class_writes_prediction_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """真实 runner 应能用最小用户 provider 写出 prediction 与 prompt artifact。"""
+
+    prepared_run = PreparedBenchmarkRun(
+        variant="locomo10",
+        run_scope=RunScope.SMOKE,
+        dataset=_build_smoke_source_dataset(),
+        source_relative_paths=(),
+    )
+    path_settings = SimpleNamespace(
+        project_root=tmp_path,
+        outputs_root=tmp_path / "outputs",
+    )
+    benchmark_registration = SimpleNamespace(
+        name="locomo",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.MEMORY_RETRIEVAL,
+            }
+        ),
+        default_variant="locomo10",
+        variant_names=lambda: ("locomo10",),
+        prepare=lambda project_root, request: prepared_run,
+        prediction_enabled=True,
+    )
+
+    class FakeOpenAIAnswerClient:
+        """测试用 answer client，避免真实 API 调用。"""
+
+        model_name = "fake-answer-llm"
+
+        def __init__(
+            self,
+            *,
+            settings: OpenAISettings,
+            answer_settings: AnswerLLMSettings,
+        ) -> None:
+            """自定义 path 只要求 client 可被 framework reader 构造。"""
+
+        def complete_messages_with_metadata(
+            self,
+            *,
+            messages: list[PromptMessage],
+        ) -> AnswerLLMResponse:
+            """返回固定答案，并保留 role messages 调用形态。"""
+
+            return AnswerLLMResponse(text="fixture answer")
+
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_benchmark_registration",
+        lambda name: benchmark_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_path_settings",
+        lambda project_root: path_settings,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_openai_settings",
+        lambda project_root: OpenAISettings(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            model="gpt-4o-mini",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "OpenAICompatibleAnswerLLMClient",
+        FakeOpenAIAnswerClient,
+        raising=False,
+    )
+
+    result = run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name=None,
+        method_class="tests.fixtures.custom_method_provider:FixtureCustomMemory",
+        benchmark_name="locomo",
+        profile_name="smoke",
+        run_id="custom-e2e-smoke",
+        confirm_api=True,
+        smoke_conversation_limit=1,
+        smoke_round_limit=20,
+        question_limit_per_conversation=1,
+        progress_enabled=False,
+    )
+
+    summary = result.runs[0].summary
+    assert summary.completed_conversations == 1
+    assert summary.completed_questions == 1
+
+    run_dir = tmp_path / "outputs" / "custom-e2e-smoke"
+    predictions = read_jsonl(run_dir / "artifacts" / "method_predictions.jsonl")
+    prompts = read_jsonl(run_dir / "artifacts" / "answer_prompts.prediction.jsonl")
+    assert predictions[0]["answer"] == "fixture answer"
+    assert prompts[0]["prompt_messages"]
+    assert prompts[0]["metadata"]["answer_context"]
+
+
 def test_registered_prediction_builds_framework_answer_reader(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -599,6 +876,14 @@ def test_registered_prediction_builds_framework_answer_reader(
         variant="locomo10",
         run_scope=RunScope.SMOKE,
     )
+    prepare_requests: list[BenchmarkLoadRequest] = []
+
+    def prepare_run(project_root: Path, request: BenchmarkLoadRequest):
+        """记录传给 benchmark prepare hook 的请求参数。"""
+
+        prepare_requests.append(request)
+        return prepared_run
+
     benchmark_registration = SimpleNamespace(
         name="locomo",
         task_family=TaskFamily.CONVERSATION_QA,
@@ -610,7 +895,7 @@ def test_registered_prediction_builds_framework_answer_reader(
         ),
         default_variant="locomo10",
         variant_names=lambda: ("locomo10",),
-        prepare=lambda project_root, request: prepared_run,
+        prepare=prepare_run,
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
@@ -866,6 +1151,17 @@ def test_registered_prediction_allows_mem0_smoke_worker_override(
         variant="locomo10",
         run_scope=RunScope.SMOKE,
     )
+    prepare_requests: list[BenchmarkLoadRequest] = []
+
+    def prepare_run(
+        project_root: Path,
+        request: BenchmarkLoadRequest,
+    ) -> PreparedBenchmarkRun:
+        """记录 worker override 测试中的 benchmark load request。"""
+
+        prepare_requests.append(request)
+        return prepared_run
+
     benchmark_registration = SimpleNamespace(
         name="locomo",
         task_family=TaskFamily.CONVERSATION_QA,
@@ -877,7 +1173,7 @@ def test_registered_prediction_allows_mem0_smoke_worker_override(
         ),
         default_variant="locomo10",
         variant_names=lambda: ("locomo10",),
-        prepare=lambda project_root, request: prepared_run,
+        prepare=prepare_run,
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
@@ -1411,6 +1707,111 @@ def test_locomo_run_id_does_not_add_single_variant_suffix(
     )
 
     assert result.runs[0].run_id == "exp1"
+
+
+def test_hierarchical_output_layout_groups_run_by_method_benchmark_and_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI v2 run 应落到 outputs/runs/{method}/{benchmark}/{mode}/{run_id}。"""
+
+    config = Mem0Config.smoke()
+    prepared_run = _build_prepared_run(
+        dataset_name="locomo",
+        variant="locomo10",
+        run_scope=RunScope.SMOKE,
+    )
+    hierarchical_prepare_requests: list[BenchmarkLoadRequest] = []
+
+    def prepare_hierarchical_run(
+        project_root: Path,
+        request: BenchmarkLoadRequest,
+    ) -> PreparedBenchmarkRun:
+        """记录分层输出测试中的 benchmark load request。"""
+
+        hierarchical_prepare_requests.append(request)
+        return prepared_run
+
+    benchmark_registration = SimpleNamespace(
+        name="locomo",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        default_variant="locomo10",
+        variant_names=lambda: ("locomo10",),
+        prepare=prepare_hierarchical_run,
+        prediction_enabled=True,
+    )
+    method_registration = SimpleNamespace(
+        name="mem0",
+        display_name="Mem0",
+        task_families=frozenset({TaskFamily.CONVERSATION_QA}),
+        provided_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        requires_api=True,
+        resolve_profile_section=lambda profile_name: profile_name,
+        system_factory=lambda context: object(),
+        source_identity_factory=lambda settings: {"source_sha256": "abc"},
+        model_name_getter=lambda selected: selected.reader_model,
+        max_workers_getter=lambda selected: selected.max_workers,
+        workload_estimator=None,
+        allow_smoke_worker_override=True,
+    )
+    monkeypatch.setattr(prediction_cli, "get_benchmark_registration", lambda name: benchmark_registration)
+    monkeypatch.setattr(prediction_cli, "get_method_registration", lambda name: method_registration)
+    monkeypatch.setattr(prediction_cli, "load_method_profile", lambda **kwargs: config)
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_path_settings",
+        lambda project_root: SimpleNamespace(
+            project_root=tmp_path,
+            outputs_root=tmp_path / "outputs",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_openai_settings",
+        lambda project_root: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(prediction_cli, "_preflight_prediction_run", lambda **kwargs: None)
+    monkeypatch.setattr(prediction_cli, "load_completed_conversation_ids", lambda *args, **kwargs: set())
+    captured_run_dirs: list[Path] = []
+
+    def fake_run_predictions(**kwargs):
+        """记录 runner 收到的 run 目录并返回最小 summary。"""
+
+        captured_run_dirs.append(kwargs["run_context"].run_dir)
+        return SimpleNamespace(run_id=kwargs["run_context"].run_id)
+
+    monkeypatch.setattr(prediction_cli, "run_predictions", fake_run_predictions)
+
+    result = run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name="mem0",
+        benchmark_name="locomo",
+        profile_name="smoke",
+        run_id="exp1",
+        confirm_api=True,
+        enable_efficiency_observability=False,
+        output_layout="hierarchical",
+        smoke_round_limit=3,
+    )
+
+    assert result.runs[0].run_id == "exp1"
+    assert hierarchical_prepare_requests[0].smoke_turn_limit == 6
+    assert captured_run_dirs == [
+        (tmp_path / "outputs" / "runs" / "mem0" / "locomo" / "smoke" / "exp1").resolve()
+    ]
 
 
 def test_duplicate_variant_suffix_is_rejected(

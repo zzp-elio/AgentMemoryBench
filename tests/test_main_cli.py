@@ -79,6 +79,72 @@ def _write_manifest(tmp_path: Path, run_id: str, benchmark: str = "locomo") -> P
     return run_dir
 
 
+def test_resolve_run_dir_finds_hierarchical_output_layout(tmp_path: Path) -> None:
+    """evaluate 应能按 run_id 找到 CLI v2 的 method/benchmark/mode 分层目录。"""
+
+    run_dir = tmp_path / "outputs" / "runs" / "mem0" / "locomo" / "smoke" / "run-1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run-1",
+                "benchmark_name": "locomo",
+                "method_name": "Mem0",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert commands._resolve_run_dir(tmp_path, "run-1") == run_dir.resolve()
+
+
+def test_resolve_run_dir_rejects_ambiguous_hierarchical_run_id(
+    tmp_path: Path,
+) -> None:
+    """同一个 run_id 出现在多个分层目录时，evaluate 必须要求用户消歧。"""
+
+    first = tmp_path / "outputs" / "runs" / "mem0" / "locomo" / "smoke" / "run-1"
+    second = tmp_path / "outputs" / "runs" / "amem" / "locomo" / "smoke" / "run-1"
+    for run_dir in (first, second):
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "run-1",
+                    "benchmark_name": "locomo",
+                    "method_name": "method",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ConfigurationError, match="ambiguous"):
+        commands._resolve_run_dir(tmp_path, "run-1")
+
+
+def test_resolve_run_dir_rejects_flat_and_hierarchical_collision(
+    tmp_path: Path,
+) -> None:
+    """同名 run 同时存在 legacy 和 CLI v2 目录时，evaluate 不能静默选错。"""
+
+    _write_manifest(tmp_path, "run-1")
+    nested = tmp_path / "outputs" / "runs" / "mem0" / "locomo" / "smoke" / "run-1"
+    nested.mkdir(parents=True)
+    (nested / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run-1",
+                "benchmark_name": "locomo",
+                "method_name": "Mem0",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="ambiguous"):
+        commands._resolve_run_dir(tmp_path, "run-1")
+
+
 def test_execute_predict_delegates_to_registered_prediction(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -109,6 +175,8 @@ def test_execute_predict_delegates_to_registered_prediction(
     assert calls == [
         {
             "method_name": "mem0",
+            "method_class": None,
+            "allow_unsafe_custom_parallel": False,
             "benchmark_name": "locomo",
             "project_root": tmp_path,
             "profile_name": "smoke",
@@ -118,6 +186,7 @@ def test_execute_predict_delegates_to_registered_prediction(
             "confirm_api": True,
             "confirm_full": False,
             "smoke_turn_limit": 3,
+            "smoke_round_limit": None,
             "smoke_conversation_limit": 1,
             "smoke_max_workers": 1,
             "max_new_conversations": None,
@@ -126,6 +195,7 @@ def test_execute_predict_delegates_to_registered_prediction(
                 "enable_efficiency_observability": True,
                 "answer_prompt_file": None,
                 "answer_prompt_profile": "default",
+                "output_layout": "flat",
             }
         ]
 
@@ -449,6 +519,84 @@ def test_prediction_help_describes_retry_failed(capsys) -> None:
     assert "failed conversations" in output
 
 
+def test_predict_accepts_custom_method_class_without_builtin_method(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """用户 method 允许通过 --method-class 指定，且不需要 --method。"""
+
+    captured: dict[str, PredictCommand] = {}
+
+    def fake_execute_predict(command: PredictCommand):
+        """捕获 CLI 转换后的 prediction 命令，不执行真实预测。"""
+
+        captured["command"] = command
+        return SimpleNamespace(failed_count=0)
+
+    monkeypatch.setattr(main_cli, "execute_predict", fake_execute_predict)
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            ".",
+            "--method-class",
+            "my_pkg.adapter:MyMemory",
+            "--benchmark",
+            "locomo",
+            "--allow-api",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["command"].method is None
+    assert captured["command"].method_class == "my_pkg.adapter:MyMemory"
+
+
+def test_predict_rejects_method_and_method_class_together() -> None:
+    """内置 method 和用户 method class 不能同时指定。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            ".",
+            "--method",
+            "mem0",
+            "--method-class",
+            "my_pkg.adapter:MyMemory",
+            "--benchmark",
+            "locomo",
+            "--allow-api",
+        ]
+    )
+
+    assert exit_code == 2
+
+
+def test_custom_method_parallel_requires_explicit_unsafe_flag() -> None:
+    """用户 method 默认不允许 workers>1，避免并发污染外部状态。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            ".",
+            "--method-class",
+            "my_pkg.adapter:MyMemory",
+            "--benchmark",
+            "locomo",
+            "--workers",
+            "2",
+            "--allow-api",
+        ]
+    )
+
+    assert exit_code == 2
+
+
 def test_calibration_help_describes_max_new_conversations(capsys) -> None:
     """calibrate-smoke help 也应说明该字段只是本次命令预算。"""
 
@@ -521,6 +669,197 @@ def test_main_maps_predict_arguments_to_command(
             retry_failed_conversations=True,
         )
     ]
+
+
+def test_main_maps_predict_smoke_v2_arguments_to_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI v2 的 `predict smoke` 应使用直观参数映射到 smoke profile。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--run-id",
+            "20260623-1430-mem0-locomo-smoke",
+            "--allow-api",
+            "--conversations",
+            "2",
+            "--rounds",
+            "20",
+            "--questions-per-conversation",
+            "1",
+            "--workers",
+            "2",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received == [
+        PredictCommand(
+            project_root=tmp_path,
+            method="mem0",
+            benchmark="locomo",
+            profile="smoke",
+            run_id="20260623-1430-mem0-locomo-smoke",
+            confirm_api=True,
+            smoke_turn_limit=20,
+            smoke_round_limit=20,
+            smoke_conversation_limit=2,
+            smoke_max_workers=2,
+            question_limit_per_conversation=1,
+            output_layout="hierarchical",
+        )
+    ]
+
+
+def test_main_maps_predict_formal_v2_arguments_to_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI v2 的 `predict formal` 应映射到 official-full profile 和正式预算。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "formal",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "longmemeval",
+            "--variant",
+            "s_cleaned",
+            "--run-id",
+            "20260623-1600-mem0-longmemeval-s-formal",
+            "--allow-api",
+            "--conversation-budget",
+            "5",
+            "--workers",
+            "4",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received == [
+        PredictCommand(
+            project_root=tmp_path,
+            method="mem0",
+            benchmark="longmemeval",
+            profile="official-full",
+            variant="s_cleaned",
+            run_id="20260623-1600-mem0-longmemeval-s-formal",
+            confirm_api=True,
+            confirm_full=True,
+            smoke_round_limit=None,
+            smoke_max_workers=4,
+            max_new_conversations=5,
+            output_layout="hierarchical",
+        )
+    ]
+
+
+def test_predict_smoke_rejects_resume_and_retry_failed(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """smoke 很小，不支持 resume / retry failed 的复杂状态语义。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--allow-api",
+            "--resume",
+            "--retry-failed",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "predict smoke does not support --resume" in capsys.readouterr().err
+
+
+def test_predict_formal_rejects_question_limit(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """formal 必须完整回答所选 conversation，不能按 question 裁剪。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "formal",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--allow-api",
+            "--questions-per-conversation",
+            "1",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "predict formal does not support --questions-per-conversation" in (
+        capsys.readouterr().err
+    )
+
+
+def test_predict_formal_retry_failed_requires_resume(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """failed conversation 只有 resume 场景下才允许显式重试。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "formal",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--allow-api",
+            "--retry-failed",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "--retry-failed requires --resume" in capsys.readouterr().err
 
 
 def test_main_maps_predict_efficiency_flag_to_command(

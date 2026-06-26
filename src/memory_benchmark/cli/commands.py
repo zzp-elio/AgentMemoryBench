@@ -39,15 +39,18 @@ class PredictCommand:
     """生成 method prediction 的运行参数。"""
 
     project_root: str | Path
-    method: str
     benchmark: str
     profile: str
+    method: str | None = None
+    method_class: str | None = None
+    allow_unsafe_custom_parallel: bool = False
     variant: str | None = None
     run_id: str | None = None
     resume: bool = False
     confirm_api: bool = False
     confirm_full: bool = False
     smoke_turn_limit: int = 20
+    smoke_round_limit: int | None = None
     smoke_conversation_limit: int = 1
     smoke_max_workers: int | None = None
     max_new_conversations: int | None = None
@@ -56,6 +59,7 @@ class PredictCommand:
     enable_efficiency_observability: bool = True
     answer_prompt_file: str | Path | None = None
     answer_prompt_profile: str = "default"
+    output_layout: str = "flat"
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,8 @@ def execute_predict(command: PredictCommand) -> PredictionBatchResult:
 
     return run_registered_conversation_qa_prediction(
         method_name=command.method,
+        method_class=command.method_class,
+        allow_unsafe_custom_parallel=command.allow_unsafe_custom_parallel,
         benchmark_name=command.benchmark,
         project_root=command.project_root,
         profile_name=command.profile,
@@ -127,6 +133,7 @@ def execute_predict(command: PredictCommand) -> PredictionBatchResult:
         confirm_api=command.confirm_api,
         confirm_full=command.confirm_full,
         smoke_turn_limit=command.smoke_turn_limit,
+        smoke_round_limit=command.smoke_round_limit,
         smoke_conversation_limit=command.smoke_conversation_limit,
         smoke_max_workers=command.smoke_max_workers,
         max_new_conversations=command.max_new_conversations,
@@ -135,6 +142,7 @@ def execute_predict(command: PredictCommand) -> PredictionBatchResult:
         enable_efficiency_observability=command.enable_efficiency_observability,
         answer_prompt_file=command.answer_prompt_file,
         answer_prompt_profile=command.answer_prompt_profile,
+        output_layout=command.output_layout,
     )
 
 
@@ -223,17 +231,45 @@ def execute_run(command: RunCommand) -> RunCommandResult:
 
 
 def _resolve_run_dir(project_root: Path, run_id: str) -> Path:
-    """把 run id 安全解析到项目 outputs 目录内。"""
+    """把 run id 安全解析到项目 outputs 目录内。
+
+    兼容两种目录布局：
+    - legacy: `outputs/{run_id}`
+    - CLI v2: `outputs/runs/{method}/{benchmark}/{mode}/{run_id}`
+    """
 
     outputs_root = (project_root / "outputs").resolve()
-    run_dir = (outputs_root / run_id).resolve()
+    flat_run_dir = (outputs_root / run_id).resolve()
     try:
-        run_dir.relative_to(outputs_root)
+        flat_run_dir.relative_to(outputs_root)
     except ValueError as exc:
         raise ConfigurationError(
             f"Evaluation run_id escapes outputs directory: {run_id}"
         ) from exc
-    return run_dir
+
+    hierarchical_matches = tuple(
+        manifest_path.parent
+        for manifest_path in (outputs_root / "runs").glob("**/manifest.json")
+        if manifest_path.parent.name == run_id
+    )
+    flat_exists = (flat_run_dir / "manifest.json").is_file()
+    if flat_exists and hierarchical_matches:
+        rendered = ", ".join(str(path) for path in hierarchical_matches)
+        raise ConfigurationError(
+            f"Evaluation run_id '{run_id}' is ambiguous between legacy "
+            f"directory '{flat_run_dir}' and outputs/runs: {rendered}"
+        )
+    if flat_exists:
+        return flat_run_dir
+    if len(hierarchical_matches) == 1:
+        return hierarchical_matches[0].resolve()
+    if len(hierarchical_matches) > 1:
+        rendered = ", ".join(str(path) for path in hierarchical_matches)
+        raise ConfigurationError(
+            f"Evaluation run_id '{run_id}' is ambiguous under outputs/runs: "
+            f"{rendered}"
+        )
+    return flat_run_dir
 
 
 def _read_manifest(run_dir: Path) -> dict[str, Any]:

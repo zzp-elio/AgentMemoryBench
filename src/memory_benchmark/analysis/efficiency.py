@@ -231,9 +231,9 @@ def build_efficiency_report_payloads(
                     observation.injected_memory_context_tokens
                 )
 
-            question_records[
-                (observation.conversation_id, observation.question_id)
-            ] = {
+            key = (observation.conversation_id, observation.question_id)
+            existing = question_records.get(key)
+            question_records[key] = {
                 "conversation_id": observation.conversation_id,
                 "question_id": observation.question_id,
                 "retrieval_latency_ms": observation.retrieval_latency_ms,
@@ -244,12 +244,28 @@ def build_efficiency_report_payloads(
                 "injected_memory_context_tokens": (
                     observation.injected_memory_context_tokens
                 ),
-                "llm_call_count": 0,
-                "llm_input_tokens": 0,
-                "llm_output_tokens": 0,
-                "embedding_call_count": 0,
-                "embedding_input_tokens": 0,
-                "embedding_latency_ms_total": 0.0,
+                "llm_call_count": (
+                    0 if existing is None else existing["llm_call_count"]
+                ),
+                "llm_input_tokens": (
+                    0 if existing is None else existing["llm_input_tokens"]
+                ),
+                "llm_output_tokens": (
+                    0 if existing is None else existing["llm_output_tokens"]
+                ),
+                "embedding_call_count": (
+                    0 if existing is None else existing["embedding_call_count"]
+                ),
+                "embedding_input_tokens": (
+                    0
+                    if existing is None
+                    else existing["embedding_input_tokens"]
+                ),
+                "embedding_latency_ms_total": (
+                    0.0
+                    if existing is None
+                    else existing["embedding_latency_ms_total"]
+                ),
             }
             continue
 

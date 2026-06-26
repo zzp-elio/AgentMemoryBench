@@ -755,7 +755,7 @@ def test_get_answer_uses_mem0_locomo_official_answer_prompt() -> None:
     prompt = reader_messages[0]["content"]
     assert "You are answering a question using retrieved memories" in prompt
     assert "## Step 1: SCAN ALL MEMORIES" in prompt
-    assert "These conversations took place around 2023" in prompt
+    assert "These conversations took place around 2023-05-10T10:00:00" in prompt
     assert "(Monday, May 08, 2023) Alice likes jasmine tea." in prompt
     assert "Question: What kind of tea does Alice like?" in prompt
 

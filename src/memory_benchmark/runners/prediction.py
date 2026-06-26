@@ -248,6 +248,47 @@ class _PredictionWorkPlan:
     budget_exhausted: bool
 
 
+_STATUS_PENDING = "pending"
+_STATUS_INGESTED = "ingested"
+_STATUS_COMPLETED = "completed"
+_STATUS_FAILED_INGEST = "failed_ingest"
+_STATUS_FAILED_ANSWER = "failed_answer"
+
+
+def _conversation_state_status(state: dict[str, Any]) -> str:
+    """读取 conversation 状态，并兼容旧 `failed + ingested` checkpoint。
+
+    输入:
+        state: `conversation_status.json` 中某个 conversation 的状态对象。
+
+    输出:
+        str: 标准化后的状态。旧 `failed` 会根据 `ingested` 映射到
+        `failed_answer` 或 `failed_ingest`。
+    """
+
+    status = str(state.get("status", _STATUS_PENDING))
+    if status == "failed":
+        if state.get("ingested") is True:
+            return _STATUS_FAILED_ANSWER
+        return _STATUS_FAILED_INGEST
+    return status
+
+
+def _conversation_is_ingested(state: dict[str, Any]) -> bool:
+    """判断 conversation 是否已完成 add，可直接进入 answer 阶段。"""
+
+    status = _conversation_state_status(state)
+    return (
+        status
+        in {
+            _STATUS_INGESTED,
+            _STATUS_COMPLETED,
+            _STATUS_FAILED_ANSWER,
+        }
+        or state.get("ingested") is True
+    )
+
+
 def run_predictions(
     dataset: Dataset,
     system: BaseMemorySystem | BaseMemoryProvider,
@@ -372,10 +413,18 @@ def run_predictions(
         "budget_exhausted": work_plan.budget_exhausted,
     }
 
+    _conversation_progress_total = (
+        len(work_plan.ingested_conversation_ids) + len(work_plan.items)
+    )
+    _question_progress_total = (
+        len(work_plan.completed_question_ids)
+        + sum(len(item.pending_questions) for item in work_plan.items)
+    )
+
     logger.info(
         "[bold]Prediction run[/bold] "
         f"benchmark={dataset.dataset_name} method={run_context.method_name} "
-        f"conversations={len(selected_conversations)} questions={len(question_order)}"
+        f"conversations={_conversation_progress_total} questions={_question_progress_total}"
     )
     logger.log_event(
         "run_started",
@@ -392,8 +441,8 @@ def run_predictions(
         paths.progress_path,
         enabled=policy.progress_enabled,
     ) as progress:
-        progress.start_conversations(len(selected_conversations))
-        progress.start_questions(len(question_order))
+        progress.start_conversations(_conversation_progress_total)
+        progress.start_questions(_question_progress_total)
         if use_isolated:
             _run_isolated_worker_pipeline(
                 work_plan=work_plan,
@@ -462,12 +511,12 @@ def run_predictions(
         )
         progress.update_conversations(
             completed=completed_conversation_count,
-            total=len(selected_conversations),
+            total=_conversation_progress_total,
             current_conversation_id=None,
         )
         progress.update_questions(
             completed=len(prediction_records),
-            total=len(question_order),
+            total=_question_progress_total,
             current_conversation_id=None,
             current_question_id=None,
         )
@@ -624,20 +673,8 @@ def _build_prediction_work_plan(
     ingested_conversation_ids = frozenset(
         conversation.conversation_id
         for conversation in conversations
-        if (
-            conversation_status.get(conversation.conversation_id, {}).get("status")
-            == "completed"
-            or (
-                policy.retry_failed_conversations
-                and conversation_status.get(conversation.conversation_id, {}).get(
-                    "status"
-                )
-                == "failed"
-                and conversation_status.get(conversation.conversation_id, {}).get(
-                    "ingested"
-                )
-                is True
-            )
+        if _conversation_is_ingested(
+            conversation_status.get(conversation.conversation_id, {})
         )
     )
     question_order = tuple(
@@ -656,10 +693,16 @@ def _build_prediction_work_plan(
     for conversation in conversations:
         conversation_id = conversation.conversation_id
         conversation_state = conversation_status.get(conversation_id, {})
-        if (
-            conversation_state.get("status") == "failed"
-            and not policy.retry_failed_conversations
-        ):
+        status = _conversation_state_status(conversation_state)
+        if status == _STATUS_FAILED_INGEST:
+            if policy.retry_failed_conversations:
+                raise ConfigurationError(
+                    f"Cannot retry conversation '{conversation_id}' after "
+                    "failed ingest without clean retry support"
+                )
+            skipped_failed_conversation_ids.append(conversation_id)
+            continue
+        if status == _STATUS_FAILED_ANSWER and not policy.retry_failed_conversations:
             skipped_failed_conversation_ids.append(conversation_id)
             continue
         pending_questions = tuple(
@@ -1102,15 +1145,22 @@ def _run_isolated_worker_pipeline(
         raise ConfigurationError(
             "Isolated worker prediction cannot resume turn-level ingest checkpoints"
         )
+    _conv_progress_total = (
+        len(work_plan.ingested_conversation_ids) + len(work_plan.items)
+    )
+    _question_progress_total = (
+        len(work_plan.completed_question_ids)
+        + sum(len(item.pending_questions) for item in work_plan.items)
+    )
     if not work_plan.items:
         progress.update_conversations(
             completed=len(work_plan.ingested_conversation_ids),
-            total=work_plan.dataset_conversation_count,
+            total=_conv_progress_total,
             current_conversation_id=None,
         )
         progress.update_questions(
             completed=len(work_plan.completed_question_ids),
-            total=len(question_order),
+            total=_question_progress_total,
             current_conversation_id=None,
             current_question_id=None,
         )
@@ -1182,10 +1232,11 @@ def _run_isolated_worker_pipeline(
                     logged_error = exc.original_error
                     failed_conversation_id = exc.conversation_id
                     conversation_status[exc.conversation_id] = {
-                        "status": "failed",
+                        "status": _STATUS_FAILED_INGEST,
                         "stage": exc.stage,
                         "error_type": type(logged_error).__name__,
                         "error": str(logged_error),
+                        "ingested": False,
                     }
                     atomic_write_json(
                         paths.conversation_status_path,
@@ -1231,7 +1282,11 @@ def _run_isolated_worker_pipeline(
                         }
                         question_answered += 1
                     conversation_status[batch.conversation_id] = {
-                        "status": "failed",
+                        "status": (
+                            _STATUS_FAILED_ANSWER
+                            if batch.ingested
+                            else _STATUS_FAILED_INGEST
+                        ),
                         "stage": batch.stage,
                         "error_type": batch.error_type,
                         "error": batch.error,
@@ -1240,12 +1295,12 @@ def _run_isolated_worker_pipeline(
                     }
                     progress.update_conversations(
                         completed=conversation_ingested,
-                        total=work_plan.dataset_conversation_count,
+                        total=_conv_progress_total,
                         current_conversation_id=batch.conversation_id,
                     )
                     progress.update_questions(
                         completed=question_answered,
-                        total=len(question_order),
+                        total=_question_progress_total,
                         current_conversation_id=batch.conversation_id,
                         current_question_id=None,
                     )
@@ -1272,15 +1327,18 @@ def _run_isolated_worker_pipeline(
                     question_answered += 1
                 if batch.ingested:
                     conversation_ingested += 1
-                    conversation_status[batch.conversation_id] = {"status": "completed"}
+                    conversation_status[batch.conversation_id] = {
+                        "status": _STATUS_COMPLETED,
+                        "ingested": True,
+                    }
                 progress.update_conversations(
                     completed=conversation_ingested,
-                    total=work_plan.dataset_conversation_count,
+                    total=_conv_progress_total,
                     current_conversation_id=batch.conversation_id,
                 )
                 progress.update_questions(
                     completed=question_answered,
-                    total=len(question_order),
+                    total=_question_progress_total,
                     current_conversation_id=batch.conversation_id,
                     current_question_id=None,
                 )
@@ -1564,9 +1622,11 @@ def _ingest_pending_conversations(
                 batch = future.result()
             except Exception as exc:
                 conversation_status[conversation_id] = {
-                    "status": "failed",
+                    "status": _STATUS_FAILED_INGEST,
+                    "stage": "ingest",
                     "error_type": type(exc).__name__,
                     "error": str(exc),
+                    "ingested": False,
                 }
                 atomic_write_json(paths.conversation_status_path, conversation_status)
                 logger.log_event(
@@ -1591,7 +1651,10 @@ def _ingest_pending_conversations(
                     conversation_id=returned_id,
                     total_turns=_conversation_turn_count(conversation),
                 )
-            conversation_status[returned_id] = {"status": "completed"}
+            conversation_status[returned_id] = {
+                "status": _STATUS_COMPLETED,
+                "ingested": True,
+            }
             completed += 1
             atomic_write_json(paths.conversation_status_path, conversation_status)
             progress.update_conversations(
@@ -1815,6 +1878,10 @@ def _answer_pending_questions(
         if pending_questions:
             pending_by_conversation[conversation.conversation_id] = pending_questions
 
+    _answer_question_progress_total = completed + sum(
+        len(qs) for qs in pending_by_conversation.values()
+    )
+
     with ThreadPoolExecutor(max_workers=policy.max_workers) as executor:
         futures: dict[Future[_ConversationAnswerBatch], str] = {
             executor.submit(
@@ -1873,7 +1940,7 @@ def _answer_pending_questions(
                 completed += 1
                 progress.update_questions(
                     completed=completed,
-                    total=len(question_order),
+                    total=_answer_question_progress_total,
                     current_conversation_id=record["conversation_id"],
                     current_question_id=record["question_id"],
                 )

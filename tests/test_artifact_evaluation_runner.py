@@ -813,7 +813,7 @@ def test_longmemeval_s_smoke_registered_prediction_stays_offline_and_separates_p
                     "metadata": {},
                 }
             ],
-            "question id sets do not match",
+            "public question and private label id sets do not match",
         ),
         (
             [
