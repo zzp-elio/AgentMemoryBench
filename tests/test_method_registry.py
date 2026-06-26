@@ -8,6 +8,7 @@ import pytest
 
 from memory_benchmark.core import (
     ConfigurationError,
+    Conversation,
     MethodCapability,
     TaskFamily,
     validate_compatibility,
@@ -15,6 +16,7 @@ from memory_benchmark.core import (
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.methods.memoryos_adapter import MemoryOSPaperConfig
 from memory_benchmark.methods.registry import (
+    MethodBuildContext,
     get_method_registration,
     list_methods,
     load_method_profile,
@@ -85,6 +87,59 @@ def test_built_in_methods_advertise_memory_retrieval_capability() -> None:
             MethodCapability.ANSWER_GENERATION
             not in registration.provided_capabilities
         )
+
+
+def test_clean_retry_support_is_only_declared_by_methods_with_safe_state_cleanup() -> None:
+    """只有能安全清理单个 conversation 状态的内置 method 才声明 clean retry。
+
+    输入:
+        registry 中四个内置 method。
+
+    输出:
+        A-Mem、LightMem、MemoryOS 有 conversation 级 clean hook；Mem0 仍为 None，
+        避免误删共享 Qdrant/history 状态。
+    """
+
+    assert get_method_registration("amem").clean_failed_ingest_state is not None
+    assert get_method_registration("lightmem").clean_failed_ingest_state is not None
+    assert get_method_registration("memoryos").clean_failed_ingest_state is not None
+    assert get_method_registration("mem0").clean_failed_ingest_state is None
+
+
+def test_clean_retry_hook_uses_failed_worker_state_for_isolated_runs(
+    tmp_path: Path,
+) -> None:
+    """isolated worker 失败重试时，应清理上次失败 worker 的 state 目录。
+
+    输入:
+        MethodBuildContext.storage_root 指向 run 级 `method_state/`，failed_state
+        带 `worker_idx=2`。
+
+    输出:
+        A-Mem clean hook 删除 `method_state/worker_2/<conversation>/`，不会误删
+        run 根目录下同名 conversation state。
+    """
+
+    root_state = tmp_path / "method_state" / "conv_1"
+    worker_state = tmp_path / "method_state" / "worker_2" / "conv_1"
+    root_state.mkdir(parents=True)
+    worker_state.mkdir(parents=True)
+    (root_state / "marker.txt").write_text("root", encoding="utf-8")
+    (worker_state / "marker.txt").write_text("worker", encoding="utf-8")
+    context = MethodBuildContext(
+        config=None,
+        openai_settings=None,
+        path_settings=None,
+        storage_root=tmp_path / "method_state",
+    )
+    conversation = Conversation(conversation_id="conv/1")
+
+    clean_hook = get_method_registration("amem").clean_failed_ingest_state
+    assert clean_hook is not None
+    clean_hook(context, conversation, {"worker_idx": 2})
+
+    assert root_state.exists()
+    assert not worker_state.exists()
 
 
 def test_compatibility_requires_task_family_and_capabilities() -> None:

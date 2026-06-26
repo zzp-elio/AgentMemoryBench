@@ -43,17 +43,19 @@
   时 fail closed，避免重复记忆污染。已确认的 resume/retry 状态机：
   `pending -> ingesting -> ingested -> answering -> completed`，失败分为
   `failed_ingest` 和 `failed_answer`；`failed_answer` 可只补 pending questions，
-  `failed_ingest` 默认跳过，当前没有 clean retry support 时显式 `--retry-failed` 会
-  fail closed。实施计划已写入
+  `failed_ingest` 默认跳过；没有 clean retry support 时显式 `--retry-failed` 会
+  fail closed。A-Mem、LightMem、MemoryOS 已提供 conversation 级 clean retry hook；
+  Mem0 因共享 Qdrant/history 状态暂不声明 hook，仍保持 fail-closed，避免误删其他
+  conversation state。实施计划已写入
   `docs/superpowers/plans/2026-06-24-method-onboarding-clean-retry.md`；主体已完成：
   custom loader、CLI `--method-class`、custom prediction service path、端到端 fake smoke、
-  unsafe parallel guard 和 failed-ingest fail-closed 均已实现。手把手指南为
+  unsafe parallel guard、failed-ingest fail-closed 和内置 method clean retry 证明均已实现。
+  手把手指南为
   `docs/custom-method-onboarding.md`；最新交接为
-  `docs/handoffs/2026-06-25-custom-method-onboarding-clean-retry.md`。Focused 验证：
-  `uv run pytest tests/test_custom_method_loader.py tests/test_main_cli.py tests/test_prediction_cli.py tests/test_prediction_runner.py -q`
-  为 `131 passed`。下一步不要重复实现用户轻量路径；继续处理四个内置 method 的
-  clean retry hook / attempt namespace 证明、可选 `--method-file` 和 legacy base class /
-  capability 减重。
+  `docs/handoffs/2026-06-26-clean-retry-hooks.md`。Focused 验证：
+  `uv run pytest tests/test_prediction_runner.py tests/test_prediction_cli.py tests/test_method_registry.py tests/test_amem_adapter.py tests/test_memoryos_adapter.py tests/test_lightmem_adapter.py tests/test_mem0_adapter.py -q`
+  为 `298 passed, 2 warnings, 2 subtests passed`。下一步不要重复实现用户轻量路径或内置
+  clean retry hook；继续处理可选 `--method-file` 和 legacy base class / capability 减重。
 - LLM/provider 灵活配置方向已对齐并写入
   `docs/superpowers/specs/2026-06-21-llm-provider-config-design.md`。当前结论：第一版只实现
   OpenAI-compatible provider；Anthropic/Gemini、本地进程内 Hugging Face provider 作为

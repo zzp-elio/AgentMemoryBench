@@ -15,6 +15,7 @@ import json
 import math
 import openai as openai_package
 import re
+import shutil
 import sys
 import threading
 import time
@@ -1726,10 +1727,32 @@ def _messages_to_text(messages: list[dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
+def clean_memoryos_conversation_state(
+    storage_root: str | Path,
+    conversation_id: str,
+) -> None:
+    """删除 MemoryOS 单个 conversation 的半写入状态目录。
+
+    输入:
+        storage_root: 当前 run 的 MemoryOS method state 根目录。
+        conversation_id: 需要重新 ingest 的 conversation id。
+
+    输出:
+        None。目标目录不存在时视为已经干净。
+    """
+
+    root = Path(storage_root).expanduser().resolve()
+    target = (root / _safe_path_name(conversation_id)).resolve()
+    if root == target or root not in target.parents:
+        raise ConfigurationError(f"Unsafe MemoryOS state cleanup path: {target}")
+    shutil.rmtree(target, ignore_errors=True)
+
+
 __all__ = [
     "MemoryOS",
     "MemoryOSAddEstimate",
     "MemoryOSConversationState",
     "MemoryOSPaperConfig",
     "build_memoryos_source_identity",
+    "clean_memoryos_conversation_state",
 ]

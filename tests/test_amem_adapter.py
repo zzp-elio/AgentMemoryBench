@@ -26,6 +26,7 @@ from memory_benchmark.methods.amem_adapter import (
     AMem,
     AMemConfig,
     build_amem_source_identity,
+    clean_amem_conversation_state,
     import_amem_robust_classes,
 )
 import memory_benchmark.methods.amem_adapter as amem_adapter_module
@@ -58,6 +59,31 @@ def test_amem_source_identity_covers_official_core_files() -> None:
     assert "README.md" in identity["files"]
     assert "test_advanced_robust.py" in identity["files"]
     assert "run_k_sweep.sh" in identity["files"]
+
+
+def test_clean_amem_conversation_state_only_removes_target_directory(
+    tmp_path: Path,
+) -> None:
+    """A-Mem clean retry 只能删除目标 conversation 的持久化 state。
+
+    输入:
+        storage_root: 同时包含目标 conversation state 和 sibling state。
+
+    输出:
+        目标目录被删除，其他 conversation 的目录保持不变。
+    """
+
+    target_state = tmp_path / "conv_1"
+    sibling_state = tmp_path / "conv-2"
+    target_state.mkdir()
+    sibling_state.mkdir()
+    (target_state / "partial.pkl").write_text("dirty", encoding="utf-8")
+    (sibling_state / "state_manifest.json").write_text("{}", encoding="utf-8")
+
+    clean_amem_conversation_state(tmp_path, "conv/1")
+
+    assert not target_state.exists()
+    assert sibling_state.exists()
 
 
 class FakeAMemRuntime:

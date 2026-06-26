@@ -500,6 +500,7 @@ def test_registered_prediction_builds_system_from_registry_context(
             required_by_profile=True,
             supported_by_method=True,
         ),
+        clean_failed_ingest_state=lambda context, conversation: None,
     )
     monkeypatch.setattr(
         prediction_cli,
@@ -585,6 +586,7 @@ def test_registered_prediction_builds_system_from_registry_context(
     assert runner_calls[0]["source_paths"] == (
         tmp_path / "sources/locomo10.json",
     )
+    assert runner_calls[0]["clean_failed_ingest_conversation"] is not None
 
 
 def test_custom_method_class_runs_without_builtin_registry(

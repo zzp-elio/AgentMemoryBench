@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from threading import Event
 from time import perf_counter_ns
-from typing import Any
+from typing import Any, Callable
 
 from memory_benchmark.analysis.efficiency import build_efficiency_report_payloads
 from memory_benchmark.benchmark_adapters.contracts import RunScope
@@ -309,6 +309,9 @@ def run_predictions(
     ] | None = None,
     build_context_template: MethodBuildContext | None = None,
     supports_shared_instance_parallelism: bool = False,
+    clean_failed_ingest_conversation: (
+        Callable[[Conversation, dict[str, Any]], None] | None
+    ) = None,
 ) -> PredictionRunSummary:
     """运行不含 metric 的通用 conversation-QA 回复生成。
 
@@ -325,6 +328,8 @@ def run_predictions(
         system_factory: 独立 instance 模式下 worker 创建 system 的工厂函数。
         build_context_template: 独立 instance 模式下 worker 构造 context 的模板。
         supports_shared_instance_parallelism: method 是否支持共享实例线程并行。
+        clean_failed_ingest_conversation: 可选 conversation 级 clean retry hook；
+            只有内置 method 能证明可安全清理半写入状态时才应传入。
 
     输出:
         PredictionRunSummary: 回复数量和标准 artifact 路径。
@@ -379,6 +384,14 @@ def run_predictions(
         for conversation in selected_conversations
         for question in selected_questions[conversation.conversation_id]
     ]
+    cleaned_failed_ingest_conversation_ids = _prepare_clean_failed_ingest_retries(
+        conversations=selected_conversations,
+        conversation_status=conversation_status,
+        policy=policy,
+        clean_failed_ingest_conversation=clean_failed_ingest_conversation,
+        paths=paths,
+        logger=logger,
+    )
     use_isolated = (
         system_factory is not None
         and build_context_template is not None
@@ -412,6 +425,10 @@ def run_predictions(
         ),
         "budget_exhausted": work_plan.budget_exhausted,
     }
+    if cleaned_failed_ingest_conversation_ids:
+        run_control_metadata["cleaned_failed_ingest_conversations"] = list(
+            cleaned_failed_ingest_conversation_ids
+        )
 
     _conversation_progress_total = (
         len(work_plan.ingested_conversation_ids) + len(work_plan.items)
@@ -643,6 +660,67 @@ def _selected_questions(
         )
         for conversation in conversations
     }
+
+
+def _prepare_clean_failed_ingest_retries(
+    *,
+    conversations: list[Conversation],
+    conversation_status: dict[str, Any],
+    policy: PredictionRunPolicy,
+    clean_failed_ingest_conversation: (
+        Callable[[Conversation, dict[str, Any]], None] | None
+    ),
+    paths: ExperimentPaths,
+    logger: RunLogger,
+) -> tuple[str, ...]:
+    """在生成 work plan 前清理可安全重试的 failed_ingest conversation。
+
+    输入:
+        conversations: 本次 run 选择的原始 conversation；调用 clean hook 前会转换为
+            public conversation，避免泄露 gold/evidence。
+        conversation_status: 持久化 conversation 状态，会被原地更新。
+        policy: 当前 resume/retry 策略。
+        clean_failed_ingest_conversation: method 侧证明安全的清理 hook。
+        paths: 当前 run 标准路径，用于清理后立即持久化 checkpoint。
+        logger: 结构化事件日志。
+
+    输出:
+        tuple[str, ...]: 本次已清理的 conversation id。无 clean hook 时不改变状态，
+        后续 work plan 仍会 fail closed。
+    """
+
+    if not policy.retry_failed_conversations:
+        return ()
+    if clean_failed_ingest_conversation is None:
+        return ()
+
+    cleaned_conversation_ids: list[str] = []
+    for conversation in conversations:
+        conversation_id = conversation.conversation_id
+        state = conversation_status.get(conversation_id, {})
+        if _conversation_state_status(state) != _STATUS_FAILED_INGEST:
+            continue
+
+        clean_failed_ingest_conversation(
+            _make_public_conversation(conversation),
+            dict(state),
+        )
+        conversation_status[conversation_id] = {
+            "status": _STATUS_PENDING,
+            "ingested": False,
+            "retry_cleaned": True,
+            "previous_status": state,
+        }
+        cleaned_conversation_ids.append(conversation_id)
+        logger.log_event(
+            "failed_ingest_cleaned_for_retry",
+            {"conversation_id": conversation_id},
+        )
+
+    if cleaned_conversation_ids:
+        atomic_write_json(paths.conversation_status_path, conversation_status)
+
+    return tuple(cleaned_conversation_ids)
 
 
 def _build_prediction_work_plan(
@@ -1237,6 +1315,7 @@ def _run_isolated_worker_pipeline(
                         "error_type": type(logged_error).__name__,
                         "error": str(logged_error),
                         "ingested": False,
+                        "worker_idx": future_to_chunk[future],
                     }
                     atomic_write_json(
                         paths.conversation_status_path,
@@ -1292,6 +1371,7 @@ def _run_isolated_worker_pipeline(
                         "error": batch.error,
                         "traceback": batch.traceback_text,
                         "ingested": batch.ingested,
+                        "worker_idx": future_to_chunk[future],
                     }
                     progress.update_conversations(
                         completed=conversation_ingested,

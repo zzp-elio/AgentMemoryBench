@@ -1942,6 +1942,101 @@ def test_failed_ingest_retry_without_clean_support_fails_closed(
         )
 
 
+def test_failed_ingest_retry_with_clean_support_reingests_conversation(
+    tmp_path: Path,
+) -> None:
+    """内置 method 明确提供 clean retry 时，failed_ingest 可重新 add。
+
+    输入:
+        conversation_status: `conv-1` 上次在 ingest 阶段失败，method state 可能残留
+            半写入数据。
+        clean_failed_ingest_conversation: runner 调用的清理 hook，负责删除当前
+            conversation 的脏 state。
+
+    输出:
+        runner 先调用 clean hook，再把 `conv-1` 重新纳入 add + answer 流程。
+    """
+
+    dataset = _build_dataset()
+    run_context = RunContext.create(
+        run_id="failed-ingest-clean-retry",
+        benchmark_name="fake",
+        method_name="fake",
+        model_name="fake",
+        output_root=tmp_path,
+        resume=True,
+    )
+    policy = PredictionRunPolicy(
+        resume=True,
+        retry_failed_conversations=True,
+    )
+    method_manifest = {"method_name": "fake"}
+    _write_resume_manifest(
+        dataset=dataset,
+        run_context=run_context,
+        policy=policy,
+        method_manifest=method_manifest,
+    )
+    run_dir = tmp_path / "failed-ingest-clean-retry"
+    atomic_write_json(
+        run_dir / "checkpoints" / "conversation_status.json",
+        {
+            "conv-1": {
+                "status": "failed_ingest",
+                "ingested": False,
+                "stage": "ingest",
+            }
+        },
+    )
+    dirty_marker = run_dir / "method_state" / "conv-1" / "partial.txt"
+    dirty_marker.parent.mkdir(parents=True)
+    dirty_marker.write_text("partial memory state", encoding="utf-8")
+    cleaned_conversations: list[str] = []
+
+    observed_failed_states: list[dict[str, object]] = []
+
+    def clean_failed_ingest_conversation(
+        conversation: Conversation,
+        failed_state: dict[str, object],
+    ) -> None:
+        """测试用 clean hook，模拟删除当前 conversation 的脏 method state。"""
+
+        cleaned_conversations.append(conversation.conversation_id)
+        observed_failed_states.append(failed_state)
+        if dirty_marker.exists():
+            dirty_marker.unlink()
+
+    provider = RecordingMemoryProvider()
+    run_predictions(
+        dataset=dataset,
+        system=provider,
+        run_context=run_context,
+        policy=policy,
+        method_manifest=method_manifest,
+        benchmark_variant="default",
+        run_scope=RunScope.FULL,
+        answer_reader=FrameworkAnswerReader(client=FakeAnswerLLMClient("answer")),
+        clean_failed_ingest_conversation=clean_failed_ingest_conversation,
+    )
+
+    assert cleaned_conversations == ["conv-1"]
+    assert observed_failed_states == [
+        {
+            "status": "failed_ingest",
+            "ingested": False,
+            "stage": "ingest",
+        }
+    ]
+    assert "conv-1" in provider.added_conversation_ids
+    assert not dirty_marker.exists()
+    persisted_status = json.loads(
+        (run_dir / "checkpoints" / "conversation_status.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert persisted_status["conv-1"]["status"] == "completed"
+
+
 @pytest.mark.parametrize(
     ("dataset", "method_manifest", "error_type", "error_pattern"),
     [
@@ -2598,6 +2693,7 @@ def test_isolated_worker_marks_failed_conversation_and_continues_work(
     assert conversation_status["conv-1"]["status"] == "failed_ingest"
     assert conversation_status["conv-1"]["stage"] == "isolated_worker"
     assert conversation_status["conv-1"]["error_type"] == "RuntimeError"
+    assert conversation_status["conv-1"]["worker_idx"] == 0
     assert conversation_status["conv-2"]["status"] == "completed"
     assert conversation_status["conv-3"]["status"] == "completed"
     assert conversation_status["conv-4"]["status"] == "completed"

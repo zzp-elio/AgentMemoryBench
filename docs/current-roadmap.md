@@ -1,6 +1,6 @@
 # 当前动态路线图
 
-更新日期：2026-06-24
+更新日期：2026-06-26
 
 本文件只记录当前主线、完成状态和阶段依赖。每完成一个任务必须立即勾选并同步
 `AGENTS.md`；逐项 open/closed 状态和历史文档状态以 `docs/task-ledger.md` 为准。
@@ -212,7 +212,9 @@ efficiency inventory、official profile 或复杂 registry factory。内置 meth
   测试，验证无需内置 registry/TOML 也能写出标准 prediction / answer prompt artifact。
 - [x] 写入普通用户接入指南：
   `docs/custom-method-onboarding.md`。
-- [ ] 为四个内置 method 分别补 clean retry hook 或 attempt namespace 证明。
+- [x] 为四个内置 method 分别补 clean retry hook 或 attempt namespace 证明：
+  A-Mem、LightMem、MemoryOS 已声明 conversation 级 clean hook；Mem0 因共享
+  Qdrant/history 状态不声明 hook，继续 fail-closed，避免误删其他 conversation state。
 - [ ] 后续评估 `--method-file` 单文件快速测试形式。
 - [ ] 后续清理 legacy capability 重逻辑、`BaseResumableMemorySystem` 和
   `BaseMemoryRetriever` 时，同步更新老师汇报材料和对外文档；`BaseMemorySystem`

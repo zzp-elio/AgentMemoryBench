@@ -14,6 +14,7 @@ import importlib
 import io
 import json
 import pickle
+import shutil
 from pathlib import Path
 import sys
 from time import perf_counter_ns
@@ -1070,6 +1071,24 @@ def _atomic_pickle_dump(path: Path, payload: Any) -> None:
     finally:
         with contextlib.suppress(FileNotFoundError):
             temporary_path.unlink()
+
+
+def clean_amem_conversation_state(storage_root: str | Path, conversation_id: str) -> None:
+    """删除 A-Mem 单个 conversation 的半写入状态目录。
+
+    输入:
+        storage_root: 当前 run 的 A-Mem method state 根目录。
+        conversation_id: 需要重新 ingest 的 conversation id。
+
+    输出:
+        None。目标目录不存在时视为已经干净。
+    """
+
+    root = Path(storage_root).expanduser().resolve()
+    target = (root / _safe_path_name(conversation_id)).resolve()
+    if root == target or root not in target.parents:
+        raise ConfigurationError(f"Unsafe A-Mem state cleanup path: {target}")
+    shutil.rmtree(target, ignore_errors=True)
 
 
 def _user_prompt_from_prompt_messages(messages: list[PromptMessage]) -> str:

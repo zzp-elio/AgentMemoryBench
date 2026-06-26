@@ -16,6 +16,7 @@ import importlib.util
 import io
 from pathlib import Path
 import re
+import shutil
 import sys
 import threading
 from time import perf_counter_ns
@@ -1396,6 +1397,34 @@ def _storage_safe_collection_name(conversation_id: str) -> str:
     digest = hashlib.sha1(conversation_id.encode("utf-8")).hexdigest()[:10]
     safe_id = normalized[:64].strip("._-") or "conversation"
     return f"lightmem_{safe_id}_{digest}"
+
+
+def clean_lightmem_conversation_state(
+    storage_root: str | Path,
+    conversation_id: str,
+) -> None:
+    """删除 LightMem 单个 conversation 的 Qdrant collection 和日志目录。
+
+    输入:
+        storage_root: 当前 run 的 LightMem method state 根目录。
+        conversation_id: 需要重新 ingest 的 conversation id。
+
+    输出:
+        None。目标目录不存在时视为已经干净。
+    """
+
+    root = Path(storage_root).expanduser().resolve()
+    collection_name = _storage_safe_collection_name(conversation_id)
+    targets = (
+        root / "qdrant" / collection_name,
+        root / "qdrant" / f"{collection_name}_summary",
+        root / "logs" / collection_name,
+    )
+    for raw_target in targets:
+        target = raw_target.resolve()
+        if root == target or root not in target.parents:
+            raise ConfigurationError(f"Unsafe LightMem state cleanup path: {target}")
+        shutil.rmtree(target, ignore_errors=True)
 
 
 def _resolve_local_model_reference(

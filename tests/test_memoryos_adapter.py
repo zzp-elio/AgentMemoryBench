@@ -26,7 +26,11 @@ from memory_benchmark.core import Conversation, GoldAnswerInfo, Question, Sessio
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.methods import build_memoryos_source_identity
 from memory_benchmark.methods import memoryos_adapter as memoryos_adapter_module
-from memory_benchmark.methods.memoryos_adapter import MemoryOS, MemoryOSPaperConfig
+from memory_benchmark.methods.memoryos_adapter import (
+    MemoryOS,
+    MemoryOSPaperConfig,
+    clean_memoryos_conversation_state,
+)
 from memory_benchmark.observability.efficiency import EfficiencyCollector
 
 
@@ -76,6 +80,31 @@ def build_small_conversation() -> Conversation:
         },
         metadata={"speaker_a": "Alice", "speaker_b": "Bob"},
     )
+
+
+def test_clean_memoryos_conversation_state_only_removes_target_directory(
+    tmp_path: Path,
+) -> None:
+    """MemoryOS clean retry 只能删除目标 conversation 的状态目录。
+
+    输入:
+        storage_root: 同时包含目标 conversation state 和 sibling state。
+
+    输出:
+        目标目录被删除，其他 conversation 的目录保持不变。
+    """
+
+    target_state = tmp_path / "conv_1"
+    sibling_state = tmp_path / "conv-2"
+    target_state.mkdir()
+    sibling_state.mkdir()
+    (target_state / "short_term.json").write_text("[]", encoding="utf-8")
+    (sibling_state / "short_term.json").write_text("[]", encoding="utf-8")
+
+    clean_memoryos_conversation_state(tmp_path, "conv/1")
+
+    assert not target_state.exists()
+    assert sibling_state.exists()
 
 
 def build_longmemeval_conversation() -> Conversation:

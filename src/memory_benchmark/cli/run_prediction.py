@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from dataclasses import dataclass
 import hashlib
 import json
@@ -91,6 +92,42 @@ class PredictionBatchResult:
     benchmark: str
     selector: str
     runs: tuple[PredictionVariantResult, ...]
+
+
+def _bind_clean_failed_ingest_conversation(
+    *,
+    method_registration: object,
+    build_context: MethodBuildContext,
+) -> Callable[[Conversation, dict[str, object]], None] | None:
+    """把内置 method 的 clean retry hook 绑定到当前 child run 上下文。
+
+    输入:
+        method_registration: registry 中的 method 静态信息。用户自定义 method 没有
+            该字段时返回 None。
+        build_context: 当前 child run 的 method 构造上下文，含 method state 根目录。
+
+    输出:
+        Callable | None: runner 可直接调用的 clean hook。None 表示不支持
+        failed_ingest clean retry，应保持 fail-closed。
+    """
+
+    clean_failed_ingest_state = getattr(
+        method_registration,
+        "clean_failed_ingest_state",
+        None,
+    )
+    if clean_failed_ingest_state is None:
+        return None
+
+    def _clean_failed_ingest_conversation(
+        conversation: Conversation,
+        failed_state: dict[str, object],
+    ) -> None:
+        """用当前 child run 上下文清理一个 failed_ingest conversation。"""
+
+        clean_failed_ingest_state(build_context, conversation, failed_state)
+
+    return _clean_failed_ingest_conversation
 
 
 class _UnusedRootSystem(BaseMemorySystem):
@@ -544,6 +581,10 @@ def run_registered_conversation_qa_prediction(
             completed_conversations=completed_conversations,
             efficiency_collector=child.efficiency_collector,
         )
+        clean_failed_ingest_conversation = _bind_clean_failed_ingest_conversation(
+            method_registration=method_registration,
+            build_context=build_context,
+        )
         supports_shared_instance_parallelism = getattr(
             method_registration,
             "supports_shared_instance_parallelism",
@@ -575,6 +616,7 @@ def run_registered_conversation_qa_prediction(
             build_context_template=build_context,
             supports_shared_instance_parallelism=supports_shared_instance_parallelism,
             answer_reader=answer_reader,
+            clean_failed_ingest_conversation=clean_failed_ingest_conversation,
         )
         results.append(
             PredictionVariantResult(

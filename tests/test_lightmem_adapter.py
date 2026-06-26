@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 
@@ -24,6 +25,7 @@ from memory_benchmark.methods.lightmem_adapter import (
     LightMem,
     LightMemConfig,
     build_lightmem_source_identity,
+    clean_lightmem_conversation_state,
     import_lightmem_classes,
 )
 from memory_benchmark.observability.efficiency import EfficiencyCollector
@@ -79,6 +81,65 @@ def test_lightmem_import_keeps_vendored_src_path_for_thread_safety() -> None:
 
     assert classes["LightMemory"].__name__ == "LightMemory"
     assert src_root_text in sys.path
+
+
+def test_clean_lightmem_conversation_state_removes_target_qdrant_and_logs(
+    tmp_path: Path,
+) -> None:
+    """LightMem clean retry 应删除目标 conversation 的 Qdrant 和日志目录。
+
+    输入:
+        storage_root: LightMem method state 根目录，含目标 conversation 与 sibling
+            conversation 的 collection 目录。
+
+    输出:
+        目标 conversation 的 embedding、summary 和 log 目录被删除；sibling 保留。
+    """
+
+    config = LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path="models/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+        retrieve_limit=2,
+        max_workers=1,
+        profile_name="smoke",
+    )
+    openai_settings = OpenAISettings(
+        api_key="sk-test",
+        base_url="https://example.invalid/v1",
+    )
+    target_backend_config = LightMem.build_backend_config(
+        config=config,
+        openai_settings=openai_settings,
+        storage_root=tmp_path,
+        conversation_id="conv/1",
+        project_root=tmp_path,
+    )
+    sibling_backend_config = LightMem.build_backend_config(
+        config=config,
+        openai_settings=openai_settings,
+        storage_root=tmp_path,
+        conversation_id="conv-2",
+        project_root=tmp_path,
+    )
+    target_paths = [
+        Path(target_backend_config["embedding_retriever"]["configs"]["path"]),
+        Path(target_backend_config["summary_retriever"]["configs"]["path"]),
+        Path(target_backend_config["logging"]["log_dir"]),
+    ]
+    sibling_paths = [
+        Path(sibling_backend_config["embedding_retriever"]["configs"]["path"]),
+        Path(sibling_backend_config["summary_retriever"]["configs"]["path"]),
+        Path(sibling_backend_config["logging"]["log_dir"]),
+    ]
+    for path in target_paths + sibling_paths:
+        path.mkdir(parents=True)
+        (path / "marker.txt").write_text("state", encoding="utf-8")
+
+    clean_lightmem_conversation_state(tmp_path, "conv/1")
+
+    assert all(not path.exists() for path in target_paths)
+    assert all(path.exists() for path in sibling_paths)
 
 
 class FakeLightMemoryBackend:

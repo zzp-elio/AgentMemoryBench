@@ -31,17 +31,24 @@ from memory_benchmark.observability.efficiency import (
     RetrievalObservationContract,
 )
 
-from .amem_adapter import AMem, AMemConfig, build_amem_source_identity
+from .amem_adapter import (
+    AMem,
+    AMemConfig,
+    build_amem_source_identity,
+    clean_amem_conversation_state,
+)
 from .lightmem_adapter import (
     LightMem,
     LightMemConfig,
     build_lightmem_source_identity,
+    clean_lightmem_conversation_state,
 )
 from .mem0_adapter import Mem0, Mem0Config, build_mem0_source_identity
 from .memoryos_adapter import (
     MemoryOS,
     MemoryOSPaperConfig,
     build_memoryos_source_identity,
+    clean_memoryos_conversation_state,
 )
 
 
@@ -89,6 +96,8 @@ class MethodRegistration:
         efficiency_model_inventory_getter: 启用效率观测时生成模型清单。
         efficiency_instrumentation_identity_getter: 启用观测时生成插桩身份。
         retrieval_observation_contract_getter: 启用观测时生成 retrieval 强契约。
+        clean_failed_ingest_state: 可选 clean retry hook；只有内置 method 能证明可
+            conversation 级安全清理半写入状态时才声明。
     """
 
     name: str
@@ -115,6 +124,9 @@ class MethodRegistration:
         Callable[[Any], RetrievalObservationContract] | None
     ) = None
     supports_shared_instance_parallelism: bool = False
+    clean_failed_ingest_state: (
+        Callable[[MethodBuildContext, Conversation, dict[str, Any]], None] | None
+    ) = None
 
     @property
     def profile_names(self) -> frozenset[str]:
@@ -434,6 +446,62 @@ def _build_memoryos_system(context: MethodBuildContext) -> BaseMemorySystem:
     return system
 
 
+def _clean_amem_failed_ingest_state(
+    context: MethodBuildContext,
+    conversation: Conversation,
+    failed_state: dict[str, Any],
+) -> None:
+    """清理 A-Mem 单个 failed_ingest conversation 的 method state。"""
+
+    clean_amem_conversation_state(
+        _resolve_clean_retry_storage_root(context, failed_state),
+        conversation.conversation_id,
+    )
+
+
+def _clean_lightmem_failed_ingest_state(
+    context: MethodBuildContext,
+    conversation: Conversation,
+    failed_state: dict[str, Any],
+) -> None:
+    """清理 LightMem 单个 failed_ingest conversation 的 method state。"""
+
+    clean_lightmem_conversation_state(
+        _resolve_clean_retry_storage_root(context, failed_state),
+        conversation.conversation_id,
+    )
+
+
+def _clean_memoryos_failed_ingest_state(
+    context: MethodBuildContext,
+    conversation: Conversation,
+    failed_state: dict[str, Any],
+) -> None:
+    """清理 MemoryOS 单个 failed_ingest conversation 的 method state。"""
+
+    clean_memoryos_conversation_state(
+        _resolve_clean_retry_storage_root(context, failed_state),
+        conversation.conversation_id,
+    )
+
+
+def _resolve_clean_retry_storage_root(
+    context: MethodBuildContext,
+    failed_state: dict[str, Any],
+) -> Path:
+    """根据失败 checkpoint 定位 clean retry 应清理的 method state 根目录。
+
+    isolated worker 失败时 checkpoint 会记录 `worker_idx`，真实脏状态位于
+    `method_state/worker_<idx>/`；非 isolated 路径没有该字段，直接使用 run 级
+    `method_state/`。
+    """
+
+    worker_idx = failed_state.get("worker_idx")
+    if isinstance(worker_idx, int) and not isinstance(worker_idx, bool):
+        return context.storage_root / f"worker_{worker_idx}"
+    return context.storage_root
+
+
 def _memoryos_model_name(config: Any) -> str:
     """从 MemoryOS 强类型配置读取回答模型名。"""
 
@@ -541,6 +609,7 @@ _REGISTRATIONS = {
             _amem_efficiency_instrumentation_identity
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
+        clean_failed_ingest_state=_clean_amem_failed_ingest_state,
     ),
     "mem0": MethodRegistration(
         name="mem0",
@@ -598,6 +667,7 @@ _REGISTRATIONS = {
             _lightmem_efficiency_instrumentation_identity
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
+        clean_failed_ingest_state=_clean_lightmem_failed_ingest_state,
     ),
     "memoryos": MethodRegistration(
         name="memoryos",
@@ -627,6 +697,7 @@ _REGISTRATIONS = {
             _memoryos_efficiency_instrumentation_identity
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
+        clean_failed_ingest_state=_clean_memoryos_failed_ingest_state,
     ),
 }
 
