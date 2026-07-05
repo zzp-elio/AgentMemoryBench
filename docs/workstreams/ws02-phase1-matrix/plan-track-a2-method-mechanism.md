@@ -74,7 +74,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 - [x] mechanism-amem.md（含第 7 节；重点：session_time 传递与 keyword 生成）
 - [x] mechanism-memoryos.md（含第 7 节；重点：短中长期分层的写入触发时机）
 - [x] mechanism-simplemem.md
-- [ ] mechanism-langmem.md
+- [x] mechanism-langmem.md
 - [ ] mechanism-supermemory.md（含 memorybench 中 provider 实现的调用证据）
 - [ ] mechanism-memos.md
 - [ ] mechanism-cognee.md
@@ -188,6 +188,114 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md
 
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv
+```
+
+实际输出：
+
+```text
+```
+
+### mechanism-langmem.md
+
+完成时间：2026-07-05 21:01 CST
+
+隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-langmem && uv venv /tmp/mech-langmem && uv pip install --python /tmp/mech-langmem/bin/python -e third_party/methods/langmem
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-langmem
+Activate with: source /tmp/mech-langmem/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-langmem
+Resolved 48 packages in 2.11s
+   Building langmem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/langmem
+      Built langmem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/langmem
+Prepared 24 packages in 1.41s
+Installed 48 packages in 127ms
+ + annotated-types==0.7.0
+ + anthropic==0.116.0
+ + anyio==4.14.1
+ + certifi==2026.6.17
+ + charset-normalizer==3.4.7
+ + distro==1.9.0
+ + docstring-parser==0.18.0
+ + dydantic==0.0.8
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + idna==3.18
+ + jiter==0.16.0
+ + jsonpatch==1.33
+ + jsonpointer==3.1.1
+ + langchain==1.3.11
+ + langchain-anthropic==1.4.8
+ + langchain-core==1.4.8
+ + langchain-openai==1.3.3
+ + langchain-protocol==0.0.18
+ + langgraph==1.2.7
+ + langgraph-checkpoint==4.1.1
+ + langgraph-prebuilt==1.1.0
+ + langgraph-sdk==0.4.2
+ + langmem==0.0.30 (from file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/langmem)
+ + langsmith==0.9.7
+ + openai==2.44.0
+ + orjson==3.11.9
+ + ormsgpack==1.12.2
+ + packaging==26.2
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + pyyaml==6.0.3
+ + regex==2026.6.28
+ + requests==2.34.2
+ + requests-toolbelt==1.0.0
+ + sniffio==1.3.1
+ + tenacity==9.1.4
+ + tiktoken==0.13.0
+ + tqdm==4.68.3
+ + trustcall==0.0.39
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.2
+ + urllib3==2.7.0
+ + uuid-utils==0.16.2
+ + websockets==15.0.1
+ + xxhash==3.8.0
+ + zstandard==0.25.0
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-6]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-langmem.md
+```
+
+实际输出：
+
+```text
+6
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-langmem.md
+```
+
+实际输出：
+
+```text
+29
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-langmem.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv
 ```
 
