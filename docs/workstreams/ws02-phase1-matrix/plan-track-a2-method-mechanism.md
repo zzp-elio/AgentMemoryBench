@@ -72,7 +72,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 - [x] mechanism-mem0.md（含第 7 节形变记录）
 - [x] mechanism-lightmem.md（含第 7 节；重点：offline update 的边界信号从哪来）
 - [x] mechanism-amem.md（含第 7 节；重点：session_time 传递与 keyword 生成）
-- [ ] mechanism-memoryos.md（含第 7 节；重点：短中长期分层的写入触发时机）
+- [x] mechanism-memoryos.md（含第 7 节；重点：短中长期分层的写入触发时机）
 - [ ] mechanism-simplemem.md
 - [ ] mechanism-langmem.md
 - [ ] mechanism-supermemory.md（含 memorybench 中 provider 实现的调用证据）
@@ -188,6 +188,161 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md
 
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv
+```
+
+实际输出：
+
+```text
+```
+
+### mechanism-memoryos.md
+
+完成时间：2026-07-05 20:52 CST
+
+官方 requirements 隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-memoryos && uv venv /tmp/mech-memoryos && uv pip install --python /tmp/mech-memoryos/bin/python -r third_party/methods/MemoryOS-main/memoryos-pypi/requirements.txt
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-memoryos
+Activate with: source /tmp/mech-memoryos/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-memoryos
+  × No solution found when resolving dependencies:
+  ╰─▶ Because only the following versions of faiss-gpu are available:
+          faiss-gpu<=1.7.0
+          faiss-gpu==1.7.1
+          faiss-gpu==1.7.1.post1
+          faiss-gpu==1.7.1.post2
+          faiss-gpu==1.7.1.post3
+          faiss-gpu==1.7.2
+          faiss-gpu==1.14.3
+      and faiss-gpu>=1.7.0,<=1.7.2 has no wheels with a matching Python ABI
+      tag (e.g., `cp312`), we can conclude that faiss-gpu>=1.7.0,<=1.7.2
+      cannot be used.
+      And because faiss-gpu==1.14.3 has no wheels with a matching platform
+      tag (e.g., `macosx_15_0_arm64`) and you require faiss-gpu>=1.7.0, we can
+      conclude that your requirements are unsatisfiable.
+
+      hint: Wheels are available for `faiss-gpu` (v1.14.3) on the following
+      platforms: `manylinux_2_27_x86_64`, `manylinux_2_28_x86_64`
+
+      hint: You require CPython 3.12 (`cp312`), but we only found wheels
+      for `faiss-gpu` (v1.7.2) with the following Python ABI tags: `cp36m`,
+      `cp37m`, `cp38`, `cp39`, `cp310`
+```
+
+CPU FAISS 替代复核命令：
+
+```bash
+uv pip install --python /tmp/mech-memoryos/bin/python 'numpy==1.24.*' 'sentence-transformers==5.0.0' 'transformers>=4.51.0' 'FlagEmbedding>=1.2.9' 'faiss-cpu>=1.7.0,<2.0.0' 'httpx[socks]' openai 'flask>=2.0.0,<3.0.0' 'python-dotenv>=0.19.0,<2.0.0' 'typing-extensions>=4.0.0,<5.0.0' 'regex>=2022.1.18'
+```
+
+实际输出：
+
+```text
+Using Python 3.12.8 environment at: /private/tmp/mech-memoryos
+Resolved 79 packages in 5.96s
+Downloading sentencepiece (1.2MiB)
+Downloading transformers (11.4MiB)
+Downloading faiss-cpu (5.7MiB)
+Downloading lxml (8.2MiB)
+ Downloaded sentencepiece
+   Building pandas==2.1.0
+ Downloaded faiss-cpu
+ Downloaded lxml
+   Building numpy==1.24.4
+ Downloaded transformers
+  × Failed to build `numpy==1.24.4`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_wheel` failed (exit
+      status: 1)
+
+      [stderr]
+      Traceback (most recent call last):
+        File "<string>", line 8, in <module>
+        File
+      "/Users/wz/.cache/uv/builds-v0/.tmpVvtuIO/lib/python3.12/site-packages/setuptools/__init__.py",
+      line 10, in <module>
+          import distutils.core
+      ModuleNotFoundError: No module named 'distutils'
+
+      hint: `distutils` was removed from the standard library in Python 3.12.
+      Consider adding a constraint (like `numpy >1.24.4`) to avoid building a
+      version of `numpy` that depends on `distutils`.
+```
+
+Python 3.9 官方 requirements 复核命令：
+
+```bash
+rm -rf /tmp/mech-memoryos-py39 && uv venv --python /usr/bin/python3 /tmp/mech-memoryos-py39 && uv pip install --python /tmp/mech-memoryos-py39/bin/python -r third_party/methods/MemoryOS-main/memoryos-pypi/requirements.txt
+```
+
+实际输出：
+
+```text
+Using CPython 3.9.6 interpreter at: /Library/Developer/CommandLineTools/usr/bin/python3
+warning: The requested interpreter resolved to Python 3.9.6, which is incompatible with the project's Python requirement: `>=3.11` (from `project.requires-python`)
+Creating virtual environment at: /tmp/mech-memoryos-py39
+Activate with: source /tmp/mech-memoryos-py39/bin/activate
+Using Python 3.9.6 environment at: /private/tmp/mech-memoryos-py39
+  × No solution found when resolving dependencies:
+  ╰─▶ Because only the following versions of faiss-gpu are available:
+          faiss-gpu<=1.7.0
+          faiss-gpu==1.7.1
+          faiss-gpu==1.7.1.post1
+          faiss-gpu==1.7.1.post2
+          faiss-gpu==1.7.1.post3
+          faiss-gpu==1.7.2
+          faiss-gpu==1.14.3
+      and faiss-gpu>=1.7.0,<=1.7.2 has no wheels with a matching
+      platform tag (e.g., `macosx_15_0_arm64`), we can conclude that
+      faiss-gpu>=1.7.0,<=1.7.2 cannot be used.
+      And because faiss-gpu==1.14.3 has no wheels with a matching Python
+      implementation tag (e.g., `cp39`) and you require faiss-gpu>=1.7.0, we
+      can conclude that your requirements are unsatisfiable.
+
+      hint: You require CPython 3.9 (`cp39`), but we only found wheels for
+      `faiss-gpu` (v1.14.3) with the following Python implementation tag:
+      `cp310`
+
+      hint: Wheels are available for `faiss-gpu` (v1.7.2) on the following
+      platforms: `manylinux_2_17_x86_64`, `manylinux2014_x86_64`
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-7]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-memoryos.md
+```
+
+实际输出：
+
+```text
+7
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-memoryos.md
+```
+
+实际输出：
+
+```text
+34
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-memoryos.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv
 ```
 
