@@ -295,18 +295,37 @@ ws03        2
 
 ### T8 reference 与 survey 分区（commit 8）
 
-- [ ] 建 `docs/reference/`，`git mv` 以下 10 份进入：
+- [x] 建 `docs/reference/`，`git mv` 以下 10 份进入：
   architecture.md、architecture-execution-flow.md、benchmark-scope.md、
   data-model.md、method-interface-inventory.md、method-resource-parameter-audit.md、
   custom-method-onboarding.md、huggingface-datasets.md、subagent-strategy.md、
   future-ideas.md
-- [ ] 建 `docs/survey/`：
+- [x] 建 `docs/survey/`：
   `git mv docs/benchmark-survey docs/survey/benchmarks`
   `git mv docs/dataset_structures docs/survey/datasets`
   `git mv docs/evaluation_workflows docs/survey/workflows`
-- [ ] 提交 → `docs: split reference and survey doc sections`
+- [x] 提交 → `docs: split reference and survey doc sections`
 - 验收：`ls docs/` 仅含：README.md（M3 建，此时可无）、current-roadmap.md、
   task-ledger.md、reference/、survey/、workstreams/、archive/、调研资料/。
+
+T8 实际输出（2026-07-05，Codex）：
+
+```text
+$ git commit -m "docs: split reference and survey doc sections"
+[main 5de28f1] docs: split reference and survey doc sections
+ 31 files changed, 0 insertions(+), 0 deletions(-)
+
+$ ls docs | sort
+archive
+current-roadmap.md
+reference
+survey
+task-ledger.md
+workstreams
+调研资料
+
+$ git status --short
+```
 
 ### T9 修复存活文档中的旧路径（commit 9）
 
