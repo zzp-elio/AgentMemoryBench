@@ -33,9 +33,12 @@ created: 2026-07-05
 3. **LLM/embedding 配置面**：内部调用哪些模型；能否配置成
    OpenAI-compatible base_url + `gpt-4o-mini`（我们经 ohmygpt 转发）；
    本地 embedding 是否可用；找不到配置入口时给出源码文件:行号证据。
-4. **接口映射**：官方写入/检索 API 与
-   `BaseMemoryProvider.add(conversation)` / `retrieve(question)` 的映射草案；
-   会话/用户隔离机制（对应我们 conversation 级隔离与 resume 的可行性）。
+4. **接口映射（协议中立口径）**：先记录该 method 官方写入/检索 API 的
+   **原生粒度与签名**（逐 turn？逐 message pair？整段文本？chunk？是否需要
+   时间戳/角色/会话边界信号？），再分别评估映射到 `add(conversation)` 和
+   `add_turn(role, content, time, metadata)` 两种候选协议的负担；
+   会话/用户隔离机制照常记录。注意：核心协议正在 Track 0 重评估中，
+   不要把现有 `BaseMemoryProvider` 当作唯一目标。
 5. **可插桩性**：token/latency 能否从 response usage 或 wrapper 层拿到；
    是否有绕过我们观测的内部并发/缓存。
 6. **风险与工作量分级**：接入难度 S/M/L（S=纯库、配置即用；M=需适配层或

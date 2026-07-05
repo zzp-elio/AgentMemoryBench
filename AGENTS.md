@@ -28,8 +28,9 @@
 
 ## 硬规则
 
-- 禁止修改 `third_party/` 第三方核心算法；仅允许经记录、可关闭、行为等价的
-  纯观测插桩。
+- `third_party/` 第三方代码**允许修改**（2026-07-05 用户放宽），但**不得改变
+  算法核心流程**；用途限于 benchmark 拓展适配（如 MemoryOS 原生只适配 LoCoMo）
+  和纯观测插桩。每处改动必须在对应 workstream 记录文件、位置和理由，可回溯。
 - 私有数据（gold answers、evidence、judge labels）绝不可达 method。
 - 未经用户显式确认（预算、规模、run_id），不得调用真实 API；smoke 必须使用
   官方 method 参数，成本控制只通过 conversation/question/turn 规模裁剪。
