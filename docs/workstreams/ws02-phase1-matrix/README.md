@@ -138,6 +138,25 @@ created: 2026-07-05
 
 ## 决策记录
 
+- 2026-07-06 用户（矩阵讨论轮）：
+  (a) **数据结构统一观**：五 benchmark 本质同构——隔离空间（conversation/
+  sample/uuid）→ 多个带 time 的 session → 多个 turn；MemBench 第三人称只是
+  单角色消息流的退化形态，不破坏该模型。
+  (b) **evidence recall（recall@k 类）不强求**：method 能返回 dataset 标记就实现，
+  不能就在结果表用占位符（N/A）标注，不硬造。
+  (c) **隔离采用"并置持久化"模型，不做逐边界 reset**：每个隔离空间的记忆状态
+  必须留存（如 LongMemEval 500 instance 各自保留），reset 仅用于失败 unit 的
+  clean retry。架构师细化分工：框架负责隔离政策（显式 isolation_key + 状态根），
+  method adapter 负责把键映射到原生隔离机制（namespace/containerTag/collection/
+  agent_id）。
+  (d) **session 为一等写入边界**；HaluMem 的 session 级新增记忆通过
+  add_session/end_session 返回值获取（**特定 session 的新增记忆**，非全局），
+  该能力为可选声明，method 不支持则 extraction 指标占位。
+  (e) **工程优化专项延后**：并行并发、resume 机制、异常兜底、日志、终端进度等
+  由未来独立 workstream 统一优化（架构师写文档、Codex 实现）；当前 conversation
+  级 resume 维持现状，本轮协议 spec 不动 resume 设计。
+  (f) 背景补记：A-Mem 官方仓库无持久化，现有 conversation 级持久化是 Codex
+  补写的 wrapper 层能力（属合理形变，保留）。
 - 2026-07-06 用户：answer 侧确立**双 prompt 口径**，是协议设计的核心输入：
   (a) **method-native 口径**：保留各 method 论文原生 answer prompt（即当前
   `prompt_messages` 路径）。用途 = 复现论文结果、论证框架正确性、官方对标。
