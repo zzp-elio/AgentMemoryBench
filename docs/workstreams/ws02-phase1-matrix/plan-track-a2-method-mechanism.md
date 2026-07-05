@@ -75,7 +75,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 - [x] mechanism-memoryos.md（含第 7 节；重点：短中长期分层的写入触发时机）
 - [x] mechanism-simplemem.md
 - [x] mechanism-langmem.md
-- [ ] mechanism-supermemory.md（含 memorybench 中 provider 实现的调用证据）
+- [x] mechanism-supermemory.md（含 memorybench 中 provider 实现的调用证据）
 - [ ] mechanism-memos.md
 - [ ] mechanism-cognee.md
 - [ ] mechanism-letta.md
@@ -297,6 +297,85 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-langmem.
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-langmem.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv
+```
+
+实际输出：
+
+```text
+```
+
+### mechanism-supermemory.md
+
+完成时间：2026-07-05 21:06 CST
+
+隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-supermemory && uv venv /tmp/mech-supermemory && uv pip install --python /tmp/mech-supermemory/bin/python supermemory && /tmp/mech-supermemory/bin/python - <<'PY'
+import importlib.metadata as md
+from supermemory import Supermemory
+print('supermemory', md.version('supermemory'))
+print('Supermemory class', Supermemory.__name__)
+PY
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-supermemory
+Activate with: source /tmp/mech-supermemory/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-supermemory
+Resolved 14 packages in 1.49s
+Prepared 1 package in 280ms
+Installed 14 packages in 25ms
+ + annotated-types==0.7.0
+ + anyio==4.14.1
+ + certifi==2026.6.17
+ + distro==1.9.0
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + idna==3.18
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + sniffio==1.3.1
+ + supermemory==3.50.0
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.2
+supermemory 3.50.0
+Supermemory class Supermemory
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-6]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-supermemory.md
+```
+
+实际输出：
+
+```text
+6
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-supermemory.md
+```
+
+实际输出：
+
+```text
+34
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-supermemory.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv package.json bun.lock node_modules
 ```
 
 实际输出：
