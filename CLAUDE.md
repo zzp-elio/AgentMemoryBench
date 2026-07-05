@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**规则、协作模式与文档导航的唯一事实源是 `AGENTS.md`，先读它**；本文件只保留
+Claude Code 使用的命令速查与代码结构地图，两边不重复维护。
+
 ## Commands
 
 ```bash
@@ -25,8 +28,10 @@ uv sync                          # 同步依赖（首次或有新依赖时）
 ```
 BenchmarkAdapter.load() → Dataset
   ↓ (public Conversation + Question, no gold_answers)
-run_predictions()  → method.add([Convsersation]) → method.get_answer(Question)
-  ↓ (artifacts: method_predictions.jsonl + evaluator_private_labels.jsonl)
+run_predictions() → method.add(conversation) → method.retrieve(question)
+  → FrameworkAnswerReader(prompt_messages) → answer
+  ↓ (artifacts: method_predictions.jsonl + answer_prompts.prediction.jsonl
+     + evaluator_private_labels.jsonl)
 run_artifact_evaluation() → evaluator.evaluate(question, prediction, gold)
   ↓ (scores: answer_scores.*.jsonl)
 ```
@@ -41,13 +46,11 @@ Compatibility check at runtime: `validate_compatibility(benchmark_task_family, r
 ### Method interface
 当前主协议为 `BaseMemoryProvider`（retrieve-first）：
 - `add(conversation: Conversation) → AddResult`
-- `retrieve(question: Question) → RetrievalResult`
+- `retrieve(question: Question) → AnswerPromptResult`（核心字段
+  `prompt_messages`，由 framework answer LLM 直接使用）
 
-旧协议 `BaseMemorySystem` 仍保留为兼容路径：
-- `add(conversations: list[Conversation]) → AddResult`
-- `get_answer(question: Question) → AnswerResult`
-
-Optional: `BaseMemoryRetriever` (retrieve)
+旧协议 `BaseMemorySystem`（`add(list) + get_answer`）仅为兼容路径；
+`BaseMemoryRetriever` 属待清理的迁移期负担（见 ws03）。
 
 ### Private data protection (4-layer)
 1. **Data model**: `Conversation.to_public_dict()` excludes gold_answers
@@ -100,10 +103,10 @@ Optional: `BaseMemoryRetriever` (retrieve)
 - `config/profiles.py` — load_typed_profile (TOML → strong-typed dataclass)
 
 ## Key constraints
-- Do not modify `third_party/` source code
-- Do not call external API without `--confirm-api` / `--confirm-full`
-- All Python files must have Chinese module docstring; classes/functions need Chinese docstrings
-- Private data (gold answers, evidence, judge labels) must never reach method
-- New method adapter: implement BaseMemorySystem → register in `methods/registry.py`
-- New benchmark adapter: implement BenchmarkAdapter + register in `benchmark_adapters/registry.py`
-- Review required for: resume logic, privacy boundaries, metric correctness, public protocol changes
+
+完整硬规则见 `AGENTS.md`（third_party 不改、私有数据边界、API 确认、中文
+docstring、受保护 outputs、不自动 commit、review 范围等）。此处只留代码级速查：
+
+- New method adapter: implement `BaseMemoryProvider` → register in `methods/registry.py`
+  (用户轻量路径走 `--method-class module:ClassName`，无需 registry)
+- New benchmark adapter: implement BenchmarkAdapter → register in `benchmark_adapters/registry.py`

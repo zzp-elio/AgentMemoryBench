@@ -9,7 +9,7 @@
 | `docs/survey/` | benchmarks/ 调研卡片、datasets/ 数据结构、workflows/ 官方评测流程 | 调研资料 |
 | `docs/archive/` | 已完成/被覆盖的 spec、plan、handoff、旧状态文档 | 只读历史 |
 | `docs/调研资料/` | 用户个人 Obsidian 调研笔记（含 benchmark 总表） | 用户维护 |
-| `opencode/` | OpenCode 通道任务与结果索引（archive/ 为历史） | 协作通道 |
+| `opencode/` | OpenCode 通道任务与结果索引（archive/ 为历史） | 后备通道（待命） |
 | `reports/` | 对外汇报材料（assets/ 存图片） | 汇报 |
 
 ## 本地目录说明（已 gitignore，不入库）

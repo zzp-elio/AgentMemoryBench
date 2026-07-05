@@ -22,7 +22,8 @@
 - **Codex = 执行者**：严格按 plan 施工，逐 task 勾选并附验收命令的实际输出；
   遇到 plan 未覆盖的情况停止当前 task，写入 workstream README 的"当前断点"，
   交回架构师，不自行发散。
-- **OpenCode = 额度空档通道**：入口 `opencode/opencode_result.md`。
+- **OpenCode = 后备力量（2026-07-05 起待命）**：暂不参与项目推进；如需启用由
+  用户明确指派，入口仍为 `opencode/opencode_result.md`。
 - 执行者报告完成不等于任务完成；验收以架构师复跑命令的输出为准。
 
 ## 硬规则
