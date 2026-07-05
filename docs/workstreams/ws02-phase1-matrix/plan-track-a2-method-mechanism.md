@@ -69,7 +69,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 先做 4 个已接入 method（素材最全、上手最快，还能立即产出协议证据），
 再按从轻到重做 6 个新 method：
 
-- [ ] mechanism-mem0.md（含第 7 节形变记录）
+- [x] mechanism-mem0.md（含第 7 节形变记录）
 - [ ] mechanism-lightmem.md（含第 7 节；重点：offline update 的边界信号从哪来）
 - [ ] mechanism-amem.md（含第 7 节；重点：session_time 传递与 keyword 生成）
 - [ ] mechanism-memoryos.md（含第 7 节；重点：短中长期分层的写入触发时机）
@@ -93,3 +93,105 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 
 - 不写任何 adapter 代码；不下协议选型结论（第 5 节只陈述事实含义）。
 - 不重做 Track A 的安装/配置面内容；不调研 benchmark 侧（架构师负责萃取）。
+
+## 执行验收记录
+
+### mechanism-mem0.md
+
+完成时间：2026-07-05 20:40 CST
+
+隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-mem0 && uv venv /tmp/mech-mem0 && uv pip install --python /tmp/mech-mem0/bin/python -e third_party/methods/mem0-main
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-mem0
+Activate with: source /tmp/mech-mem0/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-mem0
+Resolved 32 packages in 2.66s
+   Building mem0ai @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/mem0-main
+Downloading openai (1.3MiB)
+Downloading numpy (5.1MiB)
+Downloading sqlalchemy (2.1MiB)
+Downloading grpcio (11.5MiB)
+ Downloaded openai
+ Downloaded sqlalchemy
+      Built mem0ai @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/mem0-main
+ Downloaded numpy
+ Downloaded grpcio
+Prepared 13 packages in 3.08s
+Installed 32 packages in 110ms
+ + annotated-types==0.7.0
+ + anyio==4.14.1
+ + backoff==2.2.1
+ + certifi==2026.6.17
+ + charset-normalizer==3.4.7
+ + distro==1.9.0
+ + grpcio==1.81.1
+ + h11==0.16.0
+ + h2==4.3.0
+ + hpack==4.2.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + hyperframe==6.1.0
+ + idna==3.18
+ + jiter==0.16.0
+ + mem0ai==2.0.4 (from file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/mem0-main)
+ + numpy==2.5.1
+ + openai==2.44.0
+ + portalocker==3.2.0
+ + posthog==7.21.3
+ + protobuf==6.33.6
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + pytz==2026.2
+ + qdrant-client==1.18.0
+ + requests==2.34.2
+ + sniffio==1.3.1
+ + sqlalchemy==2.0.51
+ + tqdm==4.68.3
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.2
+ + urllib3==2.7.0
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-7]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md
+```
+
+实际输出：
+
+```text
+7
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md
+```
+
+实际输出：
+
+```text
+29
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv
+```
+
+实际输出：
+
+```text
+```
