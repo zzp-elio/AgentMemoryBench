@@ -14,6 +14,18 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-05：Codex 已完成 M3/T10 验收并提交：
+  AGENTS.md 57 行，AGENTS.md + docs/README.md + docs/roadmap.md 合计 139 行；
+  6 个 workstream README 链接和 3 个 archive/status 文件均已 `test -f` 通过；
+  `uv run pytest -q` 为 `709 passed, 3 deselected, 2 warnings, 6 subtests passed`；
+  T10 commit 后 `git status --short --branch` 为 `## main...origin/main [ahead 12]`。
+  **下一步：请架构师按 [spec.md](spec.md) §8 做终验并在 notes/ 写审查记录；终验通过后由用户决定是否 push。**
+- 2026-07-05（已解除）：M2（T7-T9）已由架构师审查通过（3 个 commit、归档数量 72/21/21/3、
+  旧路径 grep 清零、709 passed）。M3/T10 内容已由 Claude 直接起草并落位到工作区：
+  新 AGENTS.md（57 行）、docs/README.md、docs/roadmap.md、4 个 seed workstream
+  README（ws02/ws04/ws05/ws06）、ws03 README、CLAUDE.md 路径与基线更新，
+  旧 AGENTS/current-roadmap/task-ledger 已 git mv/cp 到 archive/status/。Codex 已完成
+  plan T10/T11 可执行收尾。
 - 2026-07-05（已解除）：Codex T7 预检发现 plan 迁移数量与仓库不符并停工。架构师
   复核裁定：差异源于 plan 初稿的 60/22/24 是架构师目测估数（失误），Codex 预检的
   72/21/23/3 正确，仓库本身无异常文件。plan T7 已勘误（含"迁移验收以实测数量为准"
@@ -35,15 +47,18 @@ created: 2026-07-05
 - [x] 写 spec 并获用户批准
 - [x] 用户决策：vendored 用 manifest + 下载脚本；task-ledger/handoffs 全部归档
 - [x] 写迁移 plan（M1/M2/M3 逐任务验收命令）
-- [ ] M1：git 收干净（Codex 施工）
-- [ ] M2：docs 目录迁移（Codex 施工）
-- [ ] M3：AGENTS.md / docs/README.md / docs/roadmap.md 重写（Claude 起草，Codex 校验）
-- [ ] Claude 审查验收：对照 spec §8 逐条核验，出具审查记录（notes/）
-- [ ] M4 派生：tests 目录重组 → 建 ws06-tests-restructure（另写 spec）
+- [x] M1：git 收干净（Codex，T0.5-T6 共 7 commit，709 passed 基线保持）
+- [x] M2：docs 目录迁移（Codex，T7-T9 共 3 commit + 文档规范测试路径更新，
+  架构师审查通过）
+- [x] M3 内容起草：新 AGENTS.md / docs/README.md / docs/roadmap.md /
+  5 个 workstream 状态页 / CLAUDE.md 更新（Claude，2026-07-05）
+- [x] M3 落位验收与提交（Codex，plan T10 验收清单，709 passed）
+- [ ] Claude 终验：对照 spec §8 逐条核验，出具审查记录（notes/）
+- [x] M4 派生：ws06-tests-restructure 状态页已建立（spec 另写）
 
 ## 子任务
 
-- ws06-tests-restructure — 待建（M4，独立排期）
+- [ws06-tests-restructure](../ws06-tests-restructure/README.md) — open（M4，独立排期）
 
 ## 决策记录
 

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 uv run pytest                    # 完整回归（默认排除 real API）
-uv run pytest -q                 # 简洁输出，658 passed 为正常
+uv run pytest -q                 # 简洁输出，709 passed 为正常
 uv run pytest -m memoryos -q    # MemoryOS 专项
 uv run pytest -m api --collect-only -q  # 查看哪些测试会调真实 API
 uv run pytest -x -q tests/test_method_registry.py  # 单个测试文件
@@ -75,16 +75,17 @@ Optional: `BaseMemoryRetriever` (retrieve)
 | `src/memory_benchmark/observability/` | Progress reporter, event writer, run context, efficiency collector |
 | `src/memory_benchmark/storage/` | Atomic file writes, fingerprint, JSONL, experiment paths |
 | `src/memory_benchmark/cli/` | CLI main, command service, unified prediction service |
-| `tests/` | 31 test files, pytest with markers |
+| `tests/` | 51 test files, pytest with markers |
 | `data/` | Benchmark raw data (locomo10.json, longmemeval_*.json, mem_gallery/) |
 | `third_party/methods/` | Vendored method source code (MemoryOS-main, mem0-main, A-mem) |
 | `third_party/benchmarks/` | Vendored benchmark reference code (HaluMem, LoCoMo, LongMemEval, etc.) |
 | `configs/methods/` | Method TOML profiles (mem0.toml, memoryos.toml) |
 | `configs/evaluators/` | Evaluator TOML profiles (llm_judge.toml) |
 | `outputs/` | Run artifacts (protected experiments not to be modified) |
-| `docs/archive/specs/` | Architecture design documents |
-| `docs/archive/plans/` | Implementation plans |
-| `docs/archive/handoffs/` | Task handoff documents (resume points) |
+| `docs/workstreams/` | Active workstreams: per-line README (status page) + spec + plan |
+| `docs/reference/` | Long-lived reference docs (architecture, data model, method interfaces) |
+| `docs/survey/` | Benchmark survey cards, dataset structures, official eval workflows |
+| `docs/archive/` | Read-only history: completed specs/plans/handoffs/status docs |
 
 ### Key entry points
 - `cli/main.py:main()` — CLI entry (`memory-benchmark`)

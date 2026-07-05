@@ -362,26 +362,81 @@ $ uv run pytest -q
 
 ### T10 新入口文档落位（Claude 提供文本后执行）
 
-- [ ] 等待 Claude 提交以下文件内容（Codex 不自拟）：
+**2026-07-05 更新（Claude）**：内容起草与落位已由架构师直接完成（新 AGENTS.md、
+docs/README.md、docs/roadmap.md、ws02/ws03/ws04/ws05/ws06 状态页、CLAUDE.md
+更新、旧状态文档归档均已在工作区）。Codex 只需执行下方验收清单，全部通过后
+一次提交 → `docs: rewrite entry docs around workstream model`，随后进入 T11。
+
+- [x] 等待 Claude 提交以下文件内容（Codex 不自拟）：
   新 `AGENTS.md`（≤100 行）、`docs/README.md`、`docs/roadmap.md`、
   seed workstream README（ws02-phase1-matrix、ws03-architecture-slimming、
   ws04-terminal-observability、ws05-experiment-reporting、ws06-tests-restructure）。
-- [ ] 归档旧状态文档：
+- [x] 归档旧状态文档：
   `git mv docs/current-roadmap.md docs/archive/status/2026-07-04-current-roadmap.md`
   `git mv docs/task-ledger.md docs/archive/status/2026-07-04-task-ledger.md`
   旧 AGENTS.md 全文另存 `docs/archive/status/2026-07-04-agents-log.md` 后，
   工作区 AGENTS.md 替换为新文本。
-- [ ] 更新 CLAUDE.md 中涉及的路径表述（Claude 提供 diff）。
-- [ ] 提交 → `docs: rewrite entry docs around workstream model`
+- [x] 更新 CLAUDE.md 中涉及的路径表述（Claude 提供 diff）。
+- [x] 提交 → `docs: rewrite entry docs around workstream model`
 - 验收：`wc -l AGENTS.md` ≤100；
   `cat AGENTS.md docs/README.md docs/roadmap.md | wc -l` ≤300；
   三个入口互链与 workstream 链接全部可解析（逐一 `test -f` 校验）；
   `uv run pytest -q` 与基线一致；`git status` 干净。
 
+T10 实际输出（2026-07-05，Codex）：
+
+```text
+$ wc -l AGENTS.md docs/README.md docs/roadmap.md
+      57 AGENTS.md
+      32 docs/README.md
+      50 docs/roadmap.md
+     139 total
+
+$ cat AGENTS.md docs/README.md docs/roadmap.md | wc -l
+     139
+
+$ uv run python <entry-link-check>
+docs/roadmap.md: workstreams/ws01-docs-governance/README.md -> docs/workstreams/ws01-docs-governance/README.md
+docs/roadmap.md: workstreams/ws02-phase1-matrix/README.md -> docs/workstreams/ws02-phase1-matrix/README.md
+docs/roadmap.md: workstreams/ws03-architecture-slimming/README.md -> docs/workstreams/ws03-architecture-slimming/README.md
+docs/roadmap.md: workstreams/ws04-terminal-observability/README.md -> docs/workstreams/ws04-terminal-observability/README.md
+docs/roadmap.md: workstreams/ws05-experiment-reporting/README.md -> docs/workstreams/ws05-experiment-reporting/README.md
+docs/roadmap.md: workstreams/ws06-tests-restructure/README.md -> docs/workstreams/ws06-tests-restructure/README.md
+checked 6 local markdown links
+
+$ test -f <six workstream README files and three archived status files>
+ok docs/workstreams/ws01-docs-governance/README.md
+ok docs/workstreams/ws02-phase1-matrix/README.md
+ok docs/workstreams/ws03-architecture-slimming/README.md
+ok docs/workstreams/ws04-terminal-observability/README.md
+ok docs/workstreams/ws05-experiment-reporting/README.md
+ok docs/workstreams/ws06-tests-restructure/README.md
+ok docs/archive/status/2026-07-04-agents-log.md
+ok docs/archive/status/2026-07-04-current-roadmap.md
+ok docs/archive/status/2026-07-04-task-ledger.md
+
+$ uv run pytest -q
+709 passed, 3 deselected, 2 warnings, 6 subtests passed in 96.94s (0:01:36)
+
+$ git commit -m "docs: rewrite entry docs around workstream model"
+created T10 commit; T11 closeout was amended into the same commit.
+
+$ git status --short --branch
+## main...origin/main [ahead 12]
+```
+
 ### T11 收尾
 
-- [ ] 更新本 README 任务清单与"当前断点"，通知架构师进行 spec §8 终验。
+- [x] 更新本 README 任务清单与"当前断点"，通知架构师进行 spec §8 终验。
 - [ ] 架构师终验通过后，由用户决定是否 push。
+
+T11 实际输出（2026-07-05，Codex）：
+
+```text
+已更新 docs/workstreams/ws01-docs-governance/README.md：
+- 当前断点改为等待架构师按 spec §8 终验并在 notes/ 写审查记录。
+- 任务清单中 M3 落位验收与提交已勾选，Claude 终验保持待办。
+```
 
 ## 明确不做（防发散）
 
