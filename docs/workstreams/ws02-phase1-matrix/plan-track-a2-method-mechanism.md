@@ -78,7 +78,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 - [x] mechanism-supermemory.md（含 memorybench 中 provider 实现的调用证据）
 - [x] mechanism-memos.md
 - [x] mechanism-cognee.md
-- [ ] mechanism-letta.md
+- [x] mechanism-letta.md
 - [ ] 更新 `audits/summary.md`：追加"原生粒度一览"，覆盖全部 10 个 method，
   供架构师直接做矩阵
 - [ ] 更新 ws02 README 断点，通知架构师
@@ -391,6 +391,316 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-cognee.m
 
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-cognee.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv package.json bun.lock node_modules
+```
+
+实际输出：
+
+```text
+```
+
+### mechanism-letta.md
+
+完成时间：2026-07-05 21:42 CST
+
+隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-letta && uv venv /tmp/mech-letta && uv pip install --python /tmp/mech-letta/bin/python -e third_party/methods/letta && /tmp/mech-letta/bin/python - <<'PY'
+import importlib.metadata as md
+print('letta', md.version('letta'))
+PY
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-letta
+Activate with: source /tmp/mech-letta/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-letta
+Resolved 246 packages in 177ms
+   Building letta @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/letta
+      Built letta @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/letta
+Prepared 1 package in 507ms
+Installed 246 packages in 652ms
+ + aiofile==3.11.1
+ + aiofiles==25.1.0
+ + aiohappyeyeballs==2.7.1
+ + aiohttp==3.14.1
+ + aiomultiprocess==0.9.1
+ + aiosignal==1.4.0
+ + aiosqlite==0.22.1
+ + alembic==1.18.5
+ + annotated-doc==0.0.4
+ + annotated-types==0.7.0
+ + anthropic==0.116.0
+ + anyio==4.14.1
+ + apscheduler==3.11.3
+ + argcomplete==3.7.0
+ + asttokens==3.0.1
+ + async-lru==2.3.0
+ + attrs==26.1.0
+ + authlib==1.7.2
+ + babel==2.18.0
+ + banks==2.4.4
+ + beartype==0.22.9
+ + beautifulsoup4==4.15.0
+ + black==26.5.1
+ + brotli==1.2.0
+ + bytecode==0.18.1
+ + cachetools==7.1.4
+ + caio==0.9.25
+ + certifi==2026.6.17
+ + cffi==2.0.0
+ + chardet==7.4.3
+ + charset-normalizer==3.4.7
+ + click==8.4.2
+ + clickhouse-connect==1.4.1
+ + cobble==0.1.4
+ + colorama==0.4.6
+ + contourpy==1.3.3
+ + courlan==1.4.0
+ + cryptography==49.0.0
+ + cssselect==1.4.0
+ + cycler==0.12.1
+ + cyclopts==4.20.0
+ + dataclasses-json==0.6.7
+ + datadog==0.52.2
+ + datamodel-code-generator==0.67.0
+ + dateparser==1.4.1
+ + ddtrace==4.10.6
+ + decorator==5.3.1
+ + defusedxml==0.7.1
+ + demjson3==3.0.6
+ + deprecated==1.3.1
+ + dirtyjson==1.0.8
+ + distro==1.9.0
+ + dnspython==2.8.0
+ + docstring-parser==0.16
+ + email-validator==2.3.0
+ + envier==0.6.1
+ + eval-type-backport==0.4.0
+ + exa-py==2.16.0
+ + exceptiongroup==1.3.1
+ + executing==2.2.1
+ + faker==40.28.1
+ + fastapi==0.139.0
+ + fastmcp==3.4.2
+ + fastmcp-slim==3.4.2
+ + filetype==1.2.0
+ + flatbuffers==25.12.19
+ + fonttools==4.63.0
+ + frozenlist==1.8.0
+ + fsspec==2026.6.0
+ + genson==1.3.0
+ + google-auth==2.55.1
+ + google-genai==2.10.0
+ + googleapis-common-protos==1.75.0
+ + greenlet==3.5.3
+ + griffe==2.1.0
+ + griffecli==2.1.0
+ + griffelib==2.1.0
+ + grpcio==1.81.1
+ + grpcio-tools==1.71.2
+ + h11==0.16.0
+ + html2text==2025.4.15
+ + htmldate==1.10.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + httpx-sse==0.4.3
+ + idna==3.18
+ + importlib-metadata==8.5.0
+ + inflect==7.5.0
+ + invoke==2.2.1
+ + ipython==9.15.0
+ + ipython-pygments-lexers==1.1.1
+ + isort==8.0.1
+ + jaraco-classes==3.4.0
+ + jaraco-context==6.1.2
+ + jaraco-functools==4.5.0
+ + jedi==0.20.0
+ + jinja2==3.1.6
+ + jiter==0.16.0
+ + joblib==1.5.3
+ + joserfc==1.7.2
+ + jsonref==1.1.0
+ + jsonschema==4.26.0
+ + jsonschema-path==0.5.0
+ + jsonschema-specifications==2025.9.1
+ + justext==3.0.2
+ + keyring==25.7.0
+ + kiwisolver==1.5.0
+ + letta==0.16.8 (from file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/letta)
+ + letta-client==1.12.1
+ + llama-index==0.14.23
+ + llama-index-core==0.14.23
+ + llama-index-embeddings-openai==0.6.0
+ + llama-index-instrumentation==0.5.0
+ + llama-index-llms-openai==0.7.9
+ + llama-index-workflows==2.22.2
+ + lxml==6.1.1
+ + lxml-html-clean==0.4.5
+ + lz4==4.4.5
+ + magika==0.6.3
+ + mako==1.3.12
+ + mammoth==1.11.0
+ + markdown-it-py==4.2.0
+ + markdownify==1.2.3
+ + markitdown==0.1.6
+ + markupsafe==3.0.3
+ + marshmallow==3.26.2
+ + marshmallow-sqlalchemy==1.5.0
+ + matplotlib==3.11.0
+ + matplotlib-inline==0.2.2
+ + mcp==1.28.1
+ + mdurl==0.1.2
+ + mistralai==1.9.11
+ + more-itertools==11.1.0
+ + multidict==6.7.1
+ + mypy-extensions==1.1.0
+ + nest-asyncio==1.6.0
+ + networkx==3.6.1
+ + nexus-rpc==1.4.0
+ + nltk==3.9.4
+ + numpy==2.5.1
+ + onnxruntime==1.27.0
+ + openai==2.44.0
+ + openapi-pydantic==0.5.1
+ + opentelemetry-api==1.30.0
+ + opentelemetry-exporter-otlp==1.30.0
+ + opentelemetry-exporter-otlp-proto-common==1.30.0
+ + opentelemetry-exporter-otlp-proto-grpc==1.30.0
+ + opentelemetry-exporter-otlp-proto-http==1.30.0
+ + opentelemetry-instrumentation==0.51b0
+ + opentelemetry-instrumentation-requests==0.51b0
+ + opentelemetry-instrumentation-sqlalchemy==0.51b0
+ + opentelemetry-proto==1.30.0
+ + opentelemetry-sdk==1.30.0
+ + opentelemetry-semantic-conventions==0.51b0
+ + opentelemetry-util-http==0.51b0
+ + orjson==3.11.9
+ + packaging==26.2
+ + parso==0.8.7
+ + pathable==0.6.0
+ + pathspec==1.1.1
+ + pathvalidate==3.3.1
+ + pdfminer-six==20260107
+ + pdfplumber==0.11.10
+ + pexpect==4.9.0
+ + pillow==12.3.0
+ + platformdirs==4.10.0
+ + prettytable==3.18.0
+ + prompt-toolkit==3.0.52
+ + propcache==0.5.2
+ + protobuf==5.29.6
+ + psutil==7.2.2
+ + ptyprocess==0.7.0
+ + pure-eval==0.2.3
+ + py-key-value-aio==0.4.5
+ + pyasn1==0.6.3
+ + pyasn1-modules==0.4.2
+ + pycparser==3.0
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + pydantic-settings==2.14.2
+ + pygments==2.20.0
+ + pyhumps==3.8.0
+ + pyjwt==2.13.0
+ + pyparsing==3.3.2
+ + pypdfium2==5.11.0
+ + pyperclip==1.11.0
+ + python-box==7.4.1
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==1.2.2
+ + python-multipart==0.0.32
+ + python-pptx==1.0.2
+ + pytokens==0.4.1
+ + pytz==2026.2
+ + pyyaml==6.0.3
+ + questionary==2.1.1
+ + readability-lxml==0.8.4.1
+ + referencing==0.37.0
+ + regex==2026.6.28
+ + requests==2.34.2
+ + rich==15.0.0
+ + rich-rst==2.1.0
+ + rpds-py==2026.6.3
+ + ruff==0.15.20
+ + sentry-sdk==2.19.1
+ + setuptools==83.0.0
+ + shellingham==1.5.4
+ + six==1.17.0
+ + sniffio==1.3.1
+ + soupsieve==2.8.4
+ + sqlalchemy==2.0.51
+ + sqlalchemy-json==0.7.0
+ + sqlalchemy-utils==0.42.1
+ + sqlmodel==0.0.39
+ + sse-starlette==3.4.5
+ + stack-data==0.6.3
+ + starlette==1.3.1
+ + structlog==26.1.0
+ + tavily-python==0.7.26
+ + temporalio==1.30.0
+ + tenacity==9.1.4
+ + tiktoken==0.13.0
+ + tinytag==2.2.1
+ + tld==0.13.2
+ + tokenize-rt==6.2.0
+ + tqdm==4.68.3
+ + trafilatura==2.1.0
+ + traitlets==5.15.1
+ + ty==0.0.56
+ + typeguard==4.5.2
+ + typer==0.26.8
+ + types-protobuf==7.34.1.20260518
+ + typing-extensions==4.16.0
+ + typing-inspect==0.9.0
+ + typing-inspection==0.4.2
+ + tzlocal==5.4.4
+ + uncalled-for==0.3.2
+ + urllib3==2.7.0
+ + uvicorn==0.50.0
+ + watchfiles==1.2.0
+ + wcwidth==0.8.2
+ + websockets==15.0.1
+ + wrapt==1.17.3
+ + xlsxwriter==3.2.9
+ + yarl==1.24.2
+ + zipp==4.1.0
+ + zstandard==0.25.0
+letta 0.16.8
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-6]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-letta.md
+```
+
+实际输出：
+
+```text
+6
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-letta.md
+```
+
+实际输出：
+
+```text
+37
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-letta.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv package.json bun.lock node_modules
 ```
 
