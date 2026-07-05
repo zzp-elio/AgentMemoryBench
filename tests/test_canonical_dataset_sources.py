@@ -144,12 +144,15 @@ def test_mem_gallery_tree_paths_counts_and_sha256_match_official_copy(
         ), f"文件 SHA-256 不一致: {canonical_root / relative_path} vs {official_root / relative_path}"
 
 
-def test_membench_placeholder_directory_exists_and_is_empty() -> None:
-    """Membench 尚未迁入 canonical 数据时，应保留存在但为空的语义目录。"""
+def test_membench_semantic_directory_exists() -> None:
+    """MemBench 语义目录必须存在；原始数据已于 2026-07 落位，允许非空。
+
+    2026-07-05 起 `data/membench` 已存放用户收集的 MemBench 原始数据
+    （`Membenchdata/data2test/...`），旧的"空目录占位"断言随之作废。
+    canonical 结构核验与官方副本比对属于 MemBench adapter 接入任务，
+    届时应仿照 LoCoMo/LongMemEval 的 SHA-256 比对测试补齐。
+    """
 
     membench_root = ROOT / "data" / "membench"
 
-    assert membench_root.is_dir(), f"Membench 语义目录不存在: {membench_root}"
-    assert not any(membench_root.iterdir()), (
-        "data/membench 当前只能作为空目录占位；发现未经核验的数据文件"
-    )
+    assert membench_root.is_dir(), f"MemBench 语义目录不存在: {membench_root}"
