@@ -19,6 +19,8 @@
 ## 协作模式
 
 - **Claude Code = 架构师**：写 spec/plan、裁定断点冲突、审查验收、把控方向与结构。
+  角色完整交接文档：`docs/reference/architect-playbook.md`（任何 agent 可按其
+  "上任自检"接任架构师，作为不可用时的备份机制）。
 - **Codex = 执行者**：严格按 plan 施工，逐 task 勾选并附验收命令的实际输出；
   遇到 plan 未覆盖的情况停止当前 task，写入 workstream README 的"当前断点"，
   交回架构师，不自行发散。
