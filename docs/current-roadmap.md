@@ -4,7 +4,7 @@
 
 本文件只记录当前主线、完成状态和阶段依赖。每完成一个任务必须立即勾选并同步
 `AGENTS.md`；逐项 open/closed 状态和历史文档状态以 `docs/task-ledger.md` 为准。
-详细实现步骤放在对应 `docs/superpowers/plans/` 文件中。
+详细实现步骤放在对应 `docs/archive/plans/` 文件中。
 
 ## 已完成
 
@@ -37,36 +37,36 @@ benchmarks，防止框架过拟合 LoCoMo / LongMemEval。该阶段不写 adapte
   dataset 字段、public/private 边界、evaluation flow、metric、answer/judge prompt、
   method interface、是否属于 conversation-QA、对当前框架的冲击和未确认项。
 - [x] 完成 BEAM 详细本地调研卡片：
-  `docs/benchmark-survey/BEAM.md`。结论：BEAM 属于 conversation probing-QA，可暂归入
+  `docs/survey/benchmarks/BEAM.md`。结论：BEAM 属于 conversation probing-QA，可暂归入
   当前 conversation-QA task family，但需要 rubric-nugget LLM judge、event-ordering
   特殊 metric、大规模 conversation loader、HF 原始结构到官方 `chat.json` 中间结构的
   转换，以及未来 streaming ingest 考量。
 - [x] 完成 MemoryAgentBench 详细本地调研卡片：
-  `docs/benchmark-survey/MemoryAgentBench.md`。结论：MemoryAgentBench 更偏
+  `docs/survey/benchmarks/MemoryAgentBench.md`。结论：MemoryAgentBench 更偏
   chunk-stream memory construction + multi-task QA/evaluation，不是单纯自然
   session-turn conversation；它仍可临时映射到 `BaseMemoryProvider.add + retrieve`，
   但 loader/runner 需要支持按 chunk 顺序增量写入，并新增 exact/subEM、Recall@5、
   LongMemEval judge 和 summary judge 等多 metric family。
 - [x] 完成 MemoryBench 详细本地调研卡片：
-  `docs/benchmark-survey/MemoryBench.md`。结论：MemoryBench 是 feedback-driven
+  `docs/survey/benchmarks/MemoryBench.md`。结论：MemoryBench 是 feedback-driven
   continual learning / memory adaptation benchmark，主流程先用 train split 的模拟
   feedback dialogs 构建/更新 memory，再在 test split 上评测；它不是纯
   conversation-QA，当前 `BaseMemoryProvider.add + retrieve` 只能覆盖 off-policy 子集。
   完整接入需要新的 runner 支持 train-memory construction、static corpus injection、
   stepwise/on-policy update、memory cache 和多 metric evaluator family。
 - [x] 完成 HaluMem 详细本地调研卡片：
-  `docs/benchmark-survey/HaluMem.md`。结论：HaluMem 是 uuid/user 级连续会话 +
+  `docs/survey/benchmarks/HaluMem.md`。结论：HaluMem 是 uuid/user 级连续会话 +
   operation-level memory hallucination diagnosis benchmark。QA 子任务可用
   `retrieve + answer LLM`，但完整 benchmark 还需要 session-specific
   `get_dialogue_memory` 支持 Memory Extraction，并用 gold updated memory 作为 query
   做 Memory Updating；不能直接塞进普通 conversation-QA runner。
 - [x] 完成 MemBench 详细本地调研卡片：
-  `docs/benchmark-survey/MemBench.md`。结论：MemBench 是 message-stream /
+  `docs/survey/benchmarks/MemBench.md`。结论：MemBench 是 message-stream /
   conversation-stream + multiple-choice QA benchmark，当前 `add + retrieve` 可以覆盖
   主流程，但必须新增/保留 `tid` 级隔离和 retrieved source step id provenance，才能计算
   evidence recall；capacity 和 efficiency 是额外运行模式。
 - [x] 完成 PersonaMem 详细本地调研卡片：
-  `docs/benchmark-survey/PersonaMem.md`。结论：PersonaMem 是 persona-oriented
+  `docs/survey/benchmarks/PersonaMem.md`。结论：PersonaMem 是 persona-oriented
   multi-session long-context multiple-choice QA benchmark。官方默认评测是把
   `shared_context[:end_index]` 作为 OpenAI-style messages 直接喂给 long-context LLM，
   不经过 memory method；若接入我们的 memory-module 框架，官方 profile 应按
@@ -77,7 +77,7 @@ benchmarks，防止框架过拟合 LoCoMo / LongMemEval。该阶段不写 adapte
   原始 `correct_answer` 标签语义。发布版没有 gold evidence turn id，不能自然计算
   retrieval recall。
 - [x] 完成 MemoryArena 详细本地调研卡片：
-  `docs/benchmark-survey/MemoryArena.md`。结论：MemoryArena 是 multi-session
+  `docs/survey/benchmarks/MemoryArena.md`。结论：MemoryArena 是 multi-session
   agentic memory benchmark，不是静态 conversation-QA。它围绕
   Memory-Agent-Environment loop 评测 shopping、travel、progressive search 和 formal
   reasoning 等 interdependent subtasks；method 侧最小能力更接近
@@ -85,7 +85,7 @@ benchmarks，防止框架过拟合 LoCoMo / LongMemEval。该阶段不写 adapte
   retrieve` 不足以完整覆盖。当前只调研不接入；后续若接入，应先设计新的
   `agentic-memory-environment` task family。
 - [x] 更新面向汇报讨论的 7 benchmark 横向简报：
-  `docs/benchmark-survey/meeting-brief-5-benchmarks.md`。该文件名沿用早期
+  `docs/survey/benchmarks/meeting-brief-5-benchmarks.md`。该文件名沿用早期
   5-benchmark 命名，但标题和内容已覆盖 BEAM、MemoryAgentBench、MemoryBench、
   HaluMem、MemBench、PersonaMem、MemoryArena，并补齐最终接口分层结论。
 - [x] 锁定 Phase 1 评测矩阵目标范围：5 benchmarks × 10 methods × 尽可能多的
@@ -117,22 +117,22 @@ benchmarks，防止框架过拟合 LoCoMo / LongMemEval。该阶段不写 adapte
 - [x] 核验 `data/` 中 LoCoMo、LongMemEval、HaluMem 和 Mem-Gallery 副本。
 - [x] 建立 `data/` 作为运行时 dataset 唯一物理入口。
 - [x] 将 `benchmarks/` 整体迁入 `third_party/benchmarks/`。
-- [x] 将 `dataset数据结构/` 迁入 `docs/dataset_structures/`。
-- [x] 将 `benchmark测评流程参考/` 迁入 `docs/evaluation_workflows/`。
+- [x] 将 `dataset数据结构/` 迁入 `docs/survey/datasets/`。
+- [x] 将 `benchmark测评流程参考/` 迁入 `docs/survey/workflows/`。
 - [x] 统一 dataset 目录名和 Mem-Gallery 内部层级。
 - [x] 更新配置、adapter、registry、runner、测试和当前文档中的路径。
 - [x] 验证所有 canonical dataset 与官方仓库副本内容一致。
 - [x] 完成完整离线回归并确认受保护实验资产未变化。
 
 详细计划：
-`docs/superpowers/plans/2026-06-14-project-structure-data-migration.md`
+`docs/archive/plans/2026-06-14-project-structure-data-migration.md`
 
 ### Phase F：Dataset Variant 和 LongMemEval 闭环（已完成）
 
 本阶段已完成并通过 `gpt-5.5 xhigh` 最终只读复审。设计方案位于
-`docs/superpowers/specs/2026-06-14-dataset-variant-longmemeval-design.md`。
+`docs/archive/specs/2026-06-14-dataset-variant-longmemeval-design.md`。
 实施计划位于
-`docs/superpowers/plans/2026-06-14-dataset-variant-longmemeval.md`。
+`docs/archive/plans/2026-06-14-dataset-variant-longmemeval.md`。
 
 - [x] 增加 benchmark variant 强类型配置。
 - [x] LongMemEval adapter 同时支持 `s_cleaned` 和 `m_cleaned`。
@@ -191,9 +191,9 @@ API 服务商价格离线计算费用，不绑定 OpenAI 官方价格。
 ### Phase H：A-Mem 与 LightMem Adapter 接入（当前）
 
 用户已明确要求先不做并行调度，优先接入 A-Mem 和 LightMem。设计方案位于
-`docs/superpowers/specs/2026-06-16-amem-lightmem-adapter-design.md`。
+`docs/archive/specs/2026-06-16-amem-lightmem-adapter-design.md`。
 Method official profile 对齐计划位于
-`docs/superpowers/plans/2026-06-17-method-official-profile-alignment.md`。
+`docs/archive/plans/2026-06-17-method-official-profile-alignment.md`。
 
 - [x] 完成 A-Mem / LightMem 接入设计对齐。
 - [x] 编写实施计划。
@@ -246,11 +246,11 @@ Table 级实验设置对齐。
 ### Phase H.5：Retrieve-first 协议收尾与架构减重（当前）
 
 - [x] 记录 retrieve-first 主协议设计：
-  `docs/superpowers/specs/2026-06-20-retrieve-first-memory-module-design.md`。
+  `docs/archive/specs/2026-06-20-retrieve-first-memory-module-design.md`。
 - [x] 记录 LLM provider / prompt 配置设计：
-  `docs/superpowers/specs/2026-06-21-llm-provider-config-design.md`。
+  `docs/workstreams/ws03-architecture-slimming/2026-06-21-llm-provider-config-design.md`。
 - [x] 记录 registry / capability 减重方向：
-  `docs/superpowers/specs/2026-06-21-registry-capability-simplification-design.md`。
+  `docs/workstreams/ws03-architecture-slimming/2026-06-21-registry-capability-simplification-design.md`。
 - [x] 完成 retrieve-first 实施计划 Task 14：framework answer / retrieval efficiency
   observation 收尾。
 - [x] 完成 retrieve-first 实施计划 Task 15：answer-level artifact evaluation 默认忽略
@@ -277,7 +277,7 @@ efficiency inventory、official profile 或复杂 registry factory。内置 meth
 白盒深度接入路径。
 
 设计草案：
-`docs/superpowers/specs/2026-06-24-method-onboarding-simplification-and-clean-retry-design.md`
+`docs/archive/specs/2026-06-24-method-onboarding-simplification-and-clean-retry-design.md`
 
 - [x] 写入初版 spec，明确用户/开发者角色边界、CLI/TOML 边界、outputs 边界。
 - [x] 将 failed conversation retry 脏状态风险纳入同一任务：`--retry-failed` 需要重新
@@ -292,7 +292,7 @@ efficiency inventory、official profile 或复杂 registry factory。内置 meth
   `completed`、`failed_ingest`、`failed_answer`；`failed_answer` 可只补 pending
   questions，`failed_ingest` 默认跳过，只有 clean retry preflight 通过才可重跑。
 - [x] 写实施计划，先用 fake user method 锁定“只实现 add/retrieve 即可跑”的 contract：
-  `docs/superpowers/plans/2026-06-24-method-onboarding-clean-retry.md`。
+  `docs/archive/plans/2026-06-24-method-onboarding-clean-retry.md`。
 - [x] 提供 `--method-class module:ClassName` 轻量加载路径，避免用户路径暴露内置 method
   深度字段；后续再评估 `--method-file` 单文件快速测试形式。
 - [x] 实现 custom method 并行 guard：自定义 method `workers>1` 必须传
@@ -327,9 +327,9 @@ conversation 级并行**。不继续推进 shared method instance、method execu
   instance；Codex 已补齐 completed conversation checkpoint、pending question 过滤和
   turn checkpoint fail-closed。
 - [x] 完成并行 resume 与分批运行控制设计：
-  `docs/superpowers/specs/2026-06-19-parallel-resume-run-control-design.md`。
+  `docs/archive/specs/2026-06-19-parallel-resume-run-control-design.md`。
 - [x] 完成并行 resume 与分批运行控制实施计划：
-  `docs/superpowers/plans/2026-06-19-parallel-resume-run-control.md`。
+  `docs/archive/plans/2026-06-19-parallel-resume-run-control.md`。
 - [x] 实现 generic work plan，让 normal path 和 isolated worker path 共享同一套
   completed conversation / pending question 判断。
 - [x] isolated worker 补齐 conversation-level resume 和 question-level resume；已完成
@@ -549,10 +549,10 @@ MemoryOS PyPI backend 已降为低优先级，本阶段不实现。
 ### Phase K：Retrieve-First Memory Module 协议重构（当前设计）
 
 设计方案：
-`docs/superpowers/specs/2026-06-20-retrieve-first-memory-module-design.md`
+`docs/archive/specs/2026-06-20-retrieve-first-memory-module-design.md`
 
 实施计划：
-`docs/superpowers/plans/2026-06-20-retrieve-first-memory-module.md`
+`docs/archive/plans/2026-06-20-retrieve-first-memory-module.md`
 
 2026-06-22 最新修订：用户已确认主协议继续叫 retrieve-first，但 `retrieve()` 的核心输出
 已从单字符串 `AnswerPromptResult.answer_prompt` 继续升级为
@@ -648,7 +648,7 @@ evaluate
   修复已完成；下一步在用户确认 API 预算、规模、新 run_id 和 worker 后重跑严格
   retrieve-first 真实极小 smoke，并检查 `answer_prompts.prediction.jsonl` 的
   `prompt_messages`。严格重跑已完成，见
-  `docs/handoffs/2026-06-22-strict-retrieve-first-locomo-smoke-success.md`。
+  `docs/archive/handoffs/2026-06-22-strict-retrieve-first-locomo-smoke-success.md`。
 
 ### 当前任务队列（2026-06-23）
 

@@ -16,7 +16,7 @@ framework answer LLM(prompt_messages) -> answer
 ```
 
 设计文档：
-`docs/superpowers/specs/2026-06-20-retrieve-first-memory-module-design.md`
+`docs/archive/specs/2026-06-20-retrieve-first-memory-module-design.md`
 
 强规则：
 
@@ -149,7 +149,7 @@ framework answer LLM(prompt_messages) -> answer
 
 ## Resume 策略分层
 
-该分层吸收 `docs/opencode-suggestions/method-resume-feasibility-analysis.md` 中经源码核验后
+该分层吸收 `docs/archive/opencode-suggestions/method-resume-feasibility-analysis.md` 中经源码核验后
 可采纳的部分。原则是只在 method 的最小写入单元“完成即持久化”时使用 turn 级 resume；
 否则退回 conversation 级，避免 checkpoint 记录的进度和 method 实际持久化状态不一致。
 

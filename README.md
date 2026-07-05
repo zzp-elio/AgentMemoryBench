@@ -25,8 +25,8 @@ core 中保留，但当前阶段不主动运行多模态 benchmark。
 2026-06-26 起，项目最高优先级临时切换为 benchmark landscape survey：先系统调研更多
 agent memory benchmark 的数据结构、评测流程、metric 和 method 接口需求，再决定是否
 调整当前协议，避免框架过拟合 LoCoMo / LongMemEval。调研入口见
-[docs/benchmark-survey/README.md](docs/benchmark-survey/README.md)；汇报讨论版横向简报见
-[docs/benchmark-survey/meeting-brief-5-benchmarks.md](docs/benchmark-survey/meeting-brief-5-benchmarks.md)
+[docs/survey/benchmarks/README.md](docs/survey/benchmarks/README.md)；汇报讨论版横向简报见
+[docs/survey/benchmarks/meeting-brief-5-benchmarks.md](docs/survey/benchmarks/meeting-brief-5-benchmarks.md)
 （文件名沿用早期 5-benchmark 命名，内容已更新为 7 个 benchmark）。
 
 已接入或正在验证的范围：
@@ -59,9 +59,9 @@ resume。`mem0-locomo-full-v3` 已定位到 embedding API SSL 断连，当前已
 当前主线已迁移到 retrieve-first memory-module 协议：method 实现
 `add(conversation) + retrieve(question)`，由 method adapter 返回完整 answer prompt
 messages，再由 framework reader 统一负责 answer LLM 调用。设计文档见
-[Retrieve-First Memory Module 架构设计](docs/superpowers/specs/2026-06-20-retrieve-first-memory-module-design.md)。
+[Retrieve-First Memory Module 架构设计](docs/archive/specs/2026-06-20-retrieve-first-memory-module-design.md)。
 实施计划见
-[Retrieve-First Memory Module 实施计划](docs/superpowers/plans/2026-06-20-retrieve-first-memory-module.md)。
+[Retrieve-First Memory Module 实施计划](docs/archive/plans/2026-06-20-retrieve-first-memory-module.md)。
 当前 core protocol、framework reader、retrieval artifact、retrieval/answer resume、
 registered prediction reader wiring、四个内置 method adapter 的 `retrieve()`、framework
 answer efficiency observation 和 artifact evaluation compatibility 均已落地。旧
@@ -87,7 +87,7 @@ official-full 1-conv cost pilot：
 OpenAI 官方 GPT-4o-mini 价格，只作参考；真实费用需要按 ohmygpt 实际价格离线换算。
 
 LLM/provider 灵活配置方向也已完成设计：
-[LLM Provider 与 Prompt 配置设计](docs/superpowers/specs/2026-06-21-llm-provider-config-design.md)。
+[LLM Provider 与 Prompt 配置设计](docs/workstreams/ws03-architecture-slimming/2026-06-21-llm-provider-config-design.md)。
 第一版计划只实现 OpenAI-compatible provider，覆盖 OpenAI、ohmygpt、DeepSeek 兼容接口和
 本地 OpenAI-compatible server；Anthropic/Gemini 和进程内 Hugging Face provider 留作
 后续扩展。当前运行能力仍以 `.env` 中的 OpenAI-compatible `gpt-4o-mini` 配置为准。
@@ -97,7 +97,7 @@ LLM/provider 灵活配置方向也已完成设计：
 
 最新任务状态以 [AGENTS.md](AGENTS.md)、[docs/current-roadmap.md](docs/current-roadmap.md)
 和 [docs/task-ledger.md](docs/task-ledger.md) 为准。长期架构设计见
-[项目目标与架构设计](docs/superpowers/specs/2026-06-12-project-goals-architecture-design.md)。
+[项目目标与架构设计](docs/archive/specs/2026-06-12-project-goals-architecture-design.md)。
 
 ## 快速开始
 
@@ -204,8 +204,8 @@ third_party/methods/      # vendored method 源码
 
 数据结构参考与评测流程参考位于：
 
-- [docs/dataset_structures/](docs/dataset_structures/)
-- [docs/evaluation_workflows/](docs/evaluation_workflows/)
+- [docs/survey/datasets/](docs/survey/datasets/)
+- [docs/survey/workflows/](docs/survey/workflows/)
 
 ## 运转逻辑
 
@@ -313,7 +313,7 @@ answer LLM 和 judge LLM 后续会统一到 `LLMClient -> LLMResponse` 抽象，
 文本、provider、model、usage、request id、finish reason、latency 和可选 debug raw
 response。当前 registered prediction 已能在 method 声明 `MEMORY_RETRIEVAL` 时构造
 OpenAI-compatible framework reader；完整多 provider 配置仍处于设计后续阶段，详见
-[LLM Provider 与 Prompt 配置设计](docs/superpowers/specs/2026-06-21-llm-provider-config-design.md)。
+[LLM Provider 与 Prompt 配置设计](docs/workstreams/ws03-architecture-slimming/2026-06-21-llm-provider-config-design.md)。
 
 接口约束：
 
@@ -563,7 +563,7 @@ OpenAI-compatible response usage；`tokenizer_estimate` 表示 wrapper 无法拿
 
 开发日志和运行日志分开：
 
-- `docs/handoffs/`: 上下文压缩或额度中断前的交接文件。
+- `docs/archive/handoffs/`: 上下文压缩或额度中断前的交接文件。
 - `docs/task-ledger.md`: 当前任务和历史文档 open/closed 状态总账。
 - `docs/logs/`: 开发过程中的主题日志，命名规则见 [docs/logs/README.md](docs/logs/README.md)。
 - `outputs/<run_id>/logs/run.log`: 单次运行的人类可读日志。
@@ -618,9 +618,9 @@ uv run python -m unittest tests/test_API.py -v
 - [docs/current-roadmap.md](docs/current-roadmap.md): 动态路线图。
 - [docs/task-ledger.md](docs/task-ledger.md): 当前任务与文档状态总账。
 - [docs/benchmark-scope.md](docs/benchmark-scope.md): benchmark 范围。
-- [docs/method-interface.md](docs/method-interface.md): method 接口。
+- [docs/archive/reference/method-interface.md](docs/archive/reference/method-interface.md): method 接口。
 - [docs/data-model.md](docs/data-model.md): core 数据模型说明。
 - [docs/method-resource-parameter-audit.md](docs/method-resource-parameter-audit.md): method 参数与资源审计。
 - [docs/huggingface-datasets.md](docs/huggingface-datasets.md): dataset 上传到 Hugging Face 的流程。
 - [docs/future-ideas.md](docs/future-ideas.md): 实验监控 AI、新 method 接入 skill 等后期想法。
-- [docs/superpowers/specs/2026-06-12-project-goals-architecture-design.md](docs/superpowers/specs/2026-06-12-project-goals-architecture-design.md): 长期项目目标与架构设计。
+- [docs/archive/specs/2026-06-12-project-goals-architecture-design.md](docs/archive/specs/2026-06-12-project-goals-architecture-design.md): 长期项目目标与架构设计。

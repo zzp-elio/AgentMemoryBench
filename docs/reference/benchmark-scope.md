@@ -2,8 +2,8 @@
 
 长期可支持多个 task family，当前只实现 conversation + QA。
 
-具体数据结构定义请看 `docs/dataset_structures/`，评测流程参考请看
-`docs/evaluation_workflows/`。当前运行时数据放在 `data/`，官方 benchmark 仓库与源码参考
+具体数据结构定义请看 `docs/survey/datasets/`，评测流程参考请看
+`docs/survey/workflows/`。当前运行时数据放在 `data/`，官方 benchmark 仓库与源码参考
 放在 `third_party/benchmarks/`。
 
 ## Phase 1

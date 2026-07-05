@@ -1,10 +1,10 @@
 # 架构说明
 
 长期架构以多 task family 为扩展方向，当前只实现 `conversation_qa`。完整设计以
-`docs/superpowers/specs/2026-06-12-project-goals-architecture-design.md` 为准。
+`docs/archive/specs/2026-06-12-project-goals-architecture-design.md` 为准。
 
-数据结构的细节说明见 `docs/dataset_structures/`，评测流程参考见
-`docs/evaluation_workflows/`。当前运行时数据入口是 `data/`，官方 benchmark 仓库与源码
+数据结构的细节说明见 `docs/survey/datasets/`，评测流程参考见
+`docs/survey/workflows/`。当前运行时数据入口是 `data/`，官方 benchmark 仓库与源码
 参考位于 `third_party/benchmarks/`。
 
 整体架构：

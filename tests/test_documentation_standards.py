@@ -73,11 +73,11 @@ class DocumentationStandardsTests(unittest.TestCase):
         self.assertGreater(len(files), 0)
         self.assertTrue(all(path.is_relative_to(FIRST_PARTY_SOURCE) or path.is_relative_to(TESTS_ROOT) for path in files))
 
-    def test_log_directory_has_naming_convention(self):
-        """测试日志目录是否有位置说明和命名规范。"""
+    def test_archived_log_readme_keeps_naming_convention(self):
+        """测试归档日志说明是否保留位置说明和命名规范。"""
 
-        log_readme = ROOT / "docs" / "logs" / "README.md"
-        self.assertTrue(log_readme.exists(), "日志规范必须放在 docs/logs/README.md")
+        log_readme = ROOT / "docs" / "archive" / "logs" / "README.md"
+        self.assertTrue(log_readme.exists(), "日志规范必须保留在 docs/archive/logs/README.md")
         content = log_readme.read_text(encoding="utf-8")
 
         self.assertIn("YYYY-MM-DD", content)

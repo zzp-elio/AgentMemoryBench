@@ -82,9 +82,9 @@ Optional: `BaseMemoryRetriever` (retrieve)
 | `configs/methods/` | Method TOML profiles (mem0.toml, memoryos.toml) |
 | `configs/evaluators/` | Evaluator TOML profiles (llm_judge.toml) |
 | `outputs/` | Run artifacts (protected experiments not to be modified) |
-| `docs/superpowers/specs/` | Architecture design documents |
-| `docs/superpowers/plans/` | Implementation plans |
-| `docs/handoffs/` | Task handoff documents (resume points) |
+| `docs/archive/specs/` | Architecture design documents |
+| `docs/archive/plans/` | Implementation plans |
+| `docs/archive/handoffs/` | Task handoff documents (resume points) |
 
 ### Key entry points
 - `cli/main.py:main()` — CLI entry (`memory-benchmark`)

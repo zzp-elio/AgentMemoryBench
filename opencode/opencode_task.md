@@ -29,7 +29,7 @@
 - 不要恢复 PrefEval。
 - 不要删除 `outputs/memoryos-locomo-full-20260603/`。
 - 不要实现 retrieve-first 架构重构；设计已写入
-  `docs/superpowers/specs/2026-06-20-retrieve-first-memory-module-design.md`，但用户尚未审阅
+  `docs/archive/specs/2026-06-20-retrieve-first-memory-module-design.md`，但用户尚未审阅
   并批准实施计划，未批准前不得改接口。
 
 ## 可执行任务（仅在用户明确让 OpenCode 继续时）
@@ -54,7 +54,7 @@ OpenCode 6.20 三份结果。
 在用户审阅 spec 并确认实施计划之前，OpenCode 不应自行实现该重构。可以做的只有只读调研：
 
 - 阅读 `supermemoryai-memorybench.md`。
-- 阅读 `docs/superpowers/specs/2026-06-20-retrieve-first-memory-module-design.md`。
+- 阅读 `docs/archive/specs/2026-06-20-retrieve-first-memory-module-design.md`。
 - 对照当前 `src/memory_benchmark/core/`、`src/memory_benchmark/methods/` 和
   `src/memory_benchmark/runners/prediction.py`，列出需要改动的文件清单。
 - 不要提交代码改动。
