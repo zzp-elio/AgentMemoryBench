@@ -76,7 +76,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 - [x] mechanism-simplemem.md
 - [x] mechanism-langmem.md
 - [x] mechanism-supermemory.md（含 memorybench 中 provider 实现的调用证据）
-- [ ] mechanism-memos.md
+- [x] mechanism-memos.md
 - [ ] mechanism-cognee.md
 - [ ] mechanism-letta.md
 - [ ] 更新 `audits/summary.md`：追加"原生粒度一览"，覆盖全部 10 个 method，
@@ -375,6 +375,199 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-supermem
 
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-supermemory.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv package.json bun.lock node_modules
+```
+
+实际输出：
+
+```text
+```
+
+### mechanism-memos.md
+
+完成时间：2026-07-05 21:10 CST
+
+隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-memos && uv venv /tmp/mech-memos && uv pip install --python /tmp/mech-memos/bin/python -e third_party/methods/MemOS
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-memos
+Activate with: source /tmp/mech-memos/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-memos
+Resolved 125 packages in 3.95s
+   Building memoryos @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/MemOS
+Downloading lupa (1.1MiB)
+Downloading burner-redis (1.2MiB)
+Downloading beartype (1.3MiB)
+Downloading uvloop (1.3MiB)
+ Downloaded lupa
+ Downloaded burner-redis
+ Downloaded beartype
+ Downloaded uvloop
+      Built memoryos @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/MemOS
+Prepared 62 packages in 1.95s
+Installed 125 packages in 423ms
+ + annotated-doc==0.0.4
+ + annotated-types==0.7.0
+ + anyio==4.14.1
+ + attrs==26.1.0
+ + authlib==1.7.2
+ + beartype==0.22.9
+ + burner-redis==0.1.7
+ + cachetools==7.1.4
+ + certifi==2026.6.17
+ + cffi==2.0.0
+ + charset-normalizer==3.4.7
+ + click==8.4.2
+ + cloudpickle==3.1.2
+ + concurrent-log-handler==0.9.29
+ + cronsim==2.7
+ + cryptography==49.0.0
+ + cyclopts==4.20.0
+ + detect-installer==0.1.0
+ + diskcache==5.6.3
+ + distro==1.9.0
+ + dnspython==2.8.0
+ + docstring-parser==0.18.0
+ + email-validator==2.3.0
+ + exceptiongroup==1.3.1
+ + fakeredis==2.34.1
+ + fastapi==0.115.14
+ + fastapi-cli==0.0.28
+ + fastapi-cloud-cli==0.22.1
+ + fastar==0.11.0
+ + fastmcp==2.14.7
+ + filelock==3.29.5
+ + fsspec==2026.6.0
+ + h11==0.16.0
+ + hf-xet==1.5.1
+ + httpcore==1.0.9
+ + httptools==0.8.0
+ + httpx==0.28.1
+ + httpx-sse==0.4.3
+ + huggingface-hub==0.36.2
+ + idna==3.18
+ + itsdangerous==2.2.0
+ + jaraco-classes==3.4.0
+ + jaraco-context==6.1.2
+ + jaraco-functools==4.5.0
+ + jinja2==3.1.6
+ + jiter==0.16.0
+ + joblib==1.5.3
+ + joserfc==1.7.2
+ + jsonref==1.1.0
+ + jsonschema==4.26.0
+ + jsonschema-path==0.5.0
+ + jsonschema-specifications==2025.9.1
+ + keyring==25.7.0
+ + lupa==2.8
+ + markdown-it-py==4.2.0
+ + markupsafe==3.0.3
+ + mcp==1.28.1
+ + mdurl==0.1.2
+ + memoryos==2.0.22 (from file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/MemOS)
+ + more-itertools==11.1.0
+ + narwhals==2.23.0
+ + numpy==2.5.1
+ + ollama==0.5.0
+ + openai==1.109.1
+ + openapi-pydantic==0.5.1
+ + opentelemetry-api==1.43.0
+ + orjson==3.11.9
+ + packaging==26.2
+ + pathable==0.6.0
+ + pathvalidate==3.3.1
+ + platformdirs==4.10.0
+ + portalocker==3.2.0
+ + prometheus-client==0.23.1
+ + py-key-value-aio==0.3.0
+ + py-key-value-shared==0.3.0
+ + pycparser==3.0
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + pydantic-extra-types==2.11.1
+ + pydantic-settings==2.14.2
+ + pydocket==0.23.0
+ + pygments==2.20.0
+ + pyjwt==2.13.0
+ + pymysql==1.2.0
+ + pyperclip==1.11.0
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==1.2.2
+ + python-json-logger==4.1.0
+ + python-multipart==0.0.32
+ + pyyaml==6.0.3
+ + redis==8.0.1
+ + referencing==0.37.0
+ + regex==2026.6.28
+ + requests==2.34.2
+ + rich==15.0.0
+ + rich-rst==2.1.0
+ + rich-toolkit==0.20.1
+ + rignore==0.7.6
+ + rpds-py==2026.6.3
+ + safetensors==0.8.0
+ + scikit-learn==1.9.0
+ + scipy==1.18.0
+ + sentry-sdk==2.64.0
+ + shellingham==1.5.4
+ + six==1.17.0
+ + sniffio==1.3.1
+ + sortedcontainers==2.4.0
+ + sqlalchemy==2.0.51
+ + sse-starlette==3.0.3
+ + starlette==0.46.2
+ + tenacity==9.1.4
+ + threadpoolctl==3.6.0
+ + tokenizers==0.22.2
+ + tqdm==4.68.3
+ + transformers==4.57.6
+ + typer==0.26.8
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.2
+ + ujson==5.13.0
+ + uncalled-for==0.3.2
+ + urllib3==2.7.0
+ + uvicorn==0.50.0
+ + uvloop==0.22.1
+ + watchfiles==1.2.0
+ + websockets==16.0
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-6]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-memos.md
+```
+
+实际输出：
+
+```text
+6
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-memos.md
+```
+
+实际输出：
+
+```text
+39
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-memos.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv package.json bun.lock node_modules
 ```
 
