@@ -22,6 +22,13 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-05 17:55 CST：Track A 六个新 method 可行性审计完成，产物位于
+  `docs/workstreams/ws02-phase1-matrix/audits/`：MemOS、SimpleMem、LangMem、
+  Cognee、Letta、Supermemory 各一张卡片，另有 `summary.md` 汇总表。审计全程
+  未调用真实 LLM/embedding API，未修改主环境依赖；安装验证均为 `/tmp` venv
+  或 npm dry-run。当前交回架构师复核审计结论与建议接入顺序，尤其是
+  LangMem/Letta 是否允许绕过 agent 决策层、Supermemory local OSS 与 Enterprise
+  差异是否需要联网核对。
 - 2026-07-06：Track 0 第一步完成——五框架对比卡片已产出（见任务清单第 1 条），
   v2 协议草案在卡片 §4，含三个待用户讨论的问题（双视角写入、显式隔离键、
   并发声明位置）。下一步：用户对 §4 草案和三个问题表态后，架构师写正式协议
