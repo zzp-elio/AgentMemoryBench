@@ -22,7 +22,14 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-05 17:55 CST：Track A 六个新 method 可行性审计完成，产物位于
+- 2026-07-06：**协议 v2 spec 已产出，等待用户批准**：
+  [spec-protocol-v2.md](spec-protocol-v2.md)。输入：五框架对比 + Track A 审计 +
+  用户三项决策（双视角不内建 / 显式隔离键 / 并发维持现状 + "并行结果必须等于
+  串行"不变量）。spec 内已裁定 Track A 三个未决问题（R1 检索纯度 / R2
+  agent-native 走 memory API / R3 异步写入完成判据）。**用户批准后：架构师拆
+  P1 实施 plan 交 Codex。** 另：Track A 发现本机 /tmp venv PyPI SSL 证书问题，
+  需用户在 Track C smoke 前解决。Track A 审计已由架构师复核通过并入库。
+- 2026-07-05 17:55 CST：（已复核）Track A 六个新 method 可行性审计完成，产物位于
   `docs/workstreams/ws02-phase1-matrix/audits/`：MemOS、SimpleMem、LangMem、
   Cognee、Letta、Supermemory 各一张卡片，另有 `summary.md` 汇总表。审计全程
   未调用真实 LLM/embedding API，未修改主环境依赖；安装验证均为 `/tmp` venv
@@ -51,14 +58,12 @@ created: 2026-07-05
   用户的过拟合担忧被证实。卡片 §4 已给出 v2 协议草案（add_turn + 分层钩子 +
   保留 prompt_messages 长板）。附带收获：MemoryData 已集成我们全部 10 个
   method，是 Track A 审计的第一参考；memorybench 是 Supermemory 官方评测框架。
-- [ ] 结合 5 benchmark 调研卡片 + 框架对比，重评估核心协议。关键判据：
-  ingest 粒度（turn / session / conversation / chunk-stream 哪个是最大公约数）、
-  adapter 负担、method 原生批量操作（如 LightMem offline update 需要
-  session/conversation 边界信号）、resume 粒度、HaluMem 类 operation 级评测
-  的接口压力。候选：保持 `add(conversation)`、改 `add_turn(...)`、或分层
-  （`add_turn` 主协议 + 可选 `on_conversation_end()` 边界钩子）。
-- [ ] 产出协议重评估 spec（含迁移影响面：4 个现有 adapter、runner、resume），
-  用户批准后才恢复 Track B。
+- [x] 结合调研重评估核心协议（2026-07-06）：结论采纳分层方案——`add_turn`
+  主协议 + `end_session`/`end_conversation` 边界钩子 + 显式 isolation_key +
+  保留 `retrieve() -> prompt_messages`。
+- [x] 产出协议重评估 spec：[spec-protocol-v2.md](spec-protocol-v2.md)（draft，
+  含 4 adapter 兼容桥与迁移顺序、R1-R3 行为规则、P1-P3 分期验收）。
+  **待用户批准后才恢复 Track B。**
 - [ ] 顺带评估 third_party 全仓 vendor 是否改为裁剪式引入（参考框架做法）。
 
 ### Track A：6 个新 method 可行性审计（无 API 成本，Codex 可先行）
