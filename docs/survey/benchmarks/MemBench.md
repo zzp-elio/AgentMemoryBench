@@ -400,6 +400,63 @@ MemBench 可以很好地映射到当前轻量协议：
 
 也就是说，MemBench 不需要 method 实现完整 agent；method 只需实现 memory module 写入与检索。Answer LLM 和 multiple-choice parsing 可以放在 framework reader。
 
+### 6.4 2026-07-06 增补：原生粒度与喂入方式
+
+MemBench 的自然单位不是一整段静态 conversation，而是一条独立 trajectory：
+`trajectory -> message_list step -> final QA`。官方 `MemBenchEnv.reset(traj_i)` 会选择一条
+trajectory 并把 `current_step` 清零；`step()` 随后按 `message_list` 顺序逐条返回
+message，读完后返回 `QA.question/time/choices`，最后用 agent action 里的选项做 exact
+match。证据：`third_party/benchmarks/Membench-main/benchmark/env/Membenenv.py:41-81`。
+
+Participation / FirstAgent 的 `message_list` 元素是 dict，包含 user 与 agent 两侧内容；
+Observation / ThirdAgent 的元素是 string，只表示旁观到的用户消息流。官方 noise 生成和
+load 代码分别把 FirstAgent session 展开为 `{'user': ..., 'agent': ...}`，把 ThirdAgent
+消息展开为字符串。证据：`third_party/benchmarks/Membench-main/benchmark/load_test_data.py:25-31`、
+`third_party/benchmarks/Membench-main/benchmark/load_test_data.py:188-209`；本轮验收命令也确认
+FirstAgent 文件首条 message 类型为 `dict`，ThirdAgent 为 `str`。
+
+官方喂入方式是每条 trajectory 开始前 `memory.reset()`，每个 message step 调用一次
+`memory.store(...)`；遇到 final question 时调用 `memory.recall(question, time)` 取
+memory context，外层 agent 再调用 answer LLM 输出 `A/B/C/D`，同时可调用 `memory.retri(...)`
+返回 step ids 供 recall 指标使用。写入时官方会加 `step[|]...` 前缀，`retri()` 再从 memory
+文本解析 step id。证据：`third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:41-45`、
+`third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:65-119`、
+`third_party/benchmarks/Membench-main/benchmark/memory/CommonMemory.py:252-276`。
+
+因此当前 retrieve-first 框架需要把 MemBench 映射为 trajectory-scoped memory：每条
+trajectory 独立 reset，按 step 顺序 `add(tid, event)` 或内部 `add_turn(...)` 写入，
+query 只传 `question/time/choices` 和公开 metadata。`QA.ground_truth`、`QA.answer`、
+`QA.target_step_id` 只能进入 evaluator；若 method 要参与 memory recall，adapter 必须保存并
+返回原始 `message_list` 的 1-based `step_id`，与 env `current_step` 口径对齐。
+
+### 6.5 2026-07-06 增补：成本画像
+
+本地 `data2test` 主评文件分两档：`0-10k` 四个文件合计 3,400 trajectories / 144,507
+message store steps，`100k` 四个文件合计 860 trajectories / 307,738 message store
+steps。每条 trajectory 末尾有 1 个 multiple-choice QA，因此 answer reader 调用量等于
+trajectory 数；官方 README 说明这些目录用于 memory-flow 测试，若改做 long-context 测试需要
+另行采样更多样本。证据：本轮验收命令读取
+`data/membench/Membenchdata/data2test/{0-10k,100k}`；README 见
+`third_party/benchmarks/Membench-main/README.md:17-18`。
+
+单条 trajectory 的 method 成本至少是 `len(message_list)` 次 store、1 次 recall；若实现
+retrieval recall，还要 1 次 `retri()`。官方 `MemBenchAgent` 记录每次 store 的
+`write_time` 和每次 recall 的 `read_time`，answer LLM 调用只发生在 final question 阶段，
+scorer 不调用 judge LLM，只比较 `action["response"] == ground_truth`。证据：
+`third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:38-39`、
+`third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:79-87`、
+`third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:112-119`、
+`third_party/benchmarks/Membench-main/benchmark/env/Membenenv.py:68-81`。
+
+不同 memory baseline 会改变 method 内部成本：如 Generative Agents memory 在每次 store
+时调用 importance LLM，达到阈值后还会生成 reflection questions 和 insights；MemoryBank
+会在时间切换时 summarization；普通 embedding 检索还会产生向量化/FAISS 查询成本。证据：
+`third_party/benchmarks/Membench-main/benchmark/memory/CommonMemory.py:68-119`、
+`third_party/benchmarks/Membench-main/benchmark/memory/CommonMemory.py:152-225`、
+`third_party/benchmarks/Membench-main/benchmark/memory/CommonMemory.py:366-420`。因此记录
+MemBench 成本时不能只写 answer LLM 次数，还要分开记录 store latency、read latency、
+embedding/summary/reflection 调用，以及 trajectory 长度档位。
+
 ## 7. 未确认项
 
 1. 当前 active code path 对 Observation/ThirdAgent 仍使用 `INSTRUCTION_FIRST`，虽然仓库中有 `INSTRUCTION_THIRD`。如果严格复刻 GitHub，按 active path；如果按语义优化，Observation 应使用 Third prompt。需要 profile 决策。
