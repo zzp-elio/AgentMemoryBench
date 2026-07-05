@@ -41,10 +41,12 @@ benchmark 对框架协议、dataset loader、evaluation runner 和 method adapte
 | Benchmark | 调研卡片 | 当前判断 |
 | --- | --- | --- |
 | BEAM | `docs/survey/benchmarks/BEAM.md` | conversation probing-QA，可暂归入 conversation-QA，但需要 rubric judge 和 event-ordering metric。 |
+| HaluMem | `docs/survey/benchmarks/HaluMem.md` | uuid/user 级连续会话 + operation-level memory hallucination diagnosis；完整接入需要 Add Dialogue、Get Dialogue Memory、Retrieve Memory 三类能力。 |
+| LoCoMo | `docs/survey/benchmarks/LoCoMo.md` | 双真人多 session conversation-QA；当前框架可用 add+retrieve 接入，但需保留 session/time/evidence 边界，category 5 adversarial 与官方 F1 口径需单独处理。 |
+| LongMemEval | `docs/survey/benchmarks/LongMemEval.md` | haystack session QA；当前框架可用 add+retrieve 接入，但要保留 question_time/session ids，并以官方 GPT-4o yes/no judge 作为 answer correctness 主口径。 |
+| MemBench | `docs/survey/benchmarks/MemBench.md` | message-stream / conversation-stream + multiple-choice QA；可映射到 add+retrieve，但必须保留 tid 隔离和 retrieved source step id provenance。 |
 | MemoryAgentBench | `docs/survey/benchmarks/MemoryAgentBench.md` | chunk-stream memory construction + multi-task QA/evaluation，提示 loader/runner 需要支持顺序 chunk ingest 和更多 metric family。 |
 | MemoryBench | `docs/survey/benchmarks/MemoryBench.md` | feedback-driven continual learning / memory adaptation；完整接入需要 train-memory construction、static corpus injection、stepwise/on-policy runner 和多 evaluator。 |
-| HaluMem | `docs/survey/benchmarks/HaluMem.md` | uuid/user 级连续会话 + operation-level memory hallucination diagnosis；完整接入需要 Add Dialogue、Get Dialogue Memory、Retrieve Memory 三类能力。 |
-| MemBench | `docs/survey/benchmarks/MemBench.md` | message-stream / conversation-stream + multiple-choice QA；可映射到 add+retrieve，但必须保留 tid 隔离和 retrieved source step id provenance。 |
 | PersonaMem | `docs/survey/benchmarks/PersonaMem.md` | persona-oriented multi-session long-context multiple-choice QA；官方主链路是 direct long-context LLM，memory-module 官方 profile 应按 `(benchmark_size, shared_context_id)` 隔离，并至少支持 OpenAI-style message 粒度的 incremental prefix ingest；persona_id-only 只能作为非官方 stress profile。 |
 | MemoryArena | `docs/survey/benchmarks/MemoryArena.md` | multi-session agentic memory benchmark；不是 conversation-QA，核心是 Memory-Agent-Environment loop，完整接入需要 initialize / wrap_user_prompt / add(chunk) 或新的 agentic-memory-environment task family。 |
 

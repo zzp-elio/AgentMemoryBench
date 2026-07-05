@@ -22,6 +22,14 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-05 23:35 CST（Codex）：Track B0 benchmark 调研卡片补全已完成并逐卡
+  commit。新增 [LoCoMo.md](../../survey/benchmarks/LoCoMo.md)、
+  [LongMemEval.md](../../survey/benchmarks/LongMemEval.md)；增补
+  [HaluMem.md](../../survey/benchmarks/HaluMem.md)、
+  [BEAM.md](../../survey/benchmarks/BEAM.md)、
+  [MemBench.md](../../survey/benchmarks/MemBench.md) 的"原生粒度与喂入方式"
+  与"成本画像"。未调用真实 LLM/embedding API；隔离数据统计使用 `uv run`；
+  主环境依赖文件无修改。下一步交回架构师产出粒度需求双向矩阵。
 - 2026-07-05 21:55 CST（Codex）：Track A2 全部 10 method 机制卡已完成并逐卡
   commit；`audits/summary.md` 已追加"原生粒度一览"覆盖 10/10 method。
   未调用真实 LLM/embedding API，隔离试装均使用 `uv`，未修改主环境依赖文件。
@@ -80,7 +88,7 @@ created: 2026-07-05
   [plan-track-a2-method-mechanism.md](plan-track-a2-method-mechanism.md)，
   2026-07-06 扩编）：4 个已接入 method 补机制卡片（含"现有 adapter 形变记录"
   第 7 节）+ 6 个新 method；统一格式统一深度。
-- [ ] benchmark 调研卡片补全至 5/5（Codex，plan 见
+- [x] benchmark 调研卡片补全至 5/5（Codex，plan 见
   [plan-track-b0-benchmark-cards.md](plan-track-b0-benchmark-cards.md)）：
   LoCoMo、LongMemEval 新做卡片；HaluMem/BEAM/MemBench 增补"原生粒度 +
   成本画像"两节。背景：已接入的 2 benchmark 调研知识从未卡片化。
