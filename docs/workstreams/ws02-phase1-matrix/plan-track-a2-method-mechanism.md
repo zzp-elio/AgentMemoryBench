@@ -77,7 +77,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 - [x] mechanism-langmem.md
 - [x] mechanism-supermemory.md（含 memorybench 中 provider 实现的调用证据）
 - [x] mechanism-memos.md
-- [ ] mechanism-cognee.md
+- [x] mechanism-cognee.md
 - [ ] mechanism-letta.md
 - [ ] 更新 `audits/summary.md`：追加"原生粒度一览"，覆盖全部 10 个 method，
   供架构师直接做矩阵
@@ -189,6 +189,209 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv
+```
+
+实际输出：
+
+```text
+```
+
+### mechanism-cognee.md
+
+完成时间：2026-07-05 21:22 CST
+
+隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-cognee && uv venv /tmp/mech-cognee && uv pip install --python /tmp/mech-cognee/bin/python -e third_party/methods/cognee && /tmp/mech-cognee/bin/python - <<'PY'
+import importlib.metadata as md
+print('cognee', md.version('cognee'))
+PY
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-cognee
+Activate with: source /tmp/mech-cognee/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-cognee
+Resolved 129 packages in 2.24s
+   Building cognee @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/cognee
+Downloading black (1.7MiB)
+Downloading tokenizers (2.9MiB)
+Downloading pylance (37.9MiB)
+Downloading ladybug (4.0MiB)
+   Building langdetect==1.0.9
+ Downloaded black
+      Built cognee @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/cognee
+ Downloaded tokenizers
+ Downloaded ladybug
+      Built langdetect==1.0.9
+ Downloaded pylance
+Prepared 44 packages in 8.02s
+Installed 129 packages in 460ms
+ + aiofiles==25.1.0
+ + aiohappyeyeballs==2.7.1
+ + aiohttp==3.14.1
+ + aiolimiter==1.2.1
+ + aiosignal==1.4.0
+ + aiosqlite==0.22.1
+ + alembic==1.18.5
+ + annotated-doc==0.0.4
+ + annotated-types==0.7.0
+ + anyio==4.14.1
+ + argcomplete==3.7.0
+ + argon2-cffi==25.1.0
+ + argon2-cffi-bindings==25.1.0
+ + attrs==26.1.0
+ + bcrypt==5.0.0
+ + black==26.5.1
+ + cbor2==6.1.3
+ + certifi==2026.6.17
+ + cffi==2.0.0
+ + charset-normalizer==3.4.7
+ + click==8.4.2
+ + cognee==1.2.2 (from file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/cognee)
+ + cryptography==49.0.0
+ + datamodel-code-generator==0.67.0
+ + deprecated==1.3.1
+ + deprecation==2.1.0
+ + diskcache==5.6.3
+ + distro==1.9.0
+ + dnspython==2.8.0
+ + docstring-parser==0.18.0
+ + email-validator==2.3.0
+ + fakeredis==2.36.2
+ + fastapi==0.139.0
+ + fastapi-users==15.0.5
+ + fastapi-users-db-sqlalchemy==7.0.0
+ + fastjsonschema==2.21.2
+ + fastuuid==0.14.0
+ + filelock==3.29.5
+ + filetype==1.2.0
+ + frozenlist==1.8.0
+ + fsspec==2026.6.0
+ + genson==1.3.0
+ + greenlet==3.5.3
+ + gunicorn==23.0.0
+ + h11==0.16.0
+ + hf-xet==1.5.1
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + huggingface-hub==1.22.0
+ + idna==3.18
+ + importlib-metadata==8.9.0
+ + inflect==7.5.0
+ + instructor==1.15.1
+ + isort==8.0.1
+ + jinja2==3.1.6
+ + jiter==0.13.0
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + jupyter-core==5.9.1
+ + ladybug==0.17.1
+ + lance-namespace==0.9.0
+ + lance-namespace-urllib3-client==0.9.0
+ + lancedb==0.34.0
+ + langdetect==1.0.9
+ + limits==4.8.0
+ + litellm==1.91.0
+ + lupa==2.8
+ + makefun==1.16.0
+ + mako==1.3.12
+ + markdown-it-py==4.2.0
+ + markupsafe==3.0.3
+ + mdurl==0.1.2
+ + more-itertools==11.1.0
+ + multidict==6.7.1
+ + mypy-extensions==1.1.0
+ + nbformat==5.10.4
+ + networkx==3.6.1
+ + numpy==2.5.1
+ + openai==2.44.0
+ + packaging==24.2
+ + pathspec==1.1.1
+ + platformdirs==4.10.0
+ + propcache==0.5.2
+ + pwdlib==0.3.0
+ + pyarrow==24.0.0
+ + pycparser==3.0
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + pydantic-settings==2.14.2
+ + pygments==2.20.0
+ + pyjwt==2.13.0
+ + pylance==0.36.0
+ + pympler==1.1
+ + pyparsing==3.3.2
+ + pypdf==6.14.2
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==1.2.2
+ + python-multipart==0.0.32
+ + pytokens==0.4.1
+ + pyyaml==6.0.3
+ + rdflib==7.1.4
+ + redis==8.0.1
+ + referencing==0.37.0
+ + regex==2026.6.28
+ + requests==2.34.2
+ + rich==14.3.4
+ + rpds-py==2026.6.3
+ + shellingham==1.5.4
+ + six==1.17.0
+ + sniffio==1.3.1
+ + sortedcontainers==2.4.0
+ + sqlalchemy==2.0.51
+ + starlette==1.3.1
+ + structlog==25.5.0
+ + tenacity==9.1.4
+ + tiktoken==0.13.0
+ + tokenizers==0.23.1
+ + tqdm==4.68.3
+ + traitlets==5.15.1
+ + typeguard==4.5.2
+ + typer==0.26.8
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.2
+ + urllib3==2.7.0
+ + uvicorn==0.50.0
+ + websockets==15.0.1
+ + wrapt==2.2.2
+ + yarl==1.24.2
+ + zipp==4.1.0
+cognee 1.2.2
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-6]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-cognee.md
+```
+
+实际输出：
+
+```text
+6
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-cognee.md
+```
+
+实际输出：
+
+```text
+35
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-cognee.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv package.json bun.lock node_modules
 ```
 
 实际输出：
