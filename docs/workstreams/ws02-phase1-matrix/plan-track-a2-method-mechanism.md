@@ -71,7 +71,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 
 - [x] mechanism-mem0.md（含第 7 节形变记录）
 - [x] mechanism-lightmem.md（含第 7 节；重点：offline update 的边界信号从哪来）
-- [ ] mechanism-amem.md（含第 7 节；重点：session_time 传递与 keyword 生成）
+- [x] mechanism-amem.md（含第 7 节；重点：session_time 传递与 keyword 生成）
 - [ ] mechanism-memoryos.md（含第 7 节；重点：短中长期分层的写入触发时机）
 - [ ] mechanism-simplemem.md
 - [ ] mechanism-langmem.md
@@ -188,6 +188,171 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md
 
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv
+```
+
+实际输出：
+
+```text
+```
+
+### mechanism-amem.md
+
+完成时间：2026-07-05 21:24 CST
+
+隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-amem && uv venv /tmp/mech-amem && uv pip install --python /tmp/mech-amem/bin/python -r third_party/methods/A-mem/requirements.txt
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-amem
+Activate with: source /tmp/mech-amem/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-amem
+WARN Fixing invalid version specifier by removing stray quotes (before: `>= '2.7'`; after: `>= 2.7`)
+WARN Fixing invalid version specifier by removing stray quotes (before: `>= '2.7'`; after: `>= 2.7`)
+Resolved 89 packages in 2.25s
+   Building rouge-score==0.1.2
+      Built rouge-score==0.1.2
+Downloading litellm (15.9MiB)
+Downloading pillow (4.6MiB)
+Downloading matplotlib (8.8MiB)
+Downloading torch (83.9MiB)
+Downloading transformers (11.0MiB)
+Downloading scipy (19.5MiB)
+Downloading hf-xet (3.7MiB)
+ Downloaded hf-xet
+ Downloaded pillow
+ Downloaded matplotlib
+ Downloaded transformers
+ Downloaded litellm
+ Downloaded scipy
+ Downloaded torch
+Prepared 24 packages in 20.08s
+Installed 89 packages in 665ms
+ + absl-py==2.5.0
+ + aiohappyeyeballs==2.7.1
+ + aiohttp==3.14.1
+ + aiosignal==1.4.0
+ + annotated-doc==0.0.4
+ + annotated-types==0.7.0
+ + anyio==4.14.1
+ + attrs==26.1.0
+ + bert-score==0.3.13
+ + certifi==2026.6.17
+ + charset-normalizer==3.4.7
+ + click==8.4.2
+ + contourpy==1.3.3
+ + cycler==0.12.1
+ + distro==1.9.0
+ + fastuuid==0.14.0
+ + filelock==3.29.5
+ + fonttools==4.63.0
+ + frozenlist==1.8.0
+ + fsspec==2026.6.0
+ + h11==0.16.0
+ + hf-xet==1.5.1
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + huggingface-hub==1.22.0
+ + idna==3.18
+ + importlib-metadata==8.9.0
+ + iniconfig==2.3.0
+ + jinja2==3.1.6
+ + jiter==0.16.0
+ + joblib==1.5.3
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + kiwisolver==1.5.0
+ + litellm==1.91.0
+ + markdown-it-py==4.2.0
+ + markupsafe==3.0.3
+ + matplotlib==3.11.0
+ + mdurl==0.1.2
+ + mpmath==1.3.0
+ + multidict==6.7.1
+ + narwhals==2.23.0
+ + networkx==3.6.1
+ + nltk==3.9.4
+ + numpy==2.5.1
+ + ollama==0.6.2
+ + openai==2.44.0
+ + packaging==26.2
+ + pandas==3.0.3
+ + pathlib==1.0.1
+ + pillow==12.3.0
+ + pluggy==1.6.0
+ + propcache==0.5.2
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + pygments==2.20.0
+ + pyparsing==3.3.2
+ + pytest==9.1.1
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==1.2.2
+ + pyyaml==6.0.3
+ + rank-bm25==0.2.2
+ + referencing==0.37.0
+ + regex==2026.6.28
+ + requests==2.34.2
+ + rich==15.0.0
+ + rouge-score==0.1.2
+ + rpds-py==2026.6.3
+ + safetensors==0.8.0
+ + scikit-learn==1.9.0
+ + scipy==1.18.0
+ + sentence-transformers==5.6.0
+ + setuptools==81.0.0
+ + shellingham==1.5.4
+ + six==1.17.0
+ + sniffio==1.3.1
+ + sympy==1.14.0
+ + threadpoolctl==3.6.0
+ + tiktoken==0.13.0
+ + tokenizers==0.22.2
+ + torch==2.12.1
+ + tqdm==4.68.3
+ + transformers==5.13.0
+ + typer==0.26.8
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.2
+ + urllib3==2.7.0
+ + yarl==1.24.2
+ + zipp==4.1.0
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-7]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-amem.md
+```
+
+实际输出：
+
+```text
+7
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-amem.md
+```
+
+实际输出：
+
+```text
+31
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-amem.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv
 ```
 
