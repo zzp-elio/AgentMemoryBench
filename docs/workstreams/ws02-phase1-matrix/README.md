@@ -22,6 +22,11 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-05 21:55 CST（Codex）：Track A2 全部 10 method 机制卡已完成并逐卡
+  commit；`audits/summary.md` 已追加"原生粒度一览"覆盖 10/10 method。
+  未调用真实 LLM/embedding API，隔离试装均使用 `uv`，未修改主环境依赖文件。
+  下一步按用户指令继续执行 Track B0：
+  [plan-track-b0-benchmark-cards.md](plan-track-b0-benchmark-cards.md)。
 - 2026-07-06（最新）：用户指出已接入的 4 method + 2 benchmark 的调研知识从未
   卡片化（蒸发在旧会话里）。裁定：不从零重调研，**补缺 + 统一口径**——
   Track A2 扩编为全部 10 method 机制卡（plan 已改），新增 Track B0 补全
@@ -71,7 +76,7 @@ created: 2026-07-05
 - [x] 首轮协议重评估产出候选方案 A：[spec-protocol-v2.md](spec-protocol-v2.md)
   （2026-07-06 用户决定**缓行**，降级为候选；其中用户三决策与 R1-R3 行为规则
   继续有效，粒度选择推迟）。
-- [ ] **全部 10 个** method 机制深读（Codex，plan 见
+- [x] **全部 10 个** method 机制深读（Codex，plan 见
   [plan-track-a2-method-mechanism.md](plan-track-a2-method-mechanism.md)，
   2026-07-06 扩编）：4 个已接入 method 补机制卡片（含"现有 adapter 形变记录"
   第 7 节）+ 6 个新 method；统一格式统一深度。

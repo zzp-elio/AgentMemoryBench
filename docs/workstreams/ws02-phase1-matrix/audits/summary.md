@@ -32,6 +32,23 @@
 - Track 0 的 `add_turn + conversation/session end hook` 方向被审计结果进一步支持。
 - 安装验证没有证明包不可用；当前所有 Python 包失败点都是本机一次性 venv 的 PyPI SSL 证书问题。
 
+## 原生粒度一览（Track A2，10 method）
+
+完成时间：2026-07-05 21:55 CST。来源为本目录 `mechanism-*.md` 十张机制卡片；本节只汇总 method 侧原生消费粒度，不替架构师做协议选型。
+
+| Method | 原生 ingest 最舒服粒度 | 写入完成/边界信号 | Retrieve-first 可用入口 | Adapter 压力点 |
+| --- | --- | --- | --- | --- |
+| Mem0 | 单条 message / message list，带 role、user_id、agent_id、run_id | `Memory.add()` 同步返回事件结果；底层 vector/history 写入完成后可检索 | `Memory.search()` / get_all 组装 prompt | 当前 adapter 将整段 conversation 拆成 messages；需显式隔离 user/agent/run |
+| LightMem | turn/message 流 + session；offline update 有独立更新阶段 | online add 后可检索；offline update 需要显式触发并等待 | memory retrieval/context API，避免直接作答 | `add(conversation)` 迫使 adapter 模拟逐 turn 输入和离线更新边界 |
+| A-Mem | 带 session_time、speaker、content 的 message/episode | 写入同时生成 keywords/context 与向量索引；时间字段影响检索解释 | search/retrieve memory items | 当前 adapter 需要从整段 conversation 提取时间、speaker、turn，并补 keyword 生成所需上下文 |
+| MemoryOS | user_id/session_id 维度下的短期、中期、长期 memory 写入 | 短期写入即时；promotion/consolidation 由阈值或显式流程触发 | search/retrieve memory，不走 chat answer | 整段 conversation 会遮蔽短中长期触发时机，需 session/turn 边界 |
+| SimpleMem | dialogue turn 或自由文本 chunk；有显式 `finalize`/index 边界 | `finalize` 后索引稳定 | ask/retrieval 前可取相关 memory/context | 贴近 turn-level；主要压力是避免 `ask` 自己作答 |
+| LangMem | LangGraph namespace/store item 或 tool-call 生成 memory | store put/update 同步；agent tool memory 由 LLM 决定 | store/search manager 直接检索 | 若跑 agent tool 会混入自主决策；若直写 store 则绕过 agent-native 记忆 |
+| Supermemory | raw document/session，或 direct atomic memory；containerTag/customId 隔离 | `add` 返回 queued；需轮询 document/memory status 到 done | `search.memories` hybrid 返回 memory/chunk | 必须有 indexing done 信号；turn provenance 需写入 content/metadata |
+| MemOS | messages list / TextualMemoryItem；user_id/session_id/mem_cube_id 隔离 | `general_text` add 后向量可检索；`tree_text` 可能有 mem_reader、graph、scheduler/reorganizer | `MOS.search()`，避免 `MOS.chat()` | general_text 稳但机制简化；tree_text 忠实但状态和完成边界重 |
+| Cognee | document/text dataset；`add` raw ingest，`cognify` 生成 graph/chunks | `add` 不够；需 `cognify` blocking 返回或 pipeline status done | `search(..., SearchType.CHUNKS, only_context=True)` | 需要 dataset/finalize 信号；默认 graph completion 会自己作答 |
+| Letta | agent message loop，或 direct archival passage；agent_id/actor 隔离 | direct passage insert 同步写 DB/embedding；agent loop 多 step 不确定 | direct archival-memory search；避免 `send_message` 最终回答 | faithful agent loop 与 retrieve-first 张力最大；MemoryData query 仍是 agent answer |
+
 ## 未决问题
 
 - 是否统一要求 method 提供“纯检索 context”，避免内部 answer LLM 与 framework reader 重复作答。

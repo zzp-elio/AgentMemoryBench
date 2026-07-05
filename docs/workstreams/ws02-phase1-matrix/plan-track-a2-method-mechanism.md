@@ -79,9 +79,9 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 - [x] mechanism-memos.md
 - [x] mechanism-cognee.md
 - [x] mechanism-letta.md
-- [ ] 更新 `audits/summary.md`：追加"原生粒度一览"，覆盖全部 10 个 method，
+- [x] 更新 `audits/summary.md`：追加"原生粒度一览"，覆盖全部 10 个 method，
   供架构师直接做矩阵
-- [ ] 更新 ws02 README 断点，通知架构师
+- [x] 更新 ws02 README 断点，通知架构师
 
 ## 验收
 
@@ -189,6 +189,48 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv
+```
+
+实际输出：
+
+```text
+```
+
+### A2 summary.md + ws02 README 收尾
+
+完成时间：2026-07-05 21:55 CST
+
+原生粒度一览覆盖计数命令：
+
+```bash
+awk '/^## 原生粒度一览/{flag=1;next}/^## /{flag=0}flag && /^\| (Mem0|LightMem|A-Mem|MemoryOS|SimpleMem|LangMem|Supermemory|MemOS|Cognee|Letta) \|/{count++}END{print count+0}' docs/workstreams/ws02-phase1-matrix/audits/summary.md
+```
+
+实际输出：
+
+```text
+10
+```
+
+README/summary 更新定位命令：
+
+```bash
+rg -n '^## 原生粒度一览|Track A2 全部 10 method|\[x\] \*\*全部 10 个\*\* method' docs/workstreams/ws02-phase1-matrix/audits/summary.md docs/workstreams/ws02-phase1-matrix/README.md
+```
+
+实际输出：
+
+```text
+docs/workstreams/ws02-phase1-matrix/audits/summary.md:35:## 原生粒度一览（Track A2，10 method）
+docs/workstreams/ws02-phase1-matrix/README.md:25:- 2026-07-05 21:55 CST（Codex）：Track A2 全部 10 method 机制卡已完成并逐卡
+docs/workstreams/ws02-phase1-matrix/README.md:79:- [x] **全部 10 个** method 机制深读（Codex，plan 见
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/summary.md docs/workstreams/ws02-phase1-matrix/README.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv package.json bun.lock node_modules
 ```
 
 实际输出：
