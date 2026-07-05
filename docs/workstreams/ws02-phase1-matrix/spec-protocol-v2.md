@@ -1,13 +1,26 @@
 ---
 id: ws02
-doc: spec (protocol v2)
-status: draft
+doc: spec (protocol v2, candidate A)
+status: on-hold
 created: 2026-07-06
 ---
-# 核心协议 v2 设计：turn 级写入 + 分层边界钩子
+# 核心协议 v2 设计：turn 级写入 + 分层边界钩子（候选方案 A，缓行中）
 
-作者：Claude（架构师）。状态：**draft，待用户批准**。批准后由架构师拆实施 plan，
-Codex 施工；批准前 Track B/C 不写任何 adapter 代码。
+作者：Claude（架构师）。状态：**on-hold（2026-07-06 用户决定缓行）**——本文档
+降级为**候选方案 A**，不进入批准流程。用户口径：不急于定 add 粒度
+（`add_session` 或多粒度并存都可能更优）；必须先完成 10 method 机制深读 +
+5 benchmark 测评机制萃取，再设计最终接口。新增硬性设计约束：
+
+1. benchmark 形态与 method 形态之间预期需要**一到两个中间层**统一，接口设计
+   要显式回答"中间层是什么、归一到什么表示"。
+2. **可扩展性**：未来要接入多模态 benchmark/method 和 agent-task memory
+   benchmark（MemoryArena 类，调研卡片已建议独立 `agentic-memory-environment`
+   task family），协议不能把"文本对话 QA"写死为唯一形态。
+3. 多种写入粒度并存（method 声明消费粒度、框架聚合投递）是候选方向之一。
+
+以下原文保留作为候选方案 A 的完整论证；其中 §2 的用户决策（双视角不内建、
+显式隔离键、并发不变量）和 §3.3 的 R1-R3 行为规则**不受缓行影响，继续有效**——
+它们与粒度选择正交。
 
 ## 1. 背景与证据
 

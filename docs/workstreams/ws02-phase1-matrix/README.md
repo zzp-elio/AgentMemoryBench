@@ -22,7 +22,12 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-06：**协议 v2 spec 已产出，等待用户批准**：
+- 2026-07-06（最新）：用户决定**协议粒度决策缓行**——先充分了解 10 method 机制
+  与 5 benchmark 测评方式再定接口；v2 spec 降级为候选方案 A。新增设计约束：
+  1-2 个中间层统一形态、多模态与 agentic task family 可扩展性、多粒度并存可能。
+  PyPI SSL 问题已解决：改用 `uv venv` + `uv pip install`（架构师实测通过）。
+  **下一步：Codex 执行 Track A2 机制深读（plan 已备）；架构师做粒度需求矩阵。**
+- 2026-07-06（已缓行）：协议 v2 spec 已产出：
   [spec-protocol-v2.md](spec-protocol-v2.md)。输入：五框架对比 + Track A 审计 +
   用户三项决策（双视角不内建 / 显式隔离键 / 并发维持现状 + "并行结果必须等于
   串行"不变量）。spec 内已裁定 Track A 三个未决问题（R1 检索纯度 / R2
@@ -58,12 +63,19 @@ created: 2026-07-05
   用户的过拟合担忧被证实。卡片 §4 已给出 v2 协议草案（add_turn + 分层钩子 +
   保留 prompt_messages 长板）。附带收获：MemoryData 已集成我们全部 10 个
   method，是 Track A 审计的第一参考；memorybench 是 Supermemory 官方评测框架。
-- [x] 结合调研重评估核心协议（2026-07-06）：结论采纳分层方案——`add_turn`
-  主协议 + `end_session`/`end_conversation` 边界钩子 + 显式 isolation_key +
-  保留 `retrieve() -> prompt_messages`。
-- [x] 产出协议重评估 spec：[spec-protocol-v2.md](spec-protocol-v2.md)（draft，
-  含 4 adapter 兼容桥与迁移顺序、R1-R3 行为规则、P1-P3 分期验收）。
-  **待用户批准后才恢复 Track B。**
+- [x] 首轮协议重评估产出候选方案 A：[spec-protocol-v2.md](spec-protocol-v2.md)
+  （2026-07-06 用户决定**缓行**，降级为候选；其中用户三决策与 R1-R3 行为规则
+  继续有效，粒度选择推迟）。
+- [ ] 6 个新 method 机制深读（Codex，plan 见
+  [plan-track-a2-method-mechanism.md](plan-track-a2-method-mechanism.md)）：
+  记忆构建 pipeline、原生 ingest 确切签名与粒度、检索机制、边界/批处理行为；
+  重点参考 MemoryData 框架对各 method 的实际集成代码。
+- [ ] 架构师产出**粒度需求双向矩阵**：5 benchmark 的数据自然粒度与喂入方式
+  （从 7 张调研卡片萃取）× 10 method 的原生 ingest 形态（4 张 interface
+  inventory + 6 张机制卡片）；矩阵完成后重开最终协议设计（候选：单粒度、
+  add_session、多粒度并存 + 中间层聚合）。
+- [ ] 最终协议 spec（含中间层设计、多模态与 agentic task family 扩展性论证），
+  用户批准后才恢复 Track B。
 - [ ] 顺带评估 third_party 全仓 vendor 是否改为裁剪式引入（参考框架做法）。
 
 ### Track A：6 个新 method 可行性审计（无 API 成本，Codex 可先行）
