@@ -22,11 +22,16 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-06（最新）：用户决定**协议粒度决策缓行**——先充分了解 10 method 机制
+- 2026-07-06（最新）：用户指出已接入的 4 method + 2 benchmark 的调研知识从未
+  卡片化（蒸发在旧会话里）。裁定：不从零重调研，**补缺 + 统一口径**——
+  Track A2 扩编为全部 10 method 机制卡（plan 已改），新增 Track B0 补全
+  benchmark 卡片至 5/5（plan 已备）。两个 plan 都可立即派给 Codex，可先 A2
+  后 B0 顺序执行。全部完成后：架构师做粒度需求双向矩阵 → 最终协议 spec。
+  教训已吸取：**调研成果必须以卡片入库，不允许只留在会话里**。
+- 2026-07-06：用户决定**协议粒度决策缓行**——先充分了解 10 method 机制
   与 5 benchmark 测评方式再定接口；v2 spec 降级为候选方案 A。新增设计约束：
   1-2 个中间层统一形态、多模态与 agentic task family 可扩展性、多粒度并存可能。
   PyPI SSL 问题已解决：改用 `uv venv` + `uv pip install`（架构师实测通过）。
-  **下一步：Codex 执行 Track A2 机制深读（plan 已备）；架构师做粒度需求矩阵。**
 - 2026-07-06（已缓行）：协议 v2 spec 已产出：
   [spec-protocol-v2.md](spec-protocol-v2.md)。输入：五框架对比 + Track A 审计 +
   用户三项决策（双视角不内建 / 显式隔离键 / 并发维持现状 + "并行结果必须等于
@@ -66,10 +71,14 @@ created: 2026-07-05
 - [x] 首轮协议重评估产出候选方案 A：[spec-protocol-v2.md](spec-protocol-v2.md)
   （2026-07-06 用户决定**缓行**，降级为候选；其中用户三决策与 R1-R3 行为规则
   继续有效，粒度选择推迟）。
-- [ ] 6 个新 method 机制深读（Codex，plan 见
-  [plan-track-a2-method-mechanism.md](plan-track-a2-method-mechanism.md)）：
-  记忆构建 pipeline、原生 ingest 确切签名与粒度、检索机制、边界/批处理行为；
-  重点参考 MemoryData 框架对各 method 的实际集成代码。
+- [ ] **全部 10 个** method 机制深读（Codex，plan 见
+  [plan-track-a2-method-mechanism.md](plan-track-a2-method-mechanism.md)，
+  2026-07-06 扩编）：4 个已接入 method 补机制卡片（含"现有 adapter 形变记录"
+  第 7 节）+ 6 个新 method；统一格式统一深度。
+- [ ] benchmark 调研卡片补全至 5/5（Codex，plan 见
+  [plan-track-b0-benchmark-cards.md](plan-track-b0-benchmark-cards.md)）：
+  LoCoMo、LongMemEval 新做卡片；HaluMem/BEAM/MemBench 增补"原生粒度 +
+  成本画像"两节。背景：已接入的 2 benchmark 调研知识从未卡片化。
 - [ ] 架构师产出**粒度需求双向矩阵**：5 benchmark 的数据自然粒度与喂入方式
   （从 7 张调研卡片萃取）× 10 method 的原生 ingest 形态（4 张 interface
   inventory + 6 张机制卡片）；矩阵完成后重开最终协议设计（候选：单粒度、

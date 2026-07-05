@@ -4,7 +4,11 @@ doc: plan (Track A2)
 status: approved
 created: 2026-07-06
 ---
-# ws02 Track A2 实施计划：6 个新 method 机制深读
+# ws02 Track A2 实施计划：全部 10 个 method 机制深读
+
+（2026-07-06 扩编：从 6 个新 method 扩为全部 10 个。用户指出 4 个已接入
+method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 handoff 中；本轮统一
+补齐，最终形成 10 张同格式、同深度的机制卡片。）
 
 执行者：Codex。目的：为最终协议设计提供 method 侧输入——Track A 回答了
 "装不装得上"，本轮回答"**它的记忆机制到底怎么运转**"。产出将与 5 benchmark
@@ -28,9 +32,19 @@ created: 2026-07-06
 - Supermemory 另参考其官方评测框架 `第三方框架参考/memorybench/`。
 - Track A 卡片（`audits/<method>.md`）作为起点，不重复其内容。
 
+**4 个已接入 method（Mem0、MemoryOS、A-Mem、LightMem）的额外素材与要求**：
+
+- 素材：`third_party/methods/{mem0-main,MemoryOS-main,A-mem,LightMem}/` 官方源码
+  与 eval 脚本；我们的 adapter `src/memory_benchmark/methods/*.py`；
+  `docs/reference/method-interface-inventory.md`（2026-06-22 版，作为起点）。
+- 卡片额外加第 7 节 **"现有 adapter 的形变记录"**：逐条列出我们 adapter 中
+  哪些代码是被 `add(conversation)` 整段输入逼出来的拆分/拼接/循环（贴
+  文件:行号），以及官方原生调用形态本来是什么。这是协议重设计最直接的证据，
+  务必具体。
+
 ## 机制卡片格式
 
-每 method 写 `audits/mechanism-<method>.md`，固定 6 节：
+每 method 写 `audits/mechanism-<method>.md`，固定 6 节（已接入 method 为 7 节）：
 
 1. **写入后内部发生什么**：从原生 ingest API 进入后的完整 pipeline
    （抽取？分层？图构建？向量化？何时调 LLM/embedding？同步还是后台？）。
@@ -52,17 +66,21 @@ created: 2026-07-06
 
 ## 任务清单
 
-顺序照旧（从轻到重）：
+先做 4 个已接入 method（素材最全、上手最快，还能立即产出协议证据），
+再按从轻到重做 6 个新 method：
 
+- [ ] mechanism-mem0.md（含第 7 节形变记录）
+- [ ] mechanism-lightmem.md（含第 7 节；重点：offline update 的边界信号从哪来）
+- [ ] mechanism-amem.md（含第 7 节；重点：session_time 传递与 keyword 生成）
+- [ ] mechanism-memoryos.md（含第 7 节；重点：短中长期分层的写入触发时机）
 - [ ] mechanism-simplemem.md
 - [ ] mechanism-langmem.md
 - [ ] mechanism-supermemory.md（含 memorybench 中 provider 实现的调用证据）
 - [ ] mechanism-memos.md
 - [ ] mechanism-cognee.md
 - [ ] mechanism-letta.md
-- [ ] 更新 `audits/summary.md`：追加"原生粒度一览"列（6 新 method +
-  从 `docs/reference/method-interface-inventory.md` 摘取的 4 个已接入 method，
-  凑齐 10 行，供架构师直接做矩阵）
+- [ ] 更新 `audits/summary.md`：追加"原生粒度一览"，覆盖全部 10 个 method，
+  供架构师直接做矩阵
 - [ ] 更新 ws02 README 断点，通知架构师
 
 ## 验收
