@@ -24,7 +24,7 @@ Mem0、MemoryOS、A-Mem、LightMem 四个 method 已按 retrieve-first 主协议
 
 | ID | 名称 | 状态 | 优先级 | 说明 |
 | --- | --- | --- | --- | --- |
-| [ws01](workstreams/ws01-docs-governance/README.md) | docs-governance | in-progress | P0 | 文档治理与任务树重构（M3 收尾中） |
+| [ws01](workstreams/ws01-docs-governance/README.md) | docs-governance | done | P0 | 文档治理与任务树重构（2026-07-05 终验通过） |
 | [ws02](workstreams/ws02-phase1-matrix/README.md) | phase1-matrix | open | P0 | 5×10 矩阵调研收尾、接入规划与 adapter 派生（主线） |
 | [ws03](workstreams/ws03-architecture-slimming/README.md) | architecture-slimming | open | P1 | registry/capability/legacy 接口与 CLI 减重、LLMRuntimeConfig |
 | [ws04](workstreams/ws04-terminal-observability/README.md) | terminal-observability | open | P2 | isolated 进度心跳、第三方 stdout/tqdm 治理 |

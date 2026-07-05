@@ -1,7 +1,7 @@
 ---
 id: ws01
 parent: null
-status: in-progress
+status: done
 created: 2026-07-05
 ---
 # ws01 文档治理与任务树重构
@@ -14,7 +14,10 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-05：Codex 已完成 M3/T10 验收并提交：
+- 2026-07-05：**ws01 终验通过（APPROVED），workstream 关闭**。审查记录：
+  [notes/2026-07-05-final-review.md](notes/2026-07-05-final-review.md)。
+  唯一遗留动作：13 个未推送 commit（ahead 13，含终验收尾）是否 push 由用户决定。
+- 2026-07-05（已解除）：Codex 已完成 M3/T10 验收并提交：
   AGENTS.md 57 行，AGENTS.md + docs/README.md + docs/roadmap.md 合计 139 行；
   6 个 workstream README 链接和 3 个 archive/status 文件均已 `test -f` 通过；
   `uv run pytest -q` 为 `709 passed, 3 deselected, 2 warnings, 6 subtests passed`；
@@ -53,7 +56,8 @@ created: 2026-07-05
 - [x] M3 内容起草：新 AGENTS.md / docs/README.md / docs/roadmap.md /
   5 个 workstream 状态页 / CLAUDE.md 更新（Claude，2026-07-05）
 - [x] M3 落位验收与提交（Codex，plan T10 验收清单，709 passed）
-- [ ] Claude 终验：对照 spec §8 逐条核验，出具审查记录（notes/）
+- [x] Claude 终验：spec §8 四条全部通过，审查记录见
+  [notes/2026-07-05-final-review.md](notes/2026-07-05-final-review.md)
 - [x] M4 派生：ws06-tests-restructure 状态页已建立（spec 另写）
 
 ## 子任务
