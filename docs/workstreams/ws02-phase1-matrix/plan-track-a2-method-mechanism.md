@@ -70,7 +70,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 再按从轻到重做 6 个新 method：
 
 - [x] mechanism-mem0.md（含第 7 节形变记录）
-- [ ] mechanism-lightmem.md（含第 7 节；重点：offline update 的边界信号从哪来）
+- [x] mechanism-lightmem.md（含第 7 节；重点：offline update 的边界信号从哪来）
 - [ ] mechanism-amem.md（含第 7 节；重点：session_time 传递与 keyword 生成）
 - [ ] mechanism-memoryos.md（含第 7 节；重点：短中长期分层的写入触发时机）
 - [ ] mechanism-simplemem.md
@@ -188,6 +188,156 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md
 
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv
+```
+
+实际输出：
+
+```text
+```
+
+### mechanism-lightmem.md
+
+完成时间：2026-07-05 21:03 CST
+
+隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-lightmem && uv venv /tmp/mech-lightmem && uv pip install --python /tmp/mech-lightmem/bin/python -e third_party/methods/LightMem
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-lightmem
+Activate with: source /tmp/mech-lightmem/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-lightmem
+WARN Fixing invalid version specifier by removing star after comparison operator other than equal and not equal (before: `>=3.5.*`; after: `>=3.5`)
+WARN Fixing invalid version specifier by removing star after comparison operator other than equal and not equal (before: `>=3.5.*`; after: `>=3.5`)
+WARN Fixing invalid version specifier by removing star after comparison operator other than equal and not equal (before: `>=3.5.*`; after: `>=3.5`)
+WARN Fixing invalid version specifier by removing star after comparison operator other than equal and not equal (before: `>=3.5.*`; after: `>=3.5`)
+WARN Fixing invalid version specifier by removing star after comparison operator other than equal and not equal (before: `>=3.5.*`; after: `>=3.5`)
+WARN Fixing invalid version specifier by removing star after comparison operator other than equal and not equal (before: `>=3.5.*`; after: `>=3.5`)
+Resolved 59 packages in 1.48s
+   Building lightmem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem
+Downloading networkx (1.6MiB)
+Downloading tokenizers (2.8MiB)
+Downloading nltk (1.4MiB)
+Downloading numpy (4.8MiB)
+Downloading scikit-learn (8.2MiB)
+Downloading pillow (4.5MiB)
+Downloading pydantic-core (1.8MiB)
+Downloading scipy (21.4MiB)
+Downloading torch (70.2MiB)
+Downloading transformers (11.4MiB)
+Downloading grpcio (10.9MiB)
+Downloading hf-xet (2.5MiB)
+      Built lightmem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem
+ Downloaded nltk
+ Downloaded networkx
+ Downloaded pydantic-core
+ Downloaded hf-xet
+ Downloaded tokenizers
+ Downloaded pillow
+ Downloaded numpy
+ Downloaded scikit-learn
+ Downloaded grpcio
+ Downloaded transformers
+ Downloaded scipy
+ Downloaded torch
+Prepared 36 packages in 14.77s
+Installed 59 packages in 450ms
+ + accelerate==1.10.1
+ + annotated-types==0.7.0
+ + anyio==4.11.0
+ + certifi==2025.10.5
+ + charset-normalizer==3.4.3
+ + click==8.3.0
+ + distro==1.9.0
+ + filelock==3.20.0
+ + fsspec==2025.9.0
+ + grpcio==1.75.1
+ + h11==0.16.0
+ + h2==4.3.0
+ + hf-xet==1.1.10
+ + hpack==4.1.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + huggingface-hub==0.35.3
+ + hyperframe==6.1.0
+ + idna==3.10
+ + jinja2==3.1.6
+ + jiter==0.11.0
+ + joblib==1.5.2
+ + lightmem==0.1.0 (from file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem)
+ + llmlingua==0.2.2
+ + markupsafe==3.0.3
+ + mpmath==1.3.0
+ + networkx==3.4.2
+ + nltk==3.9.2
+ + numpy==2.2.6
+ + openai==2.3.0
+ + packaging==25.0
+ + pillow==11.3.0
+ + portalocker==3.2.0
+ + protobuf==6.32.1
+ + psutil==7.1.0
+ + pydantic==2.12.0
+ + pydantic-core==2.41.1
+ + pysocks==1.7.1
+ + pyyaml==6.0.3
+ + qdrant-client==1.15.1
+ + rank-bm25==0.2.2
+ + regex==2025.9.18
+ + requests==2.32.5
+ + safetensors==0.6.2
+ + scikit-learn==1.7.2
+ + scipy==1.15.3
+ + sentence-transformers==5.1.1
+ + setuptools==83.0.0
+ + sniffio==1.3.1
+ + sympy==1.14.0
+ + threadpoolctl==3.6.0
+ + tiktoken==0.12.0
+ + tokenizers==0.22.1
+ + torch==2.8.0
+ + tqdm==4.67.1
+ + transformers==4.57.0
+ + typing-extensions==4.15.0
+ + typing-inspection==0.4.2
+ + urllib3==2.5.0
+warning: `transformers==4.57.0` is yanked (reason: "Error in the setup causing installation issues")
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-7]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-lightmem.md
+```
+
+实际输出：
+
+```text
+7
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-lightmem.md
+```
+
+实际输出：
+
+```text
+34
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-lightmem.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv
 ```
 
