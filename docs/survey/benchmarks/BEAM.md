@@ -619,6 +619,58 @@ BEAM 不会立即推翻 `BaseMemoryProvider.add + retrieve`，但会推动我们
 - 未来 streaming ingest / chunked ingest：先内部支持，是否公开成用户接口等更多 benchmark
   调研后再决定。
 
+### 6.6 2026-07-06 增补：原生粒度与喂入方式
+
+BEAM 的自然单位是 `conversation -> chat size split -> probing question`：普通 split
+每条 conversation 有 10 类能力、每类 2 个 probing questions；10M split 额外有 plan
+层。本地 HF 数据中，`100K/500K/1M` 的 `chat` 是 batch list，再展开为 message
+list；`10M` 的 `chat` 是 plan holder list。官方 inference 脚本则读取生成后的
+`chat.json`，普通 split 按 `batch -> turns -> message` 展开，10M 按
+`plan -> batch -> turns -> message` 展开。证据：本轮验收命令读取
+`data/BEAM/beam_dataset` 与 `data/BEAM/beam_10M_dataset`；官方展开逻辑见
+`third_party/benchmarks/BEAM/src/answer_probing_questions/long_term_memory_methods.py:552-574`。
+
+官方喂入顺序是先对一个 conversation 建立可复用上下文或检索结构，再顺序回答该
+conversation 下所有 probing questions。`answer_generation.py` 会缓存
+`saved_messages`、`saved_retriever`、`saved_chunks`、`saved_short_term_chunks` 和
+`saved_scratch_pad`，避免同一 conversation 的每题重复 ingest。证据：
+`third_party/benchmarks/BEAM/src/answer_probing_questions/answer_generation.py:45-98`。
+
+对当前 retrieve-first 协议，BEAM 仍可映射为 `add(conversation)` 一次写入完整
+conversation，`retrieve(question)` 返回 answer prompt；但 loader 必须保留
+`chat_size`、batch、turn、plan、role、message index 等边界信号，否则 event ordering、
+multi-session reasoning、knowledge update 与 temporal reasoning 的错误无法回溯。若未来
+引入 `add_turn(...)`，BEAM 应按原始生成顺序流式喂入：普通 split 为
+batch/turn/message，10M 为 plan/batch/turn/message；method 只能看到 chat 和 question，
+不得看到 `rubric`、reference event list、ideal answer 等 judge 私有字段。
+
+### 6.7 2026-07-06 增补：成本画像
+
+完整 BEAM 规模是 100 conversations、2,000 validated questions：`128K/100K` 20
+chats，`500K` 35 chats，`1M` 35 chats，`10M` 10 chats；每条 conversation 固定 20
+个 probing questions。README 还给出平均 turns：128K 107、500K 416、1M 842、10M
+7,757。证据：`third_party/benchmarks/BEAM/README.md:20-39`；本轮验收命令确认
+本地 split 行数为 `20/35/35/10`，且每条样本 `probing_questions` 总数为 20。
+
+long-context 路径每个 probing question 至少一次 answer LLM 调用；第一次会把整条
+chat 展开、按 `max_tokens` 从尾部裁剪，后续题复用 `saved_messages` 后追加问题。证据：
+`third_party/benchmarks/BEAM/src/answer_probing_questions/long_term_memory_methods.py:534-596`。
+RAG/LIGHT 路径在每条 conversation 首题构建 chunk、retriever 和可选 scratchpad，随后
+每题执行 retrieval、拼接 context、调用 reader LLM。LIGHT 额外为 scratchpad、episodic
+memory 和 filtering 调用内部 LLM，并维护最近 100 个 pair 的 working memory。证据：
+`third_party/benchmarks/BEAM/src/answer_probing_questions/long_term_memory_methods.py:598-645`、
+`third_party/benchmarks/BEAM/src/answer_probing_questions/light.py:402-461`、
+`third_party/benchmarks/BEAM/src/answer_probing_questions/light.py:464-542`。
+
+评测成本也不是纯本地指标：`run_evaluation.py` 对每个 answer 读取 private `rubric`，
+按 10 类能力分派到 evaluator；大多数类别对每个 rubric item 调用 judge LLM 并平均，
+event ordering 还会做 LLM equivalence 对齐和 Kendall tau-b/F1 组合分。官方本地
+`gpt_llm` 默认是 `gpt-4.1-mini`、temperature 0。证据：
+`third_party/benchmarks/BEAM/src/evaluation/run_evaluation.py:39-78`、
+`third_party/benchmarks/BEAM/src/evaluation/compute_metrics.py:270-308`、
+`third_party/benchmarks/BEAM/src/evaluation/compute_metrics.py:339-360`、
+`third_party/benchmarks/BEAM/src/llm.py:61-68`。
+
 ## 7. 未确认项
 
 1. `100K` vs `128K`：论文/README 写 128K，本地 split 和官方目录是 `100K`。当前以本地
