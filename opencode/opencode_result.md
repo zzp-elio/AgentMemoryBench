@@ -14,7 +14,9 @@
 6. 如果你无法修复，写清楚卡点、复现步骤和下一步建议。
 ## 最新结果
 
-`opencode_result-6.22-longmemeval-costpilot-comparison.md` — 四 Method × LongMemEval-S 1-conv Cost Pilot 横向对比
+
+## 历史结果
+`archive/opencode_result-6.22-longmemeval-costpilot-comparison.md` — 四 Method × LongMemEval-S 1-conv Cost Pilot 横向对比
 
 | Method | Judge | $/conv | 500=$ | Time |
 |---|---|---|---|---|
@@ -25,40 +27,40 @@
 
 **四 method × 500 conv 总估算: $557 (GPT-4o-mini)**
 
-`opencode_result-6.22-codex-session-full.md` — 2026-06-22 完整会话记录（efficiency/progress/evaluate 修复，包含下方 bugfix 全部内容）
+`archive/opencode_result-6.22-codex-session-full.md` — 2026-06-22 完整会话记录（efficiency/progress/evaluate 修复，包含下方 bugfix 全部内容）
 
-`opencode_result-6.22-codex-efficiency-byquestion-progress-bugfix.md` — efficiency_by_question LLM token 全 0 + progress 显示修复（已被 session-full supersede）
-## 历史结果
-`opencode_result-6.20-02h-mem0-reference-date-gap.md` — Mem0 reference_date 传递缺口审计
+`archive/opencode_result-6.22-codex-efficiency-byquestion-progress-bugfix.md` — efficiency_by_question LLM token 全 0 + progress 显示修复（已被 session-full supersede）
+
+`archive/opencode_result-6.20-02h-mem0-reference-date-gap.md` — Mem0 reference_date 传递缺口审计
 - Mem0 官方 prompt 依赖 reference_date 做时间推理，adapter 从未传入正确值
 - fallback 链全部失效：Conversation.metadata 无此字段，DB created_at 是写入时间而非对话时间
 - 对照审计四 method 时间传递：MemoryOS/LightMem ✅，A-Mem ⚠️，Mem0 ❌
 - 用户决定暂不修复，保留为已知 gap
 
-`opencode_result-6.20-01h-amem-lightmem-retry-timeout.md` — A-Mem / LightMem API retry/timeout 兜底修复
+`archive/opencode_result-6.20-01h-amem-lightmem-retry-timeout.md` — A-Mem / LightMem API retry/timeout 兜底修复
 - A-Mem: `_create_openai_compatible_client` 注入 `timeout=60s`、`max_retries=8`
 - LightMem: 新增 `_inject_api_retry_timeout()`，backend 创建后对 `manager.client` 调 `with_options()`
 - 两 method config 均新增 `api_timeout_seconds`/`api_max_retries` 字段，TOML 均已配置
 - 157 passed, 2 warnings，compileall OK
 
-`opencode_result-6.20-00h-smoke-4c20t-w4.md` — 四 method LoCoMo 4c20t-w4 smoke 验证
+`archive/opencode_result-6.20-00h-smoke-4c20t-w4.md` — 四 method LoCoMo 4c20t-w4 smoke 验证
 - 4/4 method 全部通过，conversation/4 question/4 completed
 - Mem0 conversation-level observation 修复验证通过
 - LightMem memory-build LLM observation 修复验证通过
 - 四 method 完整 observation 覆盖矩阵
-- `opencode_result-6.19-codex-session.md` (Codex — A-Mem temporal fix + judge 并行 + judge 对齐)
-- `opencode_result-6.19-amem-session-time.md` (Codex)
-- `opencode_result-6.19.md`
-- `opencode_result-6.18.md`
-`opencode_result-6.19-codex-bugfix.md` — Codex 变更后 bug 诊断与修复（6 节格式 + 2 附录）
+- `archive/opencode_result-6.19-codex-session.md` (Codex — A-Mem temporal fix + judge 并行 + judge 对齐)
+- `archive/opencode_result-6.19-amem-session-time.md` (Codex)
+- `archive/opencode_result-6.19.md`
+- `archive/opencode_result-6.18.md`
+`archive/opencode_result-6.19-codex-bugfix.md` — Codex 变更后 bug 诊断与修复（6 节格式 + 2 附录）
 - 修复 1: `allow_smoke_worker_override` 四 method 统一
 - 修复 2: isolated worker `add()` efficiency scope
 - 附录 1: `--question-limit-per-conversation` smoke 下不生效（未修）
 - 附录 2: LightMem memory-build observer 不生效，根因 `executor.map` 不传播 ContextVar（未修，待审阅）
 
-`mem0-locomo-run-incidents.md` — Mem0 LoCoMo official-full v2/v3 两次运行事故完整记录
+`archive/mem0-locomo-run-incidents.md` — Mem0 LoCoMo official-full v2/v3 两次运行事故完整记录
 
-`session-2026-06-19-codex-bugfix/` — 同上，拆分版
+`archive/session-2026-06-19-codex-bugfix/` — 同上，拆分版
 
 ## 协作规则
 
