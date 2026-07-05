@@ -73,7 +73,7 @@ method 的调研知识从未以卡片形式沉淀，只散落在代码与旧 han
 - [x] mechanism-lightmem.md（含第 7 节；重点：offline update 的边界信号从哪来）
 - [x] mechanism-amem.md（含第 7 节；重点：session_time 传递与 keyword 生成）
 - [x] mechanism-memoryos.md（含第 7 节；重点：短中长期分层的写入触发时机）
-- [ ] mechanism-simplemem.md
+- [x] mechanism-simplemem.md
 - [ ] mechanism-langmem.md
 - [ ] mechanism-supermemory.md（含 memorybench 中 provider 实现的调用证据）
 - [ ] mechanism-memos.md
@@ -188,6 +188,199 @@ rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md
 
 ```bash
 git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
+git status --short -- pyproject.toml uv.lock .venv
+```
+
+实际输出：
+
+```text
+```
+
+### mechanism-simplemem.md
+
+完成时间：2026-07-05 20:59 CST
+
+官方 editable 隔离试装命令：
+
+```bash
+rm -rf /tmp/mech-simplemem && uv venv /tmp/mech-simplemem && uv pip install --python /tmp/mech-simplemem/bin/python -e third_party/methods/SimpleMem
+```
+
+实际输出：
+
+```text
+Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+Creating virtual environment at: /tmp/mech-simplemem
+Activate with: source /tmp/mech-simplemem/bin/activate
+Using Python 3.12.8 environment at: /private/tmp/mech-simplemem
+Resolved 83 packages in 3.89s
+   Building simplemem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/SimpleMem
+      Built simplemem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/SimpleMem
+Downloading open-clip-torch (1.5MiB)
+Downloading soundfile (1.1MiB)
+Downloading timm (2.5MiB)
+Downloading tantivy (7.9MiB)
+Downloading lancedb (50.2MiB)
+Downloading torchvision (1.8MiB)
+   Building llvmlite==0.36.0
+  × Failed to build `llvmlite==0.36.0`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_wheel` failed (exit
+      status: 1)
+
+      [stderr]
+      /Users/wz/.cache/uv/builds-v0/.tmpMobMVV/lib/python3.12/site-packages/setuptools/_vendor/wheel/bdist_wheel.py:4:
+      FutureWarning: The 'wheel' package is no longer the canonical location
+      of the 'bdist_wheel' command, and will be removed in a future release.
+      Please update to setuptools v70.1 or later which contains an integrated
+      version of this command.
+        warn(
+      Traceback (most recent call last):
+        File "<string>", line 14, in <module>
+        File
+      "/Users/wz/.cache/uv/builds-v0/.tmpMobMVV/lib/python3.12/site-packages/setuptools/build_meta.py",
+      line 333, in get_requires_for_build_wheel
+          return self._get_build_requires(config_settings, requirements=[])
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/Users/wz/.cache/uv/builds-v0/.tmpMobMVV/lib/python3.12/site-packages/setuptools/build_meta.py",
+      line 301, in _get_build_requires
+          self.run_setup()
+        File
+      "/Users/wz/.cache/uv/builds-v0/.tmpMobMVV/lib/python3.12/site-packages/setuptools/build_meta.py",
+      line 520, in run_setup
+          super().run_setup(setup_script=setup_script)
+        File
+      "/Users/wz/.cache/uv/builds-v0/.tmpMobMVV/lib/python3.12/site-packages/setuptools/build_meta.py",
+      line 317, in run_setup
+          exec(code, locals())
+        File "<string>", line 55, in <module>
+        File "<string>", line 52, in _guard_py_ver
+      RuntimeError: Cannot install on Python version 3.12.8; only versions
+      >=3.6,<3.10 are supported.
+
+      hint: This usually indicates a problem with the package or the build
+      environment.
+  help: `llvmlite` (v0.36.0) was included because `simplemem` (v0.3.0) depends
+        on `librosa` (v0.11.0) which depends on `numba` (v0.53.1) which
+        depends on `llvmlite`
+```
+
+text path 核心依赖隔离复核命令：
+
+```bash
+uv pip install --python /tmp/mech-simplemem/bin/python 'openai>=1.0.0' 'pydantic>=2.0.0' 'lancedb>=0.4.0' 'sentence-transformers>=2.2.0' 'numpy>=1.24.0' 'dateparser>=1.1.0' 'pyarrow>=12.0.0' 'tantivy>=0.20.0'
+uv pip install --python /tmp/mech-simplemem/bin/python --no-deps -e third_party/methods/SimpleMem
+```
+
+实际输出：
+
+```text
+Using Python 3.12.8 environment at: /private/tmp/mech-simplemem
+Resolved 60 packages in 13ms
+Downloading tantivy (7.9MiB)
+Downloading lancedb (50.2MiB)
+ Downloaded tantivy
+ Downloaded lancedb
+Prepared 2 packages in 9.32s
+Installed 60 packages in 739ms
+ + annotated-doc==0.0.4
+ + annotated-types==0.7.0
+ + anyio==4.14.1
+ + certifi==2026.6.17
+ + click==8.4.2
+ + dateparser==1.4.1
+ + deprecation==2.1.0
+ + distro==1.9.0
+ + filelock==3.29.5
+ + fsspec==2026.6.0
+ + h11==0.16.0
+ + hf-xet==1.5.1
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + huggingface-hub==1.22.0
+ + idna==3.18
+ + jinja2==3.1.6
+ + jiter==0.16.0
+ + joblib==1.5.3
+ + lance-namespace==0.9.0
+ + lance-namespace-urllib3-client==0.9.0
+ + lancedb==0.34.0
+ + markdown-it-py==4.2.0
+ + markupsafe==3.0.3
+ + mdurl==0.1.2
+ + mpmath==1.3.0
+ + narwhals==2.23.0
+ + networkx==3.6.1
+ + numpy==2.5.1
+ + openai==2.44.0
+ + packaging==26.2
+ + pyarrow==24.0.0
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + pygments==2.20.0
+ + python-dateutil==2.9.0.post0
+ + pytz==2026.2
+ + pyyaml==6.0.3
+ + regex==2026.6.28
+ + rich==15.0.0
+ + safetensors==0.8.0
+ + scikit-learn==1.9.0
+ + scipy==1.18.0
+ + sentence-transformers==5.6.0
+ + setuptools==81.0.0
+ + shellingham==1.5.4
+ + six==1.17.0
+ + sniffio==1.3.1
+ + sympy==1.14.0
+ + tantivy==0.26.0
+ + threadpoolctl==3.6.0
+ + tokenizers==0.22.2
+ + torch==2.12.1
+ + tqdm==4.68.3
+ + transformers==5.13.0
+ + typer==0.26.8
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.2
+ + tzlocal==5.4.4
+ + urllib3==2.7.0
+Using Python 3.12.8 environment at: /private/tmp/mech-simplemem
+Resolved 1 package in 521ms
+   Building simplemem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/SimpleMem
+      Built simplemem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/SimpleMem
+Prepared 1 package in 194ms
+Installed 1 package in 2ms
+ + simplemem==0.3.0 (from file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/SimpleMem)
+```
+
+结构验收命令：
+
+```bash
+rg -c '^## [1-6]\. ' docs/workstreams/ws02-phase1-matrix/audits/mechanism-simplemem.md
+```
+
+实际输出：
+
+```text
+6
+```
+
+源码证据计数命令：
+
+```bash
+rg -c '证据：`' docs/workstreams/ws02-phase1-matrix/audits/mechanism-simplemem.md
+```
+
+实际输出：
+
+```text
+33
+```
+
+格式与主环境依赖检查命令：
+
+```bash
+git diff --check -- docs/workstreams/ws02-phase1-matrix/audits/mechanism-simplemem.md docs/workstreams/ws02-phase1-matrix/plan-track-a2-method-mechanism.md
 git status --short -- pyproject.toml uv.lock .venv
 ```
 
