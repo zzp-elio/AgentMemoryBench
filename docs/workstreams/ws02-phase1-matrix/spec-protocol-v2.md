@@ -17,6 +17,11 @@ created: 2026-07-06
    benchmark（MemoryArena 类，调研卡片已建议独立 `agentic-memory-environment`
    task family），协议不能把"文本对话 QA"写死为唯一形态。
 3. 多种写入粒度并存（method 声明消费粒度、框架聚合投递）是候选方向之一。
+4. **（2026-07-06 新增）retrieve 侧双轨输出**：`retrieve()` 必须返回规范化
+   记忆 `formatted_memory`（unified 公平口径的唯一输入，框架统一 answer
+   prompt），并可选返回 `prompt_messages`（method-native 复现口径）。两种
+   口径的实验结果都进最终报告。`AnswerPromptResult` 将相应演进，
+   `metadata["answer_context"]` 是 formatted_memory 的雏形。
 
 以下原文保留作为候选方案 A 的完整论证；其中 §2 的用户决策（双视角不内建、
 显式隔离键、并发不变量）和 §3.3 的 R1-R3 行为规则**不受缓行影响，继续有效**——

@@ -131,6 +131,25 @@ created: 2026-07-05
 
 ## 决策记录
 
+- 2026-07-06 用户：answer 侧确立**双 prompt 口径**，是协议设计的核心输入：
+  (a) **method-native 口径**：保留各 method 论文原生 answer prompt（即当前
+  `prompt_messages` 路径）。用途 = 复现论文结果、论证框架正确性、官方对标。
+  (b) **unified 口径**：框架按 benchmark 设计统一 answer prompt（跨 method
+  统一、跨 benchmark 不必统一），method 只返回"有助于回答当前 query 的规范化
+  记忆"（formatted_memory，如 `<memory>...</memory>` 包裹）。用途 = 公平横向
+  比较——memory module 的本职是检索记忆，prompt 工程不应成为比较混杂变量。
+  最终实验报告**两种口径都展示**。协议含义：`retrieve()` 返回需同时承载
+  `formatted_memory`（必需）与 `prompt_messages`（native 口径需要时提供）；
+  现有 `metadata["answer_context"]` 是 formatted_memory 的雏形。
+- 2026-07-06 用户确认：框架必须支持自由调整已集成 method 的超参数与基座
+  LLM → **official / custom 双 profile**：official 锁死论文口径用于对标引用，
+  custom 用于受控探索；manifest 强制标注，artifact 永不混淆。
+- 2026-07-06 架构师评估"可复现工程是否过重"（用户提问）：核心机制保留——
+  公私数据边界、conversation 级 resume、failed 隔离、连续失败熔断、manifest
+  兼容校验，均有真实事故救场记录（Mem0 full-v2/v3 SSL 断连烧钱事故等）；
+  迁移期赘肉承认存在——turn-level resume 状态机（从未实际使用）、过重
+  capability 推理、部分 fingerprint 粒度，已在 ws03 记账清理。评判标准：
+  **机制没救过场且无前瞻用途即砍**。
 - 2026-07-05 用户：Phase 1 完成判据 = smoke 矩阵而非全量实验；全量需先
   拿成本表向导师申请预算；LongMemEval 全量 4 method 约 $500，超出当前预算。
 - 2026-07-05 用户：已有 LoCoMo full 结果在 5×10 架构完成后需用新 run_id 重跑。
