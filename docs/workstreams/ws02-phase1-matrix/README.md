@@ -22,10 +22,15 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-06（最新）：**接口能力双向矩阵已完成**（任务清单 Track 0 对应项），
-  15 张卡片交叉复核同步完成（Codex A2/B0 交付质量高，无需返工）。Track 0 只剩
-  最后一步：架构师依据矩阵 §4 结论清单写**最终协议 spec**（整合 add 粒度分层、
-  钩子、隔离键、RetrievalQuery、双口径/双 profile），交用户批准后恢复 Track B。
+- 2026-07-06（最新）：**最终协议 spec v3 已产出，待用户批准**：
+  [spec-protocol-v3.md](spec-protocol-v3.md)。整合了矩阵 §4 结论 + 用户全部
+  定案（三层数据模型、声明消费粒度、三层钩子、并置隔离 R5、RetrievalQuery、
+  检索输出三件套、双口径×双 profile、R1-R6、占位规范、M-A/B/C 迁移方案）。
+  §7 留三个决策点（unified prompt 来源 / MemBench prompt 口径 / BEAM scorer
+  口径）随批准一并裁定。**批准后：架构师写 M-A 实施 plan 交 Codex，
+  Track B/C 解冻。**
+- 2026-07-06（已完成）：接口能力双向矩阵完成（任务清单 Track 0 对应项），
+  15 张卡片交叉复核同步完成（Codex A2/B0 交付质量高，无需返工）。
 - 2026-07-05 23:35 CST（Codex）：Track B0 benchmark 调研卡片补全已完成并逐卡
   commit。新增 [LoCoMo.md](../../survey/benchmarks/LoCoMo.md)、
   [LongMemEval.md](../../survey/benchmarks/LongMemEval.md)；增补
@@ -138,6 +143,18 @@ created: 2026-07-05
 
 ## 决策记录
 
+- 2026-07-06 用户（定案轮）：
+  (a) **official profile 定义修正**：official 锚定 **method 论文**的超参数与
+  基座模型配置（非 benchmark 论文的 eval 配置）；method 论文自身跑了多组配置的
+  （如 LightMem），允许多个 official 变体（official-<variant> 命名）。
+  (b) **LoCoMo category 5（Adversarial）定案：不跑**——该类别 dataset 本身
+  疑似有问题；结果表按占位口径处理并脚注。
+  (c) **LoCoMo 图片口径定案**：不下载图片、不调视觉模型，`blip_caption`
+  直接拼进文本（`原文 (image description: ...)`），与 MemoryOS/A-Mem/LightMem
+  官方处理一致——作为 TurnEvent content 的标准构造规则。
+  (d) **HaluMem persona_info 定案：不给 method**。
+  (e) 检索副作用口径获用户认同（接受为官方行为 + 文档注明 + resume 不重检
+  已答问题）；服务型 method 并置规模压力留待 Track C 实测。
 - 2026-07-06 用户（矩阵讨论轮）：
   (a) **数据结构统一观**：五 benchmark 本质同构——隔离空间（conversation/
   sample/uuid）→ 多个带 time 的 session → 多个 turn；MemBench 第三人称只是
