@@ -12,24 +12,37 @@ method 接入统一 benchmark 的研究者。
 
 ## 当前状态
 
-当前主线只实现 **conversation + QA** task family：
+当前代码主线只实现 **conversation + QA** task family：
 
 ```text
 conversation history -> question -> answer-level score
 ```
 
-Phase 1 只跑纯文本闭环，先以 LoCoMo 打通各个 method，再接入 LongMemEval。多模态字段
-已在 core 中保留，但当前阶段不主动运行多模态 benchmark。
+Phase 1 只跑纯文本闭环。2026-07-04 已锁定第一阶段目标矩阵：
+5 个 benchmark、10 个 method，并尽可能覆盖更多质量与效率 metric。多模态字段已在
+core 中保留，但当前阶段不主动运行多模态 benchmark。
+
+2026-06-26 起，项目最高优先级临时切换为 benchmark landscape survey：先系统调研更多
+agent memory benchmark 的数据结构、评测流程、metric 和 method 接口需求，再决定是否
+调整当前协议，避免框架过拟合 LoCoMo / LongMemEval。调研入口见
+[docs/benchmark-survey/README.md](docs/benchmark-survey/README.md)；汇报讨论版横向简报见
+[docs/benchmark-survey/meeting-brief-5-benchmarks.md](docs/benchmark-survey/meeting-brief-5-benchmarks.md)
+（文件名沿用早期 5-benchmark 命名，内容已更新为 7 个 benchmark）。
 
 已接入或正在验证的范围：
 
 | 类型 | 当前状态 |
 | --- | --- |
-| Benchmark | LoCoMo、LongMemEval S/M |
-| Method | Mem0、MemoryOS、A-Mem、LightMem |
+| Phase 1 目标 Benchmark | LoCoMo、LongMemEval、HaluMem、BEAM、MemBench |
+| Phase 1 目标 Method | A-Mem、MemoryOS、MemOS、LightMem、SimpleMem、Mem0、Letta/MemGPT、Cognee、LangMem、Supermemory |
+| 已接入/验证中 Benchmark | LoCoMo、LongMemEval S/M |
+| 已接入/验证中 Method | Mem0、MemoryOS、A-Mem、LightMem |
 | 质量指标 | LoCoMo token F1、LoCoMo LLM judge、LongMemEval LLM judge |
 | 效率观测 | token、latency、model identity、memory context tokens 等原始 observation |
-| 暂缓 | HaluMem、MemBench、Mem-Gallery |
+| 已完成调研 | BEAM、MemoryAgentBench、MemoryBench、HaluMem、MemBench、PersonaMem、MemoryArena |
+| 暂缓接入 | Mem-Gallery，以及 landscape survey 中判定不适合 Phase 1 的 benchmark |
+| Supermemory 口径 | 纳入 Phase 1，但只按 self-host/local OSS 版本做 adapter feasibility，不默认使用 Enterprise/full platform 专有能力 |
+| Phase 1 排除 | Zep；Graphiti 也不作为替代，因为仍属于 Zep 体系 |
 | 已移除 | PrefEval，不恢复 adapter、测试、文档或原始仓库 |
 
 当前 Mem0 full 并发策略已调整：历史实现使用共享 OSS `Memory` 实例并保留过 LoCoMo

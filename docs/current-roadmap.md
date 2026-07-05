@@ -1,6 +1,6 @@
 # 当前动态路线图
 
-更新日期：2026-06-26
+更新日期：2026-07-04
 
 本文件只记录当前主线、完成状态和阶段依赖。每完成一个任务必须立即勾选并同步
 `AGENTS.md`；逐项 open/closed 状态和历史文档状态以 `docs/task-ledger.md` 为准。
@@ -20,6 +20,97 @@
 - [x] Mem0/MemoryOS source identity、immutable manifest 和 resume preflight。
 
 ## 当前主线
+
+### Phase S：Agent Memory Benchmark Landscape Survey（当前最高优先级）
+
+2026-06-26 用户明确要求先暂停当前工程推进，系统性调研更广泛的 agent memory
+benchmarks，防止框架过拟合 LoCoMo / LongMemEval。该阶段不写 adapter、不改核心协议、
+不扩大真实实验；先确认不同 benchmark 对 dataset 结构、评测流程、metric 和 method
+侧接口的真实需求。
+
+- [x] 确认方向变更：当前主线前置任务改为 benchmark landscape survey。
+- [x] 明确调研材料入口：用户优先收集论文 PDF、GitHub 源码和完整 dataset 到
+  `third_party/benchmarks/`。
+- [x] 明确单个 benchmark 的调研核心问题：如果一个全新的 memory method 想在该
+  benchmark 上测评，它最少必须实现什么输入/输出能力。
+- [x] 建立 benchmark intake 模板和调研卡片格式，要求重点记录 evaluation 使用到的
+  dataset 字段、public/private 边界、evaluation flow、metric、answer/judge prompt、
+  method interface、是否属于 conversation-QA、对当前框架的冲击和未确认项。
+- [x] 完成 BEAM 详细本地调研卡片：
+  `docs/benchmark-survey/BEAM.md`。结论：BEAM 属于 conversation probing-QA，可暂归入
+  当前 conversation-QA task family，但需要 rubric-nugget LLM judge、event-ordering
+  特殊 metric、大规模 conversation loader、HF 原始结构到官方 `chat.json` 中间结构的
+  转换，以及未来 streaming ingest 考量。
+- [x] 完成 MemoryAgentBench 详细本地调研卡片：
+  `docs/benchmark-survey/MemoryAgentBench.md`。结论：MemoryAgentBench 更偏
+  chunk-stream memory construction + multi-task QA/evaluation，不是单纯自然
+  session-turn conversation；它仍可临时映射到 `BaseMemoryProvider.add + retrieve`，
+  但 loader/runner 需要支持按 chunk 顺序增量写入，并新增 exact/subEM、Recall@5、
+  LongMemEval judge 和 summary judge 等多 metric family。
+- [x] 完成 MemoryBench 详细本地调研卡片：
+  `docs/benchmark-survey/MemoryBench.md`。结论：MemoryBench 是 feedback-driven
+  continual learning / memory adaptation benchmark，主流程先用 train split 的模拟
+  feedback dialogs 构建/更新 memory，再在 test split 上评测；它不是纯
+  conversation-QA，当前 `BaseMemoryProvider.add + retrieve` 只能覆盖 off-policy 子集。
+  完整接入需要新的 runner 支持 train-memory construction、static corpus injection、
+  stepwise/on-policy update、memory cache 和多 metric evaluator family。
+- [x] 完成 HaluMem 详细本地调研卡片：
+  `docs/benchmark-survey/HaluMem.md`。结论：HaluMem 是 uuid/user 级连续会话 +
+  operation-level memory hallucination diagnosis benchmark。QA 子任务可用
+  `retrieve + answer LLM`，但完整 benchmark 还需要 session-specific
+  `get_dialogue_memory` 支持 Memory Extraction，并用 gold updated memory 作为 query
+  做 Memory Updating；不能直接塞进普通 conversation-QA runner。
+- [x] 完成 MemBench 详细本地调研卡片：
+  `docs/benchmark-survey/MemBench.md`。结论：MemBench 是 message-stream /
+  conversation-stream + multiple-choice QA benchmark，当前 `add + retrieve` 可以覆盖
+  主流程，但必须新增/保留 `tid` 级隔离和 retrieved source step id provenance，才能计算
+  evidence recall；capacity 和 efficiency 是额外运行模式。
+- [x] 完成 PersonaMem 详细本地调研卡片：
+  `docs/benchmark-survey/PersonaMem.md`。结论：PersonaMem 是 persona-oriented
+  multi-session long-context multiple-choice QA benchmark。官方默认评测是把
+  `shared_context[:end_index]` 作为 OpenAI-style messages 直接喂给 long-context LLM，
+  不经过 memory method；若接入我们的 memory-module 框架，官方 profile 应按
+  `(benchmark_size, shared_context_id)` 隔离，并至少支持 OpenAI-style message 粒度的
+  incremental prefix ingest、system persona message 保留、multiple-choice answer reader
+  和 option accuracy scorer。
+  persona_id-only 合并多个 shared contexts 只能作为非官方 stress profile，且可能破坏
+  原始 `correct_answer` 标签语义。发布版没有 gold evidence turn id，不能自然计算
+  retrieval recall。
+- [x] 完成 MemoryArena 详细本地调研卡片：
+  `docs/benchmark-survey/MemoryArena.md`。结论：MemoryArena 是 multi-session
+  agentic memory benchmark，不是静态 conversation-QA。它围绕
+  Memory-Agent-Environment loop 评测 shopping、travel、progressive search 和 formal
+  reasoning 等 interdependent subtasks；method 侧最小能力更接近
+  `initialize + wrap_user_prompt + add(chunk)`，当前 `BaseMemoryProvider.add +
+  retrieve` 不足以完整覆盖。当前只调研不接入；后续若接入，应先设计新的
+  `agentic-memory-environment` task family。
+- [x] 更新面向汇报讨论的 7 benchmark 横向简报：
+  `docs/benchmark-survey/meeting-brief-5-benchmarks.md`。该文件名沿用早期
+  5-benchmark 命名，但标题和内容已覆盖 BEAM、MemoryAgentBench、MemoryBench、
+  HaluMem、MemBench、PersonaMem、MemoryArena，并补齐最终接口分层结论。
+- [x] 锁定 Phase 1 评测矩阵目标范围：5 benchmarks × 10 methods × 尽可能多的
+  metrics。Benchmark 固定为 LoCoMo、LongMemEval、HaluMem、BEAM、MemBench。
+  Method 固定为两组：学术/论文型 A-Mem、MemoryOS、MemOS、LightMem、SimpleMem；
+  工程/生产生态型 Mem0、Letta/MemGPT、Cognee、LangMem、Supermemory。Supermemory
+  保留在 Phase 1，但只按 self-host/local OSS 版本做可运行性、API 通用性和可插桩性
+  审计，不默认使用 Enterprise/full platform 专有能力。Zep 不进入 Phase 1；Graphiti
+  也不作为替代，因为仍属于 Zep 体系。
+- [x] 用户收集第一批候选 benchmark 原始材料。
+- [ ] Codex 基于本地材料继续逐个分析 benchmark，不直接相信论文摘要；必须交叉核对论文、
+  repo 评测脚本和 dataset 真实字段。
+- [ ] 围绕已锁定的 5 个 benchmark，整理 adapter feasibility、dataset/resource
+  readiness、metric coverage 和 public/private 字段边界，明确每个 benchmark 第一版
+  接入需要新增哪些 runner/evaluator 能力。
+- [ ] 围绕已锁定的 10 个 method，整理开源状态、官方实验 benchmark、可本地运行方式、
+  internal LLM/embedding 配置、可插桩性和与 5 个 benchmark 的兼容风险；其中
+  Supermemory 必须单独确认 local OSS API 是否足够覆盖 Phase 1 benchmark 的写入、
+  检索、provenance 和效率观测需求。
+- [ ] 汇总 Phase 1 task-family taxonomy，判断哪些可沿用当前 conversation-QA /
+  retrieve-first 路径，哪些需要新的 runner 或额外接口；再决定是否调整当前
+  `BaseMemoryProvider` 架构并恢复代码实现。
+
+当前阶段的判断标准：调研输出必须能回答“该 benchmark 需要 method 侧提供哪些能力”，
+而不仅是“这个 benchmark 怎么运行”。
 
 ### Phase E：项目结构和数据入口清理
 
