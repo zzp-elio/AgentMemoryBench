@@ -24,6 +24,7 @@ tmp/
 .idea/
 .vscode/
 .claude/
+**/.obsidian/
 *.swp
 *.swo
 
@@ -41,6 +42,12 @@ logs/
 third_party/benchmarks/
 
 # Keep vendored method source code, but never include nested Git metadata or generated caches.
+third_party/methods/MemOS/
+third_party/methods/SimpleMem/
+third_party/methods/cognee/
+third_party/methods/langmem/
+third_party/methods/letta/
+third_party/methods/supermemory/
 third_party/methods/**/.git/
 third_party/methods/**/.github/
 third_party/methods/**/__pycache__/
