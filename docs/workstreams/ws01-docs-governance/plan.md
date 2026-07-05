@@ -229,26 +229,69 @@ $ uv run pytest -q
 
 ### T7 归档过程文档（commit 7）
 
-- [ ] 建目录：`docs/archive/{specs,plans,handoffs,opencode-suggestions,logs,status,reference}`
-- [ ] `git mv docs/handoffs/*.md docs/archive/handoffs/`（60 份，全部）
-- [ ] `git mv docs/superpowers/plans/*.md docs/archive/plans/`（22 份，全部）
-- [ ] `git mv docs/superpowers/specs/*.md docs/archive/specs/`，**除以下 2 份**：
+**架构师勘误（2026-07-05，Claude）**：plan 初稿中的 60/22/24 是盘点时的目测估数，
+未经命令清点，属架构师失误；Codex T7 预检数字正确。经复核，正确数量为：
+handoffs = **72**、plans = **21**、specs = **23**（其中 2 份留用 ws03，归档 21）、
+opencode-suggestions = 3。下方步骤与验收数字已按此修正。通用原则：迁移类验收
+以"源目录清空 + 目标目录数量等于迁移前 `ls | wc -l` 实测值"为准，plan 中的
+绝对数字仅作参考，与实测冲突时以实测为准并在 task 下追记。
+
+- [x] 建目录：`docs/archive/{specs,plans,handoffs,opencode-suggestions,logs,status,reference}`
+- [x] `git mv docs/handoffs/*.md docs/archive/handoffs/`（72 份，全部）
+- [x] `git mv docs/superpowers/plans/*.md docs/archive/plans/`（21 份，全部）
+- [x] `git mv docs/superpowers/specs/*.md docs/archive/specs/`，**除以下 2 份**：
   - `2026-06-21-registry-capability-simplification-design.md`
   - `2026-06-21-llm-provider-config-design.md`
   这 2 份 `git mv` 到新建的 `docs/workstreams/ws03-architecture-slimming/`
   （对应任务仍 open，M3 会为 ws03 补 README）。
-- [ ] `git mv docs/opencode-suggestions/* docs/archive/opencode-suggestions/`
-- [ ] `git mv docs/logs/README.md docs/archive/logs/README.md`
-- [ ] `git mv docs/method-interface.md docs/archive/reference/method-interface.md`
+- [x] `git mv docs/opencode-suggestions/* docs/archive/opencode-suggestions/`
+- [x] `git mv docs/logs/README.md docs/archive/logs/README.md`
+- [x] `git mv docs/method-interface.md docs/archive/reference/method-interface.md`
   （内容描述旧 BaseMemorySystem 协议，已被 retrieve-first 取代；现行事实源是
   method-interface-inventory.md）
-- [ ] 删除空目录 `docs/superpowers/ docs/handoffs/ docs/opencode-suggestions/ docs/logs/`
-- [ ] 新建 `docs/archive/README.md`（≤15 行）：说明本目录为只读历史档案，
+- [x] 删除空目录 `docs/superpowers/ docs/handoffs/ docs/opencode-suggestions/ docs/logs/`
+- [x] 新建 `docs/archive/README.md`（≤15 行）：说明本目录为只读历史档案，
   文内相对链接可能失效，状态裁定以各 workstream README 为准。
-- [ ] 提交 → `docs: archive completed specs, plans and handoffs`
+- [x] 提交 → `docs: archive completed specs, plans and handoffs`
 - 验收：`ls docs/handoffs docs/superpowers 2>&1` 均报 No such file；
-  `ls docs/archive/handoffs | wc -l` = 60；`ls docs/archive/plans | wc -l` = 22；
-  `ls docs/archive/specs | wc -l` = 22（24 - 2 份留用）。
+  `ls docs/archive/handoffs | wc -l` = 72；`ls docs/archive/plans | wc -l` = 21；
+  `ls docs/archive/specs | wc -l` = 21（23 − 2 份留用）；
+  `ls docs/archive/opencode-suggestions | wc -l` = 3。
+
+T7 实际输出（2026-07-05，Codex）：
+
+```text
+$ printf 'handoffs '; ls docs/handoffs/*.md | wc -l
+handoffs       72
+$ printf 'plans '; ls docs/superpowers/plans/*.md | wc -l
+plans       21
+$ printf 'specs '; ls docs/superpowers/specs/*.md | wc -l
+specs       23
+$ printf 'opencode-suggestions '; find docs/opencode-suggestions -mindepth 1 -maxdepth 1 | wc -l
+opencode-suggestions        3
+
+$ git mv docs/logs/README.md docs/archive/logs/README.md
+fatal: not under version control, source=docs/logs/README.md, destination=docs/archive/logs/README.md
+
+$ mv docs/logs/README.md docs/archive/logs/README.md
+
+$ ls docs/handoffs docs/superpowers 2>&1 || true
+ls: docs/handoffs: No such file or directory
+ls: docs/superpowers: No such file or directory
+
+$ printf 'handoffs '; ls docs/archive/handoffs | wc -l
+handoffs       72
+$ printf 'plans '; ls docs/archive/plans | wc -l
+plans       21
+$ printf 'specs '; ls docs/archive/specs | wc -l
+specs       21
+$ printf 'opencode-suggestions '; ls docs/archive/opencode-suggestions | wc -l
+opencode-suggestions        3
+$ printf 'archive-readme-lines '; wc -l < docs/archive/README.md
+archive-readme-lines        9
+$ printf 'ws03 '; ls docs/workstreams/ws03-architecture-slimming | wc -l
+ws03        2
+```
 
 ### T8 reference 与 survey 分区（commit 8）
 
