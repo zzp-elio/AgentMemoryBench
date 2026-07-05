@@ -22,6 +22,10 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-06：Track 0 第一步完成——五框架对比卡片已产出（见任务清单第 1 条），
+  v2 协议草案在卡片 §4，含三个待用户讨论的问题（双视角写入、显式隔离键、
+  并发声明位置）。下一步：用户对 §4 草案和三个问题表态后，架构师写正式协议
+  重评估 spec（含 4 个现有 adapter 迁移影响面）。Track A 仍可随时开工。
 - 2026-07-05 晚：用户叫停 Track B 动工——**先完成 Track 0 协议重评估，再写任何
   adapter 代码**。担忧：当前 `BaseMemoryProvider.add(conversation)` 等核心协议
   是基于 LoCoMo+LongMemEval+4 method 写出来的，可能过拟合；候选方向如
@@ -33,12 +37,13 @@ created: 2026-07-05
 
 ### Track 0：集成框架调研与核心协议重评估（前置，阻塞 Track B/C 编码）
 
-- [ ] 调研 `第三方框架参考/` 下 5 个集成框架的 method 接口设计、ingest 粒度、
-  benchmark 组织方式和第三方代码引入方式（全仓 vendor vs 裁剪/pip）：
-  EverOS（评测框架藏在
-  `第三方框架参考/EverOS-29d555c6e94de3630f314c1f594fc1801377ff5a/methods/EverCore/evaluation`）、
-  MemEval、MemoryData、agent-memory-benchmark、memorybench；另有
-  `EVALUATION_ARCHITECTURE.md` 和 supermemoryai 两份笔记。产出对比卡片。
+- [x] 调研 5 个集成框架的接口设计（2026-07-06，Claude 源码实读）：产出
+  [track0-framework-comparison.md](track0-framework-comparison.md)。核心发现：
+  五框架全部由框架层拆小单元喂 method（chunk/message/document 级），
+  无一个直接传整段 Conversation；边界钩子（finalize/awaitIndexing）普遍存在；
+  用户的过拟合担忧被证实。卡片 §4 已给出 v2 协议草案（add_turn + 分层钩子 +
+  保留 prompt_messages 长板）。附带收获：MemoryData 已集成我们全部 10 个
+  method，是 Track A 审计的第一参考；memorybench 是 Supermemory 官方评测框架。
 - [ ] 结合 5 benchmark 调研卡片 + 框架对比，重评估核心协议。关键判据：
   ingest 粒度（turn / session / conversation / chunk-stream 哪个是最大公约数）、
   adapter 负担、method 原生批量操作（如 LightMem offline update 需要
