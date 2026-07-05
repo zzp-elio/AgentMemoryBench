@@ -22,6 +22,10 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-06（最新）：**接口能力双向矩阵已完成**（任务清单 Track 0 对应项），
+  15 张卡片交叉复核同步完成（Codex A2/B0 交付质量高，无需返工）。Track 0 只剩
+  最后一步：架构师依据矩阵 §4 结论清单写**最终协议 spec**（整合 add 粒度分层、
+  钩子、隔离键、RetrievalQuery、双口径/双 profile），交用户批准后恢复 Track B。
 - 2026-07-05 23:35 CST（Codex）：Track B0 benchmark 调研卡片补全已完成并逐卡
   commit。新增 [LoCoMo.md](../../survey/benchmarks/LoCoMo.md)、
   [LongMemEval.md](../../survey/benchmarks/LongMemEval.md)；增补
@@ -92,10 +96,13 @@ created: 2026-07-05
   [plan-track-b0-benchmark-cards.md](plan-track-b0-benchmark-cards.md)）：
   LoCoMo、LongMemEval 新做卡片；HaluMem/BEAM/MemBench 增补"原生粒度 +
   成本画像"两节。背景：已接入的 2 benchmark 调研知识从未卡片化。
-- [ ] 架构师产出**粒度需求双向矩阵**：5 benchmark 的数据自然粒度与喂入方式
-  （从 7 张调研卡片萃取）× 10 method 的原生 ingest 形态（4 张 interface
-  inventory + 6 张机制卡片）；矩阵完成后重开最终协议设计（候选：单粒度、
-  add_session、多粒度并存 + 中间层聚合）。
+- [x] 架构师产出**接口能力双向矩阵**（2026-07-06）：
+  [track0-interface-capability-matrix.md](track0-interface-capability-matrix.md)。
+  六个决定性发现：细粒度事件流为 canonical（方向确认）；多粒度并存 = method
+  声明消费粒度 + 框架聚合（用户猜想被证实）；end_session 必须能交回新增记忆
+  （HaluMem 要求）；隔离单位有三种、不能硬编码 conversation；retrieve 输入
+  泛化为 RetrievalQuery、输出三件套（formatted_memory/prompt_messages/items）；
+  检索非只读（MemoryOS heat）。§4 是最终协议 spec 的结论清单。
 - [ ] 最终协议 spec（含中间层设计、多模态与 agentic task family 扩展性论证），
   用户批准后才恢复 Track B。
 - [ ] 顺带评估 third_party 全仓 vendor 是否改为裁剪式引入（参考框架做法）。
