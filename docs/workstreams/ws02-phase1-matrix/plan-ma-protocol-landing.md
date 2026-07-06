@@ -175,13 +175,54 @@ fallback 链的末端改为**非空 sentinel 常量**，不用空串：
 
 ## T5 MockMemoryProvider v3 与端到端离线验证
 
-- [ ] 四种粒度各一个 mock provider（可参数化同一个类），覆盖：声明
+- [x] 四种粒度各一个 mock provider（可参数化同一个类），覆盖：声明
   `session_memory_report=True` 并真实返回、`provenance_granularity="turn"`
   并在 items 回报 source_turn_ids。
-- [ ] 端到端 fake smoke：mock v3 provider 走完整 registered prediction →
+- [x] 端到端 fake smoke：mock v3 provider 走完整 registered prediction →
   evaluation 链路，验证新 artifact 字段与占位规范。
 - 验收：新增测试全绿；`uv run pytest -q` **≥709 passed**（新增测试只增不减）；
   `uv run python -m compileall -q src/memory_benchmark tests` exit 0。
+
+  验收输出（2026-07-06，T5）：
+
+  ```bash
+  $ uv run pytest tests/test_prediction_runner.py -q
+  ...................................................................      [100%]
+  67 passed in 1.24s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_artifact_evaluation_runner.py -q
+  ....................                                                     [100%]
+  20 passed in 2.39s
+  ```
+
+  ```bash
+  $ uv run pytest -q
+  ........................................................................ [  9%]
+  ........................................................................ [ 19%]
+  ........................................................................ [ 28%]
+  .................................................................... [ 37%]
+  ................................................................. [ 47%]
+  ........................................................................ [ 56%]
+  ...................................................................... [ 65%]
+  ........................................................................ [ 75%]
+  ........................................................................ [ 84%]
+  ........................................................................ [ 94%]
+  ..........................................                               [100%]
+  756 passed, 3 deselected, 2 warnings, 6 subtests passed in 87.47s (0:01:27)
+  ```
+
+  ```bash
+  $ uv run python -m compileall -q src/memory_benchmark tests
+  # 无输出，exit 0
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_documentation_standards.py -q
+  .....                                                                    [100%]
+  5 passed in 0.45s
+  ```
 
 ## T6 收尾
 

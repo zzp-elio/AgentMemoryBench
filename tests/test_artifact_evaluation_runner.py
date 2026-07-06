@@ -21,21 +21,26 @@ from memory_benchmark.core import (
     BaseMemorySystem,
     ConfigurationError,
     Conversation,
+    Dataset,
     GoldAnswerInfo,
     MetricResult,
     MethodCapability,
     Question,
     AnswerPromptResult,
+    Session,
     TaskFamily,
+    Turn,
 )
 from memory_benchmark.methods.registry import MethodBuildContext
 from memory_benchmark.benchmark_adapters import (
     BenchmarkLoadRequest,
+    PreparedBenchmarkRun,
     RunScope,
     get_benchmark_registration,
 )
 from memory_benchmark.cli.run_prediction import PredictionBatchResult
 from memory_benchmark.evaluators import LoCoMoF1Evaluator
+from memory_benchmark.methods.mock import MockMemoryProvider
 from memory_benchmark.runners.evaluation import run_artifact_evaluation
 from memory_benchmark.storage import (
     ExperimentPaths,
@@ -402,6 +407,161 @@ def test_new_memoryos_prediction_can_be_scored_by_existing_locomo_f1(
     assert summary_payload["mean_score"] == 1.0
     assert summary_payload["score_path"] == str(score_path.resolve())
     assert summary_payload["summary_path"] == str(summary_path.resolve())
+
+
+def test_registered_mock_v3_prediction_can_be_evaluated_offline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """v3 mock provider 应能走 registered prediction 并接 artifact evaluation。"""
+
+    question = Question(
+        question_id="conv-1:q1",
+        conversation_id="conv-1",
+        text="What does Alice like?",
+        category="2",
+    )
+    conversation = Conversation(
+        conversation_id="conv-1",
+        sessions=[
+            Session(
+                session_id="conv-1:s1",
+                turns=[Turn("conv-1:t1", "Alice", "Alice likes tea.")],
+            )
+        ],
+        questions=[question],
+        gold_answers={
+            "conv-1:q1": GoldAnswerInfo(
+                question_id="conv-1:q1",
+                answer="tea",
+            )
+        },
+    )
+    prepared = PreparedBenchmarkRun(
+        variant="tiny",
+        run_scope=RunScope.SMOKE,
+        dataset=Dataset(dataset_name="locomo", conversations=[conversation]),
+        source_relative_paths=(),
+    )
+
+    class _FakeProfile:
+        """最小 mock-v3 profile。"""
+
+        profile_name = "smoke"
+
+        def to_manifest(self) -> dict[str, object]:
+            """返回公开 profile manifest。"""
+
+            return {"profile_name": "smoke"}
+
+    class _FakeOpenAIAnswerClient:
+        """离线 answer reader client。"""
+
+        model_name = "offline-answer"
+
+        def __init__(self, *, settings: OpenAISettings, answer_settings=None) -> None:
+            """校验不会触发真实网络 client。"""
+
+            assert settings.api_key == "sk-test"
+
+        def complete(self, *, prompt: str) -> str:
+            """返回可被 LoCoMo F1 判满分的答案。"""
+
+            assert "mock tea memory" in prompt
+            return "tea"
+
+    fake_benchmark_registration = SimpleNamespace(
+        name="locomo",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.MEMORY_RETRIEVAL,
+            }
+        ),
+        default_variant="tiny",
+        variant_names=lambda: ("tiny",),
+        prepare=lambda project_root, request: prepared,
+        prediction_enabled=True,
+    )
+    fake_method_registration = SimpleNamespace(
+        name="mock-v3",
+        task_families=frozenset({TaskFamily.CONVERSATION_QA}),
+        provided_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.MEMORY_RETRIEVAL,
+            }
+        ),
+        requires_api=False,
+        allow_smoke_worker_override=True,
+        display_name="MockV3",
+        source_identity_factory=lambda path_settings: {"source": "mock-v3"},
+        max_workers_getter=lambda config: 1,
+        model_name_getter=lambda config: "mock-v3",
+        resolve_profile_section=lambda profile_name: profile_name,
+        system_factory=lambda context: MockMemoryProvider(
+            consume_granularity="turn",
+            context_by_question_id={"conv-1:q1": "mock tea memory"},
+        ),
+        workload_estimator=None,
+    )
+
+    monkeypatch.setattr(
+        run_prediction_module,
+        "get_benchmark_registration",
+        lambda name: fake_benchmark_registration,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "get_method_registration",
+        lambda name: fake_method_registration,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "load_method_profile",
+        lambda **kwargs: _FakeProfile(),
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "load_openai_settings",
+        lambda project_root: OpenAISettings(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            model="gpt-4o-mini",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "OpenAICompatibleAnswerLLMClient",
+        _FakeOpenAIAnswerClient,
+        raising=False,
+    )
+
+    batch_result = run_prediction_module.run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name="mock-v3",
+        benchmark_name="locomo",
+        profile_name="smoke",
+        variant="tiny",
+        run_id="mock-v3-e2e",
+        confirm_api=False,
+        enable_efficiency_observability=False,
+        progress_enabled=False,
+    )
+    run_dir = tmp_path / "outputs" / batch_result.runs[0].run_id
+    evaluation = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=LoCoMoF1Evaluator(),
+        expected_benchmark="locomo",
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    retrievals = read_jsonl(run_dir / "artifacts" / "answer_prompts.prediction.jsonl")
+    assert manifest["method"]["protocol_version"] == "v3"
+    assert retrievals[0]["retrieved_items"]
+    assert evaluation.mean_score == 1.0
 
 
 def test_schema_v1_prediction_manifest_remains_evaluable(

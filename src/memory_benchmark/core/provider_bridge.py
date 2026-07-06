@@ -6,7 +6,7 @@ import logging
 from dataclasses import is_dataclass, asdict
 from typing import Any
 
-from memory_benchmark.core.entities import Conversation, Question, Session, Turn
+from memory_benchmark.core.entities import Conversation, ImageRef, Session, Turn
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemoryProvider
 from memory_benchmark.core.provider_protocol import (
@@ -108,17 +108,21 @@ def _conversation_from_batch(batch: ConversationBatch) -> Conversation:
                 speaker=event.speaker_name or event.role,
                 content=event.content,
                 normalized_role=event.role,
-                turn_time=event.timestamp,
-                metadata=dict(event.metadata),
+                turn_time=_optional_text(event.metadata.get("original_turn_time")),
+                images=_images_from_event(event.metadata),
+                metadata=dict(event.metadata.get("turn_metadata") or {}),
             )
             for event in session_batch.events
         ]
+        session_metadata = dict(session_batch.metadata)
         sessions.append(
             Session(
                 session_id=session_batch.session_id or "",
                 turns=turns,
                 session_time=session_batch.session_time,
-                metadata=dict(session_batch.metadata),
+                start_time=_optional_text(session_metadata.pop("session_start_time", None)),
+                end_time=_optional_text(session_metadata.pop("session_end_time", None)),
+                metadata=session_metadata,
             )
         )
     return Conversation(
@@ -191,6 +195,33 @@ def _memory_content(item: Any) -> str | None:
     if isinstance(content, str) and content.strip():
         return content.strip()
     return None
+
+
+def _images_from_event(metadata: dict[str, Any]) -> list[ImageRef]:
+    """从事件 metadata 中恢复公开图片引用。"""
+
+    raw_images = metadata.get("turn_images")
+    if not isinstance(raw_images, list):
+        return []
+    images: list[ImageRef] = []
+    for raw_image in raw_images:
+        if not isinstance(raw_image, dict):
+            continue
+        images.append(
+            ImageRef(
+                image_id=_optional_text(raw_image.get("image_id")),
+                path=_optional_text(raw_image.get("path")),
+                caption=_optional_text(raw_image.get("caption")),
+                metadata=dict(raw_image.get("metadata") or {}),
+            )
+        )
+    return images
+
+
+def _optional_text(value: Any) -> str | None:
+    """把可选公开文本值规范为 str | None。"""
+
+    return value if isinstance(value, str) else None
 
 
 __all__ = ["LegacyProviderBridge"]

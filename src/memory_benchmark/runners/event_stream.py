@@ -45,8 +45,15 @@ def build_turn_events(
                 metadata={
                     "conversation_id": conversation.conversation_id,
                     "session_index": session_index,
+                    "original_session_time": session.session_time,
+                    "session_metadata": dict(session.metadata),
+                    "session_start_time": session.start_time,
+                    "session_end_time": session.end_time,
                     "turn_index": turn_index,
                     "original_turn_id": turn.turn_id,
+                    "original_turn_time": turn.turn_time,
+                    "turn_metadata": dict(turn.metadata),
+                    "turn_images": [image.to_dict() for image in turn.images],
                 },
             )
 
@@ -193,13 +200,32 @@ def _session_ref(events: tuple[TurnEvent, ...]) -> SessionRef:
 def _session_batch(events: tuple[TurnEvent, ...]) -> SessionBatch:
     """从同一 session 的事件生成 SessionBatch。"""
 
-    session_time = events[0].timestamp
+    original_session_time = events[0].metadata.get("original_session_time")
+    session_time = (
+        original_session_time if isinstance(original_session_time, str) else events[0].timestamp
+    )
+    metadata = _session_metadata(events[0])
     return SessionBatch(
         isolation_key=events[0].isolation_key,
         session_id=events[0].session_id,
         events=events,
         session_time=session_time,
+        metadata=metadata,
     )
+
+
+def _session_metadata(event: TurnEvent) -> dict[str, object]:
+    """从事件 metadata 中恢复 session 级公开 metadata。"""
+
+    metadata: dict[str, object] = {}
+    session_metadata = event.metadata.get("session_metadata")
+    if isinstance(session_metadata, dict):
+        metadata.update(session_metadata)
+    if event.metadata.get("session_start_time") is not None:
+        metadata["session_start_time"] = event.metadata["session_start_time"]
+    if event.metadata.get("session_end_time") is not None:
+        metadata["session_end_time"] = event.metadata["session_end_time"]
+    return metadata
 
 
 __all__ = [

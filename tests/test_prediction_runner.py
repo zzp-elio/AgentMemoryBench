@@ -1202,12 +1202,56 @@ def test_shared_mock_provider_uses_framework_reader(tmp_path: Path) -> None:
         "framework mock answer",
         "framework mock answer",
     ]
-    assert retrievals[0]["answer_prompt"] == "conv-1 custom memory"
+    assert retrievals[0]["formatted_memory"] == "conv-1 custom memory"
     assert retrievals[0]["prompt_messages"] == [
         {"role": "user", "content": "conv-1 custom memory"}
     ]
-    assert retrievals[1]["answer_prompt"] == "mock-context-for:conv-2:q1"
+    assert retrievals[1]["formatted_memory"] == "mock-context-for:conv-2:q1"
     assert "conv-1 custom memory" in answer_client.calls[0]["prompt"]
+
+
+@pytest.mark.parametrize("granularity", ["turn", "pair", "session", "conversation"])
+def test_mock_memory_provider_runs_as_native_v3_for_each_granularity(
+    tmp_path: Path,
+    granularity: str,
+) -> None:
+    """MockMemoryProvider 应支持四种 v3 consume granularity。"""
+
+    dataset = _build_dataset()
+    provider = MockMemoryProvider(
+        consume_granularity=granularity,
+        context_by_question_id={"conv-1:q1": "conv-1 mock memory"},
+    )
+    reader = FrameworkAnswerReader(client=FakeAnswerLLMClient(answer="mock answer"))
+    context = _create_context(tmp_path)
+
+    summary = run_predictions(
+        dataset=dataset,
+        system=provider,
+        run_context=context,
+        policy=PredictionRunPolicy(max_workers=1),
+        answer_reader=reader,
+        method_manifest={"adapter": f"mock-v3-{granularity}"},
+        benchmark_variant="test_variant",
+        run_scope=RunScope.FULL,
+    )
+
+    manifest = json.loads((context.run_dir / "manifest.json").read_text())
+    retrievals = read_jsonl(
+        context.artifacts_dir / "answer_prompts.prediction.jsonl"
+    )
+    session_reports = read_jsonl(
+        context.artifacts_dir / "session_memory_reports.jsonl"
+    )
+
+    assert summary.completed_questions == 2
+    assert provider.added_conversation_ids == ["conv-1", "conv-2"]
+    assert manifest["method"]["protocol_version"] == "v3"
+    assert manifest["method"]["prompt_track"] == "native"
+    assert retrievals[0]["formatted_memory"] == "conv-1 mock memory"
+    assert retrievals[0]["retrieved_items"][0]["source_turn_ids"]
+    assert session_reports
+    assert session_reports[0]["memories"]
 
 
 def test_isolated_retrieve_first_worker_persists_answer_prompt_artifact(
