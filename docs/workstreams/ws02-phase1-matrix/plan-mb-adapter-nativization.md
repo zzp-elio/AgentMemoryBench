@@ -311,14 +311,63 @@ consume_granularity 实例级特化）、M-A 验收记录
 
 ## T5 MemoryOS 原生化
 
-- [ ] 粒度：`session`。`ingest(SessionBatch)` → 现有
+- [x] 粒度：`session`。`ingest(SessionBatch)` → 现有
   `conversation_to_memory_pages()` 的 speaker 配对逻辑按 session 迁移
   （speaker_a→user_input、speaker_b→agent_response，含连续同 speaker 处理），
   逐页 `add_qa_pair()` + 满载迁移 + 热度检查；页时间戳继承 session_time。
-- [ ] `end_conversation`：无额外收尾（状态已随写入落盘）；确认 no-op 正确。
-- [ ] 等价测试断言：pages 序列（user_input/agent_response/timestamp）与桥接
+- [x] `end_conversation`：无额外收尾（状态已随写入落盘）；确认 no-op 正确。
+- [x] 等价测试断言：pages 序列（user_input/agent_response/timestamp）与桥接
   路径一致，含连续同 speaker 语料。
 - 验收：`tests/test_memoryos_adapter.py` + 等价测试 + registered fake smoke 全绿。
+
+  验收输出（2026-07-06，T5）：
+
+  ```bash
+  $ uv run pytest tests/test_memoryos_adapter.py::test_native_memoryos_session_ingest_matches_bridge_pages tests/test_memoryos_adapter.py::test_native_memoryos_preserves_consecutive_speaker_page_sequence tests/test_memoryos_adapter.py::test_memoryos_registry_builds_native_v3_provider -q
+  ...                                                                      [100%]
+  3 passed in 5.01s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_memoryos_adapter.py -q
+  ...................................................................... [ 50%]
+  ....................................................................     [100%]
+  138 passed, 2 subtests passed in 8.17s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_event_stream.py tests/test_legacy_provider_bridge.py tests/test_equivalence_utils.py -q
+  ......................                                                   [100%]
+  22 passed in 0.08s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_prediction_runner.py::test_runner_ingests_native_v3_provider_with_event_stream_and_reports tests/test_prediction_runner.py::test_isolated_worker_ingests_native_v3_provider_with_event_stream tests/test_prediction_cli.py::test_registered_prediction_builds_system_from_registry_context -q
+  ...                                                                      [100%]
+  3 passed in 0.43s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_documentation_standards.py -q
+  .....                                                                    [100%]
+  5 passed in 0.55s
+  ```
+
+  ```bash
+  $ uv run pytest -q
+  ........................................................................ [  9%]
+  ........................................................................ [ 18%]
+  ........................................................................ [ 28%]
+  .................................................................... [ 36%]
+  ........................................................................ [ 46%]
+  ........................................................................ [ 55%]
+  ...................................................................... [ 64%]
+  ........................................................................ [ 73%]
+  ........................................................................ [ 83%]
+  ........................................................................ [ 92%]
+  .........................................................                [100%]
+  771 passed, 3 deselected, 2 warnings, 6 subtests passed in 105.47s (0:01:45)
+  ```
 
 ## T6 收尾
 

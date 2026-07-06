@@ -36,12 +36,25 @@ from memory_benchmark.core import (
     AddResult,
     AnswerResult,
     Conversation,
+    ImageRef,
     Question,
     AnswerPromptResult,
     PromptMessage,
+    Session,
+    Turn,
 )
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySystem
+from memory_benchmark.core.provider_protocol import (
+    ConsumeGranularity,
+    IngestResult,
+    IngestUnit,
+    MemoryProvider,
+    RetrievalQuery,
+    RetrievalResult,
+    SessionBatch,
+    TurnEvent,
+)
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
@@ -509,8 +522,11 @@ class _MemoryOSEvalModules:
     main_loco_parse: ModuleType
 
 
-class MemoryOS(BaseMemoryProvider, BaseMemorySystem):
+class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     """MemoryOS 的 conversation-QA v2 method wrapper。"""
+
+    consume_granularity: ConsumeGranularity = "session"
+    provenance_granularity = "none"
 
     def __init__(
         self,
@@ -575,6 +591,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem):
         self._embedding_model: Any | None = None
         self._patch_eval_modules()
         self._states: dict[str, MemoryOSConversationState] = {}
+        self._native_isolation_to_conversation_id: dict[str, str] = {}
 
     def add(self, conversations: Conversation | list[Conversation]) -> AddResult:
         """写入一个或多个 conversation。
@@ -617,8 +634,115 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem):
             },
         )
 
-    def retrieve(self, question: Question) -> AnswerPromptResult:
+    def ingest(self, unit: IngestUnit) -> IngestResult:
+        """按 v3 协议写入一个 session batch。"""
+
+        if not isinstance(unit, SessionBatch):
+            raise ConfigurationError("MemoryOS native provider only accepts SessionBatch")
+        conversation = self._conversation_from_session_batch(unit)
+        conversation_id = conversation.conversation_id
+        self._native_isolation_to_conversation_id[unit.isolation_key] = conversation_id
+        state = self._states.get(conversation_id)
+        if state is None:
+            state = self._create_state(conversation)
+            self._states[conversation_id] = state
+        pages = self.conversation_to_memory_pages(conversation)
+        with self._official_stdout_context():
+            for page in pages:
+                state.short_memory.add_qa_pair(dict(page))
+                if state.short_memory.is_full():
+                    state.dynamic_updater.bulk_evict_and_update_mid_term()
+                self._update_user_profile_if_needed(state)
+        return IngestResult()
+
+    @staticmethod
+    def _conversation_from_session_batch(batch: SessionBatch) -> Conversation:
+        """从 v3 SessionBatch 恢复旧 helper 需要的公开 conversation。"""
+
+        first_event = batch.events[0] if batch.events else None
+        if first_event is None:
+            raise ConfigurationError("MemoryOS SessionBatch has no events")
+        metadata = dict(first_event.metadata.get("conversation_metadata") or {})
+        conversation_id = MemoryOS._conversation_id_from_event(first_event)
+        metadata["conversation_id"] = conversation_id
+        return Conversation(
+            conversation_id=conversation_id,
+            sessions=[
+                Session(
+                    session_id=batch.session_id or "",
+                    session_time=batch.session_time,
+                    metadata=dict(batch.metadata),
+                    turns=[MemoryOS._turn_from_event(event) for event in batch.events],
+                )
+            ],
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _turn_from_event(event: TurnEvent) -> Turn:
+        """从规范 TurnEvent 恢复旧 adapter helper 需要的 Turn。"""
+
+        return Turn(
+            turn_id=event.turn_id,
+            speaker=event.speaker_name or event.role,
+            content=MemoryOS._original_content_from_event(event),
+            normalized_role=event.role if event.role in {"user", "assistant"} else None,
+            turn_time=MemoryOS._optional_event_text(event, "original_turn_time"),
+            images=MemoryOS._images_from_event(event),
+            metadata=dict(event.metadata.get("turn_metadata") or {}),
+        )
+
+    @staticmethod
+    def _conversation_id_from_event(event: TurnEvent) -> str:
+        """从 v3 event metadata 中读取原始 conversation id。"""
+
+        conversation_id = event.metadata.get("conversation_id")
+        if isinstance(conversation_id, str) and conversation_id.strip():
+            return conversation_id
+        return event.isolation_key
+
+    @staticmethod
+    def _original_content_from_event(event: TurnEvent) -> str:
+        """读取事件前原始 turn 文本，避免图片 caption 重复拼接。"""
+
+        original = event.metadata.get("original_content")
+        if isinstance(original, str):
+            return original
+        return event.content
+
+    @staticmethod
+    def _optional_event_text(event: TurnEvent, field_name: str) -> str | None:
+        """读取 TurnEvent metadata 中的可选文本字段。"""
+
+        value = event.metadata.get(field_name)
+        return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _images_from_event(event: TurnEvent) -> list[ImageRef]:
+        """从 v3 event metadata 恢复公开图片引用。"""
+
+        raw_images = event.metadata.get("turn_images")
+        if not isinstance(raw_images, list):
+            return []
+        images: list[ImageRef] = []
+        for raw_image in raw_images:
+            if not isinstance(raw_image, dict):
+                continue
+            images.append(
+                ImageRef(
+                    image_id=raw_image.get("image_id"),
+                    path=raw_image.get("path"),
+                    caption=raw_image.get("caption"),
+                    metadata=dict(raw_image.get("metadata") or {}),
+                )
+            )
+        return images
+
+    def retrieve(self, question: Question | RetrievalQuery) -> AnswerPromptResult | RetrievalResult:
         """执行 MemoryOS 官方 retrieval 并格式化上下文。"""
+
+        if isinstance(question, RetrievalQuery):
+            return self._retrieve_native(question)
 
         state = self._states.get(question.conversation_id)
         if state is None:
@@ -680,6 +804,39 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem):
                     self.config.longmemeval_prompt_profile,
                 ),
             },
+        )
+
+    def _retrieve_native(self, query: RetrievalQuery) -> RetrievalResult:
+        """执行 v3 检索并返回不生成最终答案的 RetrievalResult。"""
+
+        source_question = query.source_question or Question(
+            question_id=query.isolation_key,
+            conversation_id=query.isolation_key,
+            text=query.query_text,
+            question_time=query.question_time,
+        )
+        conversation_id = self._native_isolation_to_conversation_id.get(
+            query.isolation_key,
+            source_question.conversation_id,
+        )
+        native_question = Question(
+            question_id=source_question.question_id,
+            conversation_id=conversation_id,
+            text=query.query_text,
+            question_time=query.question_time or source_question.question_time,
+            category=source_question.category,
+            metadata=dict(source_question.metadata),
+        )
+        retrieval = self.retrieve(native_question)
+        formatted_memory = (
+            retrieval.metadata.get("answer_context")
+            if isinstance(retrieval.metadata.get("answer_context"), str)
+            else ""
+        )
+        return RetrievalResult(
+            formatted_memory=formatted_memory or "(No relevant memories found)",
+            prompt_messages=tuple(retrieval.prompt_messages),
+            metadata=dict(retrieval.metadata),
         )
 
     def get_answer(self, question: Question) -> AnswerResult:

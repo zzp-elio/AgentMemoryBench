@@ -93,3 +93,9 @@
 推断/含义：
 
 - MemoryOS adapter 的主要形变来自整段 conversation 输入和 retrieve-first 输出：它必须在 adapter 内完成 speaker 解析、QA page pairing、STM 迁移循环、状态目录隔离、client/embedding 注入以及 reader prompt 构造；这些都不是单条 `add_memory()` 原生接口直接提供的能力。
+
+原生化后状态（2026-07-06，M-B T5）：
+
+- registered 主路径已是 `consume_granularity="session"` 的 v3 provider；`MemoryOS.ingest(SessionBatch)` 按 session 恢复公开 conversation 片段，复用 `conversation_to_memory_pages()` 生成 QA pages，不再从整段 `Conversation` 自行拆所有 session。
+- 原生路径继续逐 page 调 `short_memory.add_qa_pair()`，满载时触发 `bulk_evict_and_update_mid_term()` 并检查热度更新；等价测试比较桥接与原生路径的 short-term pages 序列，覆盖连续同 speaker 与图片 caption 语料。
+- `end_conversation()` 对 MemoryOS 保持 no-op；旧 `add()` 本轮按计划保留，理由是旧接口、resume 挂载和桥接等价对照仍依赖它。

@@ -21,9 +21,15 @@ import httpx
 import pytest
 from openai import APITimeoutError
 
-from memory_benchmark.config.settings import AppSettings, OpenAISettings, PathSettings
+from memory_benchmark.config.settings import (
+    AppSettings,
+    OpenAISettings,
+    PathSettings,
+    load_path_settings,
+)
 from memory_benchmark.core import Conversation, GoldAnswerInfo, Question, Session, Turn
 from memory_benchmark.core.exceptions import ConfigurationError
+from memory_benchmark.core.provider_protocol import MemoryProvider, SessionBatch, UnitRef
 from memory_benchmark.methods import build_memoryos_source_identity
 from memory_benchmark.methods import memoryos_adapter as memoryos_adapter_module
 from memory_benchmark.methods.memoryos_adapter import (
@@ -31,7 +37,15 @@ from memory_benchmark.methods.memoryos_adapter import (
     MemoryOSPaperConfig,
     clean_memoryos_conversation_state,
 )
+from memory_benchmark.methods.registry import MethodBuildContext, _build_memoryos_system
 from memory_benchmark.observability.efficiency import EfficiencyCollector
+from memory_benchmark.runners.event_stream import (
+    GranularityAggregator,
+    build_turn_events,
+    default_isolation_key,
+)
+from memory_benchmark.runners.prediction import _method_manifest_with_protocol
+from tests.fake_corpus import build_multimodal_consecutive_speaker_conversation
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.memoryos]
@@ -150,6 +164,101 @@ def build_longmemeval_conversation() -> Conversation:
         },
         metadata={"source_path": "data/longmemeval/longmemeval_s_cleaned.json"},
     )
+
+
+def _drive_native_memoryos_ingest(
+    system: MemoryOS,
+    conversation: Conversation,
+    run_id: str,
+) -> None:
+    """用 v3 session 事件流驱动 MemoryOS 原生 ingest。"""
+
+    isolation_key = default_isolation_key(run_id, conversation.conversation_id)
+    events = tuple(build_turn_events(conversation, isolation_key))
+    for signal in GranularityAggregator("session").aggregate(
+        events,
+        isolation_key=isolation_key,
+    ):
+        if isinstance(signal, SessionBatch):
+            system.ingest(signal)
+        elif isinstance(signal, UnitRef):
+            system.end_conversation(signal)
+
+
+def _memoryos_pages(system: MemoryOS, conversation_id: str) -> list[dict[str, object]]:
+    """读取 MemoryOS short-term pages 的稳定快照。"""
+
+    return [dict(page) for page in system.get_debug_state(conversation_id).short_memory.get_all()]
+
+
+def test_native_memoryos_session_ingest_matches_bridge_pages(tmp_path: Path) -> None:
+    """MemoryOS 原生 session 路径应等价复现桥接 pages 序列。"""
+
+    conversation = build_small_conversation()
+    bridge = MemoryOS(
+        openai_api_key="unit-test-key",
+        openai_base_url="https://example.invalid/v1",
+        storage_root=tmp_path / "bridge",
+    )
+    native = MemoryOS(
+        openai_api_key="unit-test-key",
+        openai_base_url="https://example.invalid/v1",
+        storage_root=tmp_path / "native",
+    )
+
+    bridge.add([conversation])
+    _drive_native_memoryos_ingest(native, conversation, "memoryos-equivalence")
+
+    assert isinstance(native, MemoryProvider)
+    assert native.consume_granularity == "session"
+    assert _memoryos_pages(native, "conv-test") == _memoryos_pages(bridge, "conv-test")
+
+
+def test_native_memoryos_preserves_consecutive_speaker_page_sequence(
+    tmp_path: Path,
+) -> None:
+    """连续同 speaker 的 turn 应沿用既有 page 配对边界。"""
+
+    conversation = build_multimodal_consecutive_speaker_conversation()
+    bridge = MemoryOS(
+        openai_api_key="unit-test-key",
+        openai_base_url="https://example.invalid/v1",
+        storage_root=tmp_path / "bridge",
+    )
+    native = MemoryOS(
+        openai_api_key="unit-test-key",
+        openai_base_url="https://example.invalid/v1",
+        storage_root=tmp_path / "native",
+    )
+
+    bridge.add([conversation])
+    _drive_native_memoryos_ingest(native, conversation, "memoryos-equivalence")
+
+    assert _memoryos_pages(native, conversation.conversation_id) == _memoryos_pages(
+        bridge,
+        conversation.conversation_id,
+    )
+
+
+def test_memoryos_registry_builds_native_v3_provider(tmp_path: Path) -> None:
+    """registry 应直接构造 MemoryOS 原生 v3 provider。"""
+
+    provider = _build_memoryos_system(
+        MethodBuildContext(
+            config=MemoryOSPaperConfig(),
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=load_path_settings(),
+            storage_root=tmp_path,
+            benchmark_name="locomo",
+        )
+    )
+
+    assert isinstance(provider, MemoryProvider)
+    assert provider.consume_granularity == "session"
+    assert _method_manifest_with_protocol(
+        method_manifest={},
+        system=provider,
+    )["protocol_version"] == "v3"
 
 
 class MemoryOSAdapterTests(unittest.TestCase):
