@@ -99,6 +99,12 @@ class BaseMemoryProvider(ABC):
 adapter（如 A-Mem）只需 `consume_granularity="turn"` + 实现 `ingest`（内部一行
 `add_note`）+ `retrieve`，不写任何钩子。
 
+**M-B 修订（2026-07-06，架构师）**：`consume_granularity` 允许**实例级按
+benchmark profile 特化**——同一 method 官方口径在不同 benchmark 粒度不同
+（Mem0：LoCoMo 逐 turn / LongMemEval 逐 pair；LightMem 同理），factory 按
+build context 在构造时设置实例属性覆盖类默认值；aggregator 读 provider 实例
+上的声明值。类属性仍是默认声明与文档口径。
+
 ```python
 @dataclass(frozen=True)
 class RetrievalQuery:

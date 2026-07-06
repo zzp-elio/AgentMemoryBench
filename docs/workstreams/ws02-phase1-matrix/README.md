@@ -22,6 +22,15 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-06（最新）：**M-A 架构师验收通过（APPROVED）**，审查记录：
+  [notes/2026-07-06-ma-acceptance-review.md](notes/2026-07-06-ma-acceptance-review.md)。
+  审查发现两缺陷已由架构师修复并补测试（caption 双拼、session report retry
+  重复），修复后全量回归 **758 passed**（新基线）。spec 增补 M-B 修订
+  （consume_granularity 实例级按 benchmark profile 特化）。**M-B plan 已备：
+  [plan-mb-adapter-nativization.md](plan-mb-adapter-nativization.md)
+  （Mem0→LightMem→A-Mem→MemoryOS 原生化，调用序列等价测试锁行为），
+  Codex 可开工。**
+
 - 2026-07-06（Codex，M-A 完成待架构师复核）：协议 v3 落地实施计划
   [plan-ma-protocol-landing.md](plan-ma-protocol-landing.md) T1-T6 已顺序完成并
   按 task 切分提交；兼容桥保留四内置 method 旧路径，MockMemoryProvider 已原生
