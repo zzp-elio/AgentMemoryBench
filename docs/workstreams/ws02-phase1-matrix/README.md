@@ -22,7 +22,13 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-06（最新）：**M-A 架构师验收通过（APPROVED）**，审查记录：
+- 2026-07-06（最新，Codex）：**M-B 四 adapter 原生化 T0-T6 已完成并按 task
+  切分提交**。Mem0、LightMem、A-Mem、MemoryOS registry 主路径均产出原生
+  `protocol_version=v3` provider；`LegacyProviderBridge` 保留给未来外部旧式
+  provider，内置路径不再经过桥接。T2-T5 均以原生 vs 桥接调用序列等价测试锁住
+  行为；T6 全量回归维持 758 基线以上。当前无施工断点，下一步交架构师复跑验收。
+
+- 2026-07-06：**M-A 架构师验收通过（APPROVED）**，审查记录：
   [notes/2026-07-06-ma-acceptance-review.md](notes/2026-07-06-ma-acceptance-review.md)。
   审查发现两缺陷已由架构师修复并补测试（caption 双拼、session report retry
   重复），修复后全量回归 **758 passed**（新基线）。spec 增补 M-B 修订

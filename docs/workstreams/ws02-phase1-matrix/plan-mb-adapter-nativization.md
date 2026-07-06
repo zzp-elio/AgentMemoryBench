@@ -371,13 +371,63 @@ consume_granularity 实例级特化）、M-A 验收记录
 
 ## T6 收尾
 
-- [ ] 四 method registry 均产出原生 v3 provider；`LegacyProviderBridge` 保留
+- [x] 四 method registry 均产出原生 v3 provider；`LegacyProviderBridge` 保留
   （服务未来外部旧式 provider），内置路径不再经过它。
-- [ ] 更新 `docs/reference/method-interface-inventory.md`（四 method v3 原生）
+- [x] 更新 `docs/reference/method-interface-inventory.md`（四 method v3 原生）
   与 ws02 README 断点；机制卡第 7 节各追加"原生化后状态"小节（一句话/条）。
-- [ ] 全量回归 + compileall + `git status` 干净。
+- [x] 全量回归 + compileall + `git status` 干净。
 - 验收：`uv run pytest -q` ≥758；四个 method 的 fake registered smoke 的
   manifest `protocol_version=v3`。
+
+验收输出：
+
+```text
+$ uv run pytest tests/test_mem0_adapter.py::test_mem0_registry_specializes_consume_granularity_by_benchmark tests/test_lightmem_adapter.py::test_lightmem_registry_specializes_consume_granularity_by_benchmark tests/test_amem_adapter.py::test_amem_registry_builds_native_v3_provider tests/test_memoryos_adapter.py::test_memoryos_registry_builds_native_v3_provider -q
+....                                                                     [100%]
+4 passed in 5.88s
+```
+
+```text
+$ rg -n "原生化后状态" docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md docs/workstreams/ws02-phase1-matrix/audits/mechanism-lightmem.md docs/workstreams/ws02-phase1-matrix/audits/mechanism-amem.md docs/workstreams/ws02-phase1-matrix/audits/mechanism-memoryos.md
+docs/workstreams/ws02-phase1-matrix/audits/mechanism-memoryos.md:97:原生化后状态（2026-07-06，M-B T5）：
+docs/workstreams/ws02-phase1-matrix/audits/mechanism-mem0.md:95:原生化后状态（2026-07-06，M-B T2）：
+docs/workstreams/ws02-phase1-matrix/audits/mechanism-amem.md:94:原生化后状态（2026-07-06，M-B T4）：
+docs/workstreams/ws02-phase1-matrix/audits/mechanism-lightmem.md:97:原生化后状态（2026-07-06，M-B T3）：
+```
+
+```text
+$ uv run python -m compileall -q src tests
+```
+
+```text
+$ uv run pytest -q
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 28%]
+.................................................................... [ 36%]
+........................................................................ [ 46%]
+........................................................................ [ 55%]
+...................................................................... [ 64%]
+........................................................................ [ 73%]
+........................................................................ [ 83%]
+........................................................................ [ 92%]
+.........................................................                [100%]
+=============================== warnings summary ===============================
+tests/test_amem_adapter.py::test_amem_can_import_official_robust_layer_without_calling_api
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/A-mem/memory_layer.py:1: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    from ast import Str
+
+tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_class
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem/src/lightmem/configs/logging/base.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class LoggingConfig(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+771 passed, 3 deselected, 2 warnings, 6 subtests passed in 100.94s (0:01:40)
+```
+
+```text
+$ git status --short
+```
 
 ## 明确不做
 

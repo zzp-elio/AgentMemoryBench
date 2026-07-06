@@ -7,10 +7,11 @@
 
 2026-07-06：provider v3 协议已在代码落地，核心路径为
 `MemoryProvider.ingest(unit)` + `retrieve(RetrievalQuery) -> RetrievalResult`。
-当前四个内置 method（Mem0、MemoryOS、A-Mem、LightMem）仍通过
-`LegacyProviderBridge` 从旧 `BaseMemoryProvider` 桥接运行，manifest 标记
-`protocol_version=v2-bridged`、`prompt_track=native`；原生 v3 adapter 迁移属于
-M-B 范围，尚未在本清单内逐项改写。
+M-B 已将四个内置 method（Mem0、MemoryOS、A-Mem、LightMem）切到原生
+`MemoryProvider` 路径，registry manifest 标记 `protocol_version=v3`、
+`prompt_track=native`。`LegacyProviderBridge` 仍保留给未来外部旧式 provider；
+四个内置 method 的旧 `add()` / `retrieve(question)` / `get_answer()` 只作为
+兼容入口，不再是 registry 主路径。
 
 当前代码仍保留旧 `BaseMemorySystem.add(list[Conversation])` /
 `BaseMemorySystem.get_answer(question)` 兼容路径；2026-06-21 四个内置 method
@@ -76,7 +77,7 @@ framework answer LLM(prompt_messages) -> answer
 | LongMemEval prompt | `benchmarks/longmemeval/prompts.py::get_answer_generation_prompt` |
 | 模型配置 | OSS server 默认 fact extraction `gpt-4o-mini`、embedding `text-embedding-3-small`；当前阶段 answerer/judge 统一改用 `gpt-4o-mini` |
 | API 配置 | Mem0 extraction/embedder 和 answerer LLM 都需要从配置层传入 API key/base URL |
-| 当前 adapter 状态 | add/search 调官方 OSS；LoCoMo 写入粒度与官方 `CHUNK_SIZE=1` 对齐，LongMemEval 按官方 `CHUNK_SIZE=2` user+assistant pair 写入；当前按用户 2026-06-20 决策统一使用 conversation-level resume，不再启用 runner turn-level resume；`retrieve()` 已保留 search、memory formatting 和官方 LoCoMo / LongMemEval prompt 构造，官方 profile 返回 user-only `AnswerPromptResult.prompt_messages`，通用 fallback 返回 system+user；旧 `get_answer()` 暂时作为兼容 wrapper |
+| 当前 adapter 状态 | M-B 后为原生 v3 `MemoryProvider`：LoCoMo 默认 `consume_granularity=turn`，LongMemEval 由 registry 按 benchmark profile 实例级特化为 `pair`；`ingest()` 直接复用官方 `Memory.add` 写入序列，`retrieve(RetrievalQuery)` 直接复用官方 search、memory formatting 和 LoCoMo / LongMemEval prompt 构造并返回 `RetrievalResult`。旧 `add()` / `retrieve(question)` / `get_answer()` 暂时作为兼容 wrapper |
 
 ## MemoryOS
 
@@ -98,7 +99,7 @@ framework answer LLM(prompt_messages) -> answer
 | 模型配置 | 论文优先；当前 LoCoMo 运行使用 `gpt-4o-mini` 与本地/缓存 `all-MiniLM-L6-v2` |
 | API 配置 | OpenAI-compatible key/base URL 传给 MemoryOS eval client |
 | LongMemEval prompt profile | 默认 `lightmem_longmemeval_reader_v1`，用于和 LightMem LongMemEval QA 流程对比；可选 `memoryos_pypi_generic_v1`，复用 MemoryOS PyPI generic prompt 结构，但它不是 LongMemEval 专用 QA prompt |
-| 当前 adapter 状态 | LoCoMo 路径基本按官方 eval wrapper 包装。`retrieve()` 已调用 `retrieval_system.retrieve(...)`；LoCoMo 分支按官方 eval prompt 结构把 retrieval queue 和 long-term knowledge 构造成 system+user `AnswerPromptResult.prompt_messages`；LongMemEval 默认分支复用 LightMem-style reader prompt，并保留 recent context、retrieval queue、user profile、long-term knowledge 和 assistant knowledge；可选 PyPI generic 分支也保留这些上下文。旧 `get_answer()` 暂时保持原官方 `generate_system_response_with_meta(...)` 行为，避免破坏 system prompt observer 和历史复查路径 |
+| 当前 adapter 状态 | M-B 后为原生 v3 `MemoryProvider`：`consume_granularity=session`，`ingest(SessionBatch)` 重建公开 session 输入并复用 `conversation_to_memory_pages()` 写入 page / QA pair，保留迁移、heat 与 full-memory 检查；`retrieve(RetrievalQuery)` 调用 `retrieval_system.retrieve(...)` 并按 LoCoMo / LongMemEval profile 构造 `RetrievalResult`。旧 `add()` / `retrieve(question)` / `get_answer()` 暂时保持兼容行为，避免破坏 system prompt observer 和历史复查路径 |
 
 ## A-Mem
 
@@ -121,7 +122,7 @@ framework answer LLM(prompt_messages) -> answer
 | 模型配置 | Table 1 GPT-4o-mini profile 使用 `gpt-4o-mini`；embedding `all-MiniLM-L6-v2`；按类别 Table 8 `k` |
 | API 配置 | robust LLM controller 需要 API key/base URL；当前 adapter 在 wrapper 层显式替换官方 OpenAI client，保证 OpenAI-compatible `base_url` 生效 |
 | generic reader prompt | 本地 A-Mem 仓库未发现类似 MemoryOS PyPI `prompts.py` 的通用 answer-reader prompt；只有 LoCoMo 评测 reader prompt 和 memory construction/evolution prompt |
-| 当前 adapter 状态 | 写入粒度对齐；QA 已补齐官方 `generate_query_llm()` 等价关键词生成和 Table 8 GPT-4o-mini 类别 `k`；category 5 adversarial 因官方 prompt 需要 gold answer，当前按 public-input 规则显式拒绝。`retrieve()` 已保留 query keyword generation、category `k`、retriever 输出和 answer prompt 构造；LoCoMo 使用 A-Mem 官方 prompt 结构，LongMemEval 复用 LightMem-style reader prompt 并填入 A-Mem memory context，返回 system+user `AnswerPromptResult.prompt_messages`；旧 `get_answer()` 暂时作为兼容 wrapper |
+| 当前 adapter 状态 | M-B 后为原生 v3 `MemoryProvider`：`consume_granularity=turn`，`ingest(TurnEvent)` 复用官方 robust runtime add 序列，`end_conversation()` 保存 `memories.pkl`、retriever 与 manifest；`retrieve(RetrievalQuery)` 保留 query keyword generation、category `k`、retriever 输出和 LoCoMo / LongMemEval answer prompt 构造并返回 `RetrievalResult`。category 5 adversarial 仍因官方 prompt 需要 gold answer，按 public-input 规则显式拒绝；旧 `add()` / `retrieve(question)` / `get_answer()` 暂时作为兼容 wrapper |
 
 ## LightMem
 
@@ -151,7 +152,7 @@ framework answer LLM(prompt_messages) -> answer
 | 论文实验细节 | 论文 5.1：使用 LLMLingua-2 作为 pre-compressor；topic segmentation attention scores 也来自 LLMLingua-2；sensory memory buffer size 为 512 tokens；fseg 为 turn-level granularity input；findex 为 `all-MiniLM-L6-v2`；fchat / fsum/extract / fupdate 使用 `gpt-4o-mini` 等 backbone |
 | 模型配置 | 用户当前指定 LoCoMo profile `(r=0.7, th=512)`；当前阶段真实 LLM 统一 `gpt-4o-mini`；embedding `all-MiniLM-L6-v2`；LLMLingua-2 本地模型 |
 | API 配置 | memory manager 和 answerer LLM 需要 API key/base URL |
-| 当前 adapter 状态 | 已改为 adapter 内部按来源展开：LoCoMo 单原始 turn -> `user(content)+assistant("")`，LongMemEval 真实 `user+assistant` pair；仅最后一批 `force_segment=True, force_extract=True`；`r=0.7, th=512` 已进入 config/profile；LoCoMo `add()` 后执行 `construct_update_queue_all_entries()` 与 `offline_update_all_entries(score_threshold=0.9)`；`retrieve()` 已保留 LoCoMo `search_locomo.py` 风格 Qdrant payload/vector combined 检索、LongMemEval `LightMemory.retrieve()` online 路径和 answer prompt 构造，并返回官方 role 结构：LoCoMo system-only、LongMemEval system+user `AnswerPromptResult.prompt_messages`；旧 `get_answer()` 暂时作为兼容 wrapper |
+| 当前 adapter 状态 | M-B 后为原生 v3 `MemoryProvider`：LoCoMo 默认 `consume_granularity=turn`，LongMemEval 由 registry 按 benchmark profile 实例级特化为 `pair`；`ingest()` 使用一拍缓冲保证最后一批 `force_segment=True, force_extract=True` 与桥接路径一致，`end_conversation()` 执行 LoCoMo `construct_update_queue_all_entries()` 与 `offline_update_all_entries(score_threshold=0.9)`；`retrieve(RetrievalQuery)` 保留 LoCoMo `search_locomo.py` 风格 Qdrant payload/vector combined 检索、LongMemEval `LightMemory.retrieve()` online 路径和 answer prompt 构造并返回 `RetrievalResult`。旧 `add()` / `retrieve(question)` / `get_answer()` 暂时作为兼容 wrapper |
 | 已知差异 | LongMemEval OP-update 仍未作为独立 profile 实现；LoCoMo 真实 API smoke 尚未运行，因此不能宣称 Table 3 真实复现完成 |
 
 ## Resume 策略分层
