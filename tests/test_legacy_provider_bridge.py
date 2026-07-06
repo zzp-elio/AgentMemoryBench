@@ -17,6 +17,7 @@ from memory_benchmark.core.provider_protocol import (
     SessionBatch,
     TurnEvent,
 )
+from tests.fake_corpus import build_multimodal_consecutive_speaker_conversation
 
 
 class RecordingLegacyProvider(BaseMemoryProvider):
@@ -212,3 +213,31 @@ def test_bridge_restores_original_content_without_baked_caption() -> None:
     assert [image.caption for image in rebuilt_turn.images] == [
         "a bowl with flowers"
     ]
+
+
+def test_bridge_accepts_shared_fake_corpus_with_caption_and_repeated_speaker() -> None:
+    """共享 fake 语料必须覆盖图片 caption 与连续同 speaker 的桥接路径。"""
+
+    from memory_benchmark.core.provider_protocol import ConversationBatch as _CB
+    from memory_benchmark.runners.event_stream import (
+        GranularityAggregator,
+        build_turn_events,
+    )
+
+    conversation = build_multimodal_consecutive_speaker_conversation()
+    events = tuple(build_turn_events(conversation, "run-1_conv-rich"))
+    units = tuple(
+        GranularityAggregator("conversation").aggregate(
+            events,
+            isolation_key="run-1_conv-rich",
+        )
+    )
+    batch = next(unit for unit in units if isinstance(unit, _CB))
+    legacy = RecordingLegacyProvider(metadata={"answer_context": "记忆上下文"})
+
+    LegacyProviderBridge(legacy).ingest(batch)
+
+    rebuilt_turns = legacy.added_conversations[0].sessions[0].turns
+    assert [turn.speaker for turn in rebuilt_turns] == ["Alice", "Alice", "Bob"]
+    assert rebuilt_turns[0].content == "我拍了一张花瓶照片"
+    assert rebuilt_turns[0].images[0].caption == "a blue vase on a table"
