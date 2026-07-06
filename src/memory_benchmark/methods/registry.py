@@ -62,6 +62,8 @@ class MethodBuildContext:
             method 为 `None`。
         path_settings: 项目路径配置。
         storage_root: 当前 run 独占的 method 状态目录。
+        benchmark_name: 当前 benchmark registry 名，用于按 benchmark profile 特化
+            method 实例级协议声明。
         completed_conversations: resume 时已确认完成写入的 conversation。
         efficiency_collector: runner 创建的可选效率 observation collector。
     """
@@ -70,6 +72,7 @@ class MethodBuildContext:
     openai_settings: OpenAISettings | None
     path_settings: PathSettings
     storage_root: Path
+    benchmark_name: str | None = None
     completed_conversations: tuple[Conversation, ...] = ()
     efficiency_collector: EfficiencyCollector | None = None
 
@@ -164,6 +167,9 @@ def _build_mem0_system(context: MethodBuildContext) -> BaseMemorySystem:
             for conversation in context.completed_conversations
         },
         efficiency_collector=context.efficiency_collector,
+        consume_granularity=(
+            "pair" if context.benchmark_name == "longmemeval" else "turn"
+        ),
     )
 
 

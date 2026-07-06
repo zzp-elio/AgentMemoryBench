@@ -91,3 +91,9 @@
 推断/含义：
 
 - Mem0 adapter 的主要复杂度不是调用 `Memory.add/search` 本身，而是被整段 `Conversation` 输入迫使承担 benchmark-native chunking、时间锚点补偿、resume 边界和 reader prompt 选择。
+
+原生化后状态（2026-07-06，M-B T2）：
+
+- registry 按 benchmark profile 设置实例级 `consume_granularity`：LoCoMo 为 `turn`，LongMemEval 为 `pair`；runner 事件流负责给 adapter 提供 benchmark-native ingest unit，原生路径不再从整段 `Conversation` 自行切 turn/pair。
+- `Mem0.ingest(TurnEvent|TurnPair)` 复用既有 message、metadata、observation-time prompt 构造 helper，namespace 改为 v3 `isolation_key`；等价测试用 namespace 归一化断言原生路径与桥接路径发出的 `Memory.add/search` 序列一致。
+- 旧 `add()`、`add_from_turn()`、`_longmemeval_ingestion_chunks()` 本轮按计划保留，理由是旧接口、resume 兼容与桥接等价对照仍依赖它们；它们不再是 registered 原生 v3 主路径。

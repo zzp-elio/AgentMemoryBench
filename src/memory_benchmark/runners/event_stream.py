@@ -44,6 +44,7 @@ def build_turn_events(
                 turn_id=_stable_turn_id(turn, session_index, turn_index),
                 metadata={
                     "conversation_id": conversation.conversation_id,
+                    "conversation_metadata": dict(conversation.metadata),
                     "original_content": turn.content,
                     "session_index": session_index,
                     "original_session_time": session.session_time,
@@ -133,7 +134,11 @@ class GranularityAggregator:
         """按 conversation 粒度产出 ConversationBatch 和 session 边界。"""
 
         sessions = tuple(_session_batch(session_events) for session_events in _group_by_session(events))
-        yield ConversationBatch(isolation_key=events[0].isolation_key, sessions=sessions)
+        yield ConversationBatch(
+            isolation_key=events[0].isolation_key,
+            sessions=sessions,
+            metadata=_conversation_metadata(events[0]),
+        )
         for session in sessions:
             yield session.ref
 
@@ -226,6 +231,17 @@ def _session_metadata(event: TurnEvent) -> dict[str, object]:
         metadata["session_start_time"] = event.metadata["session_start_time"]
     if event.metadata.get("session_end_time") is not None:
         metadata["session_end_time"] = event.metadata["session_end_time"]
+    return metadata
+
+
+def _conversation_metadata(event: TurnEvent) -> dict[str, object]:
+    """从事件 metadata 中恢复 conversation 级公开 metadata。"""
+
+    metadata: dict[str, object] = {}
+    raw_metadata = event.metadata.get("conversation_metadata")
+    if isinstance(raw_metadata, dict):
+        metadata.update(raw_metadata)
+    metadata["conversation_id"] = event.metadata["conversation_id"]
     return metadata
 
 

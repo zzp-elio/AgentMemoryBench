@@ -124,7 +124,7 @@ consume_granularity 实例级特化）、M-A 验收记录
 
 ## T2 Mem0 原生化
 
-- [ ] `Mem0Provider`（或在现 adapter 类上实现 `MemoryProvider`）：
+- [x] `Mem0Provider`（或在现 adapter 类上实现 `MemoryProvider`）：
   - 粒度：LoCoMo profile → `turn`；LongMemEval profile → `pair`
     （factory 按 build context 设实例属性，见 spec M-B 修订）。
   - `ingest(TurnEvent|TurnPair)`：复用现有 message 构造逻辑
@@ -134,12 +134,60 @@ consume_granularity 实例级特化）、M-A 验收记录
     `formatted_memory` = 现 `answer_context` 语义；`prompt_messages` 照旧；
     `provenance_granularity` 维持 `"none"`（Mem0 记忆为抽取事实，无 turn 锚点）。
   - 钩子：无需 `end_session`/`end_conversation`（同步型）。
-- [ ] 等价测试：LoCoMo fake（含图片 caption turn）与 LongMemEval fake 各一组，
+- [x] 等价测试：LoCoMo fake（含图片 caption turn）与 LongMemEval fake 各一组，
   断言原生 vs 桥接的 `Memory.add` 消息序列与 `search` 调用一致。
-- [ ] registry factory 切换为原生构造；manifest `protocol_version` 变 `v3`。
+- [x] registry factory 切换为原生构造；manifest `protocol_version` 变 `v3`。
 - 验收：`tests/test_mem0_adapter.py` + 等价测试 + registered fake smoke 全绿；
   机制卡 mechanism-mem0.md 第 7 节形变逐条核对：因整段输入而生的拆分代码
   已移除或注明保留理由。
+
+  验收输出（2026-07-06，T2）：
+
+  ```bash
+  $ uv run pytest tests/test_mem0_adapter.py::test_native_mem0_locomo_matches_bridge_add_and_search_sequence tests/test_mem0_adapter.py::test_native_mem0_longmemeval_matches_bridge_pair_sequence tests/test_mem0_adapter.py::test_mem0_registry_specializes_consume_granularity_by_benchmark -q
+  ...                                                                      [100%]
+  3 passed in 0.64s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_mem0_adapter.py -q
+  .......................                                                  [100%]
+  23 passed in 1.05s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_event_stream.py tests/test_legacy_provider_bridge.py tests/test_equivalence_utils.py -q
+  ......................                                                   [100%]
+  22 passed in 0.08s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_prediction_runner.py::test_runner_ingests_native_v3_provider_with_event_stream_and_reports tests/test_prediction_runner.py::test_runner_bridges_legacy_provider_and_counts_empty_memory_sentinel tests/test_prediction_runner.py::test_isolated_worker_ingests_native_v3_provider_with_event_stream tests/test_prediction_cli.py::test_registered_prediction_builds_system_from_registry_context tests/test_prediction_cli.py::test_registered_prediction_allows_mem0_smoke_worker_override -q
+  .....                                                                    [100%]
+  5 passed in 0.57s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_documentation_standards.py -q
+  .....                                                                    [100%]
+  5 passed in 0.56s
+  ```
+
+  ```bash
+  $ uv run pytest -q
+  ........................................................................ [  9%]
+  ........................................................................ [ 18%]
+  ........................................................................ [ 28%]
+  .................................................................... [ 37%]
+  ........................................................................ [ 46%]
+  ........................................................................ [ 56%]
+  ...................................................................... [ 65%]
+  ........................................................................ [ 74%]
+  ........................................................................ [ 84%]
+  ........................................................................ [ 93%]
+  .................................................                        [100%]
+  763 passed, 3 deselected, 2 warnings, 6 subtests passed in 102.76s (0:01:42)
+  ```
 
 ## T3 LightMem 原生化
 

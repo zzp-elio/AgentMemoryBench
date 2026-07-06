@@ -578,6 +578,7 @@ def run_registered_conversation_qa_prediction(
             openai_settings=openai_settings,
             path_settings=path_settings,
             storage_root=child.run_context.method_state_dir,
+            benchmark_name=benchmark_name,
             completed_conversations=completed_conversations,
             efficiency_collector=child.efficiency_collector,
         )

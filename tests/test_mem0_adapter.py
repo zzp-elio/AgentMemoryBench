@@ -16,12 +16,17 @@ import pytest
 from memory_benchmark.config.settings import OpenAISettings, load_path_settings
 from memory_benchmark.core import Conversation, Question, Session, Turn
 from memory_benchmark.core.exceptions import ConfigurationError
+from memory_benchmark.core.provider_protocol import MemoryProvider
 from memory_benchmark.methods.mem0_adapter import (
     Mem0,
     Mem0Config,
     build_mem0_source_identity,
 )
+from memory_benchmark.methods.registry import MethodBuildContext, _build_mem0_system
 from memory_benchmark.observability.efficiency import EfficiencyCollector
+from memory_benchmark.runners.prediction import _method_manifest_with_protocol
+from tests.equivalence_utils import run_bridge_sequence, run_native_sequence
+from tests.fake_corpus import build_multimodal_consecutive_speaker_conversation
 
 
 pytestmark = pytest.mark.unit
@@ -243,6 +248,35 @@ class OpenAIClientBackend(FakeMemoryBackend):
         self.embedding_model = SimpleNamespace(
             client=OptionTrackingOpenAIClient(),
         )
+
+
+def _snapshot_mem0_backend_calls(system: Mem0) -> list[dict[str, object]]:
+    """把 Mem0 backend 调用归一化为可比较序列。"""
+
+    calls: list[dict[str, object]] = []
+    backend = system._memory
+    for call in backend.add_calls:
+        calls.append(
+            {
+                "op": "add",
+                "messages": call["messages"],
+                "namespace": "<namespace>",
+                "metadata": call["metadata"],
+                "infer": call["infer"],
+                "prompt": call["prompt"],
+                "message_count": len(call["messages"]),
+            }
+        )
+    for call in backend.search_calls:
+        calls.append(
+            {
+                "op": "search",
+                "query": call["query"],
+                "namespace": "<namespace>",
+                "top_k": call["top_k"],
+            }
+        )
+    return calls
 
 
 def _fake_usage_response(prompt_tokens: int, completion_tokens: int):
@@ -575,6 +609,136 @@ def test_add_batches_longmemeval_turns_as_user_assistant_pairs() -> None:
         "session_time": "2024-01-01",
     }
     assert all(call["run_id"] == "lme-q1" for call in backend.add_calls)
+
+
+def test_native_mem0_locomo_matches_bridge_add_and_search_sequence() -> None:
+    """Mem0 原生 turn 路径应与桥接路径发出等价 add/search 序列。"""
+
+    conversation = build_multimodal_consecutive_speaker_conversation()
+    question = conversation.questions[0]
+    bridge = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+    )
+    native = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+    )
+
+    bridge_result = run_bridge_sequence(
+        provider=bridge,
+        conversation=conversation,
+        question=question,
+        run_id="mem0-equivalence",
+        snapshot_calls=_snapshot_mem0_backend_calls,
+    )
+    native_result = run_native_sequence(
+        provider=native,
+        conversation=conversation,
+        question=question,
+        run_id="mem0-equivalence",
+        snapshot_calls=_snapshot_mem0_backend_calls,
+    )
+
+    assert isinstance(native, MemoryProvider)
+    assert bridge_result.calls == native_result.calls
+    assert native._memory.add_calls[0]["run_id"] == "mem0-equivalence_conv-rich"
+    assert native._memory.search_calls[0]["filters"] == {
+        "run_id": "mem0-equivalence_conv-rich"
+    }
+
+
+def test_native_mem0_longmemeval_matches_bridge_pair_sequence() -> None:
+    """Mem0 原生 pair 路径应保持 LongMemEval 官方 user+assistant 批次。"""
+
+    conversation = _build_longmemeval_conversation()
+    question = Question(
+        question_id="lme-q1",
+        conversation_id="lme-q1",
+        text="What kind of tea does the user prefer?",
+        question_time="2024-01-04",
+    )
+    bridge = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+    )
+    native = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+        consume_granularity="pair",
+    )
+
+    bridge_result = run_bridge_sequence(
+        provider=bridge,
+        conversation=conversation,
+        question=question,
+        run_id="mem0-equivalence",
+        snapshot_calls=_snapshot_mem0_backend_calls,
+    )
+    native_result = run_native_sequence(
+        provider=native,
+        conversation=conversation,
+        question=question,
+        run_id="mem0-equivalence",
+        snapshot_calls=_snapshot_mem0_backend_calls,
+    )
+
+    assert bridge_result.calls == native_result.calls
+    assert [call["message_count"] for call in native_result.calls if call["op"] == "add"] == [
+        2,
+        2,
+        1,
+    ]
+
+
+def test_mem0_registry_specializes_consume_granularity_by_benchmark(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """registry 应按 benchmark profile 设置 Mem0 实例级消费粒度。"""
+
+    monkeypatch.setattr(
+        Mem0,
+        "_create_memory_backend",
+        lambda self, openai_settings: FakeMemoryBackend(),
+    )
+    monkeypatch.setattr(
+        Mem0,
+        "_prewarm_entity_store",
+        lambda self, memory_backend: None,
+    )
+
+    locomo = _build_mem0_system(
+        MethodBuildContext(
+            config=Mem0Config.smoke(),
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=load_path_settings(),
+            storage_root=tmp_path / "locomo",
+            benchmark_name="locomo",
+        )
+    )
+    longmemeval = _build_mem0_system(
+        MethodBuildContext(
+            config=Mem0Config.smoke(),
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=load_path_settings(),
+            storage_root=tmp_path / "longmemeval",
+            benchmark_name="longmemeval",
+        )
+    )
+
+    assert isinstance(locomo, MemoryProvider)
+    assert locomo.consume_granularity == "turn"
+    assert isinstance(longmemeval, MemoryProvider)
+    assert longmemeval.consume_granularity == "pair"
+    assert _method_manifest_with_protocol(
+        method_manifest={},
+        system=locomo,
+    )["protocol_version"] == "v3"
 
 
 def test_mem0_turn_level_resume_is_disabled_for_all_benchmarks() -> None:

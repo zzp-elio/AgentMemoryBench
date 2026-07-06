@@ -32,6 +32,7 @@ from memory_benchmark.core import (
     AddResult,
     AnswerResult,
     Conversation,
+    ImageRef,
     Question,
     AnswerPromptResult,
     PromptMessage,
@@ -40,6 +41,18 @@ from memory_benchmark.core import (
 )
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseResumableMemorySystem
+from memory_benchmark.core.provider_protocol import (
+    ConsumeGranularity,
+    IngestResult,
+    IngestUnit,
+    MemoryProvider,
+    RetrievalQuery,
+    RetrievalResult,
+    RetrievedItem,
+    TurnEvent,
+    TurnPair,
+    UnitRef,
+)
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
@@ -250,8 +263,11 @@ def build_mem0_source_identity(
     }
 
 
-class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
+class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
     """使用官方 Mem0 OSS `Memory` 算法的统一 memory system。"""
+
+    consume_granularity: ConsumeGranularity = "turn"
+    provenance_granularity = "none"
 
     def __init__(
         self,
@@ -263,6 +279,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
         path_settings: PathSettings | None = None,
         existing_conversation_ids: set[str] | None = None,
         efficiency_collector: EfficiencyCollector | None = None,
+        consume_granularity: ConsumeGranularity | None = None,
     ):
         """初始化 Mem0 adapter。
 
@@ -275,6 +292,8 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
             path_settings: 可选项目路径设置。
             existing_conversation_ids: resume 已验证为完成写入的 namespace 集合。
             efficiency_collector: runner 管理的可选效率 observation collector。
+            consume_granularity: v3 provider 实例级消费粒度；registry 会按 benchmark
+                profile 设置，缺省为 LoCoMo 官方 turn 级。
 
         输出:
             None。构造生产 backend 时不会调用 API，但会初始化本地 Qdrant 和客户端。
@@ -314,6 +333,9 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
         self._namespace_lock = threading.RLock()
         self._added_conversation_ids = set(existing_conversation_ids or ())
         self._conversation_metadata: dict[str, dict[str, Any]] = {}
+        self._native_speaker_roles: dict[str, dict[str, str]] = {}
+        if consume_granularity is not None:
+            self.consume_granularity = consume_granularity
         if any(not conversation_id.strip() for conversation_id in self._added_conversation_ids):
             raise ConfigurationError(
                 "Mem0 existing_conversation_ids cannot contain empty ids"
@@ -422,6 +444,196 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
         """
 
         return False
+
+    def ingest(self, unit: IngestUnit) -> IngestResult:
+        """按 v3 协议写入一个 turn 或 pair 单元。"""
+
+        if isinstance(unit, TurnEvent):
+            self._ingest_native_turn(unit)
+            return IngestResult(unit_ref=UnitRef(unit.isolation_key))
+        if isinstance(unit, TurnPair):
+            self._ingest_native_pair(unit)
+            return IngestResult(unit_ref=UnitRef(unit.isolation_key))
+        raise ConfigurationError(
+            "Mem0 native provider only accepts TurnEvent or TurnPair ingest units"
+        )
+
+    def _ingest_native_turn(self, event: TurnEvent) -> None:
+        """写入 v3 turn 单元，复用旧 turn message 构造逻辑。"""
+
+        self._ensure_native_namespace(event)
+        speaker_roles = self._native_speaker_roles.setdefault(event.isolation_key, {})
+        turn = self._turn_from_event(event)
+        if turn.speaker not in speaker_roles:
+            speaker_roles[turn.speaker] = (
+                "user" if len(speaker_roles) % 2 == 0 else "assistant"
+            )
+        session_time = self._session_time_from_event(event)
+        self._memory.add(
+            [self._turn_to_message(turn, speaker_roles, session_time=session_time)],
+            run_id=event.isolation_key,
+            metadata=self._native_turn_metadata(event),
+            infer=self.config.infer,
+            prompt=self._observation_time_prompt(session_time),
+        )
+
+    def _ingest_native_pair(self, pair: TurnPair) -> None:
+        """写入 v3 pair 单元，保持 LongMemEval 官方两 turn 批次。"""
+
+        first = pair.first
+        self._ensure_native_namespace(first)
+        speaker_roles = self._native_speaker_roles.setdefault(first.isolation_key, {})
+        turns = [self._turn_from_event(event) for event in pair.turns]
+        for turn in turns:
+            if turn.speaker not in speaker_roles:
+                speaker_roles[turn.speaker] = (
+                    "user" if len(speaker_roles) % 2 == 0 else "assistant"
+                )
+        session_time = self._session_time_from_event(first)
+        conversation = self._native_conversation_from_event(first)
+        session = self._native_session_from_event(first)
+        self._memory.add(
+            [
+                self._turn_to_message(
+                    turn,
+                    speaker_roles,
+                    session_time=session_time,
+                )
+                for turn in turns
+            ],
+            run_id=first.isolation_key,
+            metadata=self._turn_batch_metadata(conversation, session, turns),
+            infer=self.config.infer,
+            prompt=self._observation_time_prompt(session_time),
+        )
+
+    def _ensure_native_namespace(self, event: TurnEvent) -> None:
+        """首次看到 v3 isolation_key 时登记 namespace 与公开 metadata。"""
+
+        namespace = event.isolation_key
+        with self._namespace_lock:
+            if namespace not in self._added_conversation_ids:
+                self._added_conversation_ids.add(namespace)
+        self._conversation_metadata[namespace] = self._native_public_metadata(event)
+
+    def _native_conversation_from_event(self, event: TurnEvent) -> Conversation:
+        """构造供旧 helper 复用的最小公开 conversation。"""
+
+        return Conversation(
+            conversation_id=self._conversation_id_from_event(event),
+            sessions=[],
+            metadata=self._native_public_metadata(event),
+        )
+
+    def _native_session_from_event(self, event: TurnEvent) -> Session:
+        """构造供旧 helper 复用的最小公开 session。"""
+
+        return Session(
+            session_id=event.session_id or "",
+            turns=[],
+            session_time=self._session_time_from_event(event),
+        )
+
+    @staticmethod
+    def _turn_from_event(event: TurnEvent) -> Turn:
+        """从规范 TurnEvent 恢复旧 adapter helper 需要的 Turn。"""
+
+        return Turn(
+            turn_id=event.turn_id,
+            speaker=event.speaker_name or event.role,
+            content=Mem0._original_content_from_event(event),
+            normalized_role=event.role if event.role in VALID_MESSAGE_ROLES else None,
+            turn_time=Mem0._optional_event_text(event, "original_turn_time"),
+            images=Mem0._images_from_event(event),
+            metadata=dict(event.metadata.get("turn_metadata") or {}),
+        )
+
+    @staticmethod
+    def _native_turn_metadata(event: TurnEvent) -> dict[str, Any]:
+        """构造 v3 turn 写入 Mem0 时使用的公开定位元信息。"""
+
+        metadata: dict[str, Any] = {
+            "conversation_id": Mem0._conversation_id_from_event(event),
+            "session_id": event.session_id,
+            "turn_id": event.turn_id,
+            "speaker": event.speaker_name or event.role,
+        }
+        session_time = Mem0._session_time_from_event(event)
+        turn_time = Mem0._optional_event_text(event, "original_turn_time")
+        if session_time:
+            metadata["session_time"] = session_time
+        if turn_time:
+            metadata["turn_time"] = turn_time
+        return metadata
+
+    @staticmethod
+    def _native_public_metadata(event: TurnEvent) -> dict[str, Any]:
+        """恢复 v3 事件中携带的 conversation 级公开 metadata。"""
+
+        metadata = dict(event.metadata.get("conversation_metadata") or {})
+        metadata["conversation_id"] = Mem0._conversation_id_from_event(event)
+        explicit_reference_date = (
+            metadata.get("reference_date") or metadata.get("question_reference_date")
+        )
+        if explicit_reference_date is not None and str(explicit_reference_date).strip():
+            metadata["reference_date"] = str(explicit_reference_date).strip()
+        else:
+            session_time = Mem0._session_time_from_event(event)
+            if session_time:
+                metadata.setdefault("reference_date", session_time)
+        return metadata
+
+    @staticmethod
+    def _conversation_id_from_event(event: TurnEvent) -> str:
+        """从 v3 event metadata 中读取原始 conversation id。"""
+
+        conversation_id = event.metadata.get("conversation_id")
+        if isinstance(conversation_id, str) and conversation_id.strip():
+            return conversation_id
+        return event.isolation_key
+
+    @staticmethod
+    def _session_time_from_event(event: TurnEvent) -> str | None:
+        """从 v3 event metadata 中读取原始 session time。"""
+
+        return Mem0._optional_event_text(event, "original_session_time") or event.timestamp
+
+    @staticmethod
+    def _original_content_from_event(event: TurnEvent) -> str:
+        """读取事件前原始 turn 文本，避免 caption 在 native 路径重复拼接。"""
+
+        original = event.metadata.get("original_content")
+        if isinstance(original, str):
+            return original
+        return event.content
+
+    @staticmethod
+    def _optional_event_text(event: TurnEvent, field_name: str) -> str | None:
+        """读取 TurnEvent metadata 中的可选文本字段。"""
+
+        value = event.metadata.get(field_name)
+        return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _images_from_event(event: TurnEvent) -> list[ImageRef]:
+        """从 v3 event metadata 恢复公开图片引用。"""
+
+        raw_images = event.metadata.get("turn_images")
+        if not isinstance(raw_images, list):
+            return []
+        images: list[ImageRef] = []
+        for raw_image in raw_images:
+            if not isinstance(raw_image, dict):
+                continue
+            images.append(
+                ImageRef(
+                    image_id=raw_image.get("image_id"),
+                    path=raw_image.get("path"),
+                    caption=raw_image.get("caption"),
+                    metadata=dict(raw_image.get("metadata") or {}),
+                )
+            )
+        return images
 
     def add_from_turn(
         self,
@@ -558,15 +770,19 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
             },
         )
 
-    def retrieve(self, question: Question) -> AnswerPromptResult:
+    def retrieve(self, question: Question | RetrievalQuery) -> AnswerPromptResult | RetrievalResult:
         """检索当前 question 所属 conversation，并构造完整 Mem0 prompt messages。
 
         输入:
-            question: 不含 gold/evidence 的公开问题。
+            question: 不含 gold/evidence 的公开问题，或 v3 RetrievalQuery。
 
         输出:
-            AnswerPromptResult: `prompt_messages` 可直接交给 framework answer LLM。
+            AnswerPromptResult 或 RetrievalResult: `prompt_messages` 可直接交给
+            framework answer LLM。
         """
+
+        if isinstance(question, RetrievalQuery):
+            return self._retrieve_native(question)
 
         with self._namespace_lock:
             is_added = question.conversation_id in self._added_conversation_ids
@@ -628,6 +844,95 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem):
                 "retrieved_memory_count": len(memories),
                 "top_k": self.config.top_k,
                 "answer_prompt_profile": self._reader_prompt_kind(question),
+            },
+        )
+
+    def _retrieve_native(self, query: RetrievalQuery) -> RetrievalResult:
+        """执行 v3 检索并返回不生成最终答案的 RetrievalResult。"""
+
+        with self._namespace_lock:
+            is_added = query.isolation_key in self._added_conversation_ids
+        if not is_added:
+            raise ConfigurationError(
+                "Mem0 query isolation_key was not ingested: "
+                f"{query.isolation_key}"
+            )
+        source_question = query.source_question or Question(
+            question_id=query.isolation_key,
+            conversation_id=query.isolation_key,
+            text=query.query_text,
+            question_time=query.question_time,
+        )
+        native_question = Question(
+            question_id=source_question.question_id,
+            conversation_id=query.isolation_key,
+            text=query.query_text,
+            question_time=query.question_time or source_question.question_time,
+            category=source_question.category,
+            metadata=dict(source_question.metadata),
+        )
+        if not native_question.text.strip():
+            raise ConfigurationError(
+                f"Mem0 question text is empty: {native_question.question_id}"
+            )
+
+        retrieval_started_ns = perf_counter_ns()
+        collector = self._efficiency_collector
+        if collector is not None and collector.enabled:
+            with collector.operation_stage(EfficiencyStage.RETRIEVAL):
+                raw_result = self._memory.search(
+                    native_question.text,
+                    filters={"run_id": query.isolation_key},
+                    top_k=self.config.top_k,
+                )
+        else:
+            raw_result = self._memory.search(
+                native_question.text,
+                filters={"run_id": query.isolation_key},
+                top_k=self.config.top_k,
+            )
+        memories = self._normalize_search_results(raw_result)
+        injected_memory_text = self._memory_context_text(memories)
+        reader_messages = self._reader_messages(native_question, memories)
+        if collector is not None and collector.enabled:
+            collector.record_retrieval_result(
+                latency_ms=_elapsed_ms(retrieval_started_ns),
+                injected_memory_context_tokens=(
+                    self._count_tokens(injected_memory_text, self.config.reader_model)
+                    if injected_memory_text
+                    else 0
+                ),
+            )
+
+        formatted_memory = (
+            injected_memory_text if injected_memory_text else "(No relevant memories found)"
+        )
+        return RetrievalResult(
+            formatted_memory=formatted_memory,
+            prompt_messages=tuple(_prompt_messages_from_dicts(reader_messages)),
+            items=tuple(
+                RetrievedItem(
+                    item_id=f"mem0:{index}",
+                    content=memory["memory"],
+                    score=memory.get("score"),
+                    timestamp=memory.get("created_at"),
+                )
+                for index, memory in enumerate(memories)
+            ),
+            metadata={
+                "method": "mem0",
+                "answer_context": injected_memory_text,
+                "retrieved_memories": [
+                    {
+                        "content": memory["memory"],
+                        "score": memory.get("score"),
+                        "created_at": memory.get("created_at"),
+                    }
+                    for memory in memories
+                ],
+                "retrieved_memory_count": len(memories),
+                "top_k": self.config.top_k,
+                "answer_prompt_profile": self._reader_prompt_kind(native_question),
             },
         )
 

@@ -1371,6 +1371,7 @@ def _run_isolated_worker_pipeline(
                 openai_settings=build_context_template.openai_settings,
                 path_settings=build_context_template.path_settings,
                 storage_root=worker_storage,
+                benchmark_name=build_context_template.benchmark_name,
                 completed_conversations=completed_for_chunk,
                 efficiency_collector=build_context_template.efficiency_collector,
             )
