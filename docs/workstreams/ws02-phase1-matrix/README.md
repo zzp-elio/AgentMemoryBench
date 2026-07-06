@@ -163,8 +163,9 @@ created: 2026-07-05
   operation-level 诊断缓）、BEAM（probing-QA + 基础 judge 先行，
   event-ordering/rubric-nugget 缓）。
 - [ ] 每个 benchmark 一份 adapter spec（架构师）→ plan → Codex 施工 →
-  离线 fake smoke → 极小真实 smoke。派生子 workstream：ws02.1-membench、
-  ws02.2-halumem、ws02.3-beam（建立时更新此处链接）。
+  离线 fake smoke → 极小真实 smoke。派生子 workstream：
+  [ws02.1-membench](../ws02.1-membench/README.md)（spec 已起草待批准，
+  2026-07-07）、ws02.2-halumem、ws02.3-beam（建立时更新此处链接）。
 
 ### Track C：矩阵填格与成本表
 
