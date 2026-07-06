@@ -16,6 +16,7 @@ from .validators import validate_no_private_keys
 ConsumeGranularity: TypeAlias = Literal["turn", "pair", "session", "conversation"]
 ProvenanceGranularity: TypeAlias = Literal["none", "session", "turn"]
 RetrievalPurpose: TypeAlias = Literal["qa", "memory_update_probe", "extraction_probe"]
+BRIDGE_EMPTY_MEMORY_SENTINEL = "[bridge] legacy provider exposed no memory context"
 
 
 def _require_text(value: str, field_name: str) -> None:
@@ -308,6 +309,7 @@ class MemoryProvider(ABC):
 
 
 __all__ = [
+    "BRIDGE_EMPTY_MEMORY_SENTINEL",
     "ConsumeGranularity",
     "ConversationBatch",
     "IngestResult",

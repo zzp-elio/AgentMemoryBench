@@ -107,13 +107,13 @@ fallback 链的末端改为**非空 sentinel 常量**，不用空串：
 拦截；sentinel 显式、可 grep、与真实记忆可区分，且桥接是临时态（M-B 原生化后
 内置 method 不再走桥）。
 
-- [ ] `LegacyProviderBridge(MemoryProvider)`：`consume_granularity="conversation"`；
+- [x] `LegacyProviderBridge(MemoryProvider)`：`consume_granularity="conversation"`；
   `ingest(ConversationBatch)` → 重建旧 `Conversation` 对象调旧 `add()`；
   `retrieve(RetrievalQuery)` → 调旧 `retrieve(question)` 得 `AnswerPromptResult`，
   映射为 `RetrievalResult`：`prompt_messages` 原样、`formatted_memory` 按上方
   裁定的三级 fallback 链（末端 sentinel，绝不空串）。
   `RetrievalQuery.source_question` 还原为旧接口所需 `Question`。
-- [ ] registered prediction service：构造 provider 时检测其类型——旧式
+- [x] registered prediction service：构造 provider 时检测其类型——旧式
   `BaseMemoryProvider` 自动包桥，新式 `MemoryProvider` 直用；manifest 新增
   `protocol_version`（bridge 时记 `v2-bridged`，原生记 `v3`）与
   `prompt_track`（当前固定 `native`）、`profile` 字段骨架。
@@ -121,6 +121,27 @@ fallback 链的末端改为**非空 sentinel 常量**，不用空串：
   全部通过，artifact 与迁移前语义一致（`method_predictions.jsonl`、
   `answer_prompts.prediction.jsonl` 关键字段对比测试）；
   `tests/test_prediction_runner.py tests/test_prediction_cli.py` 全绿。
+
+  验收输出（2026-07-06，T3）：
+
+  ```bash
+  $ uv run pytest tests/test_legacy_provider_bridge.py -q
+  ....                                                                     [100%]
+  4 passed in 0.02s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_prediction_runner.py tests/test_prediction_cli.py -q
+  ........................................................................ [ 79%]
+  ...................                                                      [100%]
+  91 passed in 1.28s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_documentation_standards.py -q
+  .....                                                                    [100%]
+  5 passed in 0.46s
+  ```
 
 ## T4 runner 主链路切换到事件流
 

@@ -31,6 +31,16 @@ from memory_benchmark.core.interfaces import (
     BaseMemorySystem,
     BaseResumableMemorySystem,
 )
+from memory_benchmark.core.provider_bridge import LegacyProviderBridge
+from memory_benchmark.core.provider_protocol import (
+    BRIDGE_EMPTY_MEMORY_SENTINEL,
+    ConversationBatch,
+    MemoryProvider,
+    RetrievalQuery,
+    RetrievalResult,
+    SessionRef,
+    UnitRef,
+)
 from memory_benchmark.core.validators import validate_dataset, validate_no_private_keys
 from memory_benchmark.methods.registry import MethodBuildContext
 from memory_benchmark.observability import ProgressReporter, RunContext
@@ -48,6 +58,11 @@ from memory_benchmark.readers.answer import AnswerLLMResponse, FrameworkAnswerRe
 from memory_benchmark.runners.conversation_qa import (
     _make_public_conversation,
     _make_public_question,
+)
+from memory_benchmark.runners.event_stream import (
+    GranularityAggregator,
+    build_turn_events,
+    default_isolation_key,
 )
 from memory_benchmark.runners.ingest_resume import (
     TurnIngestCheckpoint,
@@ -254,6 +269,8 @@ _STATUS_COMPLETED = "completed"
 _STATUS_FAILED_INGEST = "failed_ingest"
 _STATUS_FAILED_ANSWER = "failed_answer"
 
+_PredictionSystem = BaseMemorySystem | BaseMemoryProvider | MemoryProvider
+
 
 def _conversation_state_status(state: dict[str, Any]) -> str:
     """读取 conversation 状态，并兼容旧 `failed + ingested` checkpoint。
@@ -291,7 +308,7 @@ def _conversation_is_ingested(state: dict[str, Any]) -> bool:
 
 def run_predictions(
     dataset: Dataset,
-    system: BaseMemorySystem | BaseMemoryProvider,
+    system: _PredictionSystem,
     run_context: RunContext,
     policy: PredictionRunPolicy,
     method_manifest: dict[str, object],
@@ -305,7 +322,7 @@ def run_predictions(
     answer_reader: FrameworkAnswerReader | None = None,
     *,
     system_factory: Callable[
-        [MethodBuildContext], BaseMemorySystem
+        [MethodBuildContext], _PredictionSystem
     ] | None = None,
     build_context_template: MethodBuildContext | None = None,
     supports_shared_instance_parallelism: bool = False,
@@ -335,6 +352,11 @@ def run_predictions(
         PredictionRunSummary: 回复数量和标准 artifact 路径。
     """
 
+    system = _normalize_memory_system(system)
+    method_manifest = _method_manifest_with_protocol(
+        method_manifest=method_manifest,
+        system=system,
+    )
     dataset_fingerprint, manifest = _build_prediction_resume_artifacts(
         dataset=dataset,
         run_context=run_context,
@@ -465,6 +487,7 @@ def run_predictions(
                 work_plan=work_plan,
                 system_factory=system_factory,
                 build_context_template=build_context_template,
+                run_id=run_context.run_id,
                 policy=policy,
                 paths=paths,
                 progress=progress,
@@ -495,6 +518,7 @@ def run_predictions(
             _ingest_pending_conversations(
                 conversations=ingest_conversations,
                 system=system,
+                run_id=run_context.run_id,
                 policy=policy,
                 conversation_status=conversation_status,
                 paths=paths,
@@ -507,6 +531,7 @@ def run_predictions(
                 conversations=answer_conversations,
                 selected_questions=pending_selected_questions,
                 system=system,
+                run_id=run_context.run_id,
                 policy=policy,
                 prediction_records=prediction_records,
                 question_status=question_status,
@@ -581,7 +606,12 @@ def run_predictions(
         prediction_path=str(paths.method_predictions_path),
         private_label_path=str(paths.evaluator_private_labels_path),
         summary_path=str(paths.summary_path),
-        metadata={"run_control": run_control_metadata},
+        metadata={
+            "run_control": run_control_metadata,
+            "bridge_empty_memory_sentinel_count": _count_bridge_empty_memory_sentinel(
+                paths.answer_prompts_path
+            ),
+        },
     )
     atomic_write_json(paths.summary_path, summary.to_dict())
     logger.log_event("run_completed", summary.to_dict())
@@ -1056,9 +1086,7 @@ def _validate_run_manifest_state(
                 "are missing, or the existing schema v2 manifest predates "
                 "source fingerprint identity"
             )
-        if _normalize_manifest_for_resume_compare(existing) != (
-            _normalize_manifest_for_resume_compare(manifest)
-        ):
+        if not _manifests_match_for_resume(existing, manifest):
             raise ConfigurationError(
                 "Resume manifest mismatch: dataset, method or run policy changed"
             )
@@ -1085,6 +1113,24 @@ def _normalize_manifest_for_resume_compare(
     return normalized
 
 
+def _manifests_match_for_resume(
+    existing: dict[str, Any],
+    manifest: dict[str, Any],
+) -> bool:
+    """比较 resume manifest，并兼容 T3 前缺省的协议字段。"""
+
+    existing_normalized = _normalize_manifest_for_resume_compare(existing)
+    current_normalized = _normalize_manifest_for_resume_compare(manifest)
+    existing_method = existing_normalized.get("method")
+    current_method = current_normalized.get("method")
+    if isinstance(existing_method, dict) and isinstance(current_method, dict):
+        for key in ("protocol_version", "prompt_track", "profile"):
+            if key not in existing_method or key not in current_method:
+                existing_method.pop(key, None)
+                current_method.pop(key, None)
+    return existing_normalized == current_normalized
+
+
 def _validate_concrete_benchmark_variant(benchmark_variant: str) -> str:
     """校验 concrete benchmark variant 已在命令层解析完成。"""
 
@@ -1102,6 +1148,39 @@ def _validate_run_scope(run_scope: RunScope) -> RunScope:
     if not isinstance(run_scope, RunScope):
         raise ConfigurationError("run_scope must be a RunScope")
     return run_scope
+
+
+def _normalize_memory_system(system: _PredictionSystem) -> BaseMemorySystem | MemoryProvider:
+    """把旧 retrieve-first provider 规范化为 v3 MemoryProvider。"""
+
+    if isinstance(system, MemoryProvider):
+        return system
+    if isinstance(system, BaseMemoryProvider):
+        return LegacyProviderBridge(system)
+    return system
+
+
+def _method_manifest_with_protocol(
+    *,
+    method_manifest: dict[str, object],
+    system: BaseMemorySystem | MemoryProvider,
+) -> dict[str, object]:
+    """按实际 provider 类型补充协议身份字段。"""
+
+    if not isinstance(system, MemoryProvider):
+        return method_manifest
+    normalized = dict(method_manifest)
+    protocol_version = "v2-bridged" if isinstance(system, LegacyProviderBridge) else "v3"
+    normalized.setdefault("protocol_version", protocol_version)
+    normalized.setdefault("prompt_track", "native")
+    normalized.setdefault("profile", {})
+    return normalized
+
+
+def _is_memory_provider(system: BaseMemorySystem | MemoryProvider) -> bool:
+    """判断系统是否已经进入 v3 provider 路径。"""
+
+    return isinstance(system, MemoryProvider)
 
 
 def _write_input_artifacts(
@@ -1195,7 +1274,7 @@ def _run_isolated_worker_pipeline(
     work_plan: _PredictionWorkPlan,
     system_factory: Callable[
         [MethodBuildContext],
-        BaseMemorySystem | BaseMemoryProvider,
+        _PredictionSystem,
     ],
     build_context_template: MethodBuildContext,
     policy: PredictionRunPolicy,
@@ -1209,6 +1288,7 @@ def _run_isolated_worker_pipeline(
     conversation_status: dict[str, Any],
     question_status: dict[str, Any],
     question_order: list[str],
+    run_id: str = "prediction-run",
     answer_reader: FrameworkAnswerReader | None = None,
 ) -> None:
     """使用独立 method instance 并行处理 conversation 的 ingest 与 answer。
@@ -1289,6 +1369,7 @@ def _run_isolated_worker_pipeline(
                 worker_context,
                 system_factory,
                 tuple(chunk),
+                run_id,
                 efficiency_collector,
                 retrieval_observation_contract,
                 answer_reader,
@@ -1456,9 +1537,10 @@ def _isolated_worker(
     build_context: MethodBuildContext,
     system_factory: Callable[
         [MethodBuildContext],
-        BaseMemorySystem | BaseMemoryProvider,
+        _PredictionSystem,
     ],
     work_items: tuple[_ConversationWorkItem, ...],
+    run_id: str,
     efficiency_collector: EfficiencyCollector | None,
     retrieval_observation_contract: RetrievalObservationContract | None,
     answer_reader: FrameworkAnswerReader | None,
@@ -1472,7 +1554,7 @@ def _isolated_worker(
     conversation 间无共享状态。
     """
 
-    system = system_factory(build_context)
+    system = _normalize_memory_system(system_factory(build_context))
     results: list[_ConversationAnswerBatch | _ConversationFailureBatch] = []
     consecutive_failures = 0
     for work_item in work_items:
@@ -1496,6 +1578,7 @@ def _isolated_worker(
                     ) as conv_scope:
                         _add_public_conversation_coarse(
                             system=system,
+                            run_id=run_id,
                             public_conversation=public_conversation,
                         )
                         efficiency_collector.record_memory_build_total_latency(
@@ -1505,6 +1588,7 @@ def _isolated_worker(
                 else:
                     _add_public_conversation_coarse(
                         system=system,
+                        run_id=run_id,
                         public_conversation=public_conversation,
                     )
                 ingested = True
@@ -1519,11 +1603,12 @@ def _isolated_worker(
                         conversation.conversation_id,
                         question.question_id,
                     ) as scope:
-                        if isinstance(system, BaseMemoryProvider):
+                        if _is_memory_provider(system):
                             prediction, retrieval_record = (
                                 _answer_question_retrieve_first_or_reuse(
                                     provider=system,
                                     question=question,
+                                    run_id=run_id,
                                     answer_reader=answer_reader,
                                     efficiency_collector=efficiency_collector,
                                     existing_retrieval_records=existing_retrieval_records,
@@ -1550,11 +1635,12 @@ def _isolated_worker(
                                 )
                     conv_observations.extend(scope.records)
                 else:
-                    if isinstance(system, BaseMemoryProvider):
+                    if _is_memory_provider(system):
                         prediction, retrieval_record = (
                             _answer_question_retrieve_first_or_reuse(
                                 provider=system,
                                 question=question,
+                                run_id=run_id,
                                 answer_reader=answer_reader,
                                 efficiency_collector=None,
                                 existing_retrieval_records=existing_retrieval_records,
@@ -1618,16 +1704,21 @@ def _isolated_worker(
 
 def _add_public_conversation_coarse(
     *,
-    system: BaseMemorySystem | BaseMemoryProvider,
+    system: BaseMemorySystem | MemoryProvider,
+    run_id: str,
     public_conversation: Conversation,
 ) -> None:
     """isolated worker 使用的 conversation 级写入，不处理逐 turn checkpoint。"""
 
-    if isinstance(system, BaseMemoryProvider):
-        result = system.add(public_conversation)
-    else:
-        result = system.add([public_conversation])
-    if result is None and not isinstance(system, BaseMemoryProvider):
+    if isinstance(system, MemoryProvider):
+        _ingest_memory_provider_conversation(
+            provider=system,
+            public_conversation=public_conversation,
+            run_id=run_id,
+        )
+        return
+    result = system.add([public_conversation])
+    if result is None:
         return
     if public_conversation.conversation_id not in result.conversation_ids:
         raise ConfigurationError(
@@ -1638,7 +1729,8 @@ def _add_public_conversation_coarse(
 
 def _ingest_pending_conversations(
     conversations: list[Conversation],
-    system: BaseMemorySystem | BaseMemoryProvider,
+    system: BaseMemorySystem | MemoryProvider,
+    run_id: str,
     policy: PredictionRunPolicy,
     conversation_status: dict[str, Any],
     paths: ExperimentPaths,
@@ -1690,6 +1782,7 @@ def _ingest_pending_conversations(
                 _ingest_one,
                 system,
                 conversation,
+                run_id,
                 checkpoint_store,
                 resume_checkpoints.get(conversation.conversation_id),
                 efficiency_collector,
@@ -1747,10 +1840,9 @@ def _ingest_pending_conversations(
                 {"conversation_id": returned_id},
             )
 
-
 def _preflight_ingest_checkpoints(
     conversations: list[Conversation],
-    system: BaseMemorySystem,
+    system: BaseMemorySystem | MemoryProvider,
     policy: PredictionRunPolicy,
     conversation_status: dict[str, Any],
     checkpoint_store: TurnIngestCheckpointStore,
@@ -1816,8 +1908,9 @@ def _preflight_ingest_checkpoints(
 
 
 def _ingest_one(
-    system: BaseMemorySystem | BaseMemoryProvider,
+    system: BaseMemorySystem | MemoryProvider,
     conversation: Conversation,
+    run_id: str,
     checkpoint_store: TurnIngestCheckpointStore,
     checkpoint: TurnIngestCheckpoint | None,
     efficiency_collector: EfficiencyCollector | None,
@@ -1834,6 +1927,7 @@ def _ingest_one(
             _add_public_conversation(
                 system=system,
                 public_conversation=public_conversation,
+                run_id=run_id,
                 checkpoint_store=checkpoint_store,
                 checkpoint=checkpoint,
             )
@@ -1848,6 +1942,7 @@ def _ingest_one(
     _add_public_conversation(
         system=system,
         public_conversation=public_conversation,
+        run_id=run_id,
         checkpoint_store=checkpoint_store,
         checkpoint=checkpoint,
     )
@@ -1858,8 +1953,9 @@ def _ingest_one(
 
 def _add_public_conversation(
     *,
-    system: BaseMemorySystem | BaseMemoryProvider,
+    system: BaseMemorySystem | MemoryProvider,
     public_conversation: Conversation,
+    run_id: str,
     checkpoint_store: TurnIngestCheckpointStore,
     checkpoint: TurnIngestCheckpoint | None,
 ) -> None:
@@ -1886,8 +1982,13 @@ def _add_public_conversation(
                 total_turns=total_turns,
             ),
         )
-    elif isinstance(system, BaseMemoryProvider):
-        result = system.add(public_conversation)
+    elif isinstance(system, MemoryProvider):
+        _ingest_memory_provider_conversation(
+            provider=system,
+            public_conversation=public_conversation,
+            run_id=run_id,
+        )
+        return
     else:
         result = system.add([public_conversation])
     if public_conversation.conversation_id not in result.conversation_ids:
@@ -1897,8 +1998,35 @@ def _add_public_conversation(
         )
 
 
+def _ingest_memory_provider_conversation(
+    *,
+    provider: MemoryProvider,
+    public_conversation: Conversation,
+    run_id: str,
+) -> None:
+    """用 v3 conversation batch 调用 provider.ingest 并完成边界回调。"""
+
+    isolation_key = default_isolation_key(run_id, public_conversation.conversation_id)
+    events = tuple(build_turn_events(public_conversation, isolation_key))
+    units = tuple(
+        GranularityAggregator("conversation").aggregate(
+            events,
+            isolation_key=isolation_key,
+        )
+    )
+    for unit in units:
+        if isinstance(unit, ConversationBatch):
+            provider.ingest(unit)
+            continue
+        if isinstance(unit, SessionRef):
+            provider.end_session(unit)
+            continue
+        if isinstance(unit, UnitRef):
+            provider.end_conversation(unit)
+
+
 def _uses_turn_resume(
-    system: BaseMemorySystem | BaseMemoryProvider,
+    system: BaseMemorySystem | MemoryProvider,
     conversation: Conversation,
 ) -> bool:
     """判断当前 method/conversation 是否使用逐 turn checkpoint。"""
@@ -1922,7 +2050,8 @@ def _conversation_turn_count(conversation: Conversation) -> int:
 def _answer_pending_questions(
     conversations: list[Conversation],
     selected_questions: dict[str, list[Question]],
-    system: BaseMemorySystem | BaseMemoryProvider,
+    system: BaseMemorySystem | MemoryProvider,
+    run_id: str,
     policy: PredictionRunPolicy,
     prediction_records: dict[str, dict[str, Any]],
     question_status: dict[str, dict[str, Any]],
@@ -1967,6 +2096,7 @@ def _answer_pending_questions(
             executor.submit(
                 _answer_conversation_questions,
                 system,
+                run_id,
                 conversation_id,
                 questions,
                 efficiency_collector,
@@ -2075,7 +2205,8 @@ def _persist_answer_prompt_records(
 
 
 def _answer_conversation_questions(
-    system: BaseMemorySystem | BaseMemoryProvider,
+    system: BaseMemorySystem | MemoryProvider,
+    run_id: str,
     conversation_id: str,
     questions: list[Question],
     efficiency_collector: EfficiencyCollector | None,
@@ -2097,11 +2228,12 @@ def _answer_conversation_questions(
                 conversation_id,
                 question.question_id,
             ) as scope:
-                if isinstance(system, BaseMemoryProvider):
+                if _is_memory_provider(system):
                     prediction, retrieval_record = (
                         _answer_question_retrieve_first_or_reuse(
                             provider=system,
                             question=question,
+                            run_id=run_id,
                             answer_reader=answer_reader,
                             efficiency_collector=efficiency_collector,
                             existing_retrieval_records=existing_retrieval_records,
@@ -2126,10 +2258,11 @@ def _answer_conversation_questions(
                     retrieval_records.append(retrieval_record)
             observations.extend(scope.records)
         else:
-            if isinstance(system, BaseMemoryProvider):
+            if _is_memory_provider(system):
                 prediction, retrieval_record = _answer_question_retrieve_first_or_reuse(
                     provider=system,
                     question=question,
+                    run_id=run_id,
                     answer_reader=answer_reader,
                     efficiency_collector=None,
                     existing_retrieval_records=existing_retrieval_records,
@@ -2160,8 +2293,9 @@ def _answer_conversation_questions(
 
 def _answer_question_retrieve_first(
     *,
-    provider: BaseMemoryProvider,
+    provider: MemoryProvider,
     question: Question,
+    run_id: str,
     answer_reader: FrameworkAnswerReader | None,
     efficiency_collector: EfficiencyCollector | None,
 ) -> tuple[AnswerResult, dict[str, Any]]:
@@ -2173,9 +2307,17 @@ def _answer_question_retrieve_first(
     started_ns = perf_counter_ns()
     if efficiency_collector is not None and efficiency_collector.enabled:
         with efficiency_collector.operation_stage(EfficiencyStage.RETRIEVAL):
-            retrieval = provider.retrieve(question)
+            retrieval_result = provider.retrieve(
+                _retrieval_query_from_question(question=question, run_id=run_id)
+            )
     else:
-        retrieval = provider.retrieve(question)
+        retrieval_result = provider.retrieve(
+            _retrieval_query_from_question(question=question, run_id=run_id)
+        )
+    retrieval = _answer_prompt_from_retrieval_result(
+        question=question,
+        retrieval_result=retrieval_result,
+    )
     _validate_retrieval(retrieval, question)
     if efficiency_collector is not None and efficiency_collector.enabled:
         efficiency_collector.record_retrieval_result_if_missing(
@@ -2194,6 +2336,8 @@ def _answer_question_retrieve_first(
             message.to_dict() for message in retrieval.prompt_messages
         ],
         "metadata": retrieval.metadata,
+        "formatted_memory": retrieval_result.formatted_memory,
+        "retrieved_items": _retrieved_items_payload(retrieval_result),
     }
     validate_no_private_keys(answer_prompt_record)
 
@@ -2226,8 +2370,9 @@ def _answer_question_retrieve_first(
 
 def _answer_question_retrieve_first_or_reuse(
     *,
-    provider: BaseMemoryProvider,
+    provider: MemoryProvider,
     question: Question,
+    run_id: str,
     answer_reader: FrameworkAnswerReader | None,
     efficiency_collector: EfficiencyCollector | None,
     existing_retrieval_records: dict[str, dict[str, Any]],
@@ -2263,9 +2408,57 @@ def _answer_question_retrieve_first_or_reuse(
     return _answer_question_retrieve_first(
         provider=provider,
         question=question,
+        run_id=run_id,
         answer_reader=answer_reader,
         efficiency_collector=efficiency_collector,
     )
+
+
+def _retrieval_query_from_question(
+    *,
+    question: Question,
+    run_id: str,
+) -> RetrievalQuery:
+    """由公开 Question 构造 v3 RetrievalQuery。"""
+
+    return RetrievalQuery(
+        query_text=question.text,
+        isolation_key=default_isolation_key(run_id, question.conversation_id),
+        question_time=question.question_time,
+        top_k=10,
+        purpose="qa",
+        source_question=question,
+    )
+
+
+def _answer_prompt_from_retrieval_result(
+    *,
+    question: Question,
+    retrieval_result: RetrievalResult,
+) -> AnswerPromptResult:
+    """把 v3 RetrievalResult 转换为现有 answer reader 输入。"""
+
+    if not retrieval_result.prompt_messages:
+        raise ConfigurationError(
+            "RetrievalResult.prompt_messages is required while prompt_track is native: "
+            f"{question.question_id}"
+        )
+    legacy_answer_prompt = retrieval_result.metadata.get("bridge_legacy_answer_prompt")
+    return AnswerPromptResult(
+        question_id=question.question_id,
+        conversation_id=question.conversation_id,
+        answer_prompt=legacy_answer_prompt if isinstance(legacy_answer_prompt, str) else "",
+        prompt_messages=list(retrieval_result.prompt_messages),
+        metadata=dict(retrieval_result.metadata),
+    )
+
+
+def _retrieved_items_payload(retrieval_result: RetrievalResult) -> list[dict[str, Any]]:
+    """把 v3 retrieved items 转成 artifact 载荷。"""
+
+    if retrieval_result.items is None:
+        return []
+    return [asdict(item) for item in retrieval_result.items]
 
 
 def _retrieval_from_record(record: dict[str, Any]) -> AnswerPromptResult:
@@ -2310,6 +2503,16 @@ def _validate_retrieval(retrieval: AnswerPromptResult, question: Question) -> No
             for message in retrieval.prompt_messages
         )
     validate_no_private_keys(retrieval.metadata)
+
+
+def _count_bridge_empty_memory_sentinel(answer_prompts_path: Path) -> int:
+    """统计桥接 sentinel fallback 在 answer prompt artifact 中出现次数。"""
+
+    return sum(
+        1
+        for record in read_jsonl(answer_prompts_path)
+        if record.get("formatted_memory") == BRIDGE_EMPTY_MEMORY_SENTINEL
+    )
 
 
 def _count_answer_context_tokens(

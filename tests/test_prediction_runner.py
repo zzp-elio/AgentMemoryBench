@@ -34,6 +34,7 @@ from memory_benchmark.core.interfaces import (
     BaseMemorySystem,
     BaseResumableMemorySystem,
 )
+from memory_benchmark.core.provider_protocol import BRIDGE_EMPTY_MEMORY_SENTINEL
 from memory_benchmark.observability import RunContext
 from memory_benchmark.readers.answer import FakeAnswerLLMClient, FrameworkAnswerReader
 from memory_benchmark.methods.mock import MockMemoryProvider
@@ -925,6 +926,47 @@ def test_runner_uses_retrieve_first_provider_and_framework_reader(
     assert answer_client.calls[0]["messages"] == [
         {"role": "user", "content": "memory for 问题 1"}
     ]
+
+
+def test_runner_bridges_legacy_provider_and_counts_empty_memory_sentinel(
+    tmp_path: Path,
+) -> None:
+    """旧 BaseMemoryProvider 应经 v3 桥接运行并统计 sentinel fallback。"""
+
+    dataset = _build_dataset()
+    provider = RecordingMemoryProvider()
+    answer_client = FakeAnswerLLMClient(answer="framework answer")
+    reader = FrameworkAnswerReader(client=answer_client)
+    context = _create_context(tmp_path)
+
+    summary = run_predictions(
+        dataset=dataset,
+        system=provider,
+        run_context=context,
+        policy=PredictionRunPolicy(max_workers=1),
+        answer_reader=reader,
+        method_manifest={"adapter": "recording-provider-v1"},
+        benchmark_variant="test_variant",
+        run_scope=RunScope.FULL,
+    )
+
+    manifest = json.loads((context.run_dir / "manifest.json").read_text())
+    retrievals = read_jsonl(
+        context.artifacts_dir / "answer_prompts.prediction.jsonl"
+    )
+
+    assert manifest["method"]["protocol_version"] == "v2-bridged"
+    assert manifest["method"]["prompt_track"] == "native"
+    assert manifest["method"]["profile"] == {}
+    assert summary.metadata["bridge_empty_memory_sentinel_count"] == 2
+    assert retrievals[0]["formatted_memory"] == BRIDGE_EMPTY_MEMORY_SENTINEL
+    assert retrievals[0]["metadata"]["bridge_warning"] == (
+        "legacy_provider_exposed_no_memory_context"
+    )
+    assert answer_client.calls[0]["messages"] == [
+        {"role": "user", "content": "memory for 问题 1"}
+    ]
+    assert BRIDGE_EMPTY_MEMORY_SENTINEL not in answer_client.calls[0]["prompt"]
 
 
 def test_shared_mock_provider_uses_framework_reader(tmp_path: Path) -> None:
