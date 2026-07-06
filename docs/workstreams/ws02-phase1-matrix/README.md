@@ -22,8 +22,15 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-06（最新，Codex）：**M-B 四 adapter 原生化 T0-T6 已完成并按 task
-  切分提交**。Mem0、LightMem、A-Mem、MemoryOS registry 主路径均产出原生
+- 2026-07-06（最新）：**M-B 架构师验收通过（APPROVED，零缺陷）**，审查记录：
+  [notes/2026-07-06-mb-acceptance-review.md](notes/2026-07-06-mb-acceptance-review.md)。
+  新基线 **771 passed**（架构师本机复跑）。协议 v3 全链路落地完成，
+  **Track B/C 解冻，进入 M-C**：下一步架构师写 MemBench adapter spec
+  （ws02.1），并提醒用户确认预算后执行 spec §9.2 真实 API 对照 smoke。
+  另：架构师传承包已就绪——`docs/reference/architect-playbook.md` 升级为
+  v2 传承版（含审查/plan/spec 手艺与知识地图），任何模型可按其 §10 接任。
+- 2026-07-06（已验收，Codex）：M-B 四 adapter 原生化 T0-T6 已完成并按 task
+  切分提交。Mem0、LightMem、A-Mem、MemoryOS registry 主路径均产出原生
   `protocol_version=v3` provider；`LegacyProviderBridge` 保留给未来外部旧式
   provider，内置路径不再经过桥接。T2-T5 均以原生 vs 桥接调用序列等价测试锁住
   行为；T6 全量回归维持 758 基线以上。当前无施工断点，下一步交架构师复跑验收。

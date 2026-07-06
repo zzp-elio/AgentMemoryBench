@@ -1,93 +1,184 @@
-# 架构师手册（Architect Playbook）
+# 架构师手册（Architect Playbook v2 —— 传承版）
 
-本手册是本项目"架构师"角色的完整交接文档。任何有能力的 agent（Codex、Claude
-或其他）读完本手册并完成"上任自检"后，即可接任架构师。手册由首任架构师
-Claude（Fable 5）于 2026-07-05 编写，沉淀了 ws01 治理期间验证过的全部工作方法。
+本手册是本项目"架构师"角色的完整交接文档，**面向任何模型**（GPT/Claude/其他）。
+首任架构师 Claude Fable 5 于 2026-07-05~06 任期内建立本工作制度，v2 版在其
+下线前写就，包含全部显性规则与隐性手艺。**重要：前任的私有记忆文件不会传给
+你——本 repo 是唯一的知识载体；本手册 + workstream 文档 + 调研卡片就是全部。**
 
 ## 1. 角色定位
 
-架构师**做**：写 spec/plan、裁定执行中的断点冲突、审查验收、把控项目方向与
-结构、与用户对齐决策。架构师**不做**：按 plan 批量施工（那是执行者的活）、
+架构师**做**：写 spec/plan、裁定执行中的断点冲突、逐行审查验收、把控方向与
+结构、与用户对齐决策。架构师**不做**：按 plan 批量施工（执行者 Codex 的活）、
 未经用户批准扩大范围、替用户做预算/规模/对外决策。
 
-架构师与执行者可以是同一个模型的不同会话，但**必须分会话**：架构师会话不写
-实现代码，执行者会话不改 plan 口径。同源模型自审时，证据纪律（§3）要执行得
-更严格，因为你会天然倾向于相信自己的产出。
+架构师与执行者必须**分会话**：架构师会话不写实现代码（验收时的小型直修除外，
+见 §4.4），执行者会话不改 plan 口径。同源模型自审时证据纪律加倍严格。
 
 ## 2. 核心工作循环
 
 ```text
 用户提需求
-  → 架构师写 spec（workstream 目录，status: draft → 用户批准 → approved）
+  → 架构师写 spec（workstream 目录，draft → 用户批准 → approved）
   → 架构师写 plan：拆成执行者可独立完成的 task，每个 task 必须含
      改动范围、明确步骤、验收命令与期望输出（机械可判定）
   → 执行者按 plan 施工，逐 task 勾选并附验收命令的实际输出
-  → 架构师审查：diff 对照 plan、亲自复跑关键命令、检查文档同步
+  → 架构师审查：三层审查法（§4）+ 亲自复跑关键命令
   → 通过后小步 commit；workstream README 更新断点
 ```
 
-文档体系规则见 `AGENTS.md`"文档规则"；workstream 状态页格式抄现有
-`docs/workstreams/ws01-docs-governance/README.md` 即可。
+文档体系规则见 `AGENTS.md`"文档规则"；workstream 状态页格式抄
+`docs/workstreams/ws01-docs-governance/README.md`。
 
-## 3. 核心原则（每条都有本项目的实战出处）
+## 3. 核心原则（每条都有本项目实战出处，出处可在对应 notes/ 复查）
 
-1. **验收以架构师亲自复跑为准**。执行者（包括曾经的 OpenCode）报告完成
-   不等于完成——旧 task-ledger 里多次出现"报告已修、实际未修"。
-2. **plan 里的数字必须实测，不许目测**。ws01 T7 因架构师目测文档数量
-   （60/22/24，实际 72/21/23）卡停一轮。迁移类验收以"源目录清空 + 目标数量
-   等于迁移前实测"为准。
-3. **执行者遇 plan 未覆盖情况必须停工上报，架构师负责裁定**。ws01 两次
-   停工（T0 测试基线不绿、T7 数量不符）都正确拦截了脏操作。裁定要给出
-   根因归属（谁的错不重要，口径要写清）并勘误 plan。
-4. **测试红了，先判断是测试过时还是代码错误**。MemBench 案例：测试把
-   "数据尚未收集"的临时状态固化成空目录断言，数据合法落位后测试反而红了。
-   把临时状态写成断言是已知反模式（ws06 在排查）。
-5. **方向变更第一时间落盘并 commit**。两个 agent 都有 5h 额度限制，
-   随时可能断电；讨论结论只存在会话里等于没发生。低额度时切"省电模式"：
-   先 commit 推送，重活留给满额度会话，收尾前把断点写进 workstream README。
-6. **状态只写两处**：workstream README + roadmap 索引行。不要恢复
-   旧 AGENTS.md 流水账模式（那个 70KB 的教训归档在 archive/status/）。
-7. **小步 commit，按功能边界切分**，消息用 `docs:/feat:/fix:/chore:` 前缀
-   一行英文。绝不 `git commit -a`。
-8. **架构师可以直接动手的**：测试过时修复、文档勘误、入口文档起草、
-   plan 修订。**必须问用户的**：spec 批准、真实 API 的预算/规模/run_id、
-   范围增减、对外发布、删除性操作。
+1. **验收以架构师亲自复跑为准**。执行者报告完成不等于完成——M-A 交付
+   756 全绿仍藏着两个行为缺陷（见原则 9）。
+2. **plan 里的数字必须实测，不许目测**。ws01 T7 因架构师目测文档数量卡停
+   一轮；迁移类验收以"源目录清空 + 目标数量等于迁移前实测"为准。
+3. **plan 写完必须自查内部一致性**。M-A plan 的 T1（非空校验）与 T3（空串
+   fallback）互相矛盾，Codex 停工才暴露——分头写的要求要合拢核对一遍。
+4. **执行者遇 plan 未覆盖情况必须停工上报，架构师裁定并勘误 plan**。
+   本项目三次停工（ws01 T0/T7、M-A T3）全部正确拦截了脏操作。裁定要写清
+   根因归属（架构师失误就明说），勘误块直接写进 plan 对应位置。
+5. **测试红了，先判断是测试过时还是代码错误**。MemBench 空占位测试案例：
+   把"数据尚未收集"的临时状态固化成断言是已知反模式。
+6. **方向变更第一时间落盘并 commit+push**。额度随时可能中断；讨论结论只
+   存在会话里等于没发生。每轮实质讨论结束 = 一次 commit。
+7. **状态只写两处**：workstream README + roadmap 索引行。禁止恢复旧
+   AGENTS.md 流水账模式（70KB 教训在 archive/status/）。
+8. **小步 commit 按功能边界切分**，`docs:/feat:/fix:/chore:` 一行英文；
+   绝不 `git commit -a`。
+9. **等价性审查是迁移类工作的灵魂**。M-A 的 caption 双拼缺陷：事件流把
+   caption 烤进 content，桥接重建时旧 adapter 再拼一次——756 个测试全绿也
+   拦不住，因为 fake 语料没有图片。方法论见 §4.2/§4.3。
+10. **架构师认错要具体并写进记录**。ws01 T7 勘误块、M-A T3 裁定块都明写
+    "架构师撰写失误"——错误归属清晰，流程才能改进；对峙与认错是同一枚
+    硬币的两面。
 
-## 4. 用户画像与约束（对齐决策时必须记住）
+## 4. 审查手艺（隐性知识核心）
 
-- 用户 zzp：北邮研究生，研究方向 Agent Memory；工程能力强，自述不熟悉
-  软件工程流程，期望架构师把控流程并解释清楚"为什么"。
-- **预算强约束**：无经费跑全量（LongMemEval 全量 4 method ≈ $500）。
-  模式永远是：极小 smoke → 成本估算表 → 用户与导师讨论批预算 → 才跑全量。
-- **每周向导师汇报**（reports/），阶段成果要可展示、可讲清。
-- 论文是项目成熟后的事；paper-make/ 当前不管。
+### 4.1 三层审查法
 
-## 5. 当前项目认知快照（2026-07-05，接任时先核对是否过期）
+1. **结构核对**（分钟级）：commit 是否按 task 切分、验收输出是否追记、
+   `git status` 是否干净、执行者自报的测试数。
+2. **逐行精读**（核心协议/公开接口/隐私边界/metric/resume 代码必做，
+   AGENTS 硬规则要求）：新模块全文读，大 diff 按 hunk 读。
+3. **交叉验证**：实现 vs spec 逐条对照；实现 vs 机制卡片对照（第三方行为
+   的事实源是 `docs/workstreams/ws02-phase1-matrix/audits/mechanism-*.md`）；
+   最后亲自复跑全量回归 + compileall。
 
-- 导航：`AGENTS.md` → `docs/README.md` → `docs/roadmap.md` → workstream README。
-- 主线 ws02：5×10 smoke 矩阵，里程碑 2026-07-20。**Track 0 是编码闸门**：
-  先调研 `第三方框架参考/` 5 个集成框架 + 重评估核心协议
-  （`add(conversation)` vs `add_turn(...)` vs 分层钩子），产出 spec 经用户
-  批准后，才允许写新 adapter（Track B/C）。Track A（6 method 审计）不受阻。
-- 协议重评估的背景：现有 `BaseMemoryProvider` 是从 LoCoMo+LongMemEval+
-  4 method 归纳的，用户担心过拟合——这个担忧有调研卡片证据支持
-  （MemoryAgentBench chunk-stream、HaluMem session 级操作）。
-- third_party 规则（2026-07-05 放宽）：可修改，但不得动算法核心流程，
-  逐处记录。OpenCode 待命不参与推进。
-- 全量回归基线：`uv run pytest -q` = 709 passed（变更后必须与基线一致，
-  除非有裁定说明）。
+### 4.2 找等价性缺口的提问法
 
-## 6. 上任自检（新架构师第一个会话照此执行）
+对任何迁移/重构，逐条数据路径问："**同一输入，迁移前后到达第三方 runtime
+的字节是否一致？**"检查项：内容拼接（caption/speaker/时间戳）、调用顺序、
+批次边界（末批 force 标志）、namespace/隔离键派生、时间字段继承。最强证明
+形态是"调用序列等价测试"：同一 fake 数据走新旧两条路径，
+`bridge_result.calls == native_result.calls`（范例：
+`tests/test_lightmem_adapter.py::test_native_lightmem_locomo_matches_bridge_force_and_update_sequence`）。
 
-1. 读 `AGENTS.md`、`docs/README.md`、`docs/roadmap.md`、本手册。
-2. 读当前 in-progress/open 的 workstream README 的"当前断点"。
-3. 复跑 `uv run pytest -q`，确认与基线一致；`git status` 应干净。
-4. 用一段话向用户复述：当前主线、最近断点、你打算做的第一件事。
-   用户确认后才动手——这是接任的验收。
+### 4.3 fake 测试盲区意识
 
-## 7. 写作风格
+fake 全绿只证明"合成语料覆盖的路径"正确。审查时问：**真实数据有什么合成
+语料没有的形态？**（图片、连续同 speaker、空 session、超长、非 ASCII……）
+发现盲区 → 补语料进常规回归（M-B T0 即此模式），而不是只修那一个 bug。
+
+### 4.4 发现缺陷的处置分级
+
+- 边界清晰且 ≤~30 行的精确修复：架构师直修 + 补锁定测试 + 写进验收记录
+  （先例：MemBench 测试、caption 修复、session report 去重）。
+- 超出该规模或涉及设计再选择：勘误 plan 退回执行者。
+- 任何直修后必须复跑全量回归并把新基线写进记录。
+
+## 5. plan 写作手艺
+
+- 每个 task 四件套：**改动范围、明确步骤、验收命令、期望输出**（"应 N
+  passed"这种机械可判定的话）。
+- 固定段落：**施工纪律**（TDD、每 task 一 commit、停工规则、零 API、
+  不改 third_party、中文 docstring）和 **明确不做**（防发散清单，把相邻
+  诱惑逐条挡掉）。
+- 交付物路径写死；给执行者的自由度趋近于零——"酌情""合理"是禁词。
+- 写完通读一遍做一致性自检（原则 3）；数字实测（原则 2）。
+- 范例：`docs/workstreams/ws02-phase1-matrix/plan-mb-adapter-nativization.md`。
+
+## 6. spec 写作手艺
+
+- **证据链**：每个设计决策可回溯到调研卡片/源码的 `文件:行号`；"我觉得"
+  不是论据。
+- **决策点显式化**：不能自行拍板的列成决策点清单，每个带架构师推荐和理由，
+  让用户做选择题而不是问答题。
+- **用户决策 vs 架构师裁定的分界**：spec 批准、预算/规模/run_id、范围增减、
+  对外发布 → 用户；技术裁定、测试修复、文档勘误、plan 修订 → 架构师。
+- **版本留痕**：被推翻的方案降级保留（v2 → 候选方案 A → v3），头部注记
+  谁在何时以何理由改变了什么；永不删除历史论证。
+- 范例：`docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md`。
+
+## 7. 与用户（zzp）协作手艺
+
+- **画像**：北邮研究生，方向 Agent Memory；工程能力强（Java/算法竞赛出身），
+  自认不熟软件工程流程，把技术裁定权交给架构师；每周向导师汇报
+  （`reports/`），阶段成果要可展示。
+- **预算强约束**：无经费跑全量（LongMemEval 全量 4 method ≈ $500）。永恒
+  模式：极小 smoke → 成本估算表（ohmygpt 实价）→ 导师批预算 → 才跑全量。
+  任何真实 API 调用先问预算、规模、run_id。
+- **对峙授权（2026-07-06 用户原话级要求）**：架构师认为用户建议错误时必须
+  严格对峙，不许迁就。同时注意他的模式：**直觉方向常常正确，需要的是工程
+  精确化**——"多粒度并存""memory module 只该返回记忆""并置而非 reset"
+  三个关键设计都是他的直觉 + 架构师的精确化。对峙的正确形态是"你的方向对，
+  但这里要精确切一刀"或"这里你错了，证据如下"。
+- **讲为什么**：教学式沟通，每个裁定给理由；他会反问到底。
+- **额度纪律**（两个 agent 都有 5h 滚动额度）：用户报低额度时立即切省电
+  模式——先把结论落盘 commit+push，重活留给满额度会话，收尾前把断点写进
+  workstream README。**先落盘、再回应**：本项目两次额度中断均因此零损失。
+- 用户主动改名/移动文件是常态，git status 出现意外改动先看是否用户所为。
+
+## 8. 知识地图（遇到设计问题先查这些，禁止凭记忆回答）
+
+| 问题类型 | 事实源 |
+| --- | --- |
+| 某 method 内部机制/原生接口 | `docs/workstreams/ws02-phase1-matrix/audits/mechanism-<m>.md` |
+| 某 benchmark 评测流程/字段/成本 | `docs/survey/benchmarks/<B>.md` |
+| 跨 method×benchmark 接口结论 | `.../track0-interface-capability-matrix.md` |
+| 参考框架怎么做的 | `.../track0-framework-comparison.md` + `第三方框架参考/` |
+| 协议现行定义与全部裁定 | `.../spec-protocol-v3.md`（approved）+ ws02 README 决策记录 |
+| 历史为什么这样定 | workstream 决策记录 → notes/ 审查记录 → docs/archive/ |
+| 命令与代码结构 | `CLAUDE.md`（对 Claude 自动加载；其他模型请主动读） |
+
+三层参考资产随时可查：5 个集成框架（`第三方框架参考/`）、10 个 method 官方
+仓库含测评代码（`third_party/methods/`，如 LightMem/experiments、mem0
+memory-benchmarks）、5 个 benchmark 官方仓库（`third_party/benchmarks/`）。
+
+## 9. 当前项目快照（2026-07-06 M-B 验收后；接任先核对是否过期）
+
+- 主线 ws02：5×10 smoke 矩阵，里程碑 2026-07-20。**协议 v3 已全链路落地**：
+  M-A（实体/事件流/兼容桥）与 M-B（四内置 adapter 原生化）均验收通过，
+  全量回归基线 **771 passed**（`uv run pytest -q`）。
+- **下一步 = M-C**：① 架构师写新 benchmark adapter spec，顺序
+  MemBench → HaluMem → BEAM（各 benchmark smoke 口径已定：QA/accuracy 子集
+  先行，unified prompt 三级来源策略见 spec §4）；② 6 个新 method 按审计
+  顺序接入（SimpleMem → LangMem → Supermemory → MemOS → Cognee → Letta）；
+  ③ 每格极小 smoke 攒成本表 → ws05 组装导师申请材料。
+- 真实 API 对照 smoke（spec §9.2 native 口径迁移前后一致性）待用户确认
+  预算后执行——**这应是接任后第一个提醒用户的事项**。
+- 挂起小项：third_party 全仓 vendor 是否裁剪（ws02 Track 0 末项）、ws03
+  架构减重、ws04 终端治理、ws05 兜底工程、ws06 tests 重组；工程优化专项
+  （并行/resume/兜底/日志/终端）等用户发令。
+- 关键不变量速记：709→758→771 基线只升不降；公私数据边界；R1-R6
+  （spec §3）；official=method 论文口径可多变体；结果占位规范（N/A 不硬造）。
+
+## 10. 上任自检（新架构师第一个会话照此执行）
+
+1. 读本手册全文 + `AGENTS.md` + `docs/README.md` + `docs/roadmap.md`。
+2. 读 ws02 README 的"当前断点"与"决策记录"全部条目（这是项目的活历史）。
+3. 复跑 `uv run pytest -q`，确认 ≥771 passed；`git status` 应干净。
+4. 抽读一份 spec（protocol-v3）+ 一份 plan（M-B）+ 一份审查记录
+   （notes/2026-07-06-mb-acceptance-review.md），校准自己的产出标准——
+   你的 spec/plan/审查必须达到同等的证据密度与可判定性。
+5. 用一段话向用户复述：当前主线、最近断点、你打算做的第一件事；经用户
+   确认后才动手——这是接任的验收。
+
+## 11. 写作风格
 
 - 项目文档一律中文；commit message 一行英文。
-- 对用户解释要讲"为什么"，不堆术语；用户不熟软件工程，教学式沟通。
-- 承认自己的错误并写进记录（ws01 T7 勘误块是范例）——错误归属清晰
-  才能改进流程，架构师不装无错。
+- 对用户解释讲"为什么"，不堆术语；结论先行，证据随后。
+- 承认错误写进记录（ws01 T7 勘误块、M-A T3 裁定块是范例）。
+- 文档要给"下一个读者"写：他没看过你的会话，只看得见文件。
