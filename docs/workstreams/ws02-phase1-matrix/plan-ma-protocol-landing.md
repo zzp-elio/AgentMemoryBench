@@ -21,7 +21,7 @@ created: 2026-07-06
 
 ## T1 协议实体（红测先行）
 
-- [ ] 新模块 `src/memory_benchmark/core/provider_protocol.py`：
+- [x] 新模块 `src/memory_benchmark/core/provider_protocol.py`：
   `TurnEvent`、`TurnPair`、`SessionBatch`、`ConversationBatch`（联合类型
   `IngestUnit`）、`SessionRef`、`UnitRef`、`IngestResult`（含
   `session_memories: list[str] | None`）、`SessionMemoryReport`、
@@ -32,10 +32,24 @@ created: 2026-07-06
   `session_memory_report=False`、`provenance_granularity="none"`；抽象方法
   仅 `ingest`/`retrieve`；`prepare/cleanup/end_session/end_conversation`
   默认 no-op）。全部 frozen dataclass、中文 docstring。
-- [ ] 校验规则进实体层：TurnEvent.metadata 禁私有键（复用
+- [x] 校验规则进实体层：TurnEvent.metadata 禁私有键（复用
   `validate_no_private_keys()`）；RetrievalResult.formatted_memory 非空校验。
 - 验收：`uv run pytest tests/test_provider_protocol.py -q` 新测试全绿（≥15 条，
   覆盖各实体构造、粒度-载荷对应、能力声明默认值、私有键拒绝）。
+
+  验收输出（2026-07-06，T1）：
+
+  ```bash
+  $ uv run pytest tests/test_provider_protocol.py -q
+  ...................                                                      [100%]
+  19 passed in 0.04s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_documentation_standards.py -q
+  .....                                                                    [100%]
+  5 passed in 0.48s
+  ```
 
 ## T2 事件流生成与粒度聚合器
 
