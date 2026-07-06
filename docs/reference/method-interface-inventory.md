@@ -1,13 +1,20 @@
 # Method 原生接口清单
 
-更新日期：2026-06-22
+更新日期：2026-07-06
 
 本文记录第三方 method 仓库原生暴露的接口、官方实验脚本的调用方式，以及本项目 adapter
 应该如何包装成统一 memory-module 接口。
 
+2026-07-06：provider v3 协议已在代码落地，核心路径为
+`MemoryProvider.ingest(unit)` + `retrieve(RetrievalQuery) -> RetrievalResult`。
+当前四个内置 method（Mem0、MemoryOS、A-Mem、LightMem）仍通过
+`LegacyProviderBridge` 从旧 `BaseMemoryProvider` 桥接运行，manifest 标记
+`protocol_version=v2-bridged`、`prompt_track=native`；原生 v3 adapter 迁移属于
+M-B 范围，尚未在本清单内逐项改写。
+
 当前代码仍保留旧 `BaseMemorySystem.add(list[Conversation])` /
-`BaseMemorySystem.get_answer(question)` 兼容路径；但 2026-06-21 四个内置 method
-adapter 均已新增 `BaseMemoryProvider.retrieve(question)`：
+`BaseMemorySystem.get_answer(question)` 兼容路径；2026-06-21 四个内置 method
+adapter 已新增旧式 retrieve-first `BaseMemoryProvider.retrieve(question)`：
 
 ```text
 add(conversation)

@@ -226,10 +226,17 @@ fallback 链的末端改为**非空 sentinel 常量**，不用空串：
 
 ## T6 收尾
 
-- [ ] 更新 `docs/reference/method-interface-inventory.md` 头部：注明 v3 协议
+- [x] 更新 `docs/reference/method-interface-inventory.md` 头部：注明 v3 协议
   已落地、四内置 method 当前经桥接运行、原生化见 M-B。
-- [ ] 更新 ws02 README 断点与任务勾选，通知架构师审查。
+- [x] 更新 ws02 README 断点与任务勾选，通知架构师审查。
 - 验收：`git status --short` 干净；全部 commit 已按 task 切分。
+
+  验收输出（2026-07-06，T6）：
+
+  ```bash
+  $ git status --short
+  # 无输出，工作区干净
+  ```
 
 ## 明确不做（防发散）
 

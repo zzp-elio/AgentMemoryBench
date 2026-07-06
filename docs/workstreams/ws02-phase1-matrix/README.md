@@ -22,11 +22,16 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-06（Codex，M-A 完成待架构师复核）：协议 v3 落地实施计划
+  [plan-ma-protocol-landing.md](plan-ma-protocol-landing.md) T1-T6 已顺序完成并
+  按 task 切分提交；兼容桥保留四内置 method 旧路径，MockMemoryProvider 已原生
+  v3，新增 session memory report / formatted_memory / retrieved_items artifacts。
+  当前无施工断点，下一步交架构师复跑验收并编写 M-B 四 adapter 原生化 plan。
 - 2026-07-06（已解除）：Codex T3 前发现 plan 内部冲突（T1 非空校验 vs T3 空串
   fallback）并按纪律停工——冲突源于架构师撰写失误，Codex 判断正确。裁定：
   实体校验保持严格，桥接 fallback 末端改用非空 sentinel 常量 + warning 标记 +
-  summary 统计（详见 plan T3 裁定块）。**Codex 下一步：按修订后 T3 继续，
-  顺序执行到 T6。** T1/T2 已完成并提交（`c046953`、`623ead1`）。
+  summary 统计（详见 plan T3 裁定块）。T1/T2 已完成并提交（`c046953`、
+  `623ead1`），后续 T3-T6 已由 Codex 完成。
 - 2026-07-06（最新）：**协议 v3 spec 已获用户批准（status: approved），
   Track 0 收官**。修订版含接口减重（单一 ingest）、prompt 三级来源、
   provenance 分级、显式能力声明，§7 三决策点全部定案。M-A 实施 plan 已备：
@@ -114,7 +119,7 @@ created: 2026-07-05
   （HaluMem 要求）；隔离单位有三种、不能硬编码 conversation；retrieve 输入
   泛化为 RetrievalQuery、输出三件套（formatted_memory/prompt_messages/items）；
   检索非只读（MemoryOS heat）。§4 是最终协议 spec 的结论清单。
-- [ ] 最终协议 spec（含中间层设计、多模态与 agentic task family 扩展性论证），
+- [x] 最终协议 spec（含中间层设计、多模态与 agentic task family 扩展性论证），
   用户批准后才恢复 Track B。
 - [ ] 顺带评估 third_party 全仓 vendor 是否改为裁剪式引入（参考框架做法）。
 
