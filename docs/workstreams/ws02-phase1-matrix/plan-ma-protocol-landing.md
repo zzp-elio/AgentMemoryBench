@@ -53,7 +53,7 @@ created: 2026-07-06
 
 ## T2 事件流生成与粒度聚合器
 
-- [ ] 新模块 `src/memory_benchmark/runners/event_stream.py`：
+- [x] 新模块 `src/memory_benchmark/runners/event_stream.py`：
   `build_turn_events(conversation, isolation_key) -> Iterator[TurnEvent]`
   （按 session 顺序展开，session_time 继承到无 turn_time 的 turn，turn_id 取
   benchmark 稳定 id 否则 `s{si}t{ti}` 顺序号）；
@@ -61,10 +61,30 @@ created: 2026-07-06
   投递序列（turn→逐个；pair→相邻 user/assistant 配对，落单 turn 单独成对并
   记 metadata；session→SessionBatch；conversation→ConversationBatch），并在
   正确位置产出 session/conversation 边界信号。
-- [ ] isolation_key 默认发放规则 `f"{run_id}_{conversation_id}"`，实现为可注入
+- [x] isolation_key 默认发放规则 `f"{run_id}_{conversation_id}"`，实现为可注入
   策略（benchmark registration 未来可覆盖，本 plan 只做默认值）。
 - 验收：聚合器单测覆盖四种粒度 × 多 session/单 session/空 session/落单 turn
   边界情况；同一事件流在四种粒度下内容无损（重组后 turn 集合一致）。
+
+  验收输出（2026-07-06，T2）：
+
+  ```bash
+  $ uv run pytest tests/test_event_stream.py -q
+  ...............                                                          [100%]
+  15 passed in 0.11s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_provider_protocol.py -q
+  ...................                                                      [100%]
+  19 passed in 0.03s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_documentation_standards.py -q
+  .....                                                                    [100%]
+  5 passed in 1.04s
+  ```
 
 ## T3 兼容桥（关键任务：保住现有一切）
 
