@@ -143,6 +143,18 @@ created: 2026-07-05
 
 ## 决策记录
 
+- 2026-07-06 用户（spec 评审轮）：
+  (a) 决策点 A 定案：unified answer/judge prompt 采用**三级来源策略**
+  （benchmark 官方 → method 官方测评代码/第三方框架参考 → 架构师综合设计
+  并冻结）。(b) 决策点 B 定案：MemBench 用 INSTRUCTION_FIRST。
+  (c) 决策点 C 定案：BEAM scorer 按论文语义允许 0.5，官方代码 int 截断认定为
+  bug；架构师查证 mem0 memory-benchmarks 的 BEAM 实现已按 0.0/0.5/1.0 修正，
+  作为参考先例。(d) 协议减重：ingest 收敛为单一抽象方法 + 载荷类型随声明粒度；
+  能力声明采用**显式 + 运行时强校验**（架构师裁定，隐式返回值判断有 None
+  歧义）。(e) provenance 分级（none/session/turn）解决证据粒度不一：统一记
+  turn 级 id，框架向上聚合；检索级评测在 method 支持时纳入。
+  (f) 框架定位确认：对 5 框架 + 10 method 仓库 + 5 benchmark 仓库三层参考
+  资产的"取其精华"综合 + 四件独有资产。
 - 2026-07-06 用户（定案轮）：
   (a) **official profile 定义修正**：official 锚定 **method 论文**的超参数与
   基座模型配置（非 benchmark 论文的 eval 配置）；method 论文自身跑了多组配置的

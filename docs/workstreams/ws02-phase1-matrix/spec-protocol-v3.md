@@ -12,6 +12,14 @@ created: 2026-07-06
 [五框架对比](track0-framework-comparison.md)、ws02 README 决策记录（2026-07-05/06
 全部轮次）。**本 spec 获用户批准后 Track B/C 解冻。**
 
+框架定位（2026-07-06 与用户确认）：本框架是对三层参考资产"取其精华去其糟粕"
+的综合——5 个第三方集成框架（结构设计）、10 个 method 官方仓库含其测评代码
+（如 `third_party/methods/LightMem/experiments/`、mem0 memory-benchmarks，
+是 prompt/参数/粒度的第一手证据）、5 个 benchmark 官方仓库（评测流程与
+metric）；在此之上叠加参考框架均不具备的四件资产：retrieve-first 双口径、
+审计级成本观测、公私数据边界、可复现工程。2026-07-06 修订：按用户反馈完成
+接口减重（单一 ingest）、prompt 三级来源、provenance 分级、显式能力声明。
+
 ## 1. 数据模型（三层同构，用户 2026-07-06 统一观）
 
 ```text
@@ -42,36 +50,54 @@ agentic task family（MemoryArena 类）不进本协议，届时另立 task fami
 
 ```python
 class BaseMemoryProvider(ABC):
-    """记忆系统统一接入协议。写入=框架按声明粒度投递；检索=只检索不作答。"""
+    """记忆系统统一接入协议。写入=框架按声明粒度投递；检索=只检索不作答。
 
-    # ---- 声明（registration/类属性）----
+    必须实现的抽象方法只有两个：ingest() 和 retrieve()。
+    生命周期与边界钩子默认 no-op，按需覆写（每个 method 实际需要的钩子 ≤2 个）。
+    """
+
+    # ---- 声明（类属性，进 registration/manifest）----
     consume_granularity: Literal["turn", "pair", "session", "conversation"]
-    supports_session_memory_report: bool = False   # HaluMem extraction 用
-    supports_provenance: bool = False              # evidence recall 用
+    session_memory_report: bool = False            # HaluMem extraction 用；显式声明 +
+                                                   # 运行时强校验（见 §5）
+    provenance_granularity: Literal["none", "session", "turn"] = "none"
 
-    # ---- 生命周期 ----
+    # ---- 生命周期（默认 no-op）----
     def prepare(self, run_context: ProviderRunContext) -> None: ...
-        # state_dir、isolation_key 全集预告、run_id；默认 no-op
+        # 开工准备：state_dir、isolation_key 全集预告、数据库/服务连接
     def cleanup(self) -> None: ...
 
-    # ---- 写入（method 只实现与声明粒度对应的一个方法）----
-    def ingest_turn(self, turn: TurnEvent) -> None: ...
-    def ingest_pair(self, pair: TurnPair) -> None: ...            # user+assistant 对
-    def ingest_session(self, session: SessionBatch) -> SessionMemoryReport | None: ...
-    def ingest_conversation(self, unit: ConversationBatch) -> None: ...
+    # ---- 写入（唯一抽象写入方法）----
+    @abstractmethod
+    def ingest(self, unit: IngestUnit) -> IngestResult | None: ...
+        # unit 的具体类型与 consume_granularity 一一对应：
+        #   turn -> TurnEvent | pair -> TurnPair | session -> SessionBatch |
+        #   conversation -> ConversationBatch
+        # 框架内部的规范表示永远是 turn 级事件流（"message 流"）；声明粒度只决定
+        # 框架把流打包投递的形状。method 永远不迭代数据集。
+        # session/conversation 粒度 method 经 IngestResult.session_memories
+        # 报告本 session 新增记忆（HaluMem）。
 
-    # ---- 边界钩子 ----
+    # ---- 边界钩子（默认 no-op，按需覆写）----
     def end_session(self, ref: SessionRef) -> SessionMemoryReport | None: ...
-        # turn/pair 粒度 method 在此报告本 session 新增记忆（可选能力）；
-        # session 粒度 method 可在 ingest_session 返回值直接报告，二者取先到者
+        # 仅对 turn/pair 粒度 method 有意义（它们没有 session 级调用点，靠此钩子
+        # 感知 session 边界并报告新增记忆）；session/conversation 粒度 method
+        # 无需实现——不存在与 ingest 返回值的重复。
     def end_conversation(self, ref: UnitRef) -> None: ...
-        # 完成屏障（R3）：返回即记忆可检索。SimpleMem finalize、LightMem 末批
-        # flush + LoCoMo post-build update、Cognee cognify、Supermemory/MemOS
-        # 异步轮询全部挂此钩子；超时按 failed_ingest。
+        # 收尾/完成屏障（R3）：返回即记忆可检索。只有需要收尾的 method 覆写：
+        # SimpleMem finalize、LightMem 末批 flush + LoCoMo post-build update、
+        # Cognee cognify、Supermemory/MemOS 异步轮询；超时按 failed_ingest。
+        # Mem0/A-Mem/LangMem/Letta 等同步型完全不用写。
 
-    # ---- 检索 ----
+    # ---- 检索（唯一抽象检索方法）----
+    @abstractmethod
     def retrieve(self, query: RetrievalQuery) -> RetrievalResult: ...
 ```
+
+**为什么不是四个 ingest 方法**（2026-07-06 用户质疑后减重）：接口面收敛为
+`ingest + retrieve` 两个必选方法；粒度差异走载荷类型而非方法名。一个最简
+adapter（如 A-Mem）只需 `consume_granularity="turn"` + 实现 `ingest`（内部一行
+`add_note`）+ `retrieve`，不写任何钩子。
 
 ```python
 @dataclass(frozen=True)
@@ -119,11 +145,17 @@ formatted_memory 规范：条目式文本，每条尽量带时间前缀（`[time
 ## 4. Answer 层：双口径 × 双 profile
 
 - **unified 口径**（公平比较）：框架统一 answer prompt，输入 = formatted_memory
-  + question（+question_time 等 benchmark 字段）。**prompt 来源采用该 benchmark
-  官方 reader prompt**（LoCoMo 官方 GPT answer prompt、LongMemEval 官方
-  generation prompt、MemBench INSTRUCTION、HaluMem QA prompt、BEAM long-context
-  prompt）——不自造 prompt，消除任意性【决策点 A，见 §7】。跨 method 统一、
-  跨 benchmark 各一套。
+  + question（+question_time 等 benchmark 字段）。**prompt 来源三级策略**
+  （2026-07-06 用户定案，answer prompt 与 judge prompt 同规则）：
+  1. benchmark 官方有 → 直接用（LongMemEval generation prompt、LoCoMo 官方
+     answer prompt、MemBench INSTRUCTION、HaluMem QA prompt、BEAM prompt；
+     judge 侧 LongMemEval/HaluMem/BEAM 有官方 judge）；
+  2. benchmark 官方没有 → 参考各 method 官方仓库的该 benchmark 测评代码
+     （如 mem0 memory-benchmarks、LightMem experiments）与第三方框架的做法
+     （如 LoCoMo 无官方 QA judge，现行 LightMem-style judge 即此级来源）；
+  3. 取其精华后由架构师设计本框架版本，spec 中记录来源与取舍理由，
+     经用户批准后冻结为该 benchmark 的 unified prompt profile。
+  跨 method 统一、跨 benchmark 各一套。
 - **method-native 口径**（复现论证）：method 返回 prompt_messages，保留论文
   原生 prompt 工程。
 - 双口径结果并列展示；分差本身量化"prompt 工程贡献"。
@@ -135,10 +167,22 @@ formatted_memory 规范：条目式文本，每条尽量带时间前缀（`[time
 
 ## 5. 能力声明与占位规范
 
-- `supports_provenance=False` → 该 method 在 evidence recall 类指标（MemBench
-  recall、LME retrieval recall）的结果格为 **N/A（capability: unsupported）**，
-  不硬造、不 sidecar 强补（用户 2026-07-06 定案）。
-- `supports_session_memory_report=False` → HaluMem Memory Extraction 指标占位。
+- **显式声明 + 运行时强校验**（2026-07-06 用户问"显式还是隐式"，架构师裁定
+  显式，理由）：(a) runner 要在**运行前**决定某指标是否可评（成本预估、结果
+  矩阵占位、manifest 记录），隐式要等运行时才知道；(b) 隐式的返回值判断有
+  歧义——`None` 分不清"不支持"和"这个 session 恰好没抽出记忆"（空列表 vs None
+  是经典 bug 源）；(c) 沿用本框架既有先例：声明支持却漏报 → 运行时报错
+  fail-fast，不允许静默降级（efficiency retrieval contract 已用此模式）。
+- **provenance 分级解决"证据粒度不一"问题**（2026-07-06 用户提出）：
+  统一按**最细粒度（turn 级 `source_turn_ids`）记录**——method 写入时收到过
+  每个 turn 的稳定 id（dia_id/step_id/顺序号），检索命中条目回报这些 id；
+  框架掌握 `turn_id → session_id` 层级映射（规范事件流自带），**任何更粗粒度
+  的 recall 都由框架向上聚合得出**（LME session recall、MemBench step recall、
+  LoCoMo dia_id recall 全覆盖）。method 只能报 session 级的（如 Supermemory
+  按 session 建 document）→ 声明 `provenance_granularity="session"`，则
+  turn 级指标 N/A、session 级可评。声明 `"none"` → 全部 evidence recall 指标
+  N/A（capability: unsupported），不硬造、不 sidecar 强补（用户定案）。
+- `session_memory_report=False` → HaluMem Memory Extraction 指标占位。
 - 占位符统一写入结果矩阵并在汇报材料脚注说明。
 
 ## 6. 迁移方案（三阶段，均为 Codex plan 粒度）
@@ -155,15 +199,19 @@ formatted_memory 规范：条目式文本，每条尽量带时间前缀（`[time
   method adapter 直接按 v3 接入；HaluMem operation-level flow、MemBench
   capacity 模式在各自 adapter spec 中设计（协议钩子已留够）。
 
-## 7. 遗留决策点（批准本 spec 时一并裁定或明确延后）
+## 7. 决策点（2026-07-06 全部定案）
 
-- **A. unified prompt 来源 = benchmark 官方 reader prompt**（§4，架构师推荐）。
-- **B. MemBench Observation 子集 prompt 口径**：官方 active path 用
-  INSTRUCTION_FIRST（推荐，忠实代码），语义更优的 INSTRUCTION_THIRD 存在但
-  非 active——建议按 active path，adapter spec 时可复议。
-- **C. BEAM scorer 论文（允许 0.5）vs 代码（int 截断）不一致 + judge prompt
-  `<question>` 疑似未替换 bug**：建议默认复刻代码（可复现优先），标注差异；
-  adapter spec 时终裁。
+- **A. unified prompt 来源 = 三级策略**（见 §4）：benchmark 官方 → method
+  官方测评代码/第三方框架参考 → 架构师综合设计并冻结。用户已确认。
+- **B. MemBench Observation 子集 prompt 口径 = INSTRUCTION_FIRST**（忠实官方
+  active code path）。用户已确认。
+- **C. BEAM scorer = 按论文语义修正（允许 0.5 半分）**：官方代码的 int 截断
+  认定为 bug（GitHub 已有 issue 无回应）；mem0 memory-benchmarks 的 BEAM 实现
+  是修正先例（judge 输出 `0.0/0.5/1.0`、浮点均值 + `pass_threshold=0.5`、
+  自研 rubric judge prompt 顺带消除官方 `<question>` 未替换问题，见
+  `third_party/methods/mem0-main/memory-benchmarks/benchmarks/beam/prompts.py:99`、
+  `benchmarks/common/metrics.py:25`）。结果须标注与官方代码的差异。用户已确认
+  该问题为 bug。
 
 ## 8. 非目标
 
