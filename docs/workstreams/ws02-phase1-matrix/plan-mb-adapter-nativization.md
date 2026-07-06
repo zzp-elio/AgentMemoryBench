@@ -191,17 +191,65 @@ consume_granularity 实例级特化）、M-A 验收记录
 
 ## T3 LightMem 原生化
 
-- [ ] 粒度：LoCoMo → `turn`（官方把每个原始 turn 包装为 user+assistant("")
+- [x] 粒度：LoCoMo → `turn`（官方把每个原始 turn 包装为 user+assistant("")
   两条 message）；LongMemEval → `pair`。
-- [ ] **延迟一拍缓冲**实现官方"末批 force 标志"：ingest 持有上一 unit，收到
+- [x] **延迟一拍缓冲**实现官方"末批 force 标志"：ingest 持有上一 unit，收到
   下一 unit 时以 `force_segment=False, force_extract=False` 写出上一 unit；
   `end_conversation` 时把持有的最后 unit 以
   `force_segment=True, force_extract=True` 写出，LoCoMo 随后在同一钩子内执行
   `construct_update_queue_all_entries()` + `offline_update_all_entries(0.9)`。
-- [ ] 等价测试断言：批次划分、每批 force 标志、post-build 调用顺序与桥接
+- [x] 等价测试断言：批次划分、每批 force 标志、post-build 调用顺序与桥接
   路径完全一致（这是形变最重的 adapter，等价测试必须覆盖"最后一批"边界）。
 - 验收：`tests/test_lightmem_adapter.py` + 等价测试 + registered fake smoke
   全绿；resume（completed conversation 重建 backend）行为不变。
+
+  验收输出（2026-07-06，T3）：
+
+  ```bash
+  $ uv run pytest tests/test_lightmem_adapter.py::test_native_lightmem_locomo_matches_bridge_force_and_update_sequence tests/test_lightmem_adapter.py::test_native_lightmem_longmemeval_matches_bridge_pair_sequence tests/test_lightmem_adapter.py::test_lightmem_registry_specializes_consume_granularity_by_benchmark -q
+  ...                                                                      [100%]
+  3 passed in 0.47s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_lightmem_adapter.py -q
+  ..........................                                               [100%]
+  26 passed, 1 warning in 4.14s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_event_stream.py tests/test_legacy_provider_bridge.py tests/test_equivalence_utils.py -q
+  ......................                                                   [100%]
+  22 passed in 0.08s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_prediction_runner.py::test_runner_ingests_native_v3_provider_with_event_stream_and_reports tests/test_prediction_runner.py::test_isolated_worker_ingests_native_v3_provider_with_event_stream tests/test_prediction_cli.py::test_registered_prediction_builds_system_from_registry_context -q
+  ...                                                                      [100%]
+  3 passed in 0.43s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_documentation_standards.py -q
+  .....                                                                    [100%]
+  5 passed in 0.53s
+  ```
+
+  ```bash
+  $ uv run pytest -q
+  ........................................................................ [  9%]
+  ........................................................................ [ 18%]
+  ........................................................................ [ 28%]
+  .................................................................... [ 37%]
+  ........................................................................ [ 46%]
+  ........................................................................ [ 55%]
+  ...................................................................... [ 65%]
+  ........................................................................ [ 74%]
+  ........................................................................ [ 83%]
+  ........................................................................ [ 93%]
+  ....................................................                     [100%]
+  766 passed, 3 deselected, 2 warnings, 6 subtests passed in 102.10s (0:01:42)
+  ```
 
 ## T4 A-Mem 原生化
 

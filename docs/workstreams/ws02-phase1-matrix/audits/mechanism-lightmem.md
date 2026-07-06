@@ -93,3 +93,9 @@
 推断/含义：
 
 - LightMem adapter 的主要复杂度来自协议缺少 incremental batch/finalize/offline-update 三个显式边界；整段 conversation 输入迫使 adapter 同时承担写入粒度转换、flush 触发、post-build update 和 benchmark-specific reader 选择。
+
+原生化后状态（2026-07-06，M-B T3）：
+
+- registry 按 benchmark profile 设置实例级 `consume_granularity`：LoCoMo 为 `turn`，LongMemEval 为 `pair`；原生路径由 runner 事件流提供增量 unit，不再从整段 `Conversation` 自行拆所有 batch。
+- `LightMem.ingest(TurnEvent|TurnPair)` 采用一拍缓冲：收到下一 unit 时把上一批以 `force_segment=False/force_extract=False` 写入，`end_conversation()` 才把最后一批以 `True/True` 写入，并在 LoCoMo namespace 内执行 `construct_update_queue_all_entries()` 与 `offline_update_all_entries(score_threshold=0.9)`。
+- 旧 `add()` 与 `_conversation_to_lightmem_batches()` 本轮按计划保留，理由是旧接口、resume 重建和桥接等价对照仍依赖它们；registered 原生 v3 主路径不再把整段 conversation 作为写入入口。

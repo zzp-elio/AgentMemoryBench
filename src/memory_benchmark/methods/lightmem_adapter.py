@@ -41,6 +41,17 @@ from memory_benchmark.core import (
     Turn,
 )
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySystem
+from memory_benchmark.core.provider_protocol import (
+    ConsumeGranularity,
+    IngestResult,
+    IngestUnit,
+    MemoryProvider,
+    RetrievalQuery,
+    RetrievalResult,
+    TurnEvent,
+    TurnPair,
+    UnitRef,
+)
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
@@ -269,8 +280,11 @@ def build_lightmem_source_identity(
     }
 
 
-class LightMem(BaseMemoryProvider, BaseMemorySystem):
+class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     """使用官方 LightMemory 的统一 memory system。"""
+
+    consume_granularity: ConsumeGranularity = "turn"
+    provenance_granularity = "none"
 
     def __init__(
         self,
@@ -281,6 +295,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem):
         storage_root: str | Path | None = None,
         path_settings: PathSettings | None = None,
         efficiency_collector: EfficiencyCollector | None = None,
+        consume_granularity: ConsumeGranularity | None = None,
     ):
         """初始化 LightMem adapter。
 
@@ -292,6 +307,8 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem):
             storage_root: 当前 run 独占的 LightMem Qdrant/log 状态目录。
             path_settings: 项目路径配置。
             efficiency_collector: runner 管理的可选效率 observation collector。
+            consume_granularity: v3 provider 实例级消费粒度；registry 按 benchmark
+                profile 设置，缺省为 LoCoMo turn 级。
         """
 
         self.config = config
@@ -317,6 +334,9 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem):
             str,
             list[_BufferedMemoryManagerUsage],
         ] = {}
+        self._native_pending_batches: dict[str, list[dict[str, object]]] = {}
+        if consume_granularity is not None:
+            self.consume_granularity = consume_granularity
         if self._backend_factory is None:
             self.config.validate_required_local_resources(self.path_settings)
 
@@ -492,8 +512,170 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem):
                 f"LightMem backend cannot be restored: {conversation.conversation_id}"
             )
 
-    def retrieve(self, question: Question) -> AnswerPromptResult:
+    def ingest(self, unit: IngestUnit) -> IngestResult:
+        """按 v3 协议缓冲一个 turn 或 pair 单元。"""
+
+        if isinstance(unit, TurnEvent):
+            namespace = unit.isolation_key
+            batch = self._native_turn_batch(unit)
+            self._ensure_native_metadata(unit)
+        elif isinstance(unit, TurnPair):
+            namespace = unit.isolation_key
+            batch = self._native_pair_batch(unit)
+            self._ensure_native_metadata(unit.first)
+        else:
+            raise ConfigurationError(
+                "LightMem native provider only accepts TurnEvent or TurnPair ingest units"
+            )
+        self._get_or_create_backend(namespace)
+        pending = self._native_pending_batches.get(namespace)
+        if pending is not None:
+            self._write_native_batch(namespace, pending, is_final=False)
+        self._native_pending_batches[namespace] = batch
+        return IngestResult(unit_ref=UnitRef(namespace))
+
+    def end_conversation(self, ref: UnitRef) -> None:
+        """在 conversation 边界写出最后一批并执行 LoCoMo post-build update。"""
+
+        pending = self._native_pending_batches.pop(ref.isolation_key, None)
+        if pending is None:
+            return
+        backend = self._get_or_create_backend(ref.isolation_key)
+        self._write_native_batch(ref.isolation_key, pending, is_final=True)
+        if self._is_native_locomo(ref.isolation_key):
+            self._run_locomo_offline_update(backend, ref.isolation_key)
+        self._flush_buffered_memory_manager_usages(ref.isolation_key)
+
+    def _write_native_batch(
+        self,
+        namespace: str,
+        messages: list[dict[str, object]],
+        *,
+        is_final: bool,
+    ) -> None:
+        """向 LightMemory 写入一个已聚合 batch。"""
+
+        backend = self._get_or_create_backend(namespace)
+        kwargs: dict[str, Any] = {
+            "force_segment": is_final,
+            "force_extract": is_final,
+        }
+        if self._is_native_locomo(namespace):
+            kwargs["METADATA_GENERATE_PROMPT"] = _load_lightmem_locomo_prompt(
+                self.path_settings,
+                "METADATA_GENERATE_PROMPT_locomo",
+            )
+        self._suppress_stdout_if_needed(backend.add_memory, messages, **kwargs)
+
+    def _native_turn_batch(self, event: TurnEvent) -> list[dict[str, object]]:
+        """把 v3 TurnEvent 转成 LightMem LoCoMo 单 turn batch。"""
+
+        conversation = self._native_conversation_from_events((event,))
+        batches = self._conversation_to_locomo_batches(conversation)
+        if len(batches) != 1:
+            raise ConfigurationError("LightMem native turn produced invalid batch count")
+        return batches[0]
+
+    def _native_pair_batch(self, pair: TurnPair) -> list[dict[str, object]]:
+        """把 v3 TurnPair 转成 LightMem LongMemEval pair batch。"""
+
+        conversation = self._native_conversation_from_events(pair.turns)
+        batches = self._conversation_to_longmemeval_batches(conversation)
+        if len(batches) != 1:
+            raise ConfigurationError("LightMem native pair produced invalid batch count")
+        return batches[0]
+
+    def _native_conversation_from_events(
+        self,
+        events: tuple[TurnEvent, ...],
+    ) -> Conversation:
+        """从 v3 events 恢复旧 helper 需要的最小公开 conversation。"""
+
+        if not events:
+            raise ConfigurationError("LightMem native unit has no events")
+        first = events[0]
+        session = Session(
+            session_id=first.session_id or "",
+            session_time=self._session_time_from_event(first),
+            turns=[self._turn_from_event(event) for event in events],
+        )
+        return Conversation(
+            conversation_id=self._conversation_id_from_event(first),
+            sessions=[session],
+            metadata=self._native_public_metadata(first),
+        )
+
+    def _ensure_native_metadata(self, event: TurnEvent) -> None:
+        """登记 native namespace 的公开 conversation metadata。"""
+
+        self._conversation_metadata[event.isolation_key] = self._native_public_metadata(
+            event
+        )
+
+    def _is_native_locomo(self, namespace: str) -> bool:
+        """判断 native namespace 是否应执行 LoCoMo 特化逻辑。"""
+
+        metadata = self._conversation_metadata.get(namespace, {})
+        source_path = str(metadata.get("source_path") or "").lower()
+        return "locomo" in source_path
+
+    @staticmethod
+    def _turn_from_event(event: TurnEvent) -> Turn:
+        """从规范 TurnEvent 恢复旧 adapter helper 需要的 Turn。"""
+
+        return Turn(
+            turn_id=event.turn_id,
+            speaker=event.speaker_name or event.role,
+            content=LightMem._original_content_from_event(event),
+            normalized_role=event.role if event.role in {"user", "assistant"} else None,
+            turn_time=LightMem._optional_event_text(event, "original_turn_time"),
+            metadata=dict(event.metadata.get("turn_metadata") or {}),
+        )
+
+    @staticmethod
+    def _native_public_metadata(event: TurnEvent) -> dict[str, Any]:
+        """恢复 v3 事件中携带的 conversation 级公开 metadata。"""
+
+        metadata = dict(event.metadata.get("conversation_metadata") or {})
+        metadata["conversation_id"] = LightMem._conversation_id_from_event(event)
+        return metadata
+
+    @staticmethod
+    def _conversation_id_from_event(event: TurnEvent) -> str:
+        """从 v3 event metadata 中读取原始 conversation id。"""
+
+        conversation_id = event.metadata.get("conversation_id")
+        if isinstance(conversation_id, str) and conversation_id.strip():
+            return conversation_id
+        return event.isolation_key
+
+    @staticmethod
+    def _session_time_from_event(event: TurnEvent) -> str | None:
+        """从 v3 event metadata 中读取原始 session time。"""
+
+        return LightMem._optional_event_text(event, "original_session_time") or event.timestamp
+
+    @staticmethod
+    def _original_content_from_event(event: TurnEvent) -> str:
+        """读取事件前原始 turn 文本，避免 caption 被提前拼入。"""
+
+        original = event.metadata.get("original_content")
+        if isinstance(original, str):
+            return original
+        return event.content
+
+    @staticmethod
+    def _optional_event_text(event: TurnEvent, field_name: str) -> str | None:
+        """读取 TurnEvent metadata 中的可选文本字段。"""
+
+        value = event.metadata.get(field_name)
+        return value if isinstance(value, str) else None
+
+    def retrieve(self, question: Question | RetrievalQuery) -> AnswerPromptResult | RetrievalResult:
         """检索 LightMem context，不生成最终 answer。"""
+
+        if isinstance(question, RetrievalQuery):
+            return self._retrieve_native(question)
 
         if question.conversation_id not in self._backends:
             raise ConfigurationError(
@@ -559,6 +741,35 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem):
                     else "locomo"
                 ),
             },
+        )
+
+    def _retrieve_native(self, query: RetrievalQuery) -> RetrievalResult:
+        """执行 v3 检索并返回不生成最终答案的 RetrievalResult。"""
+
+        source_question = query.source_question or Question(
+            question_id=query.isolation_key,
+            conversation_id=query.isolation_key,
+            text=query.query_text,
+            question_time=query.question_time,
+        )
+        native_question = Question(
+            question_id=source_question.question_id,
+            conversation_id=query.isolation_key,
+            text=query.query_text,
+            question_time=query.question_time or source_question.question_time,
+            category=source_question.category,
+            metadata=dict(source_question.metadata),
+        )
+        retrieval = self.retrieve(native_question)
+        formatted_memory = (
+            retrieval.metadata.get("answer_context")
+            if isinstance(retrieval.metadata.get("answer_context"), str)
+            else ""
+        )
+        return RetrievalResult(
+            formatted_memory=formatted_memory or "(No relevant memories found)",
+            prompt_messages=tuple(retrieval.prompt_messages),
+            metadata=dict(retrieval.metadata),
         )
 
     def get_answer(self, question: Question) -> AnswerResult:

@@ -21,6 +21,7 @@ from memory_benchmark.core import (
     Session,
     Turn,
 )
+from memory_benchmark.core.provider_protocol import MemoryProvider
 from memory_benchmark.methods.lightmem_adapter import (
     LightMem,
     LightMemConfig,
@@ -28,7 +29,10 @@ from memory_benchmark.methods.lightmem_adapter import (
     clean_lightmem_conversation_state,
     import_lightmem_classes,
 )
+from memory_benchmark.methods.registry import MethodBuildContext, _build_lightmem_system
 from memory_benchmark.observability.efficiency import EfficiencyCollector
+from memory_benchmark.runners.prediction import _method_manifest_with_protocol
+from tests.equivalence_utils import run_bridge_sequence, run_native_sequence
 
 
 def test_lightmem_config_rejects_invalid_retrieve_limit() -> None:
@@ -331,6 +335,44 @@ class FakeOfficialLightMemory:
 
         cls.created_configs.append(config)
         return FakeLightMemoryBackend()
+
+
+def _snapshot_lightmem_backend_calls(system: LightMem) -> list[dict[str, object]]:
+    """把 LightMem backend 调用归一化为可比较序列。"""
+
+    if not system._backends:
+        return []
+    backend = next(iter(system._backends.values()))
+    calls: list[dict[str, object]] = []
+    for call in backend.added_messages:
+        kwargs = dict(call["kwargs"])
+        calls.append(
+            {
+                "op": "add_memory",
+                "messages": call["messages"],
+                "force_segment": kwargs.get("force_segment"),
+                "force_extract": kwargs.get("force_extract"),
+                "metadata_prompt": bool(kwargs.get("METADATA_GENERATE_PROMPT")),
+            }
+        )
+    for call in backend.construct_update_calls:
+        calls.append({"op": "construct_update", "kwargs": call})
+    for call in backend.offline_update_calls:
+        calls.append({"op": "offline_update", "kwargs": call})
+    for call in backend.queries:
+        calls.append(
+            {
+                "op": "retrieve",
+                "query": call["query"],
+                "limit": call["limit"],
+                "filters": call["filters"],
+            }
+        )
+    for text in backend.text_embedder.embedded_texts:
+        calls.append({"op": "embed_query", "query": text})
+    for call in backend.embedding_retriever.get_all_calls:
+        calls.append({"op": "get_all", "kwargs": call})
+    return calls
 
 
 def _lightmem_conversation() -> Conversation:
@@ -713,6 +755,168 @@ def test_lightmem_add_uses_longmemeval_user_assistant_pair_feeding() -> None:
     ]
     assert backend.construct_update_calls == []
     assert backend.offline_update_calls == []
+
+
+def test_native_lightmem_locomo_matches_bridge_force_and_update_sequence() -> None:
+    """LightMem 原生 turn 路径应等价复现 LoCoMo force 与 post-build 顺序。"""
+
+    conversation = _locomo_style_lightmem_conversation()
+    question = conversation.questions[0]
+    bridge = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=60,
+            max_workers=1,
+            compression_rate=0.7,
+            stm_threshold=512,
+            profile_name="official-mini",
+        ),
+        backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    native = LightMem(
+        config=bridge.config,
+        backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+    )
+
+    bridge_result = run_bridge_sequence(
+        provider=bridge,
+        conversation=conversation,
+        question=question,
+        run_id="lightmem-equivalence",
+        snapshot_calls=_snapshot_lightmem_backend_calls,
+    )
+    native_result = run_native_sequence(
+        provider=native,
+        conversation=conversation,
+        question=question,
+        run_id="lightmem-equivalence",
+        snapshot_calls=_snapshot_lightmem_backend_calls,
+    )
+
+    assert isinstance(native, MemoryProvider)
+    assert bridge_result.calls == native_result.calls
+    assert [call["force_extract"] for call in native_result.calls if call["op"] == "add_memory"] == [
+        False,
+        False,
+        False,
+        True,
+    ]
+    assert [call["op"] for call in native_result.calls[-4:]] == [
+        "construct_update",
+        "offline_update",
+        "embed_query",
+        "get_all",
+    ]
+
+
+def test_native_lightmem_longmemeval_matches_bridge_pair_sequence() -> None:
+    """LightMem 原生 pair 路径应等价复现 LongMemEval 写入与检索。"""
+
+    conversation = _longmemeval_style_lightmem_conversation()
+    question = conversation.questions[0]
+    bridge = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=20,
+            max_workers=1,
+            compression_rate=0.7,
+            stm_threshold=512,
+            profile_name="official-mini",
+        ),
+        backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    native = LightMem(
+        config=bridge.config,
+        backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+        consume_granularity="pair",
+    )
+
+    bridge_result = run_bridge_sequence(
+        provider=bridge,
+        conversation=conversation,
+        question=question,
+        run_id="lightmem-equivalence",
+        snapshot_calls=_snapshot_lightmem_backend_calls,
+    )
+    native_result = run_native_sequence(
+        provider=native,
+        conversation=conversation,
+        question=question,
+        run_id="lightmem-equivalence",
+        snapshot_calls=_snapshot_lightmem_backend_calls,
+    )
+
+    assert bridge_result.calls == native_result.calls
+    assert [call["force_extract"] for call in native_result.calls if call["op"] == "add_memory"] == [
+        False,
+        True,
+    ]
+
+
+def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
+    tmp_path: Path,
+) -> None:
+    """registry 应按 benchmark profile 设置 LightMem 实例级消费粒度。"""
+
+    (tmp_path / "models" / "all-MiniLM-L6-v2").mkdir(parents=True)
+    (
+        tmp_path
+        / "models"
+        / "llmlingua-2-bert-base-multilingual-cased-meetingbank"
+    ).mkdir(parents=True)
+    path_settings = _tmp_path_settings(tmp_path)
+    config = LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path=(
+            "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+        ),
+        retrieve_limit=20,
+        max_workers=1,
+        compression_rate=0.7,
+        stm_threshold=512,
+        profile_name="official-mini",
+    )
+
+    locomo = _build_lightmem_system(
+        MethodBuildContext(
+            config=config,
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=path_settings,
+            storage_root=tmp_path / "locomo",
+            benchmark_name="locomo",
+        )
+    )
+    longmemeval = _build_lightmem_system(
+        MethodBuildContext(
+            config=config,
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=path_settings,
+            storage_root=tmp_path / "longmemeval",
+            benchmark_name="longmemeval",
+        )
+    )
+
+    assert isinstance(locomo, MemoryProvider)
+    assert locomo.consume_granularity == "turn"
+    assert isinstance(longmemeval, MemoryProvider)
+    assert longmemeval.consume_granularity == "pair"
+    assert _method_manifest_with_protocol(
+        method_manifest={},
+        system=locomo,
+    )["protocol_version"] == "v3"
 
 
 def test_lightmem_backend_config_uses_official_mini_profile_values() -> None:

@@ -285,6 +285,9 @@ def _build_lightmem_system(context: MethodBuildContext) -> BaseMemorySystem:
         storage_root=context.storage_root,
         path_settings=context.path_settings,
         efficiency_collector=context.efficiency_collector,
+        consume_granularity=(
+            "pair" if context.benchmark_name == "longmemeval" else "turn"
+        ),
     )
     for conversation in context.completed_conversations:
         system.load_existing_conversation_state(conversation)
