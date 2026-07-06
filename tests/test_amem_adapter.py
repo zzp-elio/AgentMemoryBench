@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from memory_benchmark.config import load_path_settings
+from memory_benchmark.config import OpenAISettings, load_path_settings
 from memory_benchmark.core import (
     AnswerResult,
     ConfigurationError,
@@ -22,6 +23,7 @@ from memory_benchmark.core import (
     Session,
     Turn,
 )
+from memory_benchmark.core.provider_protocol import MemoryProvider
 from memory_benchmark.methods.amem_adapter import (
     AMem,
     AMemConfig,
@@ -30,7 +32,10 @@ from memory_benchmark.methods.amem_adapter import (
     import_amem_robust_classes,
 )
 import memory_benchmark.methods.amem_adapter as amem_adapter_module
+from memory_benchmark.methods.registry import MethodBuildContext, _build_amem_system
 from memory_benchmark.observability.efficiency import EfficiencyCollector
+from memory_benchmark.runners.prediction import _method_manifest_with_protocol
+from tests.equivalence_utils import run_bridge_sequence, run_native_sequence
 
 
 def test_amem_config_rejects_invalid_retrieve_k() -> None:
@@ -184,6 +189,54 @@ class FakeAMemLLMWithUsage(FakeAMemLLM):
         response = super().get_completion(prompt, temperature=temperature)
         self.last_usage = SimpleNamespace(prompt_tokens=11, completion_tokens=3)
         return response
+
+
+def _snapshot_amem_calls_and_state(system: AMem) -> list[dict[str, object]]:
+    """把 A-Mem runtime 调用和持久化状态归一化为可比较序列。"""
+
+    calls: list[dict[str, object]] = []
+    for conversation_id, runtime in system._runtimes.items():
+        for note in runtime.added_notes:
+            calls.append(
+                {
+                    "op": "add_note",
+                    "conversation_id": conversation_id,
+                    "content": note["content"],
+                    "time": note["time"],
+                }
+            )
+        for query in runtime.queries:
+            calls.append(
+                {
+                    "op": "retrieve",
+                    "conversation_id": conversation_id,
+                    "query": query["query"],
+                    "k": query["k"],
+                }
+            )
+        state_dir = system._conversation_state_dir(conversation_id)
+        if state_dir.exists():
+            calls.append(
+                {
+                    "op": "state",
+                    "conversation_id": conversation_id,
+                    "files": _state_file_hashes(state_dir),
+                    "manifest": json.loads(
+                        (state_dir / "state_manifest.json").read_text("utf-8")
+                    ),
+                }
+            )
+    return calls
+
+
+def _state_file_hashes(state_dir: Path) -> dict[str, str]:
+    """返回 A-Mem 状态文件的内容哈希。"""
+
+    return {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(state_dir.iterdir())
+        if path.is_file()
+    }
 
 
 def _conversation_with_private_gold() -> Conversation:
@@ -431,6 +484,79 @@ def test_amem_add_persists_conversation_state(tmp_path) -> None:
         "retriever.pkl",
         "retriever_embeddings.npy",
     }
+
+
+def test_native_amem_matches_bridge_add_retrieve_and_state_sequence(
+    tmp_path: Path,
+) -> None:
+    """A-Mem 原生 turn 路径应等价复现 add_note、retrieve 与持久化状态。"""
+
+    conversation = _conversation_with_private_gold()
+    question = conversation.questions[0]
+    bridge = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda conversation_id: FakeAMemRuntime(),
+        answer_llm=FakeAMemLLM(),
+        storage_root=tmp_path / "bridge",
+    )
+    native = AMem(
+        config=bridge.config,
+        runtime_factory=lambda conversation_id: FakeAMemRuntime(),
+        answer_llm=FakeAMemLLM(),
+        storage_root=tmp_path / "native",
+    )
+
+    bridge_result = run_bridge_sequence(
+        provider=bridge,
+        conversation=conversation,
+        question=question,
+        run_id="amem-equivalence",
+        snapshot_calls=_snapshot_amem_calls_and_state,
+    )
+    native_result = run_native_sequence(
+        provider=native,
+        conversation=conversation,
+        question=question,
+        run_id="amem-equivalence",
+        snapshot_calls=_snapshot_amem_calls_and_state,
+    )
+
+    assert isinstance(native, MemoryProvider)
+    assert bridge_result.calls == native_result.calls
+    assert (tmp_path / "native" / "conv-1" / "state_manifest.json").is_file()
+
+
+def test_amem_registry_builds_native_v3_provider(tmp_path: Path) -> None:
+    """registry 应直接构造 A-Mem 原生 v3 provider。"""
+
+    provider = _build_amem_system(
+        MethodBuildContext(
+            config=AMemConfig(
+                llm_model="gpt-4o-mini",
+                embedding_model="all-MiniLM-L6-v2",
+                retrieve_k=2,
+                max_workers=1,
+                profile_name="smoke",
+            ),
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=load_path_settings(),
+            storage_root=tmp_path,
+            benchmark_name="locomo",
+        )
+    )
+
+    assert isinstance(provider, MemoryProvider)
+    assert provider.consume_granularity == "turn"
+    assert _method_manifest_with_protocol(
+        method_manifest={},
+        system=provider,
+    )["protocol_version"] == "v3"
 
 
 def test_amem_load_existing_conversation_state_restores_runtime(tmp_path) -> None:

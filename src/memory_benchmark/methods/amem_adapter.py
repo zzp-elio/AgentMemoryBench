@@ -32,6 +32,16 @@ from memory_benchmark.core import (
     Turn,
 )
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySystem
+from memory_benchmark.core.provider_protocol import (
+    ConsumeGranularity,
+    IngestResult,
+    IngestUnit,
+    MemoryProvider,
+    RetrievalQuery,
+    RetrievalResult,
+    TurnEvent,
+    UnitRef,
+)
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
@@ -216,8 +226,11 @@ def import_amem_robust_classes(
                 sys.path.remove(root_text)
 
 
-class AMem(BaseMemoryProvider, BaseMemorySystem):
+class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     """使用官方 A-Mem robust memory layer 的统一 memory system。"""
+
+    consume_granularity: ConsumeGranularity = "turn"
+    provenance_granularity = "none"
 
     def __init__(
         self,
@@ -254,6 +267,9 @@ class AMem(BaseMemoryProvider, BaseMemorySystem):
         )
         self._efficiency_collector = efficiency_collector
         self._runtimes: dict[str, Any] = {}
+        self._native_isolation_to_conversation_id: dict[str, str] = {}
+        self._native_turn_counts: dict[str, int] = {}
+        self._native_conversations: dict[str, Conversation] = {}
 
     def add(self, conversations: Conversation | list[Conversation]) -> AddResult:
         """写入一个或多个 conversation。"""
@@ -320,8 +336,106 @@ class AMem(BaseMemoryProvider, BaseMemorySystem):
                 f"A-Mem state turn_count mismatch for {conversation_id}"
             )
 
-    def retrieve(self, question: Question) -> AnswerPromptResult:
+    def ingest(self, unit: IngestUnit) -> IngestResult:
+        """按 v3 协议写入一个 turn 单元。"""
+
+        if not isinstance(unit, TurnEvent):
+            raise ConfigurationError("A-Mem native provider only accepts TurnEvent")
+        conversation_id = self._conversation_id_from_event(unit)
+        self._native_isolation_to_conversation_id[unit.isolation_key] = conversation_id
+        runtime = self._get_or_create_runtime(conversation_id)
+        self._call_runtime_add(
+            runtime,
+            self._turn_from_event(unit),
+            self._session_time_from_event(unit),
+        )
+        self._native_turn_counts[conversation_id] = (
+            self._native_turn_counts.get(conversation_id, 0) + 1
+        )
+        self._native_conversations[conversation_id] = Conversation(
+            conversation_id=conversation_id,
+            sessions=[],
+            metadata=self._native_public_metadata(unit),
+        )
+        return IngestResult(unit_ref=UnitRef(unit.isolation_key))
+
+    def end_conversation(self, ref: UnitRef) -> None:
+        """在 conversation 边界持久化 A-Mem runtime 状态。"""
+
+        conversation_id = self._native_isolation_to_conversation_id.get(
+            ref.isolation_key,
+            ref.isolation_key,
+        )
+        runtime = self._runtimes.get(conversation_id)
+        if runtime is None:
+            return
+        conversation = self._native_conversations.get(
+            conversation_id,
+            Conversation(conversation_id=conversation_id),
+        )
+        self._save_conversation_state(
+            conversation=conversation,
+            runtime=runtime,
+            turn_count=self._native_turn_counts.get(conversation_id, 0),
+        )
+
+    @staticmethod
+    def _turn_from_event(event: TurnEvent) -> Turn:
+        """从规范 TurnEvent 恢复旧 adapter helper 需要的 Turn。"""
+
+        return Turn(
+            turn_id=event.turn_id,
+            speaker=event.speaker_name or event.role,
+            content=AMem._original_content_from_event(event),
+            normalized_role=event.role if event.role in {"user", "assistant"} else None,
+            turn_time=AMem._optional_event_text(event, "original_turn_time"),
+            metadata=dict(event.metadata.get("turn_metadata") or {}),
+        )
+
+    @staticmethod
+    def _native_public_metadata(event: TurnEvent) -> dict[str, Any]:
+        """恢复 v3 事件中携带的 conversation 级公开 metadata。"""
+
+        metadata = dict(event.metadata.get("conversation_metadata") or {})
+        metadata["conversation_id"] = AMem._conversation_id_from_event(event)
+        return metadata
+
+    @staticmethod
+    def _conversation_id_from_event(event: TurnEvent) -> str:
+        """从 v3 event metadata 中读取原始 conversation id。"""
+
+        conversation_id = event.metadata.get("conversation_id")
+        if isinstance(conversation_id, str) and conversation_id.strip():
+            return conversation_id
+        return event.isolation_key
+
+    @staticmethod
+    def _session_time_from_event(event: TurnEvent) -> str | None:
+        """从 v3 event metadata 中读取原始 session time。"""
+
+        return AMem._optional_event_text(event, "original_session_time") or event.timestamp
+
+    @staticmethod
+    def _original_content_from_event(event: TurnEvent) -> str:
+        """读取事件前原始 turn 文本。"""
+
+        original = event.metadata.get("original_content")
+        if isinstance(original, str):
+            return original
+        return event.content
+
+    @staticmethod
+    def _optional_event_text(event: TurnEvent, field_name: str) -> str | None:
+        """读取 TurnEvent metadata 中的可选文本字段。"""
+
+        value = event.metadata.get(field_name)
+        return value if isinstance(value, str) else None
+
+    def retrieve(self, question: Question | RetrievalQuery) -> AnswerPromptResult | RetrievalResult:
         """执行 A-Mem 官方 query keyword generation 和 memory retrieval。"""
+
+        if isinstance(question, RetrievalQuery):
+            return self._retrieve_native(question)
 
         if question.conversation_id not in self._runtimes:
             raise ConfigurationError(
@@ -388,6 +502,39 @@ class AMem(BaseMemoryProvider, BaseMemorySystem):
                 "answer_prompt_profile": _answer_prompt_profile_for_question(question),
                 "query_keyword_prompt_version": AMEM_QUERY_KEYWORD_PROMPT_VERSION,
             },
+        )
+
+    def _retrieve_native(self, query: RetrievalQuery) -> RetrievalResult:
+        """执行 v3 检索并返回不生成最终答案的 RetrievalResult。"""
+
+        source_question = query.source_question or Question(
+            question_id=query.isolation_key,
+            conversation_id=query.isolation_key,
+            text=query.query_text,
+            question_time=query.question_time,
+        )
+        conversation_id = self._native_isolation_to_conversation_id.get(
+            query.isolation_key,
+            source_question.conversation_id,
+        )
+        native_question = Question(
+            question_id=source_question.question_id,
+            conversation_id=conversation_id,
+            text=query.query_text,
+            question_time=query.question_time or source_question.question_time,
+            category=source_question.category,
+            metadata=dict(source_question.metadata),
+        )
+        retrieval = self.retrieve(native_question)
+        formatted_memory = (
+            retrieval.metadata.get("answer_context")
+            if isinstance(retrieval.metadata.get("answer_context"), str)
+            else ""
+        )
+        return RetrievalResult(
+            formatted_memory=formatted_memory or "(No relevant memories found)",
+            prompt_messages=tuple(retrieval.prompt_messages),
+            metadata=dict(retrieval.metadata),
         )
 
     def get_answer(self, question: Question) -> AnswerResult:

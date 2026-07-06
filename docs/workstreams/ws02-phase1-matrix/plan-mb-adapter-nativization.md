@@ -253,13 +253,61 @@ consume_granularity 实例级特化）、M-A 验收记录
 
 ## T4 A-Mem 原生化
 
-- [ ] 粒度：`turn`。`ingest(TurnEvent)` → 拼 `Speaker X says: ...` 调
+- [x] 粒度：`turn`。`ingest(TurnEvent)` → 拼 `Speaker X says: ...` 调
   `add_note(content, time)`；`end_conversation` → 现有 conversation 级状态
   持久化（memories.pkl / retriever cache / manifest）迁至此钩子。
-- [ ] `retrieve`：官方 query keyword generation + category k + LightMem-style
+- [x] `retrieve`：官方 query keyword generation + category k + LightMem-style
   LongMemEval 分支照旧迁移；category 5 拒绝逻辑保留。
 - 验收：`tests/test_amem_adapter.py` + 等价测试全绿；持久化文件集与桥接路径
   逐字节语义一致（manifest 中 turn_count 等校验字段不变）。
+
+  验收输出（2026-07-06，T4）：
+
+  ```bash
+  $ uv run pytest tests/test_amem_adapter.py::test_native_amem_matches_bridge_add_retrieve_and_state_sequence tests/test_amem_adapter.py::test_amem_registry_builds_native_v3_provider -q
+  ..                                                                       [100%]
+  2 passed in 0.37s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_amem_adapter.py -q
+  ...................                                                      [100%]
+  19 passed, 1 warning in 7.89s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_event_stream.py tests/test_legacy_provider_bridge.py tests/test_equivalence_utils.py -q
+  ......................                                                   [100%]
+  22 passed in 0.08s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_prediction_runner.py::test_runner_ingests_native_v3_provider_with_event_stream_and_reports tests/test_prediction_runner.py::test_isolated_worker_ingests_native_v3_provider_with_event_stream tests/test_prediction_cli.py::test_registered_prediction_builds_system_from_registry_context -q
+  ...                                                                      [100%]
+  3 passed in 0.41s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_documentation_standards.py -q
+  .....                                                                    [100%]
+  5 passed in 0.58s
+  ```
+
+  ```bash
+  $ uv run pytest -q
+  ........................................................................ [  9%]
+  ........................................................................ [ 18%]
+  ........................................................................ [ 28%]
+  .................................................................... [ 36%]
+  ........................................................................ [ 46%]
+  ........................................................................ [ 55%]
+  ...................................................................... [ 64%]
+  ........................................................................ [ 74%]
+  ........................................................................ [ 83%]
+  ........................................................................ [ 92%]
+  ......................................................                   [100%]
+  768 passed, 3 deselected, 2 warnings, 6 subtests passed in 107.51s (0:01:47)
+  ```
 
 ## T5 MemoryOS 原生化
 

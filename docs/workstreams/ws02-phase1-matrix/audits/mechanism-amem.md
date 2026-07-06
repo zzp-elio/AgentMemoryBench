@@ -90,3 +90,9 @@
 推断/含义：
 
 - A-Mem adapter 的主要形变来自整段 conversation 输入、跨 benchmark reader 兼容、隐私规则对 category 5 的限制，以及 production 运行所需的状态持久化与 OpenAI-compatible client 注入。
+
+原生化后状态（2026-07-06，M-B T4）：
+
+- registered 主路径已是 `consume_granularity="turn"` 的 v3 provider；`AMem.ingest(TurnEvent)` 直接复用 `_call_runtime_add()` 拼 `Speaker X says: ...` 并调用 `add_note(content, time)`，不再从整段 `Conversation` 双层遍历后写入。
+- conversation 级持久化移动到 `end_conversation()`，继续保存 `memories.pkl`、`retriever.pkl`、`retriever_embeddings.npy` 与 `state_manifest.json`；等价测试比较桥接与原生路径的 add/retrieve 调用和状态文件内容哈希。
+- 旧 `add()` 本轮按计划保留，理由是旧接口、resume 恢复和桥接等价对照仍依赖它；category 5 拒绝、LongMemEval reader prompt、OpenAI-compatible client 注入与 usage observer 语义不变。
