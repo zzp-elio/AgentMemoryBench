@@ -3303,3 +3303,22 @@ def test_conversation_prompts_empty_when_no_matching_keys() -> None:
         },
     }
     assert _build_conversation_prompts(records) == {}
+
+def test_merge_session_report_records_replaces_same_conversation() -> None:
+    """retry 重新 ingest 时，同一 conversation 的 session report 必须整体替换。"""
+
+    from memory_benchmark.runners.prediction import _merge_session_report_records
+
+    existing = [
+        {"conversation_id": "conv-1", "memories": ["old-a"]},
+        {"conversation_id": "conv-2", "memories": ["keep"]},
+    ]
+    merged = _merge_session_report_records(
+        existing=existing,
+        conversation_id="conv-1",
+        new_reports=(
+            {"conversation_id": "conv-1", "memories": ["new-a"]},
+            {"conversation_id": "conv-1", "memories": ["new-b"]},
+        ),
+    )
+    assert [record["memories"] for record in merged] == [["keep"], ["new-a"], ["new-b"]]

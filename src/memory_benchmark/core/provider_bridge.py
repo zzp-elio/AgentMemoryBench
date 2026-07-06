@@ -106,7 +106,7 @@ def _conversation_from_batch(batch: ConversationBatch) -> Conversation:
             Turn(
                 turn_id=event.turn_id,
                 speaker=event.speaker_name or event.role,
-                content=event.content,
+                content=_original_turn_content(event.metadata, event.content),
                 normalized_role=event.role,
                 turn_time=_optional_text(event.metadata.get("original_turn_time")),
                 images=_images_from_event(event.metadata),
@@ -222,6 +222,20 @@ def _optional_text(value: Any) -> str | None:
     """把可选公开文本值规范为 str | None。"""
 
     return value if isinstance(value, str) else None
+
+
+def _original_turn_content(metadata: dict[str, Any], event_content: str) -> str:
+    """还原写入事件前的原始 turn 文本。
+
+    规范事件流的 content 已按 LoCoMo 口径拼接图片 caption；旧 adapter 会从
+    `turn.images` 再拼一次 caption，因此桥接重建 Turn 必须用原始 content，
+    避免 caption 双重拼接破坏与迁移前的等价性。
+    """
+
+    original = metadata.get("original_content")
+    if isinstance(original, str):
+        return original
+    return event_content
 
 
 __all__ = ["LegacyProviderBridge"]

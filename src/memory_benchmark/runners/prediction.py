@@ -1439,7 +1439,11 @@ def _run_isolated_worker_pipeline(
                     efficiency_store.merge_observations(batch.observations)
             for batch in batches:
                 if batch.session_reports:
-                    session_report_records.extend(batch.session_reports)
+                    session_report_records = _merge_session_report_records(
+                        existing=session_report_records,
+                        conversation_id=batch.conversation_id,
+                        new_reports=batch.session_reports,
+                    )
                 for answer_prompt_record in batch.retrievals:
                     answer_prompt_records[answer_prompt_record["question_id"]] = (
                         answer_prompt_record
@@ -1838,7 +1842,11 @@ def _ingest_pending_conversations(
             if efficiency_store is not None:
                 efficiency_store.merge_observations(batch.observations)
             if batch.session_reports:
-                session_report_records.extend(batch.session_reports)
+                session_report_records = _merge_session_report_records(
+                    existing=session_report_records,
+                    conversation_id=batch.conversation_id,
+                    new_reports=batch.session_reports,
+                )
                 _persist_session_memory_reports(
                     paths=paths,
                     session_report_records=session_report_records,
@@ -2078,6 +2086,27 @@ def _ingest_memory_provider_conversation(
             f"session memory reports: {public_conversation.conversation_id}"
         )
     return tuple(session_report_records)
+
+
+def _merge_session_report_records(
+    *,
+    existing: list[dict[str, Any]],
+    conversation_id: str,
+    new_reports: tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    """按 conversation 替换 session report 记录。
+
+    retry 重新 ingest 同一 conversation 时，旧记录必须被整体替换而不是追加，
+    否则 HaluMem extraction 类评测会重复计数。
+    """
+
+    kept = [
+        record
+        for record in existing
+        if record.get("conversation_id") != conversation_id
+    ]
+    kept.extend(new_reports)
+    return kept
 
 
 def _is_ingest_unit(unit: object) -> bool:

@@ -28,6 +28,7 @@ class RecordingLegacyProvider(BaseMemoryProvider):
         self.metadata = metadata
         self.added_conversation_ids: list[str] = []
         self.added_session_ids: list[list[str]] = []
+        self.added_conversations: list[object] = []
         self.retrieved_questions: list[Question] = []
 
     def add(self, conversation):
@@ -37,6 +38,7 @@ class RecordingLegacyProvider(BaseMemoryProvider):
         self.added_session_ids.append(
             [session.session_id for session in conversation.sessions]
         )
+        self.added_conversations.append(conversation)
         return AddResult(conversation_ids=[conversation.conversation_id])
 
     def retrieve(self, question: Question) -> AnswerPromptResult:
@@ -161,3 +163,52 @@ def test_bridge_uses_nonblank_sentinel_and_warning_when_memory_empty() -> None:
 
     assert result.formatted_memory == BRIDGE_EMPTY_MEMORY_SENTINEL
     assert result.metadata["bridge_warning"] == "legacy_provider_exposed_no_memory_context"
+
+def test_bridge_restores_original_content_without_baked_caption() -> None:
+    """桥接重建的 Turn 必须还原原始 content，防止旧 adapter 二次拼接 caption。"""
+
+    from memory_benchmark.core.entities import Conversation, ImageRef, Session, Turn
+    from memory_benchmark.core.provider_protocol import ConversationBatch as _CB
+    from memory_benchmark.runners.event_stream import (
+        GranularityAggregator,
+        build_turn_events,
+    )
+
+    conversation = Conversation(
+        conversation_id="conv-img",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2026-07-06T00:00:00Z",
+                turns=[
+                    Turn(
+                        turn_id="d1",
+                        speaker="Alice",
+                        content="看这张照片",
+                        normalized_role="user",
+                        images=[ImageRef(caption="a bowl with flowers")],
+                    )
+                ],
+            )
+        ],
+        questions=[],
+        gold_answers={},
+        metadata={},
+    )
+    events = tuple(build_turn_events(conversation, "run-1_conv-img"))
+    assert "(image description: a bowl with flowers)" in events[0].content
+
+    units = tuple(
+        GranularityAggregator("conversation").aggregate(
+            events, isolation_key="run-1_conv-img"
+        )
+    )
+    batch = next(unit for unit in units if isinstance(unit, _CB))
+    legacy = RecordingLegacyProvider(metadata={"answer_context": "记忆上下文"})
+    LegacyProviderBridge(legacy).ingest(batch)
+
+    rebuilt_turn = legacy.added_conversations[0].sessions[0].turns[0]
+    assert rebuilt_turn.content == "看这张照片"
+    assert [image.caption for image in rebuilt_turn.images] == [
+        "a bowl with flowers"
+    ]

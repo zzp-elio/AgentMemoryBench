@@ -44,6 +44,7 @@ def build_turn_events(
                 turn_id=_stable_turn_id(turn, session_index, turn_index),
                 metadata={
                     "conversation_id": conversation.conversation_id,
+                    "original_content": turn.content,
                     "session_index": session_index,
                     "original_session_time": session.session_time,
                     "session_metadata": dict(session.metadata),
