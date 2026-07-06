@@ -145,19 +145,33 @@ fallback 链的末端改为**非空 sentinel 常量**，不用空串：
 
 ## T4 runner 主链路切换到事件流
 
-- [ ] prediction runner 的 ingest 阶段改为：事件流生成 → 聚合器 → provider
+- [x] prediction runner 的 ingest 阶段改为：事件流生成 → 聚合器 → provider
   `ingest`/`end_session`/`end_conversation` 循环（normal path 与 isolated
   worker path 都切换）；conversation 级 resume 判定逻辑不变（unit 完成 =
   end_conversation 成功返回）。
-- [ ] `end_session` 返回的 SessionMemoryReport 与 `IngestResult.session_memories`
+- [x] `end_session` 返回的 SessionMemoryReport 与 `IngestResult.session_memories`
   写入新 artifact `artifacts/session_memory_reports.jsonl`（仅当 method 声明
   `session_memory_report=True`；声明 True 但从不报告 → 运行结束时报错，
   fail-fast 先例照抄 efficiency contract）。
-- [ ] `RetrievalResult.formatted_memory` 与 `items` 落盘进
+- [x] `RetrievalResult.formatted_memory` 与 `items` 落盘进
   `answer_prompts.prediction.jsonl` 行（新增字段，旧字段不动）。
 - 验收：`uv run pytest tests/test_prediction_runner.py -q` 全绿；新增事件流
   路径测试（含 isolated worker）；resume 语义回归（completed/failed/pending
   判定测试不变绿）。
+
+  验收输出（2026-07-06，T4）：
+
+  ```bash
+  $ uv run pytest tests/test_prediction_runner.py -q
+  ...............................................................          [100%]
+  63 passed in 1.05s
+  ```
+
+  ```bash
+  $ uv run pytest tests/test_documentation_standards.py -q
+  .....                                                                    [100%]
+  5 passed in 0.46s
+  ```
 
 ## T5 MockMemoryProvider v3 与端到端离线验证
 

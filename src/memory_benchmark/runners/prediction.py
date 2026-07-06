@@ -35,10 +35,16 @@ from memory_benchmark.core.provider_bridge import LegacyProviderBridge
 from memory_benchmark.core.provider_protocol import (
     BRIDGE_EMPTY_MEMORY_SENTINEL,
     ConversationBatch,
+    IngestResult,
+    IngestUnit,
     MemoryProvider,
     RetrievalQuery,
     RetrievalResult,
+    SessionBatch,
     SessionRef,
+    SessionMemoryReport,
+    TurnEvent,
+    TurnPair,
     UnitRef,
 )
 from memory_benchmark.core.validators import validate_dataset, validate_no_private_keys
@@ -160,6 +166,7 @@ class _ConversationAnswerBatch:
     conversation_id: str
     predictions: tuple[dict[str, Any], ...]
     retrievals: tuple[dict[str, Any], ...] = ()
+    session_reports: tuple[dict[str, Any], ...] = ()
     observations: tuple[EfficiencyObservation, ...] = ()
     ingested: bool = False
 
@@ -169,6 +176,7 @@ class _ConversationIngestBatch:
     """单个 worker 返回的不可变记忆构建批次。"""
 
     conversation_id: str
+    session_reports: tuple[dict[str, Any], ...] = ()
     observations: tuple[EfficiencyObservation, ...] = ()
 
 
@@ -196,6 +204,7 @@ class _ConversationFailureBatch:
     observations: tuple[EfficiencyObservation, ...] = ()
     predictions: tuple[dict[str, Any], ...] = ()
     retrievals: tuple[dict[str, Any], ...] = ()
+    session_reports: tuple[dict[str, Any], ...] = ()
     ingested: bool = False
 
 
@@ -1339,6 +1348,7 @@ def _run_isolated_worker_pipeline(
             recover_torn_tail=policy.resume,
         )
     }
+    session_report_records = read_jsonl(paths.session_memory_reports_path)
 
     with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
         future_to_chunk: dict[
@@ -1428,6 +1438,8 @@ def _run_isolated_worker_pipeline(
                 for batch in batches:
                     efficiency_store.merge_observations(batch.observations)
             for batch in batches:
+                if batch.session_reports:
+                    session_report_records.extend(batch.session_reports)
                 for answer_prompt_record in batch.retrievals:
                     answer_prompt_records[answer_prompt_record["question_id"]] = (
                         answer_prompt_record
@@ -1528,6 +1540,10 @@ def _run_isolated_worker_pipeline(
                 answer_prompt_records=answer_prompt_records,
                 question_order=question_order,
             )
+            _persist_session_memory_reports(
+                paths=paths,
+                session_report_records=session_report_records,
+            )
             atomic_write_json(paths.conversation_status_path, conversation_status)
 
     progress.set_stage("Completed", step_index=2, step_count=2)
@@ -1563,6 +1579,7 @@ def _isolated_worker(
         conversation = work_item.conversation
         conv_predictions: list[dict[str, Any]] = []
         conv_retrievals: list[dict[str, Any]] = []
+        conv_session_reports: list[dict[str, Any]] = []
         conv_observations: list[EfficiencyObservation] = []
         ingested = not work_item.needs_ingest
         try:
@@ -1576,20 +1593,24 @@ def _isolated_worker(
                     with efficiency_collector.conversation_scope(
                         conversation.conversation_id,
                     ) as conv_scope:
-                        _add_public_conversation_coarse(
-                            system=system,
-                            run_id=run_id,
-                            public_conversation=public_conversation,
+                        conv_session_reports.extend(
+                            _add_public_conversation_coarse(
+                                system=system,
+                                run_id=run_id,
+                                public_conversation=public_conversation,
+                            )
                         )
                         efficiency_collector.record_memory_build_total_latency(
                             latency_ms=_elapsed_ms(started_ns),
                         )
                     conv_observations.extend(conv_scope.records)
                 else:
-                    _add_public_conversation_coarse(
-                        system=system,
-                        run_id=run_id,
-                        public_conversation=public_conversation,
+                    conv_session_reports.extend(
+                        _add_public_conversation_coarse(
+                            system=system,
+                            run_id=run_id,
+                            public_conversation=public_conversation,
+                        )
                     )
                 ingested = True
             for source_question in work_item.pending_questions:
@@ -1677,6 +1698,7 @@ def _isolated_worker(
                         conv_retrievals
                         + list(getattr(exc, "retrievals", ()))
                     ),
+                    session_reports=tuple(conv_session_reports),
                     ingested=ingested,
                 )
             )
@@ -1694,6 +1716,7 @@ def _isolated_worker(
                 conversation_id=conversation.conversation_id,
                 predictions=tuple(conv_predictions),
                 retrievals=tuple(conv_retrievals),
+                session_reports=tuple(conv_session_reports),
                 observations=tuple(conv_observations),
                 ingested=work_item.needs_ingest,
             )
@@ -1707,24 +1730,24 @@ def _add_public_conversation_coarse(
     system: BaseMemorySystem | MemoryProvider,
     run_id: str,
     public_conversation: Conversation,
-) -> None:
+) -> tuple[dict[str, Any], ...]:
     """isolated worker 使用的 conversation 级写入，不处理逐 turn checkpoint。"""
 
     if isinstance(system, MemoryProvider):
-        _ingest_memory_provider_conversation(
+        return _ingest_memory_provider_conversation(
             provider=system,
             public_conversation=public_conversation,
             run_id=run_id,
         )
-        return
     result = system.add([public_conversation])
     if result is None:
-        return
+        return ()
     if public_conversation.conversation_id not in result.conversation_ids:
         raise ConfigurationError(
             "Method add result did not include expected conversation_id: "
             f"{public_conversation.conversation_id}"
         )
+    return ()
 
 
 def _ingest_pending_conversations(
@@ -1776,6 +1799,7 @@ def _ingest_pending_conversations(
         progress.update_conversations(completed, len(conversations), None)
         return
 
+    session_report_records = read_jsonl(paths.session_memory_reports_path)
     with ThreadPoolExecutor(max_workers=policy.max_workers) as executor:
         futures: dict[Future[_ConversationIngestBatch], str] = {
             executor.submit(
@@ -1813,6 +1837,12 @@ def _ingest_pending_conversations(
                 raise
             if efficiency_store is not None:
                 efficiency_store.merge_observations(batch.observations)
+            if batch.session_reports:
+                session_report_records.extend(batch.session_reports)
+                _persist_session_memory_reports(
+                    paths=paths,
+                    session_report_records=session_report_records,
+                )
             returned_id = batch.conversation_id
             conversation = next(
                 item
@@ -1924,7 +1954,7 @@ def _ingest_one(
             conversation.conversation_id
         ) as scope:
             started_ns = perf_counter_ns()
-            _add_public_conversation(
+            session_reports = _add_public_conversation(
                 system=system,
                 public_conversation=public_conversation,
                 run_id=run_id,
@@ -1936,10 +1966,11 @@ def _ingest_one(
             )
         return _ConversationIngestBatch(
             conversation_id=conversation.conversation_id,
+            session_reports=session_reports,
             observations=scope.records,
         )
 
-    _add_public_conversation(
+    session_reports = _add_public_conversation(
         system=system,
         public_conversation=public_conversation,
         run_id=run_id,
@@ -1948,6 +1979,7 @@ def _ingest_one(
     )
     return _ConversationIngestBatch(
         conversation_id=conversation.conversation_id,
+        session_reports=session_reports,
     )
 
 
@@ -1958,7 +1990,7 @@ def _add_public_conversation(
     run_id: str,
     checkpoint_store: TurnIngestCheckpointStore,
     checkpoint: TurnIngestCheckpoint | None,
-) -> None:
+) -> tuple[dict[str, Any], ...]:
     """执行一次公开 conversation 写入，并校验 method 返回 id。"""
 
     if _uses_turn_resume(system, public_conversation):
@@ -1983,12 +2015,11 @@ def _add_public_conversation(
             ),
         )
     elif isinstance(system, MemoryProvider):
-        _ingest_memory_provider_conversation(
+        return _ingest_memory_provider_conversation(
             provider=system,
             public_conversation=public_conversation,
             run_id=run_id,
         )
-        return
     else:
         result = system.add([public_conversation])
     if public_conversation.conversation_id not in result.conversation_ids:
@@ -1996,6 +2027,7 @@ def _add_public_conversation(
             "Method add result did not include expected conversation_id: "
             f"{public_conversation.conversation_id}"
         )
+    return ()
 
 
 def _ingest_memory_provider_conversation(
@@ -2003,26 +2035,127 @@ def _ingest_memory_provider_conversation(
     provider: MemoryProvider,
     public_conversation: Conversation,
     run_id: str,
-) -> None:
+) -> tuple[dict[str, Any], ...]:
     """用 v3 conversation batch 调用 provider.ingest 并完成边界回调。"""
 
     isolation_key = default_isolation_key(run_id, public_conversation.conversation_id)
     events = tuple(build_turn_events(public_conversation, isolation_key))
+    session_report_records: list[dict[str, Any]] = []
     units = tuple(
-        GranularityAggregator("conversation").aggregate(
+        GranularityAggregator(provider.consume_granularity).aggregate(
             events,
             isolation_key=isolation_key,
         )
     )
     for unit in units:
-        if isinstance(unit, ConversationBatch):
-            provider.ingest(unit)
+        if _is_ingest_unit(unit):
+            result = provider.ingest(unit)
+            session_report_records.extend(
+                _session_reports_from_ingest_result(
+                    provider=provider,
+                    unit=unit,
+                    result=result,
+                    conversation_id=public_conversation.conversation_id,
+                )
+            )
             continue
         if isinstance(unit, SessionRef):
-            provider.end_session(unit)
+            report = provider.end_session(unit)
+            if report is not None:
+                session_report_records.append(
+                    _session_memory_report_payload(
+                        report=report,
+                        conversation_id=public_conversation.conversation_id,
+                        source="end_session",
+                    )
+                )
             continue
         if isinstance(unit, UnitRef):
             provider.end_conversation(unit)
+    if provider.session_memory_report and not session_report_records:
+        raise ConfigurationError(
+            "Provider declared session_memory_report=True but returned no "
+            f"session memory reports: {public_conversation.conversation_id}"
+        )
+    return tuple(session_report_records)
+
+
+def _is_ingest_unit(unit: object) -> bool:
+    """判断 stream signal 是否应投递给 provider.ingest。"""
+
+    return isinstance(
+        unit,
+        TurnEvent | TurnPair | SessionBatch | ConversationBatch,
+    )
+
+
+def _session_reports_from_ingest_result(
+    *,
+    provider: MemoryProvider,
+    unit: IngestUnit,
+    result: IngestResult | None,
+    conversation_id: str,
+) -> tuple[dict[str, Any], ...]:
+    """把 IngestResult.session_memories 转成 artifact records。"""
+
+    if not provider.session_memory_report or result is None:
+        return ()
+    if not result.session_memories:
+        return ()
+    session_ref = _session_ref_from_ingest_result(unit=unit, result=result)
+    return (
+        {
+            "conversation_id": conversation_id,
+            "source": "ingest_result",
+            "session_ref": asdict(session_ref),
+            "memories": list(result.session_memories),
+            "metadata": dict(result.metadata),
+        },
+    )
+
+
+def _session_ref_from_ingest_result(
+    *,
+    unit: IngestUnit,
+    result: IngestResult,
+) -> SessionRef:
+    """从 ingest unit/result 中推断 session memory report 的 session ref。"""
+
+    if isinstance(result.unit_ref, SessionRef):
+        return result.unit_ref
+    if isinstance(unit, SessionBatch):
+        return unit.ref
+    if isinstance(unit, TurnEvent):
+        return SessionRef(
+            isolation_key=unit.isolation_key,
+            session_id=unit.session_id,
+        )
+    if isinstance(unit, TurnPair):
+        return SessionRef(
+            isolation_key=unit.isolation_key,
+            session_id=unit.session_id,
+        )
+    return SessionRef(
+        isolation_key=unit.isolation_key,
+        session_id=None,
+    )
+
+
+def _session_memory_report_payload(
+    *,
+    report: SessionMemoryReport,
+    conversation_id: str,
+    source: str,
+) -> dict[str, Any]:
+    """把 SessionMemoryReport 转成公开 artifact record。"""
+
+    return {
+        "conversation_id": conversation_id,
+        "source": source,
+        "session_ref": asdict(report.session_ref),
+        "memories": list(report.memories),
+        "metadata": dict(report.metadata),
+    }
 
 
 def _uses_turn_resume(
@@ -2202,6 +2335,18 @@ def _persist_answer_prompt_records(
             if question_id in answer_prompt_records
         ],
     )
+
+
+def _persist_session_memory_reports(
+    *,
+    paths: ExperimentPaths,
+    session_report_records: list[dict[str, Any]],
+) -> None:
+    """稳定写入 provider session memory report artifact。"""
+
+    if not session_report_records:
+        return
+    atomic_write_jsonl(paths.session_memory_reports_path, session_report_records)
 
 
 def _answer_conversation_questions(

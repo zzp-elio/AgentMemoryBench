@@ -23,6 +23,7 @@ from memory_benchmark.core import (
     Dataset,
     DatasetValidationError,
     GoldAnswerInfo,
+    PromptMessage,
     Question,
     AnswerPromptResult,
     Session,
@@ -34,7 +35,18 @@ from memory_benchmark.core.interfaces import (
     BaseMemorySystem,
     BaseResumableMemorySystem,
 )
-from memory_benchmark.core.provider_protocol import BRIDGE_EMPTY_MEMORY_SENTINEL
+from memory_benchmark.core.provider_protocol import (
+    BRIDGE_EMPTY_MEMORY_SENTINEL,
+    IngestResult,
+    MemoryProvider,
+    RetrievedItem,
+    RetrievalQuery,
+    RetrievalResult,
+    SessionMemoryReport,
+    SessionRef,
+    TurnEvent,
+    UnitRef,
+)
 from memory_benchmark.observability import RunContext
 from memory_benchmark.readers.answer import FakeAnswerLLMClient, FrameworkAnswerReader
 from memory_benchmark.methods.mock import MockMemoryProvider
@@ -252,6 +264,78 @@ class RecordingMemoryProvider(BaseMemoryProvider):
             conversation_id=question.conversation_id,
             answer_prompt=f"memory for {question.text}",
             metadata={"provider": "recording"},
+        )
+
+
+class RecordingV3TurnProvider(MemoryProvider):
+    """记录 v3 turn 粒度 ingest/retrieve 调用的 fake provider。"""
+
+    consume_granularity = "turn"
+    session_memory_report = True
+    provenance_granularity = "turn"
+
+    def __init__(
+        self,
+        *,
+        shared_events: list[tuple[str, str]] | None = None,
+        report_sessions: bool = True,
+    ) -> None:
+        """初始化调用记录和 session report 开关。"""
+
+        self.shared_events = shared_events if shared_events is not None else []
+        self.report_sessions = report_sessions
+        self.ingested_turn_ids: list[str] = []
+        self.ended_sessions: list[SessionRef] = []
+        self.ended_conversations: list[UnitRef] = []
+        self.retrieval_queries: list[RetrievalQuery] = []
+
+    def ingest(self, unit) -> IngestResult:
+        """记录 turn 粒度 ingest 单元。"""
+
+        if not isinstance(unit, TurnEvent):
+            raise AssertionError(f"expected TurnEvent, got {type(unit).__name__}")
+        self.ingested_turn_ids.append(unit.turn_id)
+        self.shared_events.append(("ingest", unit.turn_id))
+        return IngestResult()
+
+    def end_session(self, ref: SessionRef) -> SessionMemoryReport | None:
+        """记录 session 边界并按需返回 session memory report。"""
+
+        self.ended_sessions.append(ref)
+        self.shared_events.append(("end_session", ref.session_id or ""))
+        if not self.report_sessions:
+            return None
+        return SessionMemoryReport(
+            session_ref=ref,
+            memories=[f"session-memory:{ref.session_id}"],
+            metadata={"provider": "recording-v3"},
+        )
+
+    def end_conversation(self, ref: UnitRef) -> None:
+        """记录 conversation 边界。"""
+
+        self.ended_conversations.append(ref)
+        self.shared_events.append(("end_conversation", ref.isolation_key))
+
+    def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
+        """返回包含 formatted_memory、items 和 native prompt messages 的 v3 结果。"""
+
+        self.retrieval_queries.append(query)
+        return RetrievalResult(
+            formatted_memory=f"v3 memory for {query.query_text}",
+            prompt_messages=(
+                PromptMessage(role="user", content=f"native prompt {query.query_text}"),
+            ),
+            items=(
+                RetrievedItem(
+                    item_id=f"{query.source_question.question_id}:hit",
+                    content="命中记忆",
+                    score=0.9,
+                    timestamp=None,
+                    source_turn_ids=("conv-1:t1",),
+                ),
+            ),
+            metadata={"provider": "recording-v3"},
         )
 
 
@@ -926,6 +1010,122 @@ def test_runner_uses_retrieve_first_provider_and_framework_reader(
     assert answer_client.calls[0]["messages"] == [
         {"role": "user", "content": "memory for 问题 1"}
     ]
+
+
+def test_runner_ingests_native_v3_provider_with_event_stream_and_reports(
+    tmp_path: Path,
+) -> None:
+    """v3 provider 主链路应按声明粒度 ingest 并写 session memory artifact。"""
+
+    dataset = _build_dataset()
+    provider = RecordingV3TurnProvider()
+    answer_client = FakeAnswerLLMClient(answer="framework answer")
+    reader = FrameworkAnswerReader(client=answer_client)
+    context = _create_context(tmp_path)
+
+    summary = run_predictions(
+        dataset=dataset,
+        system=provider,
+        run_context=context,
+        policy=PredictionRunPolicy(max_workers=1),
+        answer_reader=reader,
+        method_manifest={"adapter": "recording-v3"},
+        benchmark_variant="test_variant",
+        run_scope=RunScope.FULL,
+    )
+
+    retrievals = read_jsonl(
+        context.artifacts_dir / "answer_prompts.prediction.jsonl"
+    )
+    session_reports = read_jsonl(
+        context.artifacts_dir / "session_memory_reports.jsonl"
+    )
+    manifest = json.loads((context.run_dir / "manifest.json").read_text())
+
+    assert summary.completed_questions == 2
+    assert provider.ingested_turn_ids == ["conv-1:t1", "conv-2:t1"]
+    assert [ref.session_id for ref in provider.ended_sessions] == [
+        "conv-1:s1",
+        "conv-2:s1",
+    ]
+    assert [ref.isolation_key for ref in provider.ended_conversations] == [
+        "prediction-run_conv-1",
+        "prediction-run_conv-2",
+    ]
+    assert manifest["method"]["protocol_version"] == "v3"
+    assert retrievals[0]["formatted_memory"] == "v3 memory for 问题 1"
+    assert retrievals[0]["retrieved_items"][0]["source_turn_ids"] == ["conv-1:t1"]
+    assert session_reports[0]["memories"] == ["session-memory:conv-1:s1"]
+    assert session_reports[0]["session_ref"] == {
+        "isolation_key": "prediction-run_conv-1",
+        "session_id": "conv-1:s1",
+    }
+
+
+def test_isolated_worker_ingests_native_v3_provider_with_event_stream(
+    tmp_path: Path,
+) -> None:
+    """isolated worker path 也必须对 v3 provider 使用事件流 ingest。"""
+
+    from memory_benchmark.methods.registry import MethodBuildContext
+
+    dataset = _build_dataset()
+    shared_events: list[tuple[str, str]] = []
+    answer_client = FakeAnswerLLMClient(answer="isolated answer")
+    reader = FrameworkAnswerReader(client=answer_client)
+    context = _create_context(tmp_path)
+
+    def fake_factory(_context: MethodBuildContext) -> RecordingV3TurnProvider:
+        """每个 worker 创建独立 v3 provider，并共享观测列表。"""
+
+        return RecordingV3TurnProvider(shared_events=shared_events)
+
+    run_predictions(
+        dataset=dataset,
+        system=RecordingV3TurnProvider(shared_events=shared_events),
+        run_context=context,
+        policy=PredictionRunPolicy(max_workers=2),
+        answer_reader=reader,
+        method_manifest={"adapter": "recording-v3"},
+        benchmark_variant="test_variant",
+        run_scope=RunScope.FULL,
+        system_factory=fake_factory,
+        build_context_template=MethodBuildContext(
+            config={},
+            openai_settings=None,
+            path_settings=None,
+            storage_root=context.run_dir / "method_state",
+        ),
+        supports_shared_instance_parallelism=False,
+    )
+
+    assert ("ingest", "conv-1:t1") in shared_events
+    assert ("ingest", "conv-2:t1") in shared_events
+    assert ("end_session", "conv-1:s1") in shared_events
+    assert ("end_conversation", "prediction-run_conv-2") in shared_events
+
+
+def test_v3_session_memory_report_contract_fails_when_declared_but_empty(
+    tmp_path: Path,
+) -> None:
+    """声明 session_memory_report=True 但从不报告时应 fail-fast。"""
+
+    dataset = _build_dataset()
+    provider = RecordingV3TurnProvider(report_sessions=False)
+    reader = FrameworkAnswerReader(client=FakeAnswerLLMClient(answer="unused"))
+    context = _create_context(tmp_path)
+
+    with pytest.raises(ConfigurationError, match="session_memory_report"):
+        run_predictions(
+            dataset=dataset,
+            system=provider,
+            run_context=context,
+            policy=PredictionRunPolicy(max_workers=1),
+            answer_reader=reader,
+            method_manifest={"adapter": "recording-v3"},
+            benchmark_variant="test_variant",
+            run_scope=RunScope.FULL,
+        )
 
 
 def test_runner_bridges_legacy_provider_and_counts_empty_memory_sentinel(

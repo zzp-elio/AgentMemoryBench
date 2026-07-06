@@ -122,6 +122,12 @@ class ExperimentPaths:
         return self.artifacts_dir / "answer_prompts.prediction.jsonl"
 
     @property
+    def session_memory_reports_path(self) -> Path:
+        """返回 provider session memory report JSONL 路径。"""
+
+        return self.artifacts_dir / "session_memory_reports.jsonl"
+
+    @property
     def conversation_prompts_path(self) -> Path:
         """返回按 conversation 去重的 system/user prompt JSONL 路径。
 
