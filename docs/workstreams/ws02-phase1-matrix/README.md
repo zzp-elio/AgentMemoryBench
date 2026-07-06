@@ -22,13 +22,14 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-06（最新）：**最终协议 spec v3 已产出，待用户批准**：
-  [spec-protocol-v3.md](spec-protocol-v3.md)。整合了矩阵 §4 结论 + 用户全部
-  定案（三层数据模型、声明消费粒度、三层钩子、并置隔离 R5、RetrievalQuery、
-  检索输出三件套、双口径×双 profile、R1-R6、占位规范、M-A/B/C 迁移方案）。
-  §7 留三个决策点（unified prompt 来源 / MemBench prompt 口径 / BEAM scorer
-  口径）随批准一并裁定。**批准后：架构师写 M-A 实施 plan 交 Codex，
-  Track B/C 解冻。**
+- 2026-07-06（最新）：**协议 v3 spec 已获用户批准（status: approved），
+  Track 0 收官**。修订版含接口减重（单一 ingest）、prompt 三级来源、
+  provenance 分级、显式能力声明，§7 三决策点全部定案。M-A 实施 plan 已备：
+  [plan-ma-protocol-landing.md](plan-ma-protocol-landing.md)（T1-T6，TDD，
+  兼容桥保 709 基线，Codex 可立即开工）。M-B（四 adapter 原生化）plan 待
+  M-A 验收后由架构师编写。
+- 2026-07-06（已批准）：最终协议 spec v3 产出：
+  [spec-protocol-v3.md](spec-protocol-v3.md)。整合矩阵 §4 结论 + 用户全部定案。
 - 2026-07-06（已完成）：接口能力双向矩阵完成（任务清单 Track 0 对应项），
   15 张卡片交叉复核同步完成（Codex A2/B0 交付质量高，无需返工）。
 - 2026-07-05 23:35 CST（Codex）：Track B0 benchmark 调研卡片补全已完成并逐卡

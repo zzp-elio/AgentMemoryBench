@@ -1,10 +1,10 @@
 ---
 id: ws02
 doc: spec (protocol v3, final)
-status: draft
+status: approved (2026-07-06 用户批准)
 created: 2026-07-06
 ---
-# 核心协议 v3 设计（最终版，待用户批准）
+# 核心协议 v3 设计（最终版，已批准）
 
 作者：Claude（架构师）。取代候选方案 A（[spec-protocol-v2.md](spec-protocol-v2.md)，
 其用户决策与 R1-R3 已并入本文）。依据：
