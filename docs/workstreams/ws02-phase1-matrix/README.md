@@ -149,7 +149,11 @@ created: 2026-07-05
   检索非只读（MemoryOS heat）。§4 是最终协议 spec 的结论清单。
 - [x] 最终协议 spec（含中间层设计、多模态与 agentic task family 扩展性论证），
   用户批准后才恢复 Track B。
-- [ ] 顺带评估 third_party 全仓 vendor 是否改为裁剪式引入（参考框架做法）。
+- [x] third_party vendor 裁剪评估完成（Codex，2026-07-07）：
+  [audits/vendor-trim-evaluation.md](audits/vendor-trim-evaluation.md)。
+  架构师裁定采纳方案 A **维持现状**：4 个已跟踪仓库继续全仓 vendor（裁剪会
+  动摇 source fingerprint/resume 兼容与官方证据链），6 个新仓库继续
+  MANIFEST + local-only。**Track 0 至此全部关闭。**
 
 ### Track A：6 个新 method 可行性审计（无 API 成本，Codex 可先行）
 
