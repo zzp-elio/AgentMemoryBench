@@ -22,14 +22,11 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-06（Codex，T3 阻塞）：M-A plan 已按 TDD 完成 T1/T2 并分别提交：
-  `c046953 feat: add provider protocol entities`、
-  `623ead1 feat: add event stream aggregation`。T3 开工前发现 plan 内部冲突，已
-  停工等待架构师裁定：T1 明确要求 `RetrievalResult.formatted_memory`
-  非空校验；T3 的兼容桥 fallback 又要求旧 `AnswerPromptResult` 缺少
-  `metadata["answer_context"]` 与 `metadata["retrieved_memories"]` 时
-  “空串加 warning metadata（不 fail）”。这会决定是否放宽实体校验、是否允许
-  桥接层返回空 `formatted_memory`、或改用非空 sentinel 文本，执行者不得自行解释。
+- 2026-07-06（已解除）：Codex T3 前发现 plan 内部冲突（T1 非空校验 vs T3 空串
+  fallback）并按纪律停工——冲突源于架构师撰写失误，Codex 判断正确。裁定：
+  实体校验保持严格，桥接 fallback 末端改用非空 sentinel 常量 + warning 标记 +
+  summary 统计（详见 plan T3 裁定块）。**Codex 下一步：按修订后 T3 继续，
+  顺序执行到 T6。** T1/T2 已完成并提交（`c046953`、`623ead1`）。
 - 2026-07-06（最新）：**协议 v3 spec 已获用户批准（status: approved），
   Track 0 收官**。修订版含接口减重（单一 ingest）、prompt 三级来源、
   provenance 分级、显式能力声明，§7 三决策点全部定案。M-A 实施 plan 已备：

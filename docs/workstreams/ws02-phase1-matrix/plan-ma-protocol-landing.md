@@ -88,12 +88,30 @@ created: 2026-07-06
 
 ## T3 兼容桥（关键任务：保住现有一切）
 
+**架构师裁定（2026-07-06，解除 T3 断点）**：T1 的非空校验与 T3 的空串 fallback
+确为 plan 内部矛盾（架构师撰写失误）。裁定：**实体校验保持严格**——
+`formatted_memory` 非空是 unified 口径的基石不变量，不为桥接放宽；桥接层
+fallback 链的末端改为**非空 sentinel 常量**，不用空串：
+
+1. 在 `provider_protocol.py` 定义模块常量
+   `BRIDGE_EMPTY_MEMORY_SENTINEL = "[bridge] legacy provider exposed no memory context"`。
+2. 桥接 fallback 链：`metadata["answer_context"]` → `metadata["retrieved_memories"]`
+   content 拼接 → **sentinel 常量** + `metadata["bridge_warning"]` 标记 +
+   结构化 warning 日志。
+3. runner 统计 sentinel 出现次数写入 summary（warning 级，不 fail）；真实 run 中
+   出现 sentinel = 该 adapter 在 unified 口径可用前必须修复的信号。
+4. 桥接期 `prompt_track` 固定 `native`（本 plan 既有要求），sentinel 永远不会
+   进入任何 answer prompt，只存在于 artifact 数据字段。
+
+理由：空串校验一旦放宽，v3 原生 provider 静默返回空记忆的 bug 将无法在实体层
+拦截；sentinel 显式、可 grep、与真实记忆可区分，且桥接是临时态（M-B 原生化后
+内置 method 不再走桥）。
+
 - [ ] `LegacyProviderBridge(MemoryProvider)`：`consume_granularity="conversation"`；
   `ingest(ConversationBatch)` → 重建旧 `Conversation` 对象调旧 `add()`；
   `retrieve(RetrievalQuery)` → 调旧 `retrieve(question)` 得 `AnswerPromptResult`，
-  映射为 `RetrievalResult`：`prompt_messages` 原样、`formatted_memory` 取
-  `metadata["answer_context"]`，缺失时由 `metadata["retrieved_memories"]` 的
-  content 逐条拼接，再缺则空串加 warning metadata（不 fail，桥接期宽容）。
+  映射为 `RetrievalResult`：`prompt_messages` 原样、`formatted_memory` 按上方
+  裁定的三级 fallback 链（末端 sentinel，绝不空串）。
   `RetrievalQuery.source_question` 还原为旧接口所需 `Question`。
 - [ ] registered prediction service：构造 provider 时检测其类型——旧式
   `BaseMemoryProvider` 自动包桥，新式 `MemoryProvider` 直用；manifest 新增
