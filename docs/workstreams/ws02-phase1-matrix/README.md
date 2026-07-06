@@ -22,7 +22,13 @@ created: 2026-07-05
 
 ## 当前断点
 
-- 2026-07-06（最新）：**M-B 架构师验收通过（APPROVED，零缺陷）**，审查记录：
+- 2026-07-07（最新，Codex）：Track 0 收尾项 `third_party` vendor 裁剪评估已完成：
+  [audits/vendor-trim-evaluation.md](audits/vendor-trim-evaluation.md)。纯静态调研，
+  零真实 API，未移动/删除/修改 `third_party/`。结论建议维持现状：4 个已接入
+  method 继续 git-tracked 全仓 vendor，6 个新 method 继续 MANIFEST + local-only；
+  裁剪或全量转 MANIFEST 需另开 ws03 级迁移 spec 后再裁定。
+
+- 2026-07-06：**M-B 架构师验收通过（APPROVED，零缺陷）**，审查记录：
   [notes/2026-07-06-mb-acceptance-review.md](notes/2026-07-06-mb-acceptance-review.md)。
   新基线 **771 passed**（架构师本机复跑）。协议 v3 全链路落地完成，
   **Track B/C 解冻，进入 M-C**：下一步架构师写 MemBench adapter spec
