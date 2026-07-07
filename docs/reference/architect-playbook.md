@@ -115,6 +115,32 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
 - 超出该规模或涉及设计再选择：勘误 plan 退回执行者。
 - 任何直修后必须复跑全量回归并把新基线写进记录。
 
+### 4.5 第一手核查手艺（妙招，2026-07-08 用户点破后固化）
+
+写 spec/plan、验收前，**每个关于第三方行为的结论必须落到一手源**——
+`third_party/{benchmarks,methods}/<x>/` 源码 `文件:行号` 或 `data/` 真实数据。
+调研卡/机制卡是二手导航，会过时/漏细节（可能对也可能错，一律去源码复核）。
+具体招式：
+
+1. **一个 benchmark 读全 `docs/survey/` 三个文件夹**（`benchmarks/`＝定位接口、
+   `datasets/`＝字段与数据结构、`workflows/`＝评测流程逐步）。只读一个必漏
+   （HaluMem 只读 benchmarks/ 就漏了 evidence 是 `list[{memory_content,type}]`
+   和 6 类 question type）。
+2. **一段 python 扫真实数据验证任何分布性claim**，别猜。判例：跑一遍才知
+   `is_generated_qa_session` 仅 Long（Medium=0/Long=1030）、`is_update` 全库
+   只有 `"True"/"False"` 两值——这些决定 runner/evaluator 条件对不对。
+3. **区分 runner 端 vs scorer 端条件**：官方常把"要不要做这一步"（wrapper
+   `eval_*.py`）和"这一步算不算分"（`evaluation.py`）分两处、用不同 gate。
+   HaluMem update：runner 端 `is_update!="False" 且 original_memories`（要不要
+   探）、scorer 端 `is_update=="True" 且 memories_from_system 非空`（算不算分，
+   检索空则不计）。看错层会把 adapter/evaluator 条件写反。
+4. **metric 口径逐行抄 `evaluation.py`/scorer 源码，不抄卡片转述**：0.5 加权
+   因子、分母到底数哪些（HaluMem integrity 与 update 是**互斥路由**，update
+   点从 recall 分母剔除，`evaluation.py:58-70`）、judge 输入怎么拼（dialogue
+   格式、排除 interference）——这些卡片讲不全，只有源码算数。
+5. **spec/plan 的证据行号写死**，让 actor 和下任架构师能一键跳源码复核；
+   "我觉得/大概"是禁词。
+
 ## 5. plan 写作手艺
 
 - 每个 task 四件套：**改动范围、明确步骤、验收命令、期望输出**（"应 N
@@ -155,6 +181,16 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
   精确化**——"多粒度并存""memory module 只该返回记忆""并置而非 reset"
   三个关键设计都是他的直觉 + 架构师的精确化。对峙的正确形态是"你的方向对，
   但这里要精确切一刀"或"这里你错了，证据如下"。
+- **zzp 对 benchmark/method 内部机制的技术断言是高信号，先第一手验证再采纳**
+  （2026-07-08 固化）。他对数据结构、评测流程、原生粒度有一手理解，多次纠正
+  架构师：① "弃 TaskFamily/MethodCapability enum，接口即契约" → 验证成立，已
+  重写 S6；② "注意 HaluMem 三段触发时机" → 抓出 spec 两处错（
+  is_generated_qa_session 跳全三段、抽取增量 vs 检索累积）；③ "smoke 必须极小"
+  → 抓出 F2；④ HaluMem 四点理解（每 session 返回 memory point、update 看
+  memories_from_system、is_generated_qa_session 仅 Long、无 questions 则跳 QA）
+  → 回源码/数据逐条**全部证实**。**正确姿势：把他的断言当作要去一手源核对的
+  线索（§4.5），验证后对的就认、写进记录（知错就改）；不是照单全收，也不是
+  凭训练先验反驳**。他明说欢迎思想碰撞，验证后的对峙或认错他都接受。
 - **讲为什么**：教学式沟通，每个裁定给理由；他会反问到底。
 - **额度纪律**（两个 agent 都有 5h 滚动额度）：用户报低额度时立即切省电
   模式——先把结论落盘 commit+push，重活留给满额度会话，收尾前把断点写进
