@@ -650,8 +650,8 @@ def test_native_mem0_locomo_matches_bridge_add_and_search_sequence() -> None:
     }
 
 
-def test_native_mem0_longmemeval_matches_bridge_pair_sequence() -> None:
-    """Mem0 原生 pair 路径应保持 LongMemEval 官方 user+assistant 批次。"""
+def test_native_mem0_longmemeval_matches_bridge_session_sequence() -> None:
+    """Mem0 原生 session 路径应保持 LongMemEval 官方 CHUNK_SIZE=2 批次。"""
 
     conversation = _build_longmemeval_conversation()
     question = Question(
@@ -669,7 +669,7 @@ def test_native_mem0_longmemeval_matches_bridge_pair_sequence() -> None:
         config=Mem0Config.smoke(),
         memory_backend=FakeMemoryBackend(),
         reader_client=FakeReaderClient(),
-        consume_granularity="pair",
+        consume_granularity="session",
     )
 
     bridge_result = run_bridge_sequence(
@@ -692,6 +692,73 @@ def test_native_mem0_longmemeval_matches_bridge_pair_sequence() -> None:
         2,
         2,
         1,
+    ]
+
+
+def test_native_mem0_longmemeval_assistant_first_session_keeps_official_chunks() -> None:
+    """assistant 开头 session 必须保持官方位置切块且逐消息 role 不反转。"""
+
+    conversation = Conversation(
+        conversation_id="lme-af",
+        sessions=[
+            Session(
+                session_id="haystack-af",
+                session_time="2024-01-01",
+                turns=[
+                    Turn(
+                        turn_id=f"haystack-af:t{index}",
+                        speaker=role,
+                        normalized_role=role,
+                        content=f"message {index}",
+                    )
+                    for index, role in enumerate(
+                        ["assistant", "user", "assistant", "user", "assistant"]
+                    )
+                ],
+            )
+        ],
+        questions=[],
+        metadata={"source_path": "data/longmemeval/longmemeval_s_cleaned.json"},
+    )
+    question = Question(
+        question_id="lme-af-q1",
+        conversation_id="lme-af",
+        text="What did the assistant say first?",
+        question_time="2024-01-04",
+    )
+    bridge = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+    )
+    native = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+        consume_granularity="session",
+    )
+
+    bridge_result = run_bridge_sequence(
+        provider=bridge,
+        conversation=conversation,
+        question=question,
+        run_id="mem0-equivalence",
+        snapshot_calls=_snapshot_mem0_backend_calls,
+    )
+    native_result = run_native_sequence(
+        provider=native,
+        conversation=conversation,
+        question=question,
+        run_id="mem0-equivalence",
+        snapshot_calls=_snapshot_mem0_backend_calls,
+    )
+
+    assert bridge_result.calls == native_result.calls
+    add_calls = [call for call in native_result.calls if call["op"] == "add"]
+    assert [call["message_count"] for call in add_calls] == [2, 2, 1]
+    assert [message["role"] for message in add_calls[0]["messages"]] == [
+        "assistant",
+        "user",
     ]
 
 
@@ -734,7 +801,7 @@ def test_mem0_registry_specializes_consume_granularity_by_benchmark(
     assert isinstance(locomo, MemoryProvider)
     assert locomo.consume_granularity == "turn"
     assert isinstance(longmemeval, MemoryProvider)
-    assert longmemeval.consume_granularity == "pair"
+    assert longmemeval.consume_granularity == "session"
     assert _method_manifest_with_protocol(
         method_manifest={},
         system=locomo,

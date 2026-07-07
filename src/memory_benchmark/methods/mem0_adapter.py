@@ -49,6 +49,7 @@ from memory_benchmark.core.provider_protocol import (
     RetrievalQuery,
     RetrievalResult,
     RetrievedItem,
+    SessionBatch,
     TurnEvent,
     TurnPair,
     UnitRef,
@@ -446,7 +447,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         return False
 
     def ingest(self, unit: IngestUnit) -> IngestResult:
-        """按 v3 协议写入一个 turn 或 pair 单元。"""
+        """按 v3 协议写入一个 turn、pair 或 session 单元。"""
 
         if isinstance(unit, TurnEvent):
             self._ingest_native_turn(unit)
@@ -454,8 +455,12 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         if isinstance(unit, TurnPair):
             self._ingest_native_pair(unit)
             return IngestResult(unit_ref=UnitRef(unit.isolation_key))
+        if isinstance(unit, SessionBatch):
+            self._ingest_native_session(unit)
+            return IngestResult(unit_ref=UnitRef(unit.isolation_key))
         raise ConfigurationError(
-            "Mem0 native provider only accepts TurnEvent or TurnPair ingest units"
+            "Mem0 native provider only accepts TurnEvent, TurnPair or "
+            "SessionBatch ingest units"
         )
 
     def _ingest_native_turn(self, event: TurnEvent) -> None:
@@ -506,6 +511,43 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
             infer=self.config.infer,
             prompt=self._observation_time_prompt(session_time),
         )
+
+    def _ingest_native_session(self, batch: SessionBatch) -> None:
+        """按 Mem0 官方 LongMemEval `CHUNK_SIZE=2` 写入一个 v3 session 单元。
+
+        官方脚本对 session 消息按位置两两切块、不裁剪开头非 user 消息；
+        该口径保留在 adapter 内部，避免框架级 user 锚定配对改变官方分组
+        （LongMemEval 约 8% 的 session 不以 user 开头）。
+        """
+
+        first = batch.events[0]
+        self._ensure_native_namespace(first)
+        speaker_roles = self._native_speaker_roles.setdefault(batch.isolation_key, {})
+        turns = [self._turn_from_event(event) for event in batch.events]
+        for turn in turns:
+            if turn.speaker not in speaker_roles:
+                speaker_roles[turn.speaker] = (
+                    "user" if len(speaker_roles) % 2 == 0 else "assistant"
+                )
+        session_time = self._session_time_from_event(first)
+        conversation = self._native_conversation_from_event(first)
+        session = self._native_session_from_event(first)
+        for start in range(0, len(turns), 2):
+            chunk = turns[start : start + 2]
+            self._memory.add(
+                [
+                    self._turn_to_message(
+                        turn,
+                        speaker_roles,
+                        session_time=session_time,
+                    )
+                    for turn in chunk
+                ],
+                run_id=batch.isolation_key,
+                metadata=self._turn_batch_metadata(conversation, session, chunk),
+                infer=self.config.infer,
+                prompt=self._observation_time_prompt(session_time),
+            )
 
     def _ensure_native_namespace(self, event: TurnEvent) -> None:
         """首次看到 v3 isolation_key 时登记 namespace 与公开 metadata。"""

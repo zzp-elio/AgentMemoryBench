@@ -131,8 +131,8 @@ def test_turn_granularity_emits_turns_then_session_and_conversation_boundaries()
     assert signals[-1] == UnitRef("run_conv-1")
 
 
-def test_pair_granularity_pairs_adjacent_user_assistant_and_marks_dangling() -> None:
-    """pair 粒度必须配对相邻 turn，并把落单 turn 标记为 dangling。"""
+def test_pair_granularity_pairs_user_with_reply_and_marks_dangling() -> None:
+    """pair 粒度必须以 user 为锚配对回复，并把未闭合 user 标记为 dangling。"""
 
     signals = tuple(GranularityAggregator("pair").aggregate(_events()))
     pairs = [signal for signal in signals if isinstance(signal, TurnPair)]
@@ -142,6 +142,79 @@ def test_pair_granularity_pairs_adjacent_user_assistant_and_marks_dangling() -> 
         ("s1t0",),
     ]
     assert pairs[1].metadata["dangling"] is True
+
+
+def _role_pattern_conversation(roles: tuple[str, ...]) -> Conversation:
+    """按给定 normalized_role 序列构造单 session conversation。"""
+
+    return Conversation(
+        conversation_id="conv-roles",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2026-07-06",
+                turns=[
+                    Turn(
+                        f"t{index}",
+                        "Bot" if role == "assistant" else "Alice",
+                        f"m{index}",
+                        normalized_role=role,
+                    )
+                    for index, role in enumerate(roles)
+                ],
+            )
+        ],
+    )
+
+
+def test_pair_granularity_emits_orphan_for_assistant_first_session() -> None:
+    """assistant 开头的 session 必须产出 orphan 单元而不是反序 pair。
+
+    真实 LongMemEval 数据约 8% 的 session 不以 user 开头；按位置两两切分
+    会产出 (assistant, user) 反序对，曾导致 LightMem 官方裁剪后奇数报错。
+    """
+
+    roles = ("assistant", "user", "assistant", "user", "assistant")
+    events = tuple(
+        build_turn_events(_role_pattern_conversation(roles), isolation_key="run_conv-roles")
+    )
+    pairs = [
+        signal
+        for signal in GranularityAggregator("pair").aggregate(events)
+        if isinstance(signal, TurnPair)
+    ]
+
+    assert [tuple(event.turn_id for event in pair.turns) for pair in pairs] == [
+        ("t0",),
+        ("t1", "t2"),
+        ("t3", "t4"),
+    ]
+    assert pairs[0].metadata["orphan"] is True
+    assert "dangling" not in pairs[0].metadata
+    assert all("orphan" not in pair.metadata for pair in pairs[1:])
+
+
+def test_pair_granularity_marks_unanswered_user_turns_dangling() -> None:
+    """连续 user 或末尾 user 必须以 dangling 单元产出且不吞 turn。"""
+
+    roles = ("user", "user", "assistant", "user")
+    events = tuple(
+        build_turn_events(_role_pattern_conversation(roles), isolation_key="run_conv-roles")
+    )
+    pairs = [
+        signal
+        for signal in GranularityAggregator("pair").aggregate(events)
+        if isinstance(signal, TurnPair)
+    ]
+
+    assert [tuple(event.turn_id for event in pair.turns) for pair in pairs] == [
+        ("t0",),
+        ("t1", "t2"),
+        ("t3",),
+    ]
+    assert pairs[0].metadata["dangling"] is True
+    assert pairs[2].metadata["dangling"] is True
+    assert "orphan" not in pairs[0].metadata
 
 
 def test_session_granularity_emits_one_batch_per_session() -> None:

@@ -865,6 +865,116 @@ def test_native_lightmem_longmemeval_matches_bridge_pair_sequence() -> None:
     ]
 
 
+def test_native_lightmem_longmemeval_assistant_first_skips_orphan_like_official_trim() -> None:
+    """assistant 开头 session 的原生 pair 路径必须等价官方整段开头裁剪。
+
+    对照 smoke 抓到的真实回归：LongMemEval 约 8% 的 session 以 assistant
+    开头（如 e47becba/sharegpt_qRdLQvN_7），位置两两切分产出反序 pair，
+    官方裁剪后剩 1 条 → 奇数报错。user 锚定配对 + orphan 跳过后，原生
+    调用序列必须与桥接（官方整段处理）一致。
+    """
+
+    question = Question(
+        question_id="q-af",
+        conversation_id="conv-af",
+        text="What does Alice like?",
+        question_time="2026-01-03",
+    )
+    conversation = Conversation(
+        conversation_id="conv-af",
+        sessions=[
+            Session(
+                session_id="s-af",
+                session_time="2026-01-01",
+                turns=[
+                    Turn(
+                        turn_id="t-0",
+                        speaker="assistant",
+                        normalized_role="assistant",
+                        content="Welcome back!",
+                    ),
+                    Turn(
+                        turn_id="t-1",
+                        speaker="user",
+                        normalized_role="user",
+                        content="I like tea.",
+                    ),
+                    Turn(
+                        turn_id="t-2",
+                        speaker="assistant",
+                        normalized_role="assistant",
+                        content="Tea is noted.",
+                    ),
+                    Turn(
+                        turn_id="t-3",
+                        speaker="user",
+                        normalized_role="user",
+                        content="I also like jazz.",
+                    ),
+                    Turn(
+                        turn_id="t-4",
+                        speaker="assistant",
+                        normalized_role="assistant",
+                        content="Jazz is noted.",
+                    ),
+                ],
+            ),
+        ],
+        questions=[question],
+        metadata={
+            "source_path": "data/longmemeval/longmemeval_s_cleaned.json",
+            "variant": "s_cleaned",
+        },
+    )
+    config = LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path=(
+            "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+        ),
+        retrieve_limit=20,
+        max_workers=1,
+        compression_rate=0.7,
+        stm_threshold=512,
+        profile_name="official-mini",
+    )
+    bridge = LightMem(
+        config=config,
+        backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    native = LightMem(
+        config=config,
+        backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+        consume_granularity="pair",
+    )
+
+    bridge_result = run_bridge_sequence(
+        provider=bridge,
+        conversation=conversation,
+        question=question,
+        run_id="lightmem-equivalence",
+        snapshot_calls=_snapshot_lightmem_backend_calls,
+    )
+    native_result = run_native_sequence(
+        provider=native,
+        conversation=conversation,
+        question=question,
+        run_id="lightmem-equivalence",
+        snapshot_calls=_snapshot_lightmem_backend_calls,
+    )
+
+    assert bridge_result.calls == native_result.calls
+    add_calls = [call for call in native_result.calls if call["op"] == "add_memory"]
+    assert len(add_calls) == 2
+    assert [message["content"] for message in add_calls[0]["messages"]] == [
+        "I like tea.",
+        "Tea is noted.",
+    ]
+    assert [call["force_extract"] for call in add_calls] == [False, True]
+
+
 def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
     tmp_path: Path,
 ) -> None:

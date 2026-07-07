@@ -99,3 +99,7 @@
 - registry 按 benchmark profile 设置实例级 `consume_granularity`：LoCoMo 为 `turn`，LongMemEval 为 `pair`；原生路径由 runner 事件流提供增量 unit，不再从整段 `Conversation` 自行拆所有 batch。
 - `LightMem.ingest(TurnEvent|TurnPair)` 采用一拍缓冲：收到下一 unit 时把上一批以 `force_segment=False/force_extract=False` 写入，`end_conversation()` 才把最后一批以 `True/True` 写入，并在 LoCoMo namespace 内执行 `construct_update_queue_all_entries()` 与 `offline_update_all_entries(score_threshold=0.9)`。
 - 旧 `add()` 与 `_conversation_to_lightmem_batches()` 本轮按计划保留，理由是旧接口、resume 重建和桥接等价对照仍依赖它们；registered 原生 v3 主路径不再把整段 conversation 作为写入入口。
+
+orphan 处置（2026-07-07，对照 smoke 回归修复）：
+
+- 框架 pair 聚合改为 user 锚定后，assistant 开头 session 产出 orphan 单元；`_native_pair_batch` 对 orphan 经官方开头裁剪得到空批次时返回 None，`ingest` 直接跳过——与旧路径整段 session 裁剪行为等价（assistant-first 等价测试锁死）。已知遗留：LongMemEval s_cleaned 有 14 个 session 不满足"裁剪后偶数且严格 user/assistant 交替"口径，新旧路径同样 fail-fast，全量 run 前需定案（见 ws02 README 已知问题）。证据：`src/memory_benchmark/methods/lightmem_adapter.py`（`_native_pair_batch`）、`tests/test_lightmem_adapter.py::test_native_lightmem_longmemeval_assistant_first_skips_orphan_like_official_trim`。

@@ -97,3 +97,7 @@
 - registry 按 benchmark profile 设置实例级 `consume_granularity`：LoCoMo 为 `turn`，LongMemEval 为 `pair`；runner 事件流负责给 adapter 提供 benchmark-native ingest unit，原生路径不再从整段 `Conversation` 自行切 turn/pair。
 - `Mem0.ingest(TurnEvent|TurnPair)` 复用既有 message、metadata、observation-time prompt 构造 helper，namespace 改为 v3 `isolation_key`；等价测试用 namespace 归一化断言原生路径与桥接路径发出的 `Memory.add/search` 序列一致。
 - 旧 `add()`、`add_from_turn()`、`_longmemeval_ingestion_chunks()` 本轮按计划保留，理由是旧接口、resume 兼容与桥接等价对照仍依赖它们；它们不再是 registered 原生 v3 主路径。
+
+pair→session 修订（2026-07-07，对照 smoke 回归修复的连带定案）：
+
+- 框架级 pair 聚合改为 user 锚定后，位置切分不再由框架提供；而 Mem0 官方 LongMemEval `CHUNK_SIZE=2` 恰是**位置切块（不裁开头、允许 (assistant, user) 组）**。为在全部 session 形状（含 8.1% assistant 开头）上精确复刻官方分组，LongMemEval 粒度改声明为 `session`，`Mem0.ingest(SessionBatch)` 在 adapter 内部按官方 `range(0, len, 2)` 切块调用 `Memory.add()`。assistant-first 等价测试锁死 bridge==native。证据：`src/memory_benchmark/methods/mem0_adapter.py`（`_ingest_native_session`）、`tests/test_mem0_adapter.py::test_native_mem0_longmemeval_assistant_first_session_keeps_official_chunks`。

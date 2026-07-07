@@ -528,6 +528,8 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 "LightMem native provider only accepts TurnEvent or TurnPair ingest units"
             )
         self._get_or_create_backend(namespace)
+        if batch is None:
+            return IngestResult(unit_ref=UnitRef(namespace))
         pending = self._native_pending_batches.get(namespace)
         if pending is not None:
             self._write_native_batch(namespace, pending, is_final=False)
@@ -576,11 +578,17 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             raise ConfigurationError("LightMem native turn produced invalid batch count")
         return batches[0]
 
-    def _native_pair_batch(self, pair: TurnPair) -> list[dict[str, object]]:
-        """把 v3 TurnPair 转成 LightMem LongMemEval pair batch。"""
+    def _native_pair_batch(self, pair: TurnPair) -> list[dict[str, object]] | None:
+        """把 v3 TurnPair 转成 LightMem LongMemEval pair batch。
+
+        orphan pair（session 开头无 user 锚点的 turn）经官方开头裁剪后没有
+        可写消息，返回 None 表示跳过——与旧路径整段 session 裁剪行为等价。
+        """
 
         conversation = self._native_conversation_from_events(pair.turns)
         batches = self._conversation_to_longmemeval_batches(conversation)
+        if not batches:
+            return None
         if len(batches) != 1:
             raise ConfigurationError("LightMem native pair produced invalid batch count")
         return batches[0]

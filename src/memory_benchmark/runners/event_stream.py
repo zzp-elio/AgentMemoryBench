@@ -108,18 +108,49 @@ class GranularityAggregator:
             yield _session_ref(session_events)
 
     def _aggregate_pairs(self, events: tuple[TurnEvent, ...]) -> Iterator[StreamSignal]:
-        """按 pair 粒度产出事件和 session 边界。"""
+        """按 pair 粒度产出事件和 session 边界。
+
+        pair 以 role=="user" 的 turn 为锚：user turn 开启一个 pair，随后第一个
+        非 user turn 将其闭合。真实数据中约 8% 的 LongMemEval session 不以
+        user 开头，按位置两两切分会产出 (assistant, user) 反序对——因此：
+        无锚点的非 user turn 单独产出并标记 ``orphan``（由 adapter 按各自官方
+        口径决定丢弃或单独写入）；未被闭合的 user turn 标记 ``dangling``。
+        """
 
         for session_events in _group_by_session(events):
-            index = 0
-            while index < len(session_events):
-                first = session_events[index]
-                second = session_events[index + 1] if index + 1 < len(session_events) else None
-                metadata = {"pair_index": index // 2}
-                if second is None:
-                    metadata["dangling"] = True
-                yield TurnPair(first=first, second=second, metadata=metadata)
-                index += 2
+            pair_index = 0
+            pending_user: TurnEvent | None = None
+            for event in session_events:
+                if event.role == "user":
+                    if pending_user is not None:
+                        yield TurnPair(
+                            first=pending_user,
+                            second=None,
+                            metadata={"pair_index": pair_index, "dangling": True},
+                        )
+                        pair_index += 1
+                    pending_user = event
+                elif pending_user is not None:
+                    yield TurnPair(
+                        first=pending_user,
+                        second=event,
+                        metadata={"pair_index": pair_index},
+                    )
+                    pair_index += 1
+                    pending_user = None
+                else:
+                    yield TurnPair(
+                        first=event,
+                        second=None,
+                        metadata={"pair_index": pair_index, "orphan": True},
+                    )
+                    pair_index += 1
+            if pending_user is not None:
+                yield TurnPair(
+                    first=pending_user,
+                    second=None,
+                    metadata={"pair_index": pair_index, "dangling": True},
+                )
             yield _session_ref(session_events)
 
     def _aggregate_sessions(self, events: tuple[TurnEvent, ...]) -> Iterator[StreamSignal]:
