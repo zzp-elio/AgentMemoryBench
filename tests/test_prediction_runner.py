@@ -30,6 +30,10 @@ from memory_benchmark.core import (
     Turn,
 )
 from memory_benchmark.benchmark_adapters.contracts import RunScope
+from memory_benchmark.benchmark_adapters.membench import (
+    build_membench_unified_answer_prompt,
+    normalize_membench_choice_prediction,
+)
 from memory_benchmark.core.interfaces import (
     BaseMemoryProvider,
     BaseMemorySystem,
@@ -1060,6 +1064,88 @@ def test_runner_ingests_native_v3_provider_with_event_stream_and_reports(
         "isolation_key": "prediction-run_conv-1",
         "session_id": "conv-1:s1",
     }
+
+
+def test_runner_uses_membench_unified_prompt_builder_and_choice_parser(
+    tmp_path: Path,
+) -> None:
+    """MemBench unified track 应用 formatted_memory 拼官方 prompt 并解析选择。"""
+
+    conversation_id = "membench-conv-1"
+    question_id = f"{conversation_id}:q1"
+    dataset = Dataset(
+        dataset_name="membench",
+        conversations=[
+            Conversation(
+                conversation_id=conversation_id,
+                sessions=[
+                    Session(
+                        session_id="s1",
+                        turns=[Turn("1", "user", "Alex prefers coffee.")],
+                    )
+                ],
+                questions=[
+                    Question(
+                        question_id=question_id,
+                        conversation_id=conversation_id,
+                        text="What does Alex prefer?",
+                        question_time="2026-01-02",
+                        options={
+                            "A": "Tea",
+                            "B": "Coffee",
+                            "C": "Juice",
+                            "D": "Water",
+                        },
+                    )
+                ],
+                gold_answers={
+                    question_id: GoldAnswerInfo(
+                        question_id=question_id,
+                        answer="B",
+                    )
+                },
+            )
+        ],
+    )
+    provider = RecordingV3TurnProvider()
+    answer_client = FakeAnswerLLMClient(answer="The answer is b.")
+    context = _create_context(tmp_path)
+
+    summary = run_predictions(
+        dataset=dataset,
+        system=provider,
+        run_context=context,
+        policy=PredictionRunPolicy(max_workers=1),
+        answer_reader=FrameworkAnswerReader(client=answer_client),
+        method_manifest={"adapter": "recording-v3"},
+        benchmark_variant="0_10k",
+        run_scope=RunScope.SMOKE,
+        unified_prompt_builder=build_membench_unified_answer_prompt,
+        prediction_transform=normalize_membench_choice_prediction,
+    )
+
+    predictions = read_jsonl(context.artifacts_dir / "method_predictions.jsonl")
+    retrievals = read_jsonl(
+        context.artifacts_dir / "answer_prompts.prediction.jsonl"
+    )
+    manifest = json.loads((context.run_dir / "manifest.json").read_text())
+
+    assert summary.completed_questions == 1
+    assert predictions[0]["answer"] == "B"
+    assert predictions[0]["metadata"]["raw_answer"] == "The answer is b."
+    assert retrievals[0]["metadata"]["prompt_track"] == "unified"
+    assert retrievals[0]["formatted_memory"] == (
+        "v3 memory for What does Alex prefer?"
+    )
+    assert retrievals[0]["prompt_messages"] == answer_client.calls[0]["messages"]
+    assert "Past memory: v3 memory for What does Alex prefer?" in retrievals[0][
+        "answer_prompt"
+    ]
+    assert "Question: (current time is 2026-01-02) What does Alex prefer?" in (
+        retrievals[0]["answer_prompt"]
+    )
+    assert "B. Coffee" in retrievals[0]["answer_prompt"]
+    assert manifest["method"]["prompt_track"] == "unified"
 
 
 def test_isolated_worker_ingests_native_v3_provider_with_event_stream(

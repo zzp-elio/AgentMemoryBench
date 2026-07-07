@@ -8,18 +8,24 @@ trajectory 转换为统一 `Dataset -> Conversation -> Session -> Turn -> Questi
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import re
 from typing import Any
 
 from memory_benchmark.core import (
+    AnswerPromptResult,
+    AnswerResult,
     Conversation,
     Dataset,
     GoldAnswerInfo,
+    PromptMessage,
     Question,
     Session,
     Turn,
 )
 from memory_benchmark.core.exceptions import ConfigurationError, DatasetValidationError
+from memory_benchmark.core.provider_protocol import RetrievalResult
 
 from .base import BenchmarkAdapter, reached_limit
 from .contracts import (
@@ -54,6 +60,23 @@ MEMBENCH_VARIANT_SPECS = (
     ),
 )
 MEMBENCH_VARIANT_BY_NAME = {spec.name: spec for spec in MEMBENCH_VARIANT_SPECS}
+MEMBENCH_INSTRUCTION_FIRST_PROFILE = "membench_instruction_first_v1"
+MEMBENCH_INSTRUCTION_FIRST = """Please answer the following question based on past memories of your'conversation with the user.
+Past memory: {memory}
+Question: (current time is {time}) {question}
+Choices:
+A. {choice_A}
+B. {choice_B}
+C. {choice_C}
+D. {choice_D}
+Please output the correct option for the question, only one corresponding letter, without any other messages.
+Example: D
+"""
+
+_MEMBENCH_CHOICE_PATTERN = re.compile(
+    r"(?<![A-Za-z])([ABCD])(?![A-Za-z])",
+    re.IGNORECASE,
+)
 
 
 class MemBenchAdapter(BenchmarkAdapter):
@@ -230,6 +253,102 @@ def prepare_membench_run(
         ),
         source_relative_paths=variant_spec.source_relative_paths,
     )
+
+
+def build_membench_unified_answer_prompt(
+    question: Question,
+    retrieval_result: RetrievalResult,
+) -> AnswerPromptResult:
+    """按 MemBench 官方 INSTRUCTION_FIRST 构造 framework reader prompt。"""
+
+    choices = question.options or {}
+    missing_choices = [
+        choice for choice in ("A", "B", "C", "D") if choice not in choices
+    ]
+    if missing_choices:
+        raise DatasetValidationError(
+            f"MemBench question choices missing {missing_choices}: {question.question_id}"
+        )
+
+    answer_prompt = MEMBENCH_INSTRUCTION_FIRST.format(
+        memory=retrieval_result.formatted_memory,
+        question=question.text,
+        time=question.question_time or "",
+        choice_A=choices["A"],
+        choice_B=choices["B"],
+        choice_C=choices["C"],
+        choice_D=choices["D"],
+    )
+    metadata = dict(retrieval_result.metadata)
+    metadata.update(
+        {
+            "answer_prompt_profile": MEMBENCH_INSTRUCTION_FIRST_PROFILE,
+            "prompt_track": "unified",
+            "answer_context": retrieval_result.formatted_memory,
+            "official_source": (
+                "third_party/benchmarks/Membench-main/benchmark/"
+                "MembenchAgent.py:21-31,89-92"
+            ),
+        }
+    )
+    return AnswerPromptResult(
+        question_id=question.question_id,
+        conversation_id=question.conversation_id,
+        answer_prompt=answer_prompt,
+        prompt_messages=[PromptMessage(role="user", content=answer_prompt)],
+        metadata=metadata,
+    )
+
+
+def normalize_membench_choice_prediction(prediction: AnswerResult) -> AnswerResult:
+    """把 MemBench reader 原始输出规整为 A/B/C/D；无法解析时记 invalid_choice。"""
+
+    raw_answer = prediction.answer
+    parsed_choice = parse_membench_choice(raw_answer)
+    metadata = dict(prediction.metadata)
+    metadata["raw_answer"] = raw_answer
+    metadata["choice_parse_status"] = (
+        "parsed" if parsed_choice != "invalid_choice" else "invalid_choice"
+    )
+    return AnswerResult(
+        question_id=prediction.question_id,
+        conversation_id=prediction.conversation_id,
+        answer=parsed_choice,
+        metadata=metadata,
+    )
+
+
+def parse_membench_choice(raw_answer: str) -> str:
+    """从 reader 输出中提取 A/B/C/D，失败返回 `invalid_choice`。"""
+
+    text = str(raw_answer).strip()
+    if not text:
+        return "invalid_choice"
+    json_choice = _choice_from_json_text(text)
+    if json_choice is not None:
+        return json_choice
+    match = _MEMBENCH_CHOICE_PATTERN.search(text)
+    if match is None:
+        return "invalid_choice"
+    return match.group(1).upper()
+
+
+def _choice_from_json_text(text: str) -> str | None:
+    """尝试从官方 JSON schema 形态的输出中读取 choice。"""
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    choice = payload.get("choice")
+    if not isinstance(choice, str):
+        return None
+    normalized = choice.strip().upper()
+    if normalized in {"A", "B", "C", "D"}:
+        return normalized
+    return "invalid_choice"
 
 
 def _build_membench_smoke_dataset(
@@ -579,7 +698,12 @@ def _target_step_ids(value: object, context: str) -> list[int]:
 __all__ = [
     "MEMBENCH_0_10K_SOURCE_PATHS",
     "MEMBENCH_100K_SOURCE_PATHS",
+    "MEMBENCH_INSTRUCTION_FIRST",
+    "MEMBENCH_INSTRUCTION_FIRST_PROFILE",
     "MEMBENCH_VARIANT_SPECS",
     "MemBenchAdapter",
+    "build_membench_unified_answer_prompt",
+    "normalize_membench_choice_prediction",
+    "parse_membench_choice",
     "prepare_membench_run",
 ]

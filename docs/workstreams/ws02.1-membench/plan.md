@@ -202,20 +202,87 @@ tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_cl
 
 ## T3 Unified reader（本项目第一条 unified prompt 链路）
 
-- [ ] 新 benchmark 级 prompt profile `membench_instruction_first_v1`：
+- [x] 新 benchmark 级 prompt profile `membench_instruction_first_v1`：
   文本照抄官方 `third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py`
   的 INSTRUCTION_FIRST 与 question/time/choices 拼接形态（plan 执行时注明
   精确行号）；输入 = `RetrievalResult.formatted_memory` + question +
   question_time + choices。
-- [ ] runner/registered service：membench 声明 `prompt_track="unified"`——
+- [x] runner/registered service：membench 声明 `prompt_track="unified"`——
   reader 不再取 `prompt_messages`，改用 formatted_memory + 上述 profile 构造
   messages；manifest `prompt_track` 记 `unified`。实现为**最小机制**：
   benchmark registration 可携带 unified prompt builder，未携带的 benchmark
   维持现状 native 路径，不要顺手改 LoCoMo/LongMemEval。
-- [ ] 答案解析：输出提取 A/B/C/D（容忍大小写/句号/前后缀文本）；解析失败记
+- [x] 答案解析：输出提取 A/B/C/D（容忍大小写/句号/前后缀文本）；解析失败记
   prediction=`invalid_choice`（计错不重试）。
 - 验收：reader/prompt focused 测试全绿（含解析容错表格测试）；
   fake provider 下 membench answer prompt 的 messages 结构断言。
+
+官方源码行号实测：
+
+```text
+$ nl -ba third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py | sed -n '21,31p;89,92p'
+    21	INSTRUCTION_FIRST = """Please answer the following question based on past memories of your'conversation with the user.
+    22	Past memory: {memory}
+    23	Question: (current time is {time}) {question}
+    24	Choices:
+    25	A. {choice_A}
+    26	B. {choice_B}
+    27	C. {choice_C}
+    28	D. {choice_D}
+    29	Please output the correct option for the question, only one corresponding letter, without any other messages.
+    30	Example: D
+    31	"""
+    89	            prompt = PromptTemplate(
+    90	                    input_variables=['memory', 'question', 'time' 'choice_A', 'choice_B', 'choice_C', 'choice_D'],
+    91	                    template=INSTRUCTION_FIRST
+    92	                ).format(memory = memory_context, question = question, time = time_, choice_A = choices['A'], choice_B = choices['B'], choice_C = choices['C'], choice_D = choices['D'])
+```
+
+验收输出：
+
+```text
+$ uv run pytest tests/test_benchmark_registry.py::test_membench_registration_declares_variants_and_prediction_enabled tests/test_benchmark_registry.py::test_membench_unified_prompt_builder_uses_official_instruction_first tests/test_benchmark_registry.py::test_membench_choice_parser_accepts_common_reader_outputs tests/test_prediction_runner.py::test_runner_uses_membench_unified_prompt_builder_and_choice_parser -q
+........                                                                 [100%]
+8 passed in 0.35s
+```
+
+```text
+$ uv run pytest tests/test_benchmark_registry.py tests/test_prediction_runner.py::test_runner_uses_retrieve_first_provider_and_framework_reader tests/test_prediction_runner.py::test_runner_ingests_native_v3_provider_with_event_stream_and_reports tests/test_prediction_runner.py::test_runner_uses_membench_unified_prompt_builder_and_choice_parser tests/test_prediction_cli.py::test_registered_prediction_builds_framework_answer_reader -q
+....................................                                     [100%]
+36 passed in 16.79s
+```
+
+```text
+$ uv run pytest tests/test_memoryos_registered_prediction.py::test_memoryos_registered_prediction_uses_generic_runner_with_smoke_crop_resume_and_workload_manifest -q
+.                                                                        [100%]
+1 passed in 0.34s
+```
+
+```text
+$ uv run pytest -q
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 27%]
+.................................................................... [ 36%]
+........................................................................ [ 45%]
+........................................................................ [ 54%]
+...................................................................... [ 63%]
+........................................................................ [ 72%]
+........................................................................ [ 81%]
+........................................................................ [ 90%]
+........................................................................ [100%]
+=============================== warnings summary ===============================
+tests/test_amem_adapter.py::test_amem_can_import_official_robust_layer_without_calling_api
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/A-mem/memory_layer.py:1: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    from ast import Str
+
+tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_class
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem/src/lightmem/configs/logging/base.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class LoggingConfig(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+786 passed, 3 deselected, 2 warnings, 6 subtests passed in 88.76s (0:01:28)
+```
 
 ## T4 Evaluator
 

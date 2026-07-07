@@ -14,9 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from memory_benchmark.core import (
+    AnswerPromptResult,
+    AnswerResult,
     Conversation,
     Dataset,
     MethodCapability,
+    Question,
     Session,
     TaskFamily,
 )
@@ -25,6 +28,7 @@ from memory_benchmark.core.exceptions import (
     ConfigurationError,
     UnknownBenchmarkError,
 )
+from memory_benchmark.core.provider_protocol import RetrievalResult
 from memory_benchmark.utils import get_logger
 
 from .base import BenchmarkAdapter
@@ -38,7 +42,12 @@ from .contracts import (
 )
 from .locomo import LOCOMO_VARIANT_SPECS, prepare_locomo_run
 from .longmemeval import LONGMEMEVAL_VARIANT_SPECS, LongMemEvalAdapter
-from .membench import MEMBENCH_VARIANT_SPECS, prepare_membench_run
+from .membench import (
+    MEMBENCH_VARIANT_SPECS,
+    build_membench_unified_answer_prompt,
+    normalize_membench_choice_prediction,
+    prepare_membench_run,
+)
 
 
 logger = get_logger(__name__)
@@ -209,6 +218,11 @@ class BenchmarkRegistration:
     default_variant: str
     prepare_run: Callable[[Path, BenchmarkLoadRequest], PreparedBenchmarkRun]
     prediction_enabled: bool
+    prompt_track: str = "native"
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ) = None
+    prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None
 
     def __post_init__(self) -> None:
         """在注册阶段校验 variant 声明是否自洽。"""
@@ -249,6 +263,18 @@ class BenchmarkRegistration:
             )
         if "all" in seen_names:
             raise ConfigurationError(f"{self.name}: concrete variants cannot be named 'all'")
+        if self.prompt_track not in {"native", "unified"}:
+            raise ConfigurationError(
+                f"{self.name}: prompt_track must be native or unified"
+            )
+        if self.prompt_track == "unified" and self.unified_prompt_builder is None:
+            raise ConfigurationError(
+                f"{self.name}: unified prompt_track requires unified_prompt_builder"
+            )
+        if self.prompt_track == "native" and self.unified_prompt_builder is not None:
+            raise ConfigurationError(
+                f"{self.name}: native prompt_track cannot declare unified_prompt_builder"
+            )
 
     def variant_names(self) -> tuple[str, ...]:
         """返回 registration 声明顺序中的 concrete variant 名称。"""
@@ -371,6 +397,11 @@ def _try_register_adapter(
     default_variant: str,
     prepare_run: Callable[[Path, BenchmarkLoadRequest], PreparedBenchmarkRun],
     prediction_enabled: bool,
+    prompt_track: str = "native",
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ) = None,
+    prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
 ) -> None:
     """尝试注册一个已迁移 adapter。"""
 
@@ -390,6 +421,9 @@ def _try_register_adapter(
             default_variant=default_variant,
             prepare_run=prepare_run,
             prediction_enabled=prediction_enabled,
+            prompt_track=prompt_track,
+            unified_prompt_builder=unified_prompt_builder,
+            prediction_transform=prediction_transform,
         )
     )
 
@@ -459,6 +493,9 @@ def _build_default_registry() -> BenchmarkRegistry:
         default_variant="0_10k",
         prepare_run=prepare_membench_run,
         prediction_enabled=True,
+        prompt_track="unified",
+        unified_prompt_builder=build_membench_unified_answer_prompt,
+        prediction_transform=normalize_membench_choice_prediction,
     )
     return registry
 

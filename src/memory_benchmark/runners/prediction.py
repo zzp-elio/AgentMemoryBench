@@ -329,6 +329,10 @@ def run_predictions(
     instrumentation_identity: dict[str, object] | None = None,
     retrieval_observation_contract: RetrievalObservationContract | None = None,
     answer_reader: FrameworkAnswerReader | None = None,
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ) = None,
+    prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
     *,
     system_factory: Callable[
         [MethodBuildContext], _PredictionSystem
@@ -351,6 +355,9 @@ def run_predictions(
         benchmark_variant: 当前 benchmark 的 concrete variant，不能为 `all`。
         run_scope: 本次运行范围，必须是 `RunScope`。
         source_paths: 可选原始数据文件，用于数据指纹审计。
+        unified_prompt_builder: 可选 benchmark 级 prompt 构造器；为空时沿用
+            method native prompt_messages。
+        prediction_transform: 可选 benchmark 级 answer 规整器，用于选择题等固定输出。
         system_factory: 独立 instance 模式下 worker 创建 system 的工厂函数。
         build_context_template: 独立 instance 模式下 worker 构造 context 的模板。
         supports_shared_instance_parallelism: method 是否支持共享实例线程并行。
@@ -362,9 +369,11 @@ def run_predictions(
     """
 
     system = _normalize_memory_system(system)
+    prompt_track = "unified" if unified_prompt_builder is not None else "native"
     method_manifest = _method_manifest_with_protocol(
         method_manifest=method_manifest,
         system=system,
+        prompt_track=prompt_track,
     )
     dataset_fingerprint, manifest = _build_prediction_resume_artifacts(
         dataset=dataset,
@@ -509,6 +518,8 @@ def run_predictions(
                 question_status=question_status,
                 question_order=question_order,
                 answer_reader=answer_reader,
+                unified_prompt_builder=unified_prompt_builder,
+                prediction_transform=prediction_transform,
             )
         else:
             ingest_conversations = [
@@ -552,6 +563,8 @@ def run_predictions(
                 efficiency_store=efficiency_store,
                 retrieval_observation_contract=retrieval_observation_contract,
                 answer_reader=answer_reader,
+                unified_prompt_builder=unified_prompt_builder,
+                prediction_transform=prediction_transform,
             )
         progress.set_stage("Completed", step_index=3, step_count=3)
         completed_conversation_count = sum(
@@ -1173,6 +1186,7 @@ def _method_manifest_with_protocol(
     *,
     method_manifest: dict[str, object],
     system: BaseMemorySystem | MemoryProvider,
+    prompt_track: str = "native",
 ) -> dict[str, object]:
     """按实际 provider 类型补充协议身份字段。"""
 
@@ -1181,7 +1195,7 @@ def _method_manifest_with_protocol(
     normalized = dict(method_manifest)
     protocol_version = "v2-bridged" if isinstance(system, LegacyProviderBridge) else "v3"
     normalized.setdefault("protocol_version", protocol_version)
-    normalized.setdefault("prompt_track", "native")
+    normalized.setdefault("prompt_track", prompt_track)
     normalized.setdefault("profile", {})
     return normalized
 
@@ -1299,6 +1313,10 @@ def _run_isolated_worker_pipeline(
     question_order: list[str],
     run_id: str = "prediction-run",
     answer_reader: FrameworkAnswerReader | None = None,
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ) = None,
+    prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
 ) -> None:
     """使用独立 method instance 并行处理 conversation 的 ingest 与 answer。
 
@@ -1384,6 +1402,8 @@ def _run_isolated_worker_pipeline(
                 efficiency_collector,
                 retrieval_observation_contract,
                 answer_reader,
+                unified_prompt_builder,
+                prediction_transform,
                 answer_prompt_records,
                 cancellation_event,
                 policy.max_consecutive_failures,
@@ -1565,6 +1585,10 @@ def _isolated_worker(
     efficiency_collector: EfficiencyCollector | None,
     retrieval_observation_contract: RetrievalObservationContract | None,
     answer_reader: FrameworkAnswerReader | None,
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ),
+    prediction_transform: Callable[[AnswerResult], AnswerResult] | None,
     existing_retrieval_records: dict[str, dict[str, Any]],
     cancellation_event: Event | None = None,
     max_consecutive_failures: int | None = 3,
@@ -1637,6 +1661,7 @@ def _isolated_worker(
                                     run_id=run_id,
                                     answer_reader=answer_reader,
                                     efficiency_collector=efficiency_collector,
+                                    unified_prompt_builder=unified_prompt_builder,
                                     existing_retrieval_records=existing_retrieval_records,
                                 )
                             )
@@ -1669,6 +1694,7 @@ def _isolated_worker(
                                 run_id=run_id,
                                 answer_reader=answer_reader,
                                 efficiency_collector=None,
+                                unified_prompt_builder=unified_prompt_builder,
                                 existing_retrieval_records=existing_retrieval_records,
                             )
                         )
@@ -1676,6 +1702,10 @@ def _isolated_worker(
                             conv_retrievals.append(retrieval_record)
                     else:
                         prediction = system.get_answer(question)
+                prediction = _transform_prediction_if_needed(
+                    prediction,
+                    prediction_transform,
+                )
                 _validate_prediction(prediction, question)
                 validate_no_private_keys(prediction.metadata)
                 conv_predictions.append(
@@ -2226,6 +2256,10 @@ def _answer_pending_questions(
     efficiency_store: EfficiencyArtifactStore | None,
     retrieval_observation_contract: RetrievalObservationContract | None,
     answer_reader: FrameworkAnswerReader | None,
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ),
+    prediction_transform: Callable[[AnswerResult], AnswerResult] | None,
 ) -> None:
     """按 conversation 并发回答问题，并由协调线程提交完整 batch。"""
 
@@ -2265,6 +2299,8 @@ def _answer_pending_questions(
                 efficiency_collector,
                 retrieval_observation_contract,
                 answer_reader,
+                unified_prompt_builder,
+                prediction_transform,
                 answer_prompt_records,
             ): conversation_id
             for conversation_id, questions in pending_by_conversation.items()
@@ -2387,6 +2423,10 @@ def _answer_conversation_questions(
     efficiency_collector: EfficiencyCollector | None,
     retrieval_observation_contract: RetrievalObservationContract | None,
     answer_reader: FrameworkAnswerReader | None,
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ) = None,
+    prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
     existing_retrieval_records: dict[str, dict[str, Any]] | None = None,
 ) -> _ConversationAnswerBatch:
     """worker 内串行回答一个 conversation 的所有待处理问题。"""
@@ -2411,6 +2451,7 @@ def _answer_conversation_questions(
                             run_id=run_id,
                             answer_reader=answer_reader,
                             efficiency_collector=efficiency_collector,
+                            unified_prompt_builder=unified_prompt_builder,
                             existing_retrieval_records=existing_retrieval_records,
                         )
                     )
@@ -2440,6 +2481,7 @@ def _answer_conversation_questions(
                     run_id=run_id,
                     answer_reader=answer_reader,
                     efficiency_collector=None,
+                    unified_prompt_builder=unified_prompt_builder,
                     existing_retrieval_records=existing_retrieval_records,
                 )
                 if retrieval_record is not None:
@@ -2447,6 +2489,10 @@ def _answer_conversation_questions(
             else:
                 prediction = system.get_answer(question)
                 retrieval_record = None
+        prediction = _transform_prediction_if_needed(
+            prediction,
+            prediction_transform,
+        )
         _validate_prediction(prediction, question)
         validate_no_private_keys(prediction.metadata)
         records.append(
@@ -2473,6 +2519,9 @@ def _answer_question_retrieve_first(
     run_id: str,
     answer_reader: FrameworkAnswerReader | None,
     efficiency_collector: EfficiencyCollector | None,
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ) = None,
 ) -> tuple[AnswerResult, dict[str, Any]]:
     """执行 retrieve -> framework reader，并返回 prediction 和 answer prompt record。"""
 
@@ -2492,6 +2541,7 @@ def _answer_question_retrieve_first(
     retrieval = _answer_prompt_from_retrieval_result(
         question=question,
         retrieval_result=retrieval_result,
+        unified_prompt_builder=unified_prompt_builder,
     )
     _validate_retrieval(retrieval, question)
     if efficiency_collector is not None and efficiency_collector.enabled:
@@ -2550,6 +2600,9 @@ def _answer_question_retrieve_first_or_reuse(
     run_id: str,
     answer_reader: FrameworkAnswerReader | None,
     efficiency_collector: EfficiencyCollector | None,
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ),
     existing_retrieval_records: dict[str, dict[str, Any]],
 ) -> tuple[AnswerResult, dict[str, Any] | None]:
     """复用已落盘 retrieval，或执行新的 retrieve-first question 流程。"""
@@ -2586,6 +2639,7 @@ def _answer_question_retrieve_first_or_reuse(
         run_id=run_id,
         answer_reader=answer_reader,
         efficiency_collector=efficiency_collector,
+        unified_prompt_builder=unified_prompt_builder,
     )
 
 
@@ -2610,9 +2664,14 @@ def _answer_prompt_from_retrieval_result(
     *,
     question: Question,
     retrieval_result: RetrievalResult,
+    unified_prompt_builder: (
+        Callable[[Question, RetrievalResult], AnswerPromptResult] | None
+    ) = None,
 ) -> AnswerPromptResult:
     """把 v3 RetrievalResult 转换为现有 answer reader 输入。"""
 
+    if unified_prompt_builder is not None:
+        return unified_prompt_builder(question, retrieval_result)
     if not retrieval_result.prompt_messages:
         raise ConfigurationError(
             "RetrievalResult.prompt_messages is required while prompt_track is native: "
@@ -2653,6 +2712,20 @@ def _retrieval_from_record(record: dict[str, Any]) -> AnswerPromptResult:
         prompt_messages=prompt_messages,
         metadata=dict(record.get("metadata") or {}),
     )
+
+
+def _transform_prediction_if_needed(
+    prediction: AnswerResult,
+    prediction_transform: Callable[[AnswerResult], AnswerResult] | None,
+) -> AnswerResult:
+    """按 benchmark 可选规则规整 prediction。"""
+
+    if prediction_transform is None:
+        return prediction
+    transformed = prediction_transform(prediction)
+    if not isinstance(transformed, AnswerResult):
+        raise ConfigurationError("prediction_transform must return AnswerResult")
+    return transformed
 
 
 def _validate_retrieval(retrieval: AnswerPromptResult, question: Question) -> None:

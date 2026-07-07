@@ -22,18 +22,25 @@ from memory_benchmark.benchmark_adapters.locomo import (
     build_locomo_smoke_dataset,
 )
 from memory_benchmark.benchmark_adapters.longmemeval import LongMemEvalAdapter
-from memory_benchmark.benchmark_adapters.membench import MemBenchAdapter
+from memory_benchmark.benchmark_adapters.membench import (
+    MEMBENCH_INSTRUCTION_FIRST_PROFILE,
+    MemBenchAdapter,
+    parse_membench_choice,
+)
 from memory_benchmark.core import (
+    AnswerResult,
     Conversation,
     Dataset,
     GoldAnswerInfo,
     MethodCapability,
+    PromptMessage,
     Question,
     Session,
     TaskFamily,
     Turn,
 )
 from memory_benchmark.core.exceptions import ConfigurationError
+from memory_benchmark.core.provider_protocol import RetrievalResult
 
 
 pytestmark = pytest.mark.unit
@@ -478,6 +485,9 @@ def test_membench_registration_declares_variants_and_prediction_enabled() -> Non
         }
     )
     assert registration.prediction_enabled is True
+    assert registration.prompt_track == "unified"
+    assert registration.unified_prompt_builder is not None
+    assert registration.prediction_transform is not None
     assert registration.default_variant == "0_10k"
     assert registration.variants == (
         BenchmarkVariantSpec(
@@ -517,6 +527,84 @@ def test_membench_registration_declares_variants_and_prediction_enabled() -> Non
     )
     assert resolve_variant_selector(registration, None) == ("0_10k",)
     assert resolve_variant_selector(registration, "all") == ("0_10k", "100k")
+
+
+def test_membench_unified_prompt_builder_uses_official_instruction_first() -> None:
+    """MemBench unified prompt 应复刻官方 INSTRUCTION_FIRST 拼接形态。"""
+
+    registration = get_benchmark_registration("membench")
+    question = Question(
+        question_id="conv-1:q1",
+        conversation_id="conv-1",
+        text="What will Alex choose?",
+        question_time="2026-01-02",
+        options={
+            "A": "Tea",
+            "B": "Coffee",
+            "C": "Juice",
+            "D": "Water",
+        },
+    )
+    retrieval_result = RetrievalResult(
+        formatted_memory="Alex said coffee is the morning choice.",
+        metadata={"provider": "fake"},
+    )
+
+    prompt = registration.unified_prompt_builder(question, retrieval_result)
+
+    assert prompt.metadata["answer_prompt_profile"] == MEMBENCH_INSTRUCTION_FIRST_PROFILE
+    assert prompt.metadata["prompt_track"] == "unified"
+    assert prompt.metadata["official_source"].endswith(
+        "MembenchAgent.py:21-31,89-92"
+    )
+    assert prompt.prompt_messages == [
+        PromptMessage(role="user", content=prompt.answer_prompt)
+    ]
+    assert prompt.answer_prompt == (
+        "Please answer the following question based on past memories of "
+        "your'conversation with the user.\n"
+        "Past memory: Alex said coffee is the morning choice.\n"
+        "Question: (current time is 2026-01-02) What will Alex choose?\n"
+        "Choices:\n"
+        "A. Tea\n"
+        "B. Coffee\n"
+        "C. Juice\n"
+        "D. Water\n"
+        "Please output the correct option for the question, only one "
+        "corresponding letter, without any other messages.\n"
+        "Example: D\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw_answer", "expected"),
+    [
+        ("A", "A"),
+        ("b.", "B"),
+        ("The answer is C.", "C"),
+        ('{"choice": "d"}', "D"),
+        ("I cannot decide", "invalid_choice"),
+    ],
+)
+def test_membench_choice_parser_accepts_common_reader_outputs(
+    raw_answer: str,
+    expected: str,
+) -> None:
+    """MemBench choice parser 应容忍大小写、句号、前后缀和官方 JSON 输出。"""
+
+    assert parse_membench_choice(raw_answer) == expected
+
+    registration = get_benchmark_registration("membench")
+    transformed = registration.prediction_transform(
+        AnswerResult(
+            question_id="q1",
+            conversation_id="conv-1",
+            answer=raw_answer,
+            metadata={"answer_reader": "framework"},
+        )
+    )
+    assert transformed.answer == expected
+    assert transformed.metadata["raw_answer"] == raw_answer
 
 
 def test_longmemeval_registration_prepares_full_and_smoke_datasets() -> None:

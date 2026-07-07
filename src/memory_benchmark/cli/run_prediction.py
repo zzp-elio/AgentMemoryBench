@@ -402,6 +402,11 @@ def run_registered_conversation_qa_prediction(
         MethodCapability.MEMORY_RETRIEVAL
         in method_registration.provided_capabilities
     )
+    prompt_track = (
+        getattr(benchmark_registration, "prompt_track", "native")
+        if use_framework_answer_reader
+        else "native"
+    )
     answer_llm_settings = (
         resolve_answer_llm_settings(
             method_name=method_registration.name,
@@ -451,6 +456,11 @@ def run_registered_conversation_qa_prediction(
             source_identity=source_identity,
             workload_estimate=workload_estimate,
             answer_reader_manifest=answer_reader_manifest,
+            prompt_track=(
+                prompt_track
+                if use_framework_answer_reader and prompt_track == "unified"
+                else None
+            ),
         )
         policy = PredictionRunPolicy(
             max_workers=max_workers,
@@ -617,6 +627,16 @@ def run_registered_conversation_qa_prediction(
             build_context_template=build_context,
             supports_shared_instance_parallelism=supports_shared_instance_parallelism,
             answer_reader=answer_reader,
+            unified_prompt_builder=getattr(
+                benchmark_registration,
+                "unified_prompt_builder",
+                None,
+            ),
+            prediction_transform=getattr(
+                benchmark_registration,
+                "prediction_transform",
+                None,
+            ),
             clean_failed_ingest_conversation=clean_failed_ingest_conversation,
         )
         results.append(
@@ -735,6 +755,7 @@ def _run_custom_conversation_qa_prediction(
         profile_name=answer_prompt_profile,
         answer_settings=answer_llm_settings,
     )
+    prompt_track = getattr(benchmark_registration, "prompt_track", "native")
 
     children: list[_PreparedPredictionChild] = []
     for concrete_variant, selected_run_id, selected_output_root in zip(
@@ -760,6 +781,7 @@ def _run_custom_conversation_qa_prediction(
             method_class=method_class,
             answer_reader_manifest=answer_reader_manifest,
             allow_unsafe_custom_parallel=allow_unsafe_custom_parallel,
+            prompt_track=prompt_track if prompt_track == "unified" else None,
         )
         policy = PredictionRunPolicy(
             max_workers=max_workers,
@@ -897,6 +919,16 @@ def _run_custom_conversation_qa_prediction(
             build_context_template=build_context,
             supports_shared_instance_parallelism=False,
             answer_reader=answer_reader,
+            unified_prompt_builder=getattr(
+                benchmark_registration,
+                "unified_prompt_builder",
+                None,
+            ),
+            prediction_transform=getattr(
+                benchmark_registration,
+                "prediction_transform",
+                None,
+            ),
         )
         results.append(
             PredictionVariantResult(
@@ -937,10 +969,11 @@ def _build_custom_method_manifest(
     method_class: str,
     answer_reader_manifest: dict[str, object],
     allow_unsafe_custom_parallel: bool,
+    prompt_track: str | None = None,
 ) -> dict[str, object]:
     """构造用户自定义 method 的公开 manifest。"""
 
-    return {
+    manifest: dict[str, object] = {
         "method_name": "custom",
         "method_class": method_class,
         "method_protocol": "BaseMemoryProvider",
@@ -953,6 +986,9 @@ def _build_custom_method_manifest(
         },
         "answer_reader": answer_reader_manifest,
     }
+    if prompt_track is not None:
+        manifest["prompt_track"] = prompt_track
+    return manifest
 
 
 def _build_custom_efficiency_dependencies(
@@ -1367,6 +1403,7 @@ def _build_method_manifest(
     source_identity: dict[str, object],
     workload_estimate: dict[str, object] | None,
     answer_reader_manifest: dict[str, object] | None = None,
+    prompt_track: str | None = None,
 ) -> dict[str, object]:
     """构造不含 secret 的 method manifest。"""
 
@@ -1376,6 +1413,8 @@ def _build_method_manifest(
     }
     if answer_reader_manifest is not None:
         manifest["answer_reader"] = answer_reader_manifest
+    if prompt_track is not None:
+        manifest["prompt_track"] = prompt_track
     if workload_estimate is not None:
         manifest["workload_estimate"] = workload_estimate
     return manifest
