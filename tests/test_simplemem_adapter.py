@@ -8,7 +8,11 @@ import pytest
 
 from memory_benchmark.config import load_path_settings
 from memory_benchmark.core import ConfigurationError
-from memory_benchmark.core.provider_protocol import TurnEvent, UnitRef
+from memory_benchmark.core.provider_protocol import (
+    RetrievalQuery,
+    TurnEvent,
+    UnitRef,
+)
 from memory_benchmark.methods.simplemem_adapter import (
     SIMPLEMEM_OFFICIAL_PROFILE_NAME,
     SimpleMem,
@@ -196,6 +200,74 @@ def test_simplemem_timestamp_parser_returns_none_for_unparseable() -> None:
     assert parse_simplemem_timestamp("next spring after lunch") is None
 
 
+def test_simplemem_retrieve_uses_hybrid_retriever_and_builds_native_prompt(
+    tmp_path: Path,
+) -> None:
+    """T3 检索应绕开 ask，并复刻官方 AnswerGenerator prompt 结构。"""
+
+    system = FakeRetrievalSimpleMemSystem(
+        [
+            FakeMemoryEntry(
+                entry_id="m1",
+                lossless_restatement="Alice will meet Bob at the cafe.",
+                timestamp="2023-05-08T13:56:00",
+                persons=["Alice", "Bob"],
+                topic="meeting",
+            ),
+            FakeMemoryEntry(
+                entry_id="m2",
+                lossless_restatement="The meeting topic is the new product.",
+                timestamp="2023-05-08T14:03:00",
+                entities=["new product"],
+            ),
+        ]
+    )
+    provider = SimpleMem(
+        config=_config(),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path,
+        system_factory=lambda _isolation_key, _state_dir: system,
+    )
+
+    result = provider.retrieve(
+        RetrievalQuery(
+            query_text="When will Alice meet Bob?",
+            isolation_key="conv-1",
+            question_time=None,
+            top_k=5,
+            purpose="qa",
+        )
+    )
+
+    assert system.retrieve_queries == ["When will Alice meet Bob?"]
+    assert system.ask_queries == []
+    assert result.formatted_memory == "\n".join(
+        [
+            "[2023-05-08T13:56:00] Alice will meet Bob at the cafe.",
+            "[2023-05-08T14:03:00] The meeting topic is the new product.",
+        ]
+    )
+    assert result.items is not None
+    assert [item.item_id for item in result.items] == ["m1", "m2"]
+    assert result.items[0].source_turn_ids == ()
+    assert result.prompt_messages is not None
+    assert [message.role for message in result.prompt_messages] == ["system", "user"]
+    assert result.prompt_messages[0].content == (
+        "You are a professional Q&A assistant. Extract concise answers from "
+        "context. You must output valid JSON format."
+    )
+    user_prompt = result.prompt_messages[1].content
+    assert "User Question: When will Alice meet Bob?" in user_prompt
+    assert "[Context 1]\nContent: Alice will meet Bob at the cafe." in user_prompt
+    assert "Time: 2023-05-08T13:56:00" in user_prompt
+    assert "Persons: Alice, Bob" in user_prompt
+    assert "Topic: meeting" in user_prompt
+    assert "Return ONLY the JSON, no other text." in user_prompt
+    assert result.metadata["prompt_source"] == (
+        "third_party/methods/SimpleMem/simplemem/core/answer_generator.py:43-52,117-153"
+    )
+
+
 class FakeSimpleMemSystem:
     """记录 SimpleMem 写入调用的测试 fake。"""
 
@@ -230,3 +302,67 @@ class FakeSimpleMemSystem:
         """记录 finalize 调用。"""
 
         self.calls.append(("finalize", {}))
+
+
+class FakeMemoryEntry:
+    """模拟 SimpleMem MemoryEntry 的公开字段。"""
+
+    def __init__(
+        self,
+        *,
+        entry_id: str,
+        lossless_restatement: str,
+        timestamp: str | None = None,
+        keywords: list[str] | None = None,
+        location: str | None = None,
+        persons: list[str] | None = None,
+        entities: list[str] | None = None,
+        topic: str | None = None,
+    ) -> None:
+        """保存 fake memory entry 字段。"""
+
+        self.entry_id = entry_id
+        self.lossless_restatement = lossless_restatement
+        self.timestamp = timestamp
+        self.keywords = keywords or []
+        self.location = location
+        self.persons = persons or []
+        self.entities = entities or []
+        self.topic = topic
+
+
+class FakeHybridRetriever:
+    """记录 retrieve 查询并返回预置 entries。"""
+
+    def __init__(
+        self,
+        entries: list[FakeMemoryEntry],
+        query_log: list[str],
+    ) -> None:
+        """保存预置 entries 和查询日志。"""
+
+        self.entries = entries
+        self.query_log = query_log
+
+    def retrieve(self, query_text: str) -> list[FakeMemoryEntry]:
+        """模拟 SimpleMem HybridRetriever.retrieve。"""
+
+        self.query_log.append(query_text)
+        return self.entries
+
+
+class FakeRetrievalSimpleMemSystem:
+    """带 hybrid_retriever 与 ask 记录的检索 fake。"""
+
+    def __init__(self, entries: list[FakeMemoryEntry]) -> None:
+        """创建 fake retriever。"""
+
+        self.retrieve_queries: list[str] = []
+        self.ask_queries: list[str] = []
+        self.hybrid_retriever = FakeHybridRetriever(entries, self.retrieve_queries)
+
+    def ask(self, query_text: str) -> str:
+        """若 adapter 误调 ask，测试会通过日志发现。"""
+
+        self.ask_queries.append(query_text)
+        return "should not be used"

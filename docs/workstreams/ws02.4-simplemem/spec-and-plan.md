@@ -217,9 +217,17 @@ created: 2026-07-07
   .......                                                                  [100%]
   7 passed in 0.32s
   ```
-- [ ] **T3 检索链路**：retrieve 绕开 ask、formatted_memory 拼接规则、
+- [x] **T3 检索链路**：retrieve 绕开 ask、formatted_memory 拼接规则、
   native prompt_messages 复刻 AnswerGenerator 模板（文本摘录注行号）。
   验收：retrieve focused + prompt 结构断言全绿。
+
+  验收输出：
+
+  ```text
+  $ uv run pytest tests/test_simplemem_adapter.py -q
+  ........                                                                 [100%]
+  8 passed in 0.33s
+  ```
 - [ ] **T4 状态/retry/观测**：LanceDB per-isolation 目录、clean retry hook、
   fail_ingest 语义测试（模拟 finalize 前中断→retry 整段重放）、LLM usage
   observation 接线。验收：状态与观测 focused 全绿。

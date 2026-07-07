@@ -15,13 +15,14 @@ import re
 from typing import Any
 
 from memory_benchmark.config import PathSettings, load_path_settings
-from memory_benchmark.core import ConfigurationError
+from memory_benchmark.core import ConfigurationError, PromptMessage
 from memory_benchmark.core.provider_protocol import (
     IngestResult,
     IngestUnit,
     MemoryProvider,
     RetrievalQuery,
     RetrievalResult,
+    RetrievedItem,
     TurnEvent,
     UnitRef,
 )
@@ -54,6 +55,15 @@ _MONTHS = {
     "december": 12,
 }
 SimpleMemSystemFactory = Callable[[str, Path], Any]
+SIMPLEMEM_ANSWER_PROMPT_SOURCE = (
+    "third_party/methods/SimpleMem/simplemem/core/answer_generator.py:"
+    "43-52,117-153"
+)
+_SIMPLEMEM_ANSWER_SYSTEM_PROMPT = (
+    # 官方 AnswerGenerator.generate_answer() messages[0]，见 answer_generator.py:43-47。
+    "You are a professional Q&A assistant. Extract concise answers from context. "
+    "You must output valid JSON format."
+)
 
 
 @dataclass(frozen=True)
@@ -196,10 +206,36 @@ class SimpleMem(MemoryProvider):
         self._finalized_isolation_keys.add(ref.isolation_key)
         return None
 
-    def retrieve(self, query: RetrievalQuery) -> RetrievalResult:  # pragma: no cover - T3 实现
-        """执行 SimpleMem retrieve；T3 补齐。"""
+    def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
+        """绕开 `ask()`，直接调用 SimpleMem hybrid retriever。"""
 
-        raise NotImplementedError("SimpleMem retrieve is implemented in T3")
+        system = self._system_for_isolation_key(query.isolation_key)
+        contexts = list(system.hybrid_retriever.retrieve(query.query_text))
+        context_str = _format_simplemem_contexts(contexts)
+        formatted_memory = _format_simplemem_memory(contexts)
+        return RetrievalResult(
+            formatted_memory=formatted_memory,
+            prompt_messages=(
+                PromptMessage(role="system", content=_SIMPLEMEM_ANSWER_SYSTEM_PROMPT),
+                PromptMessage(
+                    role="user",
+                    content=_build_simplemem_answer_prompt(
+                        query=query.query_text,
+                        context_str=context_str,
+                    ),
+                ),
+            ),
+            items=tuple(
+                _retrieved_item_from_context(index, context)
+                for index, context in enumerate(contexts, 1)
+            ),
+            metadata={
+                "method": "simplemem",
+                "prompt_track": "native",
+                "prompt_source": SIMPLEMEM_ANSWER_PROMPT_SOURCE,
+                "retrieval_path": "hybrid_retriever.retrieve",
+            },
+        )
 
     def _system_for_isolation_key(self, isolation_key: str) -> Any:
         """返回 isolation 专属 SimpleMemSystem，必要时创建状态目录。"""
@@ -279,6 +315,141 @@ def _state_dir_name(isolation_key: str) -> str:
 
     digest = hashlib.sha256(isolation_key.encode("utf-8")).hexdigest()[:16]
     return f"isolation_{digest}"
+
+
+def _format_simplemem_memory(contexts: list[Any]) -> str:
+    """把命中 MemoryEntry 拼成统一 formatted_memory。"""
+
+    lines = []
+    for context in contexts:
+        timestamp = _optional_context_text(context, "timestamp") or "unknown"
+        lines.append(
+            f"[{timestamp}] {_required_context_text(context, 'lossless_restatement')}"
+        )
+    if not lines:
+        return "No relevant information found"
+    return "\n".join(lines)
+
+
+def _format_simplemem_contexts(contexts: list[Any]) -> str:
+    """复刻官方 `AnswerGenerator._format_contexts()`，见 answer_generator.py:85-111。"""
+
+    formatted = []
+    for index, entry in enumerate(contexts, 1):
+        parts = [f"[Context {index}]"]
+        parts.append(f"Content: {_required_context_text(entry, 'lossless_restatement')}")
+        timestamp = _optional_context_text(entry, "timestamp")
+        if timestamp:
+            parts.append(f"Time: {timestamp}")
+        location = _optional_context_text(entry, "location")
+        if location:
+            parts.append(f"Location: {location}")
+        persons = _optional_context_list(entry, "persons")
+        if persons:
+            parts.append(f"Persons: {', '.join(persons)}")
+        entities = _optional_context_list(entry, "entities")
+        if entities:
+            parts.append(f"Related Entities: {', '.join(entities)}")
+        topic = _optional_context_text(entry, "topic")
+        if topic:
+            parts.append(f"Topic: {topic}")
+        formatted.append("\n".join(parts))
+    if not formatted:
+        return "No relevant information found"
+    return "\n\n".join(formatted)
+
+
+def _build_simplemem_answer_prompt(*, query: str, context_str: str) -> str:
+    """复刻官方 `_build_answer_prompt()`，见 answer_generator.py:117-153。"""
+
+    return f"""
+Answer the user's question based on the provided context.
+
+User Question: {query}
+
+Relevant Context:
+{context_str}
+
+Requirements:
+1. First, think through the reasoning process
+2. Then provide a very CONCISE answer (short phrase about core information)
+3. Answer must be based ONLY on the provided context
+4. All dates in the response must be formatted as 'DD Month YYYY' but you can output more or less details if needed
+5. Return your response in JSON format
+
+Output Format:
+```json
+{{
+  "reasoning": "Brief explanation of your thought process",
+  "answer": "Concise answer in a short phrase"
+}}
+```
+
+Example:
+Question: "When will they meet?"
+Context: "Alice suggested meeting Bob at 2025-11-16T14:00:00..."
+
+Output:
+```json
+{{
+  "reasoning": "The context explicitly states the meeting time as 2025-11-16T14:00:00",
+  "answer": "16 November 2025 at 2:00 PM"
+}}
+```
+
+Now answer the question. Return ONLY the JSON, no other text.
+"""
+
+
+def _retrieved_item_from_context(index: int, context: Any) -> RetrievedItem:
+    """把 SimpleMem MemoryEntry 转成协议 v3 RetrievedItem。"""
+
+    return RetrievedItem(
+        item_id=_optional_context_text(context, "entry_id") or f"simplemem-{index}",
+        content=_required_context_text(context, "lossless_restatement"),
+        score=None,
+        timestamp=_optional_context_text(context, "timestamp"),
+        source_turn_ids=(),
+        metadata={
+            "keywords": _optional_context_list(context, "keywords"),
+            "location": _optional_context_text(context, "location"),
+            "persons": _optional_context_list(context, "persons"),
+            "entities": _optional_context_list(context, "entities"),
+            "topic": _optional_context_text(context, "topic"),
+        },
+    )
+
+
+def _required_context_text(context: Any, field_name: str) -> str:
+    """读取 MemoryEntry 必填文本字段。"""
+
+    value = _optional_context_text(context, field_name)
+    if value is None:
+        raise ConfigurationError(f"SimpleMem retrieved entry missing {field_name}")
+    return value
+
+
+def _optional_context_text(context: Any, field_name: str) -> str | None:
+    """读取 MemoryEntry 可选文本字段。"""
+
+    value = getattr(context, field_name, None)
+    if value is None:
+        return None
+    text = str(value)
+    if not text.strip():
+        return None
+    return text
+
+
+def _optional_context_list(context: Any, field_name: str) -> list[str]:
+    """读取 MemoryEntry 可选字符串列表字段。"""
+
+    value = getattr(context, field_name, None)
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    return [str(item) for item in value if str(item).strip()]
 
 
 def build_simplemem_source_identity(
