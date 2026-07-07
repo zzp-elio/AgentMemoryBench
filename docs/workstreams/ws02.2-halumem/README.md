@@ -14,6 +14,30 @@ created: 2026-07-08
 
 ## 当前断点
 
+- 2026-07-08（架构师 Opus 4.8 裁定，解 Codex 停工 + smoke 定案）：**R1** Codex
+  停工正确——extraction/update 评测是 session 级（`evaluation.py:54-95` 遍历每
+  session 的 memory_points，与 question 无关），491 个无 question 的 memory
+  session 会漏。裁定加 **session 级 evaluator-private gold artifact**（memory_points
+  + dialogue），T3 补写、T4 读（plan R1）。**R2** 用户提案"CLI 控 session 数 +
+  smoke 覆盖三模式"采纳：加 `smoke_session_limit`+`--sessions`（替换 turn_limit
+  复用）；**第一手数据修正**：update 模式最早在第 4 个 session、覆盖三模式最小
+  前缀=5，故 `--sessions≥5`（架构师上轮"2 sessions"错、会漏 update）。详见
+  plan"架构师裁定第二轮"。下一批：T3 补 R1 artifact + R2 CLI session 控制 + T4
+  三 evaluator + T5。
+- 2026-07-08（Codex，停工）：在 T4 三 evaluator 开工前遇到 plan 未覆盖的
+  artifact 事实缺口；已完成并 commit 到 T3，T4/T5 未提交。证据：真实数据实测
+  `HaluMem-Medium.jsonl {'total_sessions': 1387, 'generated': 0,
+  'memory_sessions': 1387, 'memory_sessions_without_questions': 491}`，
+  `HaluMem-Long.jsonl {'total_sessions': 2417, 'generated': 1030,
+  'memory_sessions': 1387, 'memory_sessions_without_questions': 491}`。官方
+  `evaluation.py:54-95` 对每个 session 的 `memory_points` 与
+  `extracted_memories` 做 extraction/integrity+accuracy 输入；但当前 T3
+  artifacts 只写 question 级 `evaluator_private_labels.jsonl`，无 question 的
+  491 个 memory session 无法从 artifacts 还原 gold memory_points/dialogue。
+  当前 `operation_level.py:349-369` 的 `session_memory_reports.jsonl` 仅写
+  provider report metadata，不写 evaluator-private session gold。若继续做 T4，
+  extraction 分母会漏掉 491 个 session；是否新增 evaluator-private session
+  artifact、或允许 session report metadata 携带私有 gold，需要架构师裁定。
 - 2026-07-08（架构师 Opus 4.8 验收 T1 re-touch + T3）：**通过**。本机复跑
   `test_operation_level_runner.py`+`test_halumem_adapter.py`=10 passed，全量
   831。第一手核对（读 `evaluation.py` scorer 逐行）确认 runner 语义全对：update

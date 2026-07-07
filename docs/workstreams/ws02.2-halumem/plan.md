@@ -46,6 +46,41 @@ author: Claude Opus 4.8（架构师）
 - 不为 HaluMem 建 method×benchmark 专用分支逻辑。
 - 不强行给不支持 session 增量抽取的 method 造 extraction 分数（N/A 占位）。
 
+## 架构师裁定（2026-07-08 第二轮：解 Codex T4 前停工 + smoke 定案）
+
+**R1 session 级 evaluator-private gold artifact（解 Codex 停工，架构师 plan
+失误第 3 处）**：HaluMem 的 extraction（integrity+accuracy）与 update 评测是
+**session 级**——`evaluation.py:54-95` 遍历每个 session 的 `memory_points` vs
+`extracted_memories`，**与该 session 有没有 question 无关**。真实数据：Medium
+1387 sessions 中 **491 个有 memory_points 但无 question**（Codex 实测）。但当前
+artifact 只有 question 级 `evaluator_private_labels.jsonl`，这 491 个 session
+的 gold 无法还原 → extraction 分母漏。**裁定**：operation-level runner 新增
+**session 级 evaluator-private artifact**（如 `evaluator_private_session_labels
+.jsonl`），每个非 generated session 一条：`{conversation_id, session_id,
+memory_points(全 gold，私有), dialogue(该 session turns，供 accuracy judge 的
+dialogue_str)}`。这是 evaluator-only artifact（method 永不可见，与既有私有标签
+同机制，公开 dialogue 放私有 artifact 无泄漏问题）。T4 extraction/update
+evaluator 读它；QA evaluator 仍读 question 级私有标签。这是 T3 artifact 补写
+（下一批与 T4 同做）。
+
+**R2 smoke 用 CLI 显式 session 控制，覆盖三模式（用户 2026-07-08 提案，架构师
+裁定：采纳 + 数据修正）**：
+- **采纳**：加 `smoke_session_limit` 到 `BenchmarkLoadRequest` + CLI `--sessions`
+  旗标；HaluMem smoke 取每 user **前 M 个连续 session**（累积语义不可跳选）。
+  **替换** Codex T1-retouch 里"复用 `smoke_turn_limit` 当 session 数"的做法——
+  用户说得对，HaluMem 的自然裁剪单元是 session，给它一等 CLI 控制比复用
+  turn_limit 语义清晰（后者对下一个读者是坑）。LoCoMo/LongMemEval 仍用
+  `--rounds`(turn) 裁剪，忽略 `--sessions`。
+- **数据修正（架构师纠用户 + 纠自己上一轮）**：用户要"smoke 覆盖三模式"，但
+  第一手数据实测：**update 模式最早出现在第 4 个 session**（前 3 个只有
+  extraction+QA），全 20 user 覆盖三模式的最小前缀 = 4~5（max=5）。所以要覆盖
+  extraction+update+QA，`--sessions` 须 **≥5**（架构师上一轮随口说的"2
+  sessions"是错的，会漏 update 模式）。推荐 smoke：`--conversations 1
+  --sessions 5`。诚实代价：HaluMem 三模式 smoke（~5 sessions≈100 turns）necessarily
+  比 LoCoMo 的 40 turns 大——因为 update 模式的数据位置决定的，不是可调的。
+- HaluMem **不做** turn/round/question 级裁剪（用户定，架构师认同：operation-level
+  的累积+session 中心语义下，切 turn 会破坏 session 完整性、切 question 无意义）。
+
 ## Task 分解
 
 ### T1 HaluMem adapter（数据 → 统一 Dataset，隐私隔离） ✅
