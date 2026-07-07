@@ -51,9 +51,11 @@ from .memoryos_adapter import (
     clean_memoryos_conversation_state,
 )
 from .simplemem_adapter import (
+    SIMPLEMEM_LLM_MODEL_ID,
     SimpleMem,
     SimpleMemConfig,
     build_simplemem_source_identity,
+    clean_simplemem_conversation_state,
 )
 
 
@@ -183,10 +185,14 @@ def _build_simplemem_system(context: MethodBuildContext) -> BaseMemorySystem:
 
     if not isinstance(context.config, SimpleMemConfig):
         raise ConfigurationError("SimpleMem factory requires SimpleMemConfig")
+    if context.openai_settings is None:
+        raise ConfigurationError("SimpleMem factory requires OpenAI settings")
     return SimpleMem(
         config=context.config,
         path_settings=context.path_settings,
         storage_root=context.storage_root,
+        openai_settings=context.openai_settings,
+        efficiency_collector=context.efficiency_collector,
     )
 
 
@@ -204,6 +210,55 @@ def _simplemem_max_workers(config: Any) -> int:
     if not isinstance(config, SimpleMemConfig):
         raise ConfigurationError("SimpleMem worker getter requires SimpleMemConfig")
     return config.max_workers
+
+
+def _simplemem_efficiency_model_inventory(config: Any) -> tuple[ModelDescriptor, ...]:
+    """返回 SimpleMem efficiency observation 会引用的模型身份。"""
+
+    if not isinstance(config, SimpleMemConfig):
+        raise ConfigurationError(
+            "SimpleMem model inventory getter requires SimpleMemConfig"
+        )
+    return (
+        ModelDescriptor(
+            model_id=SIMPLEMEM_LLM_MODEL_ID,
+            model_name=config.llm_model,
+            model_role="memory_and_retrieval_llm",
+            execution_mode="api",
+            tokenizer_name=config.llm_model,
+        ),
+        ModelDescriptor(
+            model_id="simplemem-embedding",
+            model_name=config.embedding_model_path,
+            model_role="embedding",
+            execution_mode="local",
+            revision_or_path=config.embedding_model_path,
+            embedding_dimension=config.embedding_dimension,
+            tokenizer_name=config.embedding_model_path,
+        ),
+    )
+
+
+def _simplemem_efficiency_instrumentation_identity(
+    path_settings: PathSettings,
+    config: Any,
+    source_identity: dict[str, Any],
+) -> dict[str, object]:
+    """返回 SimpleMem 观测 wrapper 身份，不包含 secret。"""
+
+    if not isinstance(config, SimpleMemConfig):
+        raise ConfigurationError(
+            "SimpleMem instrumentation identity getter requires SimpleMemConfig"
+        )
+    wrapper_relative_path = Path("src/memory_benchmark/methods/simplemem_adapter.py")
+    return {
+        "collector_schema": 1,
+        "wrapper_path": wrapper_relative_path.as_posix(),
+        "wrapper_sha256": _sha256_file(path_settings.project_root / wrapper_relative_path),
+        "llm_tokenizer": config.llm_model,
+        "embedding_tokenizer": config.embedding_model_path,
+        "method_source_sha256": source_identity.get("source_sha256"),
+    }
 
 
 def _build_amem_system(context: MethodBuildContext) -> BaseMemorySystem:
@@ -527,6 +582,19 @@ def _clean_memoryos_failed_ingest_state(
     )
 
 
+def _clean_simplemem_failed_ingest_state(
+    context: MethodBuildContext,
+    conversation: Conversation,
+    failed_state: dict[str, Any],
+) -> None:
+    """清理 SimpleMem 单个 failed_ingest conversation 的 isolation 状态。"""
+
+    clean_simplemem_conversation_state(
+        _resolve_clean_retry_storage_root(context, failed_state),
+        conversation.conversation_id,
+    )
+
+
 def _resolve_clean_retry_storage_root(
     context: MethodBuildContext,
     failed_state: dict[str, Any],
@@ -763,8 +831,13 @@ _REGISTRATIONS = {
         max_workers_getter=_simplemem_max_workers,
         display_name="SimpleMem",
         allow_smoke_worker_override=True,
+        efficiency_model_inventory_getter=_simplemem_efficiency_model_inventory,
+        efficiency_instrumentation_identity_getter=(
+            _simplemem_efficiency_instrumentation_identity
+        ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
         supports_shared_instance_parallelism=False,
+        clean_failed_ingest_state=_clean_simplemem_failed_ingest_state,
     ),
 }
 

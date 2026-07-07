@@ -13,11 +13,14 @@ from memory_benchmark.core.provider_protocol import (
     TurnEvent,
     UnitRef,
 )
+from memory_benchmark.observability.efficiency import EfficiencyCollector
 from memory_benchmark.methods.simplemem_adapter import (
+    SIMPLEMEM_LLM_MODEL_ID,
     SIMPLEMEM_OFFICIAL_PROFILE_NAME,
     SimpleMem,
     SimpleMemConfig,
     build_simplemem_source_identity,
+    clean_simplemem_conversation_state,
     parse_simplemem_timestamp,
 )
 
@@ -268,6 +271,136 @@ def test_simplemem_retrieve_uses_hybrid_retriever_and_builds_native_prompt(
     )
 
 
+def test_simplemem_clean_retry_removes_partial_state_and_replays_all_turns(
+    tmp_path: Path,
+) -> None:
+    """T4 clean retry 应删除半写入 isolation 状态，后续整段重放。"""
+
+    first_systems: dict[str, FakeSimpleMemSystem] = {}
+    first_provider = SimpleMem(
+        config=_config(),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path,
+        system_factory=lambda isolation_key, state_dir: first_systems.setdefault(
+            isolation_key,
+            FakeSimpleMemSystem(isolation_key=isolation_key, state_dir=state_dir),
+        ),
+    )
+    first_provider.ingest(
+        TurnEvent(
+            role="user",
+            speaker_name="Alice",
+            content="Partial turn before crash.",
+            timestamp=None,
+            isolation_key="run-1_conv-1",
+            session_id="s1",
+            turn_id="t1",
+            metadata={"conversation_id": "conv-1"},
+        )
+    )
+    dirty_state_dir = first_systems["run-1_conv-1"].state_dir
+    (dirty_state_dir / "partial.txt").write_text("dirty", encoding="utf-8")
+
+    sibling_state = tmp_path / "isolation_sibling"
+    sibling_state.mkdir()
+    (sibling_state / "conversation_id.txt").write_text("conv-2", encoding="utf-8")
+
+    clean_simplemem_conversation_state(tmp_path, "conv-1")
+
+    assert not dirty_state_dir.exists()
+    assert sibling_state.exists()
+
+    replay_systems: dict[str, FakeSimpleMemSystem] = {}
+    replay_provider = SimpleMem(
+        config=_config(),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path,
+        system_factory=lambda isolation_key, state_dir: replay_systems.setdefault(
+            isolation_key,
+            FakeSimpleMemSystem(isolation_key=isolation_key, state_dir=state_dir),
+        ),
+    )
+    for turn_id, content in (("t1", "Partial turn before crash."), ("t2", "Replay turn.")):
+        replay_provider.ingest(
+            TurnEvent(
+                role="user",
+                speaker_name="Alice",
+                content=content,
+                timestamp=None,
+                isolation_key="run-1_conv-1",
+                session_id="s1",
+                turn_id=turn_id,
+                metadata={"conversation_id": "conv-1"},
+            )
+        )
+    replay_provider.end_conversation(UnitRef(isolation_key="run-1_conv-1"))
+
+    assert replay_systems["run-1_conv-1"].calls == [
+        (
+            "add_dialogue",
+            {
+                "speaker": "Alice",
+                "content": "Partial turn before crash.",
+                "timestamp": None,
+            },
+        ),
+        (
+            "add_dialogue",
+            {
+                "speaker": "Alice",
+                "content": "Replay turn.",
+                "timestamp": None,
+            },
+        ),
+        ("finalize", {}),
+    ]
+
+
+def test_simplemem_llm_client_wrapper_records_usage_in_active_scope(
+    tmp_path: Path,
+) -> None:
+    """T4 应记录 SimpleMem build/retrieval 服务型 LLM token usage。"""
+
+    collector = EfficiencyCollector(run_id="simplemem-obs", enabled=True)
+    system = FakeObservedSimpleMemSystem()
+    provider = SimpleMem(
+        config=_config(),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path,
+        system_factory=lambda _isolation_key, _state_dir: system,
+        efficiency_collector=collector,
+    )
+
+    with collector.conversation_scope("conv-1") as scope:
+        provider.ingest(
+            TurnEvent(
+                role="user",
+                speaker_name="Alice",
+                content="Trigger wrapper install.",
+                timestamp=None,
+                isolation_key="run-1_conv-1",
+                session_id="s1",
+                turn_id="t1",
+                metadata={"conversation_id": "conv-1"},
+            )
+        )
+        assert system.llm_client.chat_completion(
+            [{"role": "user", "content": "extract memory"}]
+        ) == '{"answer": "ok"}'
+        collector.record_memory_build_total_latency(latency_ms=1.0)
+
+    llm_records = [
+        record
+        for record in scope.records
+        if getattr(record, "model_id", None) == SIMPLEMEM_LLM_MODEL_ID
+    ]
+    assert len(llm_records) == 1
+    assert llm_records[0].stage.value == "memory_build"
+    assert llm_records[0].token_measurement_source.value == "tokenizer_estimate"
+    assert llm_records[0].input_tokens > 0
+    assert llm_records[0].output_tokens > 0
+
+
 class FakeSimpleMemSystem:
     """记录 SimpleMem 写入调用的测试 fake。"""
 
@@ -366,3 +499,28 @@ class FakeRetrievalSimpleMemSystem:
 
         self.ask_queries.append(query_text)
         return "should not be used"
+
+
+class FakeObservedLLMClient:
+    """可被 SimpleMem adapter 包装的 fake LLMClient。"""
+
+    def __init__(self) -> None:
+        """初始化调用日志。"""
+
+        self.calls: list[list[dict[str, str]]] = []
+
+    def chat_completion(self, messages: list[dict[str, str]], **_kwargs) -> str:
+        """模拟官方 chat_completion，只返回文本。"""
+
+        self.calls.append(messages)
+        return '{"answer": "ok"}'
+
+
+class FakeObservedSimpleMemSystem(FakeSimpleMemSystem):
+    """带 llm_client 的写入 fake。"""
+
+    def __init__(self) -> None:
+        """初始化 fake system。"""
+
+        super().__init__(isolation_key="run-1_conv-1", state_dir=Path("/tmp/fake"))
+        self.llm_client = FakeObservedLLMClient()

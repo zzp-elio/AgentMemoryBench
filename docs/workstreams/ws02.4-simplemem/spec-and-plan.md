@@ -228,9 +228,17 @@ created: 2026-07-07
   ........                                                                 [100%]
   8 passed in 0.33s
   ```
-- [ ] **T4 状态/retry/观测**：LanceDB per-isolation 目录、clean retry hook、
+- [x] **T4 状态/retry/观测**：LanceDB per-isolation 目录、clean retry hook、
   fail_ingest 语义测试（模拟 finalize 前中断→retry 整段重放）、LLM usage
   observation 接线。验收：状态与观测 focused 全绿。
+
+  验收输出：
+
+  ```text
+  $ uv run pytest tests/test_simplemem_adapter.py tests/test_method_registry.py -q
+  .........................                                                [100%]
+  25 passed in 0.99s
+  ```
 - [ ] **T5 registered fake 全链路**：LoCoMo + LongMemEval fake smoke 各一，
   artifact/manifest（protocol_version=v3, prompt_track=native）齐全。
   验收：端到端测试全绿；`uv run pytest -q` ≥771；compileall 通过。

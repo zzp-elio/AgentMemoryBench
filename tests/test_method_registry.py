@@ -94,6 +94,24 @@ def test_simplemem_registration_declares_text_backend_contract() -> None:
     assert registration.requires_api is True
     assert registration.allow_smoke_worker_override is True
     assert registration.supports_shared_instance_parallelism is False
+    assert registration.efficiency_model_inventory_getter is not None
+    inventory = registration.efficiency_model_inventory_getter(
+        SimpleMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/Qwen3-Embedding-0.6B",
+            embedding_dimension=1024,
+            window_size=40,
+            overlap_size=2,
+            semantic_top_k=25,
+            keyword_top_k=5,
+            structured_top_k=5,
+            max_workers=1,
+        )
+    )
+    assert [model.model_id for model in inventory] == [
+        "simplemem-llm",
+        "simplemem-embedding",
+    ]
 
 
 def test_built_in_methods_advertise_memory_retrieval_capability() -> None:
@@ -117,15 +135,15 @@ def test_clean_retry_support_is_only_declared_by_methods_with_safe_state_cleanup
         registry 中四个内置 method。
 
     输出:
-        A-Mem、LightMem、MemoryOS 有 conversation 级 clean hook；Mem0 仍为 None，
-        避免误删共享 Qdrant/history 状态。
+        A-Mem、LightMem、MemoryOS、SimpleMem 有 conversation 级 clean hook；
+        Mem0 仍为 None，避免误删共享 Qdrant/history 状态。
     """
 
     assert get_method_registration("amem").clean_failed_ingest_state is not None
     assert get_method_registration("lightmem").clean_failed_ingest_state is not None
     assert get_method_registration("memoryos").clean_failed_ingest_state is not None
     assert get_method_registration("mem0").clean_failed_ingest_state is None
-    assert get_method_registration("simplemem").clean_failed_ingest_state is None
+    assert get_method_registration("simplemem").clean_failed_ingest_state is not None
 
 
 def test_clean_retry_hook_uses_failed_worker_state_for_isolated_runs(

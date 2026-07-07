@@ -12,10 +12,16 @@ from datetime import datetime
 import hashlib
 from pathlib import Path
 import re
+import shutil
+import sys
 from typing import Any
 
-from memory_benchmark.config import PathSettings, load_path_settings
+from memory_benchmark.config import OpenAISettings, PathSettings, load_path_settings
 from memory_benchmark.core import ConfigurationError, PromptMessage
+from memory_benchmark.observability.efficiency import (
+    EfficiencyCollector,
+    resolve_token_usage,
+)
 from memory_benchmark.core.provider_protocol import (
     IngestResult,
     IngestUnit,
@@ -33,6 +39,8 @@ SIMPLEMEM_METHOD_DIRECTORY = "SimpleMem"
 SIMPLEMEM_OFFICIAL_PROFILE_NAME = "official-text-v1"
 SIMPLEMEM_WRAPPER_LOGICAL_PATH = "src/memory_benchmark/methods/simplemem_adapter.py"
 SIMPLEMEM_SOURCE_MODE = "vendored-simplemem-text-plus-wrapper"
+SIMPLEMEM_LLM_MODEL_ID = "simplemem-llm"
+SIMPLEMEM_CONVERSATION_MARKER = "conversation_id.txt"
 _LOCOMO_TIMESTAMP_PATTERN = re.compile(
     r"^\s*(?P<hour>\d{1,2}):(?P<minute>\d{2})\s*"
     r"(?P<period>am|pm)\s+on\s+"
@@ -161,6 +169,8 @@ class SimpleMem(MemoryProvider):
         path_settings: PathSettings,
         storage_root: Path,
         system_factory: SimpleMemSystemFactory | None = None,
+        openai_settings: OpenAISettings | None = None,
+        efficiency_collector: EfficiencyCollector | None = None,
     ) -> None:
         """保存构造依赖并延迟初始化每个 isolation 的 SimpleMemSystem。"""
 
@@ -169,7 +179,10 @@ class SimpleMem(MemoryProvider):
         self.path_settings = path_settings
         self.storage_root = storage_root
         self._system_factory = system_factory
+        self._openai_settings = openai_settings
+        self._efficiency_collector = efficiency_collector
         self._systems_by_isolation_key: dict[str, Any] = {}
+        self._state_dirs_by_isolation_key: dict[str, Path] = {}
         self._finalized_isolation_keys: set[str] = set()
 
     def ingest(self, unit: IngestUnit) -> IngestResult | None:
@@ -178,6 +191,7 @@ class SimpleMem(MemoryProvider):
         if not isinstance(unit, TurnEvent):
             raise ConfigurationError("SimpleMem native provider only accepts TurnEvent")
         system = self._system_for_isolation_key(unit.isolation_key)
+        self._write_conversation_marker(unit)
         timestamp = parse_simplemem_timestamp(unit.timestamp)
         speaker = unit.speaker_name or unit.role
         system.add_dialogue(
@@ -249,16 +263,128 @@ class SimpleMem(MemoryProvider):
             system = self._system_factory(isolation_key, state_dir)
         else:
             system = self._create_official_system(isolation_key, state_dir)
+        self._install_llm_usage_observation(system)
         self._systems_by_isolation_key[isolation_key] = system
+        self._state_dirs_by_isolation_key[isolation_key] = state_dir
         return system
 
     def _create_official_system(self, isolation_key: str, state_dir: Path) -> Any:
-        """构造官方 SimpleMemSystem；T5 前真实路径不应被无配置调用。"""
+        """按 approved text backend 口径构造官方 SimpleMemSystem。"""
 
-        raise ConfigurationError(
-            "SimpleMem production system factory is not configured: "
-            f"{isolation_key}"
+        if self._openai_settings is None:
+            raise ConfigurationError(
+                "SimpleMem production system requires OpenAI settings: "
+                f"{isolation_key}"
+            )
+        simplemem_root = self.path_settings.resolve_third_party_method_path(
+            SIMPLEMEM_METHOD_DIRECTORY
         )
+        if str(simplemem_root) not in sys.path:
+            sys.path.insert(0, str(simplemem_root))
+        try:
+            from main import SimpleMemSystem
+            from simplemem.core.settings import settings as simplemem_settings
+        except Exception as exc:
+            raise ConfigurationError(
+                f"SimpleMem source package cannot be imported: {simplemem_root}"
+            ) from exc
+
+        db_path = state_dir / "lancedb"
+        table_name = "memories"
+        simplemem_settings.OPENAI_API_KEY = self._openai_settings.api_key
+        simplemem_settings.OPENAI_BASE_URL = self._openai_settings.base_url
+        simplemem_settings.LLM_MODEL = self.config.llm_model
+        simplemem_settings.EMBEDDING_MODEL = self.config.embedding_model_path
+        simplemem_settings.EMBEDDING_DIMENSION = self.config.embedding_dimension
+        simplemem_settings.LANCEDB_PATH = str(db_path)
+        simplemem_settings.MEMORY_TABLE_NAME = table_name
+        simplemem_settings.ENABLE_PLANNING = self.config.enable_planning
+        simplemem_settings.ENABLE_REFLECTION = self.config.enable_reflection
+        simplemem_settings.MAX_REFLECTION_ROUNDS = self.config.max_reflection_rounds
+        simplemem_settings.ENABLE_PARALLEL_PROCESSING = (
+            self.config.enable_parallel_processing
+        )
+        simplemem_settings.MAX_PARALLEL_WORKERS = self.config.max_workers
+        simplemem_settings.ENABLE_PARALLEL_RETRIEVAL = (
+            self.config.enable_parallel_retrieval
+        )
+        simplemem_settings.MAX_RETRIEVAL_WORKERS = self.config.max_workers
+        simplemem_settings.SEMANTIC_TOP_K = self.config.semantic_top_k
+        simplemem_settings.KEYWORD_TOP_K = self.config.keyword_top_k
+        simplemem_settings.STRUCTURED_TOP_K = self.config.structured_top_k
+        simplemem_settings.WINDOW_SIZE = self.config.window_size
+        simplemem_settings.OVERLAP_SIZE = self.config.overlap_size
+        return SimpleMemSystem(
+            api_key=self._openai_settings.api_key,
+            model=self.config.llm_model,
+            base_url=self._openai_settings.base_url,
+            db_path=str(db_path),
+            table_name=table_name,
+            clear_db=False,
+            enable_planning=self.config.enable_planning,
+            enable_reflection=self.config.enable_reflection,
+            max_reflection_rounds=self.config.max_reflection_rounds,
+            enable_parallel_processing=self.config.enable_parallel_processing,
+            max_parallel_workers=self.config.max_workers,
+            enable_parallel_retrieval=self.config.enable_parallel_retrieval,
+            max_retrieval_workers=self.config.max_workers,
+        )
+
+    def _write_conversation_marker(self, unit: TurnEvent) -> None:
+        """在状态目录写入公开 conversation id，供 failed_ingest clean retry 定位。"""
+
+        conversation_id = unit.metadata.get("conversation_id")
+        if not isinstance(conversation_id, str) or not conversation_id.strip():
+            return
+        state_dir = self._state_dirs_by_isolation_key.get(unit.isolation_key)
+        if state_dir is None:
+            return
+        marker_path = state_dir / SIMPLEMEM_CONVERSATION_MARKER
+        marker_path.write_text(conversation_id, encoding="utf-8")
+
+    def _install_llm_usage_observation(self, system: Any) -> None:
+        """包装 SimpleMem LLMClient.chat_completion，记录 build/retrieval LLM usage。"""
+
+        collector = self._efficiency_collector
+        if collector is None or not collector.enabled:
+            return
+        llm_client = getattr(system, "llm_client", None)
+        if llm_client is None or getattr(
+            llm_client,
+            "_memory_benchmark_efficiency_wrapped",
+            False,
+        ):
+            return
+        original_chat_completion = getattr(llm_client, "chat_completion", None)
+        if original_chat_completion is None:
+            return
+
+        def _wrapped_chat_completion(*args: Any, **kwargs: Any) -> Any:
+            """调用官方 chat_completion 并把 token usage 写入 collector。"""
+
+            messages = kwargs.get("messages")
+            if messages is None and args:
+                messages = args[0]
+            response = original_chat_completion(*args, **kwargs)
+            prompt_text = _messages_to_text(messages)
+            output_text = str(response or "")
+            usage = resolve_token_usage(
+                api_input_tokens=None,
+                api_output_tokens=None,
+                prompt_text=prompt_text,
+                output_text=output_text,
+                tokenizer=_TiktokenCounter(self.config.llm_model),
+            )
+            collector.record_llm_call(
+                model_id=SIMPLEMEM_LLM_MODEL_ID,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                token_measurement_source=usage.source,
+            )
+            return response
+
+        llm_client.chat_completion = _wrapped_chat_completion
+        llm_client._memory_benchmark_efficiency_wrapped = True
 
 
 def parse_simplemem_timestamp(raw_timestamp: str | None) -> str | None:
@@ -315,6 +441,27 @@ def _state_dir_name(isolation_key: str) -> str:
 
     digest = hashlib.sha256(isolation_key.encode("utf-8")).hexdigest()[:16]
     return f"isolation_{digest}"
+
+
+def clean_simplemem_conversation_state(
+    storage_root: Path,
+    conversation_id: str,
+) -> None:
+    """删除指定 conversation 对应的 SimpleMem isolation 状态目录。"""
+
+    if not conversation_id.strip():
+        raise ConfigurationError("SimpleMem clean retry conversation_id is required")
+    if not storage_root.exists():
+        return
+    for candidate in storage_root.glob("isolation_*"):
+        if not candidate.is_dir():
+            continue
+        marker_path = candidate / SIMPLEMEM_CONVERSATION_MARKER
+        if not marker_path.is_file():
+            continue
+        marker = marker_path.read_text(encoding="utf-8").strip()
+        if marker == conversation_id:
+            shutil.rmtree(candidate)
 
 
 def _format_simplemem_memory(contexts: list[Any]) -> str:
@@ -452,6 +599,52 @@ def _optional_context_list(context: Any, field_name: str) -> list[str]:
     return [str(item) for item in value if str(item).strip()]
 
 
+def _messages_to_text(messages: Any) -> str:
+    """把 SimpleMem LLMClient messages 归一化为 token 估算文本。"""
+
+    if messages is None:
+        return ""
+    if isinstance(messages, str):
+        return messages
+    if isinstance(messages, list):
+        parts = []
+        for message in messages:
+            if isinstance(message, dict):
+                role = str(message.get("role") or "")
+                content = str(message.get("content") or "")
+                parts.append(f"[{role}]\n{content}")
+            else:
+                parts.append(str(message))
+        return "\n\n".join(parts)
+    return str(messages)
+
+
+class _TiktokenCounter:
+    """按 OpenAI-compatible 模型名计数 token 的轻量 wrapper。"""
+
+    def __init__(self, model_name: str) -> None:
+        """保存模型名，encoding 懒加载以避免无观测路径额外开销。"""
+
+        self.model_name = model_name
+        self._encoding = None
+
+    def count_tokens(self, text: str) -> int:
+        """返回文本 token 数；未知模型回退到 cl100k_base。"""
+
+        if self._encoding is None:
+            try:
+                import tiktoken
+            except Exception as exc:
+                raise ConfigurationError(
+                    "tiktoken is required for SimpleMem token estimation"
+                ) from exc
+            try:
+                self._encoding = tiktoken.encoding_for_model(self.model_name)
+            except KeyError:
+                self._encoding = tiktoken.get_encoding("cl100k_base")
+        return len(self._encoding.encode(text or ""))
+
+
 def build_simplemem_source_identity(
     path_settings: PathSettings | None = None,
 ) -> dict[str, Any]:
@@ -571,5 +764,6 @@ __all__ = [
     "SimpleMem",
     "SimpleMemConfig",
     "build_simplemem_source_identity",
+    "clean_simplemem_conversation_state",
     "parse_simplemem_timestamp",
 ]
