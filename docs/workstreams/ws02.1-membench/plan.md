@@ -329,13 +329,52 @@ tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_cl
 
 ## T5 Fake 全链路
 
-- [ ] Mock v3 provider（turn 粒度）跑通 membench registered prediction →
+- [x] Mock v3 provider（turn 粒度）跑通 membench registered prediction →
   evaluation：artifact 齐全（predictions/answer_prompts 含 formatted_memory/
   private labels/summary + `membench_choice_accuracy` summary）；
   manifest `prompt_track=unified`、`protocol_version=v3`。
-- [ ] resume 语义：trajectory 级 completed/pending 回归测试（复用既有机制，
+- [x] resume 语义：trajectory 级 completed/pending 回归测试（复用既有机制，
   membench 无特殊 resume 需求）。
 - 验收：端到端 fake 测试全绿；`uv run pytest -q` ≥771；compileall 通过。
+
+验收输出：
+
+```text
+$ uv run pytest tests/test_artifact_evaluation_runner.py::test_registered_membench_mock_v3_prediction_and_evaluation_e2e tests/test_artifact_evaluation_runner.py::test_membench_registered_prediction_resume_completes_pending_trajectories -q
+..                                                                       [100%]
+2 passed in 1.51s
+```
+
+```text
+$ uv run python -m compileall -q src tests
+```
+
+```text
+$ uv run pytest -q
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 27%]
+.................................................................... [ 35%]
+........................................................................ [ 45%]
+........................................................................ [ 54%]
+...................................................................... [ 62%]
+........................................................................ [ 72%]
+........................................................................ [ 81%]
+........................................................................ [ 90%]
+........................................................................ [ 99%]
+.....                                                                    [100%]
+=============================== warnings summary ===============================
+tests/test_amem_adapter.py::test_amem_can_import_official_robust_layer_without_calling_api
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/A-mem/memory_layer.py:1: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    from ast import Str
+
+tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_class
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem/src/lightmem/configs/logging/base.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class LoggingConfig(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+791 passed, 3 deselected, 2 warnings, 6 subtests passed in 91.04s (0:01:31)
+```
 
 ## T6 收尾
 

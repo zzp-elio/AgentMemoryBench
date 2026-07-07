@@ -40,6 +40,9 @@ from memory_benchmark.benchmark_adapters import (
 )
 from memory_benchmark.cli.run_prediction import PredictionBatchResult
 from memory_benchmark.evaluators import LoCoMoF1Evaluator
+from memory_benchmark.evaluators.membench_choice_accuracy import (
+    MemBenchChoiceAccuracyEvaluator,
+)
 from memory_benchmark.methods.mock import MockMemoryProvider
 from memory_benchmark.runners.evaluation import run_artifact_evaluation
 from memory_benchmark.storage import (
@@ -562,6 +565,145 @@ def test_registered_mock_v3_prediction_can_be_evaluated_offline(
     assert manifest["method"]["protocol_version"] == "v3"
     assert retrievals[0]["retrieved_items"]
     assert evaluation.mean_score == 1.0
+
+
+def test_registered_membench_mock_v3_prediction_and_evaluation_e2e(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MemBench fake v3 prediction 应产出 unified prompt 并可离线评分。"""
+
+    prepared = PreparedBenchmarkRun(
+        variant="tiny",
+        run_scope=RunScope.SMOKE,
+        dataset=_build_tiny_membench_dataset(("membench-conv-1", "B")),
+        source_relative_paths=(),
+    )
+    _patch_membench_mock_prediction(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        prepared=prepared,
+        answer_by_question_text={"Which option is correct for membench-conv-1?": "B"},
+    )
+
+    batch_result = run_prediction_module.run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name="mock-v3",
+        benchmark_name="membench",
+        profile_name="smoke",
+        variant="tiny",
+        run_id="mock-v3-membench-e2e",
+        confirm_api=False,
+        enable_efficiency_observability=False,
+        progress_enabled=False,
+    )
+    run_dir = tmp_path / "outputs" / batch_result.runs[0].run_id
+    evaluation = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=MemBenchChoiceAccuracyEvaluator(),
+        expected_benchmark="membench",
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    predictions = read_jsonl(run_dir / "artifacts" / "method_predictions.jsonl")
+    retrievals = read_jsonl(run_dir / "artifacts" / "answer_prompts.prediction.jsonl")
+    private_labels = read_jsonl(
+        run_dir / "artifacts" / "evaluator_private_labels.jsonl"
+    )
+    summary = json.loads(
+        (
+            run_dir / "summaries" / "summary.membench_choice_accuracy.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert manifest["method"]["protocol_version"] == "v3"
+    assert manifest["method"]["prompt_track"] == "unified"
+    assert manifest["benchmark_name"] == "membench"
+    assert predictions[0]["answer"] == "B"
+    assert predictions[0]["metadata"]["raw_answer"] == '{"choice": "B"}'
+    assert retrievals[0]["formatted_memory"] == "memory says B is correct"
+    assert retrievals[0]["metadata"]["prompt_track"] == "unified"
+    assert "Past memory: memory says B is correct" in retrievals[0]["answer_prompt"]
+    assert "B. B choice" in retrievals[0]["answer_prompt"]
+    assert private_labels[0]["metadata"]["ground_truth"] == "B"
+    assert evaluation.mean_score == 1.0
+    assert summary["mean_score"] == 1.0
+    assert summary["category_breakdown"][0]["category"] == "highlevel"
+
+
+def test_membench_registered_prediction_resume_completes_pending_trajectories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MemBench resume 应跳过已完成 trajectory conversation 并补完 pending 项。"""
+
+    prepared = PreparedBenchmarkRun(
+        variant="tiny",
+        run_scope=RunScope.SMOKE,
+        dataset=_build_tiny_membench_dataset(
+            ("membench-conv-1", "A"),
+            ("membench-conv-2", "C"),
+        ),
+        source_relative_paths=(),
+    )
+    _patch_membench_mock_prediction(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        prepared=prepared,
+        answer_by_question_text={
+            "Which option is correct for membench-conv-1?": "A",
+            "Which option is correct for membench-conv-2?": "C",
+        },
+    )
+
+    first = run_prediction_module.run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name="mock-v3",
+        benchmark_name="membench",
+        profile_name="smoke",
+        variant="tiny",
+        run_id="mock-v3-membench-resume",
+        confirm_api=False,
+        enable_efficiency_observability=False,
+        progress_enabled=False,
+        max_new_conversations=1,
+    )
+    resumed = run_prediction_module.run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name="mock-v3",
+        benchmark_name="membench",
+        profile_name="smoke",
+        variant="tiny",
+        run_id="mock-v3-membench-resume",
+        resume=True,
+        confirm_api=False,
+        enable_efficiency_observability=False,
+        progress_enabled=False,
+    )
+
+    run_dir = tmp_path / "outputs" / resumed.runs[0].run_id
+    paths = ExperimentPaths(run_dir=run_dir)
+    predictions = read_jsonl(run_dir / "artifacts" / "method_predictions.jsonl")
+    conversation_status = json.loads(
+        paths.conversation_status_path.read_text(encoding="utf-8")
+    )
+
+    assert first.runs[0].summary.completed_conversations == 1
+    assert first.runs[0].summary.completed_questions == 1
+    assert resumed.runs[0].summary.completed_conversations == 2
+    assert resumed.runs[0].summary.completed_questions == 2
+    assert [record["conversation_id"] for record in predictions] == [
+        "membench-conv-1",
+        "membench-conv-2",
+    ]
+    assert [record["answer"] for record in predictions] == ["A", "C"]
+    assert {
+        conversation_id: state["status"]
+        for conversation_id, state in conversation_status.items()
+    } == {
+        "membench-conv-1": "completed",
+        "membench-conv-2": "completed",
+    }
 
 
 def test_schema_v1_prediction_manifest_remains_evaluable(
@@ -1217,6 +1359,189 @@ def _build_run_dir(tmp_path: Path) -> Path:
     """创建标准实验目录。"""
 
     return ExperimentPaths.create(tmp_path / "unit-run").run_dir
+
+
+def _build_tiny_membench_dataset(
+    *conversation_specs: tuple[str, str],
+) -> Dataset:
+    """构造 MemBench tiny Dataset，每个 spec 是 conversation_id 与 ground_truth。"""
+
+    conversations: list[Conversation] = []
+    for conversation_id, ground_truth in conversation_specs:
+        question_id = f"{conversation_id}:q0"
+        conversations.append(
+            Conversation(
+                conversation_id=conversation_id,
+                sessions=[
+                    Session(
+                        session_id="s1",
+                        turns=[
+                            Turn(
+                                "1",
+                                "user",
+                                f"{conversation_id} public memory.",
+                            )
+                        ],
+                    )
+                ],
+                questions=[
+                    Question(
+                        question_id=question_id,
+                        conversation_id=conversation_id,
+                        text=f"Which option is correct for {conversation_id}?",
+                        question_time="2026-01-02",
+                        category="highlevel",
+                        options={
+                            "A": "A choice",
+                            "B": "B choice",
+                            "C": "C choice",
+                            "D": "D choice",
+                        },
+                    )
+                ],
+                gold_answers={
+                    question_id: GoldAnswerInfo(
+                        question_id=question_id,
+                        answer=f"{ground_truth} choice",
+                        metadata={
+                            "ground_truth": ground_truth,
+                            "question_type": "highlevel",
+                        },
+                    )
+                },
+            )
+        )
+    return Dataset(dataset_name="membench", conversations=conversations)
+
+
+def _patch_membench_mock_prediction(
+    *,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prepared: PreparedBenchmarkRun,
+    answer_by_question_text: dict[str, str],
+) -> None:
+    """把 registered prediction service patch 成离线 MemBench fake 运行。"""
+
+    real_membench_registration = get_benchmark_registration("membench")
+
+    class _FakeProfile:
+        """最小 mock-v3 profile。"""
+
+        profile_name = "smoke"
+
+        def to_manifest(self) -> dict[str, object]:
+            """返回公开 profile manifest。"""
+
+            return {"profile_name": "smoke"}
+
+    class _FakeOpenAIAnswerClient:
+        """离线 answer reader client。"""
+
+        model_name = "offline-answer"
+
+        def __init__(self, *, settings: OpenAISettings, answer_settings=None) -> None:
+            """校验不会触发真实网络 client。"""
+
+            assert settings.api_key == "sk-test"
+
+        def complete(self, *, prompt: str) -> str:
+            """根据 prompt 中的问题返回 JSON choice。"""
+
+            assert "Past memory:" in prompt
+            assert "Please output the correct option" in prompt
+            for question_text, answer in answer_by_question_text.items():
+                if question_text in prompt:
+                    return json.dumps({"choice": answer})
+            raise AssertionError(f"unexpected MemBench prompt: {prompt}")
+
+    fake_benchmark_registration = SimpleNamespace(
+        name="membench",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.MEMORY_RETRIEVAL,
+            }
+        ),
+        default_variant="tiny",
+        variant_names=lambda: ("tiny",),
+        prepare=lambda project_root, request: prepared,
+        prediction_enabled=True,
+        prompt_track=real_membench_registration.prompt_track,
+        unified_prompt_builder=real_membench_registration.unified_prompt_builder,
+        prediction_transform=real_membench_registration.prediction_transform,
+    )
+    fake_method_registration = SimpleNamespace(
+        name="mock-v3",
+        task_families=frozenset({TaskFamily.CONVERSATION_QA}),
+        provided_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.MEMORY_RETRIEVAL,
+            }
+        ),
+        requires_api=False,
+        allow_smoke_worker_override=True,
+        display_name="MockV3",
+        source_identity_factory=lambda path_settings: {"source": "mock-v3"},
+        max_workers_getter=lambda config: 1,
+        model_name_getter=lambda config: "mock-v3",
+        resolve_profile_section=lambda profile_name: profile_name,
+        system_factory=lambda context: MockMemoryProvider(
+            consume_granularity="turn",
+            context_by_question_id={
+                question.question_id: (
+                    f"memory says {conversation.gold_answers[question.question_id].metadata['ground_truth']} "
+                    "is correct"
+                )
+                for conversation in prepared.dataset.conversations
+                for question in conversation.questions
+            },
+        ),
+        workload_estimator=None,
+    )
+
+    monkeypatch.setattr(
+        run_prediction_module,
+        "get_benchmark_registration",
+        lambda name: fake_benchmark_registration,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "get_method_registration",
+        lambda name: fake_method_registration,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "load_method_profile",
+        lambda **kwargs: _FakeProfile(),
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "load_path_settings",
+        lambda project_root: SimpleNamespace(
+            project_root=tmp_path,
+            outputs_root=tmp_path / "outputs",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "load_openai_settings",
+        lambda project_root: OpenAISettings(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            model="gpt-4o-mini",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "OpenAICompatibleAnswerLLMClient",
+        _FakeOpenAIAnswerClient,
+        raising=False,
+    )
 
 
 def _write_manifest(run_dir: Path, *, benchmark_name: str) -> None:
