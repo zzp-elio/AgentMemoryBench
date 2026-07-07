@@ -378,10 +378,16 @@ tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_cl
 
 ## T6 收尾
 
-- [ ] 更新 ws02.1 README 断点与勾选、ws02 README 矩阵现状表（MemBench 列
+- [x] 更新 ws02.1 README 断点与勾选、ws02 README 矩阵现状表（MemBench 列
   标注"adapter 就绪待 smoke"）、`docs/reference/method-interface-inventory.md`
   不涉及（method 侧无改动）。
 - 验收：`git status` 干净；全部 commit 按 task 切分。
+
+验收输出：
+
+```text
+$ git status --short
+```
 
 ## 明确不做
 

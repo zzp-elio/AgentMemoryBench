@@ -17,10 +17,16 @@ created: 2026-07-05
 
 | | LoCoMo | LongMemEval | HaluMem | BEAM | MemBench |
 | --- | --- | --- | --- | --- | --- |
-| Mem0 / MemoryOS / A-Mem / LightMem | ✅ smoke+full(历史) | ✅ 1-conv pilot | ⬜ | ⬜ | ⬜ |
-| MemOS / SimpleMem / Letta / Cognee / LangMem / Supermemory | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| Mem0 / MemoryOS / A-Mem / LightMem | ✅ smoke+full(历史) | ✅ 1-conv pilot | ⬜ | ⬜ | 🧩 adapter 就绪待 smoke |
+| MemOS / SimpleMem / Letta / Cognee / LangMem / Supermemory | ⬜ | ⬜ | ⬜ | ⬜ | 🧩 adapter 就绪待 smoke |
 
 ## 当前断点
+
+- 2026-07-07（Codex）：ws02.1 MemBench adapter T1-T6 已完成并逐 task commit；
+  loader/registry/unified reader/choice accuracy/fake registered prediction →
+  evaluation/resume 回归均通过，全量基线保持 **791 passed**。MemBench 列已进入
+  **adapter 就绪待真实 smoke** 状态；下一步交架构师复跑验收，真实 smoke 需用户
+  另行确认预算。
 
 - 2026-07-07（最新，Codex）：Track 0 收尾项 `third_party` vendor 裁剪评估已完成：
   [audits/vendor-trim-evaluation.md](audits/vendor-trim-evaluation.md)。纯静态调研，
