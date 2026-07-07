@@ -73,10 +73,8 @@ Please output the correct option for the question, only one corresponding letter
 Example: D
 """
 
-_MEMBENCH_CHOICE_PATTERN = re.compile(
-    r"(?<![A-Za-z])([ABCD])(?![A-Za-z])",
-    re.IGNORECASE,
-)
+_MEMBENCH_CHOICE_PATTERN_UPPER = re.compile(r"(?<![A-Za-z])([ABCD])(?![A-Za-z])")
+_MEMBENCH_CHOICE_PATTERN_LOWER = re.compile(r"(?<![A-Za-z])([abcd])(?![A-Za-z])")
 
 
 class MemBenchAdapter(BenchmarkAdapter):
@@ -319,7 +317,12 @@ def normalize_membench_choice_prediction(prediction: AnswerResult) -> AnswerResu
 
 
 def parse_membench_choice(raw_answer: str) -> str:
-    """从 reader 输出中提取 A/B/C/D，失败返回 `invalid_choice`。"""
+    """从 reader 输出中提取 A/B/C/D，失败返回 `invalid_choice`。
+
+    先只匹配大写独立字母，再回退到小写：英文叙述里独立小写 "a" 是冠词
+    （如 "bought a bike, so the answer is C"），若与大写同权且取首个匹配
+    会把这类输出错判为 A。
+    """
 
     text = str(raw_answer).strip()
     if not text:
@@ -327,7 +330,9 @@ def parse_membench_choice(raw_answer: str) -> str:
     json_choice = _choice_from_json_text(text)
     if json_choice is not None:
         return json_choice
-    match = _MEMBENCH_CHOICE_PATTERN.search(text)
+    match = _MEMBENCH_CHOICE_PATTERN_UPPER.search(text)
+    if match is None:
+        match = _MEMBENCH_CHOICE_PATTERN_LOWER.search(text)
     if match is None:
         return "invalid_choice"
     return match.group(1).upper()

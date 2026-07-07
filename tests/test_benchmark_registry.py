@@ -584,6 +584,9 @@ def test_membench_unified_prompt_builder_uses_official_instruction_first() -> No
         ("The answer is C.", "C"),
         ('{"choice": "d"}', "D"),
         ("I cannot decide", "invalid_choice"),
+        # 大写优先：独立小写 "a" 是英文冠词，不得抢在真实选项字母之前
+        ("Alex bought a bike, so the answer is C.", "C"),
+        ("the answer is a", "A"),
     ],
 )
 def test_membench_choice_parser_accepts_common_reader_outputs(
