@@ -243,9 +243,10 @@ Dataset
 粒度由实例级 `consume_granularity` 声明、框架事件流聚合投递。协议全文：
 [docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md](docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md)。
 
-四个内置 method adapter（Mem0、MemoryOS、A-Mem、LightMem）当前通过兼容桥接运行，
-仍使用 `add(conversation) + retrieve(question)` 的 v2 接口形态；原生 v3 迁移属
-M-B/M-C 阶段（见 ws02 plan）。新 method 接入应直接按 v3 协议实现 `MemoryProvider`。
+五个内置 method adapter（Mem0、MemoryOS、A-Mem、LightMem、SimpleMem）均已原生
+实现 v3 `MemoryProvider`（M-B 原生化于 2026-07-06 验收通过），registered 主路径
+不经过桥接；`LegacyProviderBridge` 仅服务 `--method-class` 自定义旧式 provider
+（`add + retrieve` 的 v2 形态）。新 method 接入应直接实现 v3 `MemoryProvider`。
 
 ```python
 from memory_benchmark.core import (

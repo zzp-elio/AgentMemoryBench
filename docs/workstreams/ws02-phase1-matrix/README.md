@@ -23,11 +23,21 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-07（最新，架构师，晚间收官）：**真实 API 对照 smoke 全部通过，
+  协议 v3 重构正式收官**——LoCoMo 四条 + LightMem×LongMemEval 重跑（修复后
+  同一 conversation e47becba：跑通、manifest `protocol_version=v3`、
+  sentinel=0、答案正常）。三张 actor 任务卡验收结果：① SimpleMem T2-T6
+  （Codex）**零缺陷通过**（见 ws02.4 README）；② manifest 协议章修复
+  （DeepSeek+CC）方向执行正确、测试矩阵完整，但**漏了 workers=1 根实例
+  路径的交叉校验**（声明错误时会静默错盖章）——架构师补一行校验 + 回归
+  测试；③ docs 清理（DeepSeek+CC）triage 合格，但把"四 adapter 仍走桥接"
+  的**过时事实写进了刚刷新的 README**——架构师已改正（M-B 起五个内置
+  adapter 均原生 v3）。已知问题 2（isolated-worker manifest 缺章）**已闭环**。
+  新基线 **819 passed**。教训入 playbook：文档刷新类任务卡必须指定事实源。
 - 2026-07-07（Codex）：ws02.4 SimpleMem adapter T1-T6 已完成并逐 task commit；
   text backend 原生 v3 provider 已接入 registry，LoCoMo / LongMemEval registered
-  fake smoke 均通过，`method-interface-inventory.md` 已补 SimpleMem 节。全量回归
-  **810 passed**，高于 802 基线；下一步交架构师复跑验收，真实 smoke 需用户
-  另行确认预算。
+  fake smoke 均通过，`method-interface-inventory.md` 已补 SimpleMem 节。
+  架构师验收通过（见上）。
 
 - 2026-07-07（最新，架构师）：**真实 API 对照 smoke 抓到并修复协议 v3 首个
   回归**。四条 LoCoMo smoke（mem0/memoryos/amem/lightmem, workers=2）跑通；

@@ -1,7 +1,7 @@
 ---
 id: ws02.4
 parent: ws02
-status: in-review
+status: accepted (真实 smoke 待预算)
 created: 2026-07-07
 ---
 # ws02.4 SimpleMem Adapter（Track C 第一个新 method）
@@ -14,6 +14,18 @@ created: 2026-07-07
 
 ## 当前断点
 
+- 2026-07-07（最新，架构师）：**T1-T6 验收通过（APPROVED，零缺陷）**。复核项：
+  `consume_granularity="turn"` + `add_dialogue(speaker, content, ISO 时间)`、
+  `end_conversation→finalize()` 幂等、retrieve 绕开 `ask()` 直连
+  `hybrid_retriever.retrieve`（R1 合规）、formatted_memory =
+  `[timestamp] lossless_restatement`、native prompt 复刻官方 AnswerGenerator
+  （`answer_generator.py:43-52,117-153` 引注在案）、LanceDB per-isolation
+  目录 + conversation marker + clean retry hook 注册、LLM usage 经
+  chat_completion 包装计量（tiktoken 回退）。一处观察项（非缺陷）：官方
+  `simplemem.core.settings` 是模块级单例，adapter 每次建 system 会整体覆写；
+  关键 per-isolation 值（db_path/table）已通过构造参数显式传入，其余为
+  全实例同值，线程并行下无实质冲突，真实 smoke 时留意即可。架构师复跑
+  全量回归通过。剩余：极小真实 smoke（待用户确认预算）。
 - 2026-07-07（Codex）：SimpleMem PLAN T1-T6 已完成并逐 task commit。当前实现
   接入 SimpleMem text backend 原生 v3 provider：turn 级 `ingest()`、conversation
   末尾 `finalize()`、绕开 `ask()` 的 retrieve-first 路径、failed_ingest clean retry
@@ -31,7 +43,7 @@ created: 2026-07-07
 - [x] 架构师起草 spec+plan 合订本（2026-07-07）
 - [x] 用户批准 + 下载 Qwen3-Embedding-0.6B 本地模型（2026-07-07）
 - [x] Codex 施工 T1-T6
-- [ ] 架构师验收
+- [x] 架构师验收（2026-07-07，零缺陷）
 - [ ] 极小真实 smoke（待用户确认预算）
 
 ## 决策记录
