@@ -9,6 +9,7 @@ from .llm_judge import (
 from .locomo_f1 import LoCoMoF1Evaluator, normalize_qa_answer
 from .locomo_judge import LoCoMoJudgeEvaluator
 from .longmemeval_judge import LongMemEvalJudgeEvaluator
+from .membench_choice_accuracy import MemBenchChoiceAccuracyEvaluator
 from .registry import (
     EvaluatorRegistration,
     create_evaluator,
@@ -25,6 +26,7 @@ __all__ = [
     "LoCoMoF1Evaluator",
     "LoCoMoJudgeEvaluator",
     "LongMemEvalJudgeEvaluator",
+    "MemBenchChoiceAccuracyEvaluator",
     "create_evaluator",
     "get_evaluator_registration",
     "list_metrics",

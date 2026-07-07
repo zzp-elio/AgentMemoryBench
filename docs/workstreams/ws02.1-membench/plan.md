@@ -286,11 +286,46 @@ tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_cl
 
 ## T4 Evaluator
 
-- [ ] `membench_choice_accuracy`：deterministic exact match
+- [x] `membench_choice_accuracy`：deterministic exact match
   （prediction letter == ground_truth），`requires_api=False`；复用
   `category_breakdown` 按 question_type 聚合；evaluator registry 注册。
 - 验收：evaluator focused 测试全绿（正确/错误/invalid_choice 三态 +
   category 聚合断言）。
+
+验收输出：
+
+```text
+$ uv run pytest tests/test_membench_choice_accuracy.py tests/test_evaluator_registry.py -q
+.........                                                                [100%]
+9 passed in 1.19s
+```
+
+```text
+$ uv run pytest -q
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 27%]
+.................................................................... [ 35%]
+........................................................................ [ 45%]
+........................................................................ [ 54%]
+...................................................................... [ 63%]
+........................................................................ [ 72%]
+........................................................................ [ 81%]
+........................................................................ [ 90%]
+........................................................................ [ 99%]
+...                                                                      [100%]
+=============================== warnings summary ===============================
+tests/test_amem_adapter.py::test_amem_can_import_official_robust_layer_without_calling_api
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/A-mem/memory_layer.py:1: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    from ast import Str
+
+tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_class
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem/src/lightmem/configs/logging/base.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class LoggingConfig(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+789 passed, 3 deselected, 2 warnings, 6 subtests passed in 93.47s (0:01:33)
+```
 
 ## T5 Fake 全链路
 
