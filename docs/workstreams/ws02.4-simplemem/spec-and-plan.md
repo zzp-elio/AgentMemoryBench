@@ -2,10 +2,10 @@
 id: ws02.4
 parent: ws02
 doc: spec+plan（小型 method 接入合订本）
-status: draft
+status: approved (2026-07-07 用户批准；text-only 裁定获认可；Qwen3 emb 已下载)
 created: 2026-07-07
 ---
-# ws02.4 SimpleMem Adapter 设计与实施（合订本，待用户批准）
+# ws02.4 SimpleMem Adapter 设计与实施（合订本，已批准）
 
 作者：Claude（架构师）。依据：
 [mechanism-simplemem.md](../ws02-phase1-matrix/audits/mechanism-simplemem.md)

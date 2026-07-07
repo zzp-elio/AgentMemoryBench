@@ -14,14 +14,13 @@ created: 2026-07-07
 
 ## 当前断点
 
-- 2026-07-07：spec+plan 合订本已起草（小型 method 接入先例），
-  **等待用户批准**；批准后 Codex 按 PLAN 部分 T1-T6 施工。
-  用户前置动作：下载 `Qwen/Qwen3-Embedding-0.6B` 到 `models/`（T1 会强校验）。
+- 2026-07-07：**用户已批准 + Qwen3-Embedding-0.6B 已下载到 models/**。
+  Codex 队列第②项解锁，按 PLAN 部分 T1-T6 施工。
 
 ## 任务清单
 
 - [x] 架构师起草 spec+plan 合订本（2026-07-07）
-- [ ] 用户批准 + 下载 Qwen3-Embedding-0.6B 本地模型
+- [x] 用户批准 + 下载 Qwen3-Embedding-0.6B 本地模型（2026-07-07）
 - [ ] Codex 施工 T1-T6
 - [ ] 架构师验收
 - [ ] 极小真实 smoke（待用户确认预算）
