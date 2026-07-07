@@ -6,14 +6,25 @@ T1 先落地配置、资源校验、source identity 和 registry 骨架；后续
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from datetime import datetime
 import hashlib
 from pathlib import Path
+import re
 from typing import Any
 
 from memory_benchmark.config import PathSettings, load_path_settings
 from memory_benchmark.core import ConfigurationError
-from memory_benchmark.core.provider_protocol import MemoryProvider
+from memory_benchmark.core.provider_protocol import (
+    IngestResult,
+    IngestUnit,
+    MemoryProvider,
+    RetrievalQuery,
+    RetrievalResult,
+    TurnEvent,
+    UnitRef,
+)
 
 
 SIMPLEMEM_ADAPTER_VERSION = "simplemem-text-v1"
@@ -21,6 +32,28 @@ SIMPLEMEM_METHOD_DIRECTORY = "SimpleMem"
 SIMPLEMEM_OFFICIAL_PROFILE_NAME = "official-text-v1"
 SIMPLEMEM_WRAPPER_LOGICAL_PATH = "src/memory_benchmark/methods/simplemem_adapter.py"
 SIMPLEMEM_SOURCE_MODE = "vendored-simplemem-text-plus-wrapper"
+_LOCOMO_TIMESTAMP_PATTERN = re.compile(
+    r"^\s*(?P<hour>\d{1,2}):(?P<minute>\d{2})\s*"
+    r"(?P<period>am|pm)\s+on\s+"
+    r"(?P<day>\d{1,2})\s+(?P<month>[A-Za-z]+),\s*"
+    r"(?P<year>\d{4})\s*$",
+    re.IGNORECASE,
+)
+_MONTHS = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+SimpleMemSystemFactory = Callable[[str, Path], Any]
 
 
 @dataclass(frozen=True)
@@ -105,7 +138,7 @@ class SimpleMemConfig:
 
 
 class SimpleMem(MemoryProvider):
-    """SimpleMem text backend provider 占位骨架。"""
+    """SimpleMem text backend provider。"""
 
     consume_granularity = "turn"
     session_memory_report = False
@@ -117,23 +150,135 @@ class SimpleMem(MemoryProvider):
         config: SimpleMemConfig,
         path_settings: PathSettings,
         storage_root: Path,
+        system_factory: SimpleMemSystemFactory | None = None,
     ) -> None:
-        """保存构造依赖；真实第三方系统初始化在 T2 落地。"""
+        """保存构造依赖并延迟初始化每个 isolation 的 SimpleMemSystem。"""
 
         config.validate_required_local_resources(path_settings)
         self.config = config
         self.path_settings = path_settings
         self.storage_root = storage_root
+        self._system_factory = system_factory
+        self._systems_by_isolation_key: dict[str, Any] = {}
+        self._finalized_isolation_keys: set[str] = set()
 
-    def ingest(self, unit):  # pragma: no cover - T2 实现
-        """写入 SimpleMem ingest unit；T2 补齐。"""
+    def ingest(self, unit: IngestUnit) -> IngestResult | None:
+        """把 turn 事件写入 SimpleMem 的 `add_dialogue()` 入口。"""
 
-        raise NotImplementedError("SimpleMem ingest is implemented in T2")
+        if not isinstance(unit, TurnEvent):
+            raise ConfigurationError("SimpleMem native provider only accepts TurnEvent")
+        system = self._system_for_isolation_key(unit.isolation_key)
+        timestamp = parse_simplemem_timestamp(unit.timestamp)
+        speaker = unit.speaker_name or unit.role
+        system.add_dialogue(
+            speaker=speaker,
+            content=unit.content,
+            timestamp=timestamp,
+        )
+        return IngestResult(
+            unit_ref=UnitRef(isolation_key=unit.isolation_key),
+            metadata={
+                "method": "simplemem",
+                "turn_id": unit.turn_id,
+                "timestamp": timestamp,
+            },
+        )
 
-    def retrieve(self, query):  # pragma: no cover - T3 实现
+    def end_conversation(self, ref: UnitRef) -> None:
+        """在隔离单元结束时调用 SimpleMem `finalize()` 处理残余窗口。"""
+
+        if ref.isolation_key in self._finalized_isolation_keys:
+            return None
+        system = self._systems_by_isolation_key.get(ref.isolation_key)
+        if system is None:
+            return None
+        system.finalize()
+        self._finalized_isolation_keys.add(ref.isolation_key)
+        return None
+
+    def retrieve(self, query: RetrievalQuery) -> RetrievalResult:  # pragma: no cover - T3 实现
         """执行 SimpleMem retrieve；T3 补齐。"""
 
         raise NotImplementedError("SimpleMem retrieve is implemented in T3")
+
+    def _system_for_isolation_key(self, isolation_key: str) -> Any:
+        """返回 isolation 专属 SimpleMemSystem，必要时创建状态目录。"""
+
+        system = self._systems_by_isolation_key.get(isolation_key)
+        if system is not None:
+            return system
+        state_dir = self.storage_root / _state_dir_name(isolation_key)
+        state_dir.mkdir(parents=True, exist_ok=True)
+        if self._system_factory is not None:
+            system = self._system_factory(isolation_key, state_dir)
+        else:
+            system = self._create_official_system(isolation_key, state_dir)
+        self._systems_by_isolation_key[isolation_key] = system
+        return system
+
+    def _create_official_system(self, isolation_key: str, state_dir: Path) -> Any:
+        """构造官方 SimpleMemSystem；T5 前真实路径不应被无配置调用。"""
+
+        raise ConfigurationError(
+            "SimpleMem production system factory is not configured: "
+            f"{isolation_key}"
+        )
+
+
+def parse_simplemem_timestamp(raw_timestamp: str | None) -> str | None:
+    """把 benchmark 原始时间转成 SimpleMem 可接受的 ISO 字符串。"""
+
+    if raw_timestamp is None:
+        return None
+    value = raw_timestamp.strip()
+    if not value:
+        return None
+    iso_value = _parse_iso_timestamp(value)
+    if iso_value is not None:
+        return iso_value
+    match = _LOCOMO_TIMESTAMP_PATTERN.match(value)
+    if match is None:
+        return None
+    month = _MONTHS.get(match.group("month").lower())
+    if month is None:
+        return None
+    hour = int(match.group("hour"))
+    minute = int(match.group("minute"))
+    if not 1 <= hour <= 12 or not 0 <= minute <= 59:
+        return None
+    period = match.group("period").lower()
+    if period == "pm" and hour != 12:
+        hour += 12
+    if period == "am" and hour == 12:
+        hour = 0
+    try:
+        parsed = datetime(
+            int(match.group("year")),
+            month,
+            int(match.group("day")),
+            hour,
+            minute,
+        )
+    except ValueError:
+        return None
+    return parsed.isoformat(timespec="seconds")
+
+
+def _parse_iso_timestamp(value: str) -> str | None:
+    """解析已有 ISO 时间；不可解析时返回 None。"""
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.isoformat(timespec="seconds")
+
+
+def _state_dir_name(isolation_key: str) -> str:
+    """把任意 isolation key 映射为安全、稳定的状态目录名。"""
+
+    digest = hashlib.sha256(isolation_key.encode("utf-8")).hexdigest()[:16]
+    return f"isolation_{digest}"
 
 
 def build_simplemem_source_identity(
@@ -255,4 +400,5 @@ __all__ = [
     "SimpleMem",
     "SimpleMemConfig",
     "build_simplemem_source_identity",
+    "parse_simplemem_timestamp",
 ]

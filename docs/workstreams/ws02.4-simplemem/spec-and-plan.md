@@ -205,10 +205,18 @@ created: 2026-07-07
   -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
   798 passed, 3 deselected, 2 warnings, 6 subtests passed in 94.86s (0:01:34)
   ```
-- [ ] **T2 写入链路**：`ingest(TurnEvent)` + 时间转换器 + `end_conversation→
+- [x] **T2 写入链路**：`ingest(TurnEvent)` + 时间转换器 + `end_conversation→
   finalize()`；fake SimpleMemSystem 记录调用序列，断言逐 turn add_dialogue
   顺序、timestamp 转换、finalize 恰在末尾一次。验收：adapter ingest focused
   全绿。
+
+  验收输出：
+
+  ```text
+  $ uv run pytest tests/test_simplemem_adapter.py -q
+  .......                                                                  [100%]
+  7 passed in 0.32s
+  ```
 - [ ] **T3 检索链路**：retrieve 绕开 ask、formatted_memory 拼接规则、
   native prompt_messages 复刻 AnswerGenerator 模板（文本摘录注行号）。
   验收：retrieve focused + prompt 结构断言全绿。
