@@ -3519,3 +3519,27 @@ def test_validate_protocol_version_v2_bridged_rejects_memory_provider() -> None:
 
     with pytest.raises(ConfigurationError, match="declares protocol_version='v2-bridged'"):
         _validate_protocol_version("v2-bridged", _FakeV3Provider())
+
+
+def test_run_predictions_single_worker_cross_validates_declared_protocol(
+    tmp_path: Path,
+) -> None:
+    """workers=1 根实例路径同样必须交叉校验声明协议，防止静默错盖章。
+
+    isolated worker 路径已在 `_isolated_worker` 内校验；若单 worker 路径不校验，
+    错误声明会以声明值直接盖进 manifest 且无人发现。
+    """
+
+    context = _create_context(tmp_path)
+
+    with pytest.raises(ConfigurationError, match="declares protocol_version='v3'"):
+        run_predictions(
+            dataset=_build_dataset(),
+            system=RecordingPredictionSystem(),
+            run_context=context,
+            policy=PredictionRunPolicy(max_workers=1),
+            method_manifest={"adapter": "recording-v1"},
+            benchmark_variant="test_variant",
+            run_scope=RunScope.FULL,
+            protocol_version="v3",
+        )

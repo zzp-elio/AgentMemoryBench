@@ -258,6 +258,18 @@ def test_amem_registered_prediction_runs_generic_runner_offline(
         raising=False,
     )
     monkeypatch.setattr(method_registry_module, "AMem", FakeAMemForRegisteredPrediction)
+    # FakeAMemForRegisteredPrediction 仍是旧协议 BaseMemoryProvider 形态（经桥接
+    # 运行），协议声明必须与 fake 实际形态一致，否则运行时交叉校验 fail-fast；
+    # fake 升级为原生 v3 形态归入 ws06 tests-restructure。
+    legacy_registration = replace(
+        method_registry_module.get_method_registration("amem"),
+        protocol_version="v2-bridged",
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "get_method_registration",
+        lambda method_name: legacy_registration,
+    )
 
     result = run_prediction_module.run_registered_conversation_qa_prediction(
         project_root=PROJECT_ROOT,

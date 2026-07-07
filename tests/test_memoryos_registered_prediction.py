@@ -315,6 +315,10 @@ def _patch_memoryos_registration(
 
     registration = replace(
         method_registry_module.get_method_registration("memoryos"),
+        # 本文件的 _FakeMemoryOS 仍是旧协议 BaseMemoryProvider 形态（经桥接运行），
+        # 协议声明必须与 fake 实际形态一致，否则运行时交叉校验会 fail-fast。
+        # fake 升级为原生 v3 形态归入 ws06 tests-restructure。
+        protocol_version="v2-bridged",
         source_identity_factory=lambda path_settings: {"source": "fake-memoryos"},
         efficiency_instrumentation_identity_getter=lambda path_settings, config, source_identity: {
             "collector_schema": 1,

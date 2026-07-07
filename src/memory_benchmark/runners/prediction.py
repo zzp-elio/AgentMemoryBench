@@ -525,6 +525,7 @@ def run_predictions(
                 protocol_version=protocol_version,
             )
         else:
+            _validate_protocol_version(protocol_version, system)
             ingest_conversations = [
                 item.conversation for item in work_plan.items if item.needs_ingest
             ]
