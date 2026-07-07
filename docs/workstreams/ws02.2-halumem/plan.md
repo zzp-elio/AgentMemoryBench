@@ -121,6 +121,19 @@ $ uv run pytest -q
 
 这两项并入 actor 下一批（与 T3 同批 re-touch T1）。
 
+T1 re-touch 执行记录（2026-07-07，Codex）：
+
+```text
+$ uv run pytest tests/test_halumem_adapter.py -q
+.......                                                                  [100%]
+7 passed in 0.04s
+```
+
+```text
+$ uv run pytest -q
+828 passed, 3 deselected, 2 warnings, 6 subtests passed in 101.26s (0:01:41)
+```
+
 ### T2 benchmark registration + operation-level 分派声明 ✅
 
 改动范围：`benchmark_adapters/registry.py`（+ 可能

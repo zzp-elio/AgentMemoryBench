@@ -202,7 +202,10 @@ def prepare_halumem_run(
     if request.run_scope is RunScope.FULL:
         dataset = adapter.load()
     elif request.run_scope is RunScope.SMOKE:
-        dataset = adapter.load(limit=request.smoke_conversation_limit)
+        dataset = _build_halumem_smoke_dataset(
+            adapter.load(limit=request.smoke_conversation_limit),
+            session_limit_per_user=request.smoke_turn_limit,
+        )
     else:  # pragma: no cover - RunScope 只有 smoke / full
         raise ConfigurationError(f"unsupported HaluMem run scope: {request.run_scope}")
 
@@ -395,7 +398,7 @@ def _questions_from_raw(
         question_text = _required_text(question_raw, "question", question_id)
         answer_text = _required_text(question_raw, "answer", question_id)
         raw_evidence = _optional_list(question_raw.get("evidence"), "evidence")
-        evidence_indices = _evidence_memory_indices(raw_evidence, memory_points)
+        evidence_memory_contents = _evidence_memory_contents(raw_evidence)
 
         questions.append(
             Question(
@@ -408,7 +411,7 @@ def _questions_from_raw(
         gold_answers[question_id] = GoldAnswerInfo(
             question_id=question_id,
             answer=answer_text,
-            evidence=evidence_indices,
+            evidence=evidence_memory_contents,
             metadata={
                 "answer": answer_text,
                 "raw_evidence": copy.deepcopy(raw_evidence),
@@ -425,29 +428,90 @@ def _questions_from_raw(
     return questions, gold_answers
 
 
-def _evidence_memory_indices(
-    raw_evidence: list[Any],
-    memory_points: list[Any],
-) -> list[str]:
-    """把 question evidence 文本映射为本 session memory point index。"""
+def _evidence_memory_contents(raw_evidence: list[Any]) -> list[str]:
+    """从 question evidence 中提取 judge 需要的 memory_content 文本。"""
 
-    indices: list[str] = []
+    memory_contents: list[str] = []
     for evidence in raw_evidence:
         if not isinstance(evidence, dict):
             continue
         evidence_content = evidence.get("memory_content")
-        evidence_type = evidence.get("memory_type")
-        for memory_point in memory_points:
-            if not isinstance(memory_point, dict):
-                continue
-            if memory_point.get("memory_content") != evidence_content:
-                continue
-            if evidence_type is not None and memory_point.get("memory_type") != evidence_type:
-                continue
-            if "index" in memory_point:
-                indices.append(str(memory_point["index"]))
-            break
-    return indices
+        if isinstance(evidence_content, str) and evidence_content.strip():
+            memory_contents.append(evidence_content.strip())
+    return memory_contents
+
+
+def _build_halumem_smoke_dataset(
+    dataset: Dataset,
+    *,
+    session_limit_per_user: int,
+) -> Dataset:
+    """按每个 user 前 M 个完整 session 裁剪 HaluMem smoke 数据。"""
+
+    if session_limit_per_user < 1:
+        raise ConfigurationError("HaluMem smoke session limit must be at least 1")
+
+    cropped_conversations: list[Conversation] = []
+    total_original_session_count = 0
+    total_retained_session_count = 0
+    for conversation in dataset.conversations:
+        retained_sessions = copy.deepcopy(
+            conversation.sessions[:session_limit_per_user]
+        )
+        retained_session_ids = {session.session_id for session in retained_sessions}
+        retained_questions = [
+            copy.deepcopy(question)
+            for question in conversation.questions
+            if _question_session_id(question.question_id) in retained_session_ids
+        ]
+        retained_gold_answers = {
+            question.question_id: copy.deepcopy(
+                conversation.gold_answers[question.question_id]
+            )
+            for question in retained_questions
+        }
+        total_original_session_count += len(conversation.sessions)
+        total_retained_session_count += len(retained_sessions)
+        metadata = copy.deepcopy(conversation.metadata)
+        metadata.update(
+            {
+                "smoke_session_limit_per_user": session_limit_per_user,
+                "smoke_original_session_count": len(conversation.sessions),
+                "smoke_retained_session_count": len(retained_sessions),
+            }
+        )
+        cropped_conversations.append(
+            Conversation(
+                conversation_id=conversation.conversation_id,
+                sessions=retained_sessions,
+                questions=retained_questions,
+                gold_answers=retained_gold_answers,
+                metadata=metadata,
+            )
+        )
+
+    metadata = copy.deepcopy(dataset.metadata)
+    metadata.update(
+        {
+            "smoke_session_limit_per_user": session_limit_per_user,
+            "smoke_original_session_count": total_original_session_count,
+            "smoke_retained_session_count": total_retained_session_count,
+        }
+    )
+    return Dataset(
+        dataset_name=dataset.dataset_name,
+        conversations=cropped_conversations,
+        metadata=metadata,
+    )
+
+
+def _question_session_id(question_id: str) -> str | None:
+    """从 HaluMem question_id 中解析 session_id。"""
+
+    parts = question_id.split(":")
+    if len(parts) < 3:
+        return None
+    return parts[-2]
 
 
 def _required_text(payload: dict[str, Any], key: str, context: str) -> str:

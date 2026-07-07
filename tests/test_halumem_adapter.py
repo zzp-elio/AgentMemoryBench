@@ -110,7 +110,20 @@ def _user_row(uuid: str = "user-1") -> dict[str, Any]:
                         "dialogue_turn": 0,
                     }
                 ],
-                "questions": [],
+                "questions": [
+                    {
+                        "question": "Where did Riley previously live?",
+                        "answer": "Boston",
+                        "evidence": [
+                            {
+                                "memory_content": "Riley lives in Boston",
+                                "memory_type": "Persona Memory",
+                            }
+                        ],
+                        "difficulty": "medium",
+                        "question_type": "Dynamic Update",
+                    }
+                ],
             },
             {
                 "session_id": "generated-context",
@@ -162,10 +175,11 @@ def test_synthetic_user_maps_user_sessions_turns_questions_and_private_gold(
     assert question.text == "Where does Riley live?"
     assert question.metadata == {}
     assert gold.answer == "Boston"
-    assert gold.evidence == ["1"]
+    assert gold.evidence == ["Riley lives in Boston"]
     assert gold.metadata["difficulty"] == "easy"
     assert gold.metadata["question_type"] == "Basic Fact Recall"
     assert gold.metadata["raw_evidence"][0]["memory_content"] == "Riley lives in Boston"
+    assert gold.metadata["raw_evidence"][0]["memory_type"] == "Persona Memory"
     assert first_session.private_metadata["memory_points"][1]["memory_content"] == (
         "Riley likes tea"
     )
@@ -194,20 +208,38 @@ def test_public_conversation_excludes_gold_memory_points_and_generated_flag(
     assert "Boston" not in public["questions"][0]
 
 
-def test_session_private_metadata_preserves_generated_flag_and_no_question_gold(
+def test_gold_evidence_preserves_cross_session_memory_content(
     tmp_path: Path,
 ) -> None:
-    """无 question 的 session 仍须保留私有 memory_points；生成标志只在私有侧。"""
+    """跨 session evidence 应保留 memory_content，不能映射成本 session index。"""
+
+    source = tmp_path / "data" / "halumem" / "HaluMem-Medium.jsonl"
+    _write_jsonl(source, [_user_row()])
+    conversation = HaluMemAdapter(tmp_path, variant="medium").load().conversations[0]
+    cross_session_question = conversation.questions[1]
+    gold = conversation.gold_answers[cross_session_question.question_id]
+
+    assert gold.evidence == ["Riley lives in Boston"]
+    assert gold.metadata["raw_evidence"][0] == {
+        "memory_content": "Riley lives in Boston",
+        "memory_type": "Persona Memory",
+    }
+
+
+def test_session_private_metadata_preserves_generated_flag(
+    tmp_path: Path,
+) -> None:
+    """session 私有 metadata 须保留 memory_points 与生成标志。"""
 
     source = tmp_path / "data" / "halumem" / "HaluMem-Medium.jsonl"
     _write_jsonl(source, [_user_row()])
     conversation = HaluMemAdapter(tmp_path, variant="medium").load().conversations[0]
 
-    no_question_session = conversation.sessions[1]
+    update_session = conversation.sessions[1]
     generated_session = conversation.sessions[2]
 
-    assert no_question_session.private_metadata["memory_points"][0]["index"] == 3
-    assert no_question_session.private_metadata["is_generated_qa_session"] is False
+    assert update_session.private_metadata["memory_points"][0]["index"] == 3
+    assert update_session.private_metadata["is_generated_qa_session"] is False
     assert generated_session.session_id == "generated-context"
     assert generated_session.session_time is None
     assert generated_session.turns[0].turn_time is None
@@ -238,7 +270,7 @@ def test_halumem_variants_declare_medium_and_long_sources() -> None:
 
 
 def test_prepare_halumem_run_smoke_limits_user_count(tmp_path: Path) -> None:
-    """smoke_conversation_limit 应按 HaluMem user 数裁剪，不新增契约字段。"""
+    """smoke 应按 user 数与每 user 前 M 个完整 session 裁剪。"""
 
     medium = tmp_path / "data" / "halumem" / "HaluMem-Medium.jsonl"
     long = tmp_path / "data" / "halumem" / "HaluMem-Long.jsonl"
@@ -250,6 +282,7 @@ def test_prepare_halumem_run_smoke_limits_user_count(tmp_path: Path) -> None:
         BenchmarkLoadRequest(
             variant="medium",
             run_scope=RunScope.SMOKE,
+            smoke_turn_limit=2,
             smoke_conversation_limit=1,
         ),
     )
@@ -261,4 +294,11 @@ def test_prepare_halumem_run_smoke_limits_user_count(tmp_path: Path) -> None:
     )
     assert prepared.dataset.metadata["run_scope"] == "smoke"
     assert prepared.dataset.metadata["variant"] == "medium"
+    assert prepared.dataset.metadata["smoke_session_limit_per_user"] == 2
     assert len(prepared.dataset.conversations) == 1
+    assert len(prepared.dataset.conversations[0].sessions) == 2
+    assert [session.session_id for session in prepared.dataset.conversations[0].sessions] == [
+        "s1",
+        "s2",
+    ]
+    assert len(prepared.dataset.conversations[0].questions) == 2
