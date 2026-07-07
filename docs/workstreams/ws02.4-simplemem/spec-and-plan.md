@@ -282,8 +282,20 @@ created: 2026-07-07
   $ uv run python -m compileall -q src/memory_benchmark tests
   # 无输出
   ```
-- [ ] **T6 收尾**：method-interface-inventory 增 SimpleMem 节、ws02 README
+- [x] **T6 收尾**：method-interface-inventory 增 SimpleMem 节、ws02 README
   矩阵表更新、本 README 勾选与断点。验收：git status 干净。
+
+  验收输出：
+
+  ```text
+  $ git diff --check
+  # 无输出
+  ```
+
+  ```text
+  $ git status --short
+  # 无输出
+  ```
 
 ## 明确不做
 

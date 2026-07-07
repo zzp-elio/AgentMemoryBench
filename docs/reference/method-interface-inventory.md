@@ -1,6 +1,6 @@
 # Method 原生接口清单
 
-更新日期：2026-07-06
+更新日期：2026-07-07
 
 本文记录第三方 method 仓库原生暴露的接口、官方实验脚本的调用方式，以及本项目 adapter
 应该如何包装成统一 memory-module 接口。
@@ -155,6 +155,32 @@ framework answer LLM(prompt_messages) -> answer
 | 当前 adapter 状态 | M-B 后为原生 v3 `MemoryProvider`：LoCoMo 默认 `consume_granularity=turn`，LongMemEval 由 registry 按 benchmark profile 实例级特化为 `pair`；`ingest()` 使用一拍缓冲保证最后一批 `force_segment=True, force_extract=True` 与桥接路径一致，`end_conversation()` 执行 LoCoMo `construct_update_queue_all_entries()` 与 `offline_update_all_entries(score_threshold=0.9)`；`retrieve(RetrievalQuery)` 保留 LoCoMo `search_locomo.py` 风格 Qdrant payload/vector combined 检索、LongMemEval `LightMemory.retrieve()` online 路径和 answer prompt 构造并返回 `RetrievalResult`。旧 `add()` / `retrieve(question)` / `get_answer()` 暂时作为兼容 wrapper |
 | 已知差异 | LongMemEval OP-update 仍未作为独立 profile 实现；LoCoMo 真实 API smoke 尚未运行，因此不能宣称 Table 3 真实复现完成 |
 
+## SimpleMem
+
+事实来源：
+
+- `docs/workstreams/ws02-phase1-matrix/audits/mechanism-simplemem.md`
+- `third_party/methods/SimpleMem/main.py`
+- `third_party/methods/SimpleMem/simplemem/core/memory_builder.py`
+- `third_party/methods/SimpleMem/simplemem/core/hybrid_retriever.py`
+- `third_party/methods/SimpleMem/simplemem/core/answer_generator.py`
+- `third_party/methods/SimpleMem/simplemem/core/database/vector_store.py`
+- `src/memory_benchmark/methods/simplemem_adapter.py`
+
+| 项 | 记录 |
+| --- | --- |
+| 原生写入接口 | text backend 主类 `SimpleMemSystem.add_dialogue(speaker, content, timestamp=None)`；该方法把输入包装为 `Dialogue` 后交给 `MemoryBuilder.add_dialogue()` |
+| 官方写入粒度 | 单条 dialogue turn；`MemoryBuilder` 以 `WINDOW_SIZE=40` / `OVERLAP_SIZE=2` 攒窗口，完整窗口自动抽取，残余窗口必须在 conversation 末尾显式 `finalize()` |
+| 原生检索接口 | `SimpleMemSystem.hybrid_retriever.retrieve(query)`；planning 路径会调用 LLM 做需求分析和 targeted queries，再执行 semantic / keyword / structured search，reflection 打开时可能追加检索 |
+| 原生回答接口 | `SimpleMemSystem.ask(question)` 会调用 `hybrid_retriever.retrieve()` 后再调用 `AnswerGenerator.generate_answer()`；本项目 retrieve-first 路径刻意绕开 `ask()`，不让 method 自己生成最终答案 |
+| 官方回答流程 | native prompt 复刻 `simplemem/core/answer_generator.py` 的 system message 与 `_build_answer_prompt()` 模板；framework answer LLM 执行最终作答 |
+| 离线更新接口 | 无后台 worker；`finalize()` 同步调用 `process_remaining()`，成功返回才算写入完成。finalize 前进程中断会丢失 buffer，retry 必须删除该 isolation 状态并整段重放 |
+| 模型配置 | official-text-v1：LLM 显式覆盖为项目统一 `gpt-4o-mini`；embedding 使用本地 `models/Qwen3-Embedding-0.6B`；窗口/top-k 使用官方默认 `40/2/25/5/5` |
+| API 配置 | OpenAI-compatible key/base URL 传入 `SimpleMemSystem(api_key, model, base_url, ...)`；embedding 为本地 SentenceTransformers，不产生 API observation |
+| 状态隔离 | 每个 `isolation_key` 映射到独立 `method_state/isolation_<sha16>/lancedb` 和固定 table `memories`；wrapper 写公开 `conversation_id.txt` marker，供 failed_ingest clean retry 删除对应 isolation 目录 |
+| 当前 adapter 状态 | ws02.4 T1-T6 后为原生 v3 `MemoryProvider`：`consume_granularity=turn`，`ingest(TurnEvent)` 调 `add_dialogue()`，`end_conversation(UnitRef)` 调 `finalize()`；`retrieve(RetrievalQuery)` 直接调用 `hybrid_retriever.retrieve()` 并返回 `formatted_memory`、native `prompt_messages` 和 `RetrievedItem`。LoCoMo / LongMemEval registered fake smoke 已通过；真实 API smoke 待用户确认预算 |
+| 已知差异 | 不接 multimodal / EvolveMem / Omni；不做 provenance sidecar，`provenance_granularity=none`；真实 API smoke 尚未运行，不能宣称官方效果复现 |
+
 ## Resume 策略分层
 
 该分层吸收 `docs/archive/opencode-suggestions/method-resume-feasibility-analysis.md` 中经源码核验后
@@ -167,6 +193,7 @@ framework answer LLM(prompt_messages) -> answer
 | MemoryOS | conversation 级 | 官方 LoCoMo eval 以 dialogue page / QA pair 写入，状态落到独立 JSON 目录；当前 adapter 通过 conversation state 目录恢复 | 后续并行时优先做进程隔离，不强行降到 turn 级 |
 | A-Mem | conversation 级 | 官方 robust runtime 主要是内存 dict + retriever；当前 wrapper 在 conversation 完成后保存 `memories.pkl`、官方 retriever cache/embeddings 和强校验 manifest | 不做 turn 级 resume；resume 时 registry 对 completed conversations 调 `load_existing_conversation_state()` |
 | LightMem | conversation 级 | `add_memory()` 中间调用可能只进入 buffer，只有 force extraction/offline update 后才具备完整持久化语义；resume 时按同一 `storage_root+conversation_id` 重建 backend | 不做 turn 级 resume；LoCoMo `add()` 返回后已执行 offline update，可作为 conversation 完成点；registry 会对 completed conversations 调 `load_existing_conversation_state()` |
+| SimpleMem | conversation 级 | `add_dialogue()` 先进入内存 buffer，完整窗口或 `finalize()` 后才写入 LanceDB；finalize 前中断无法从 LanceDB 恢复残余 buffer | 不做 turn 级 resume；failed_ingest clean retry 删除对应 isolation 目录后整段重放 |
 
 question 级 resume 当前由 runner 统一基于 `method_predictions.jsonl` 处理。retrieve-first
 迁移后应拆为 retrieval artifact 和 answer artifact：retrieve completed / answer pending
@@ -180,3 +207,4 @@ question 级 resume 当前由 runner 统一基于 `method_predictions.jsonl` 处
 | MemoryOS | conversation-level；恢复已有 JSON state 目录 | 统一基于 `method_predictions.jsonl` 和 question status |
 | A-Mem | conversation-level；恢复 `memories.pkl`、retriever cache/embeddings 和 manifest | 统一基于 `method_predictions.jsonl` 和 question status |
 | LightMem | conversation-level；按同一状态目录重建 LightMemory backend | 统一基于 `method_predictions.jsonl` 和 question status |
+| SimpleMem | conversation-level；finalize 前失败通过 clean retry 删除 isolation LanceDB 后整段重放 | 统一基于 `method_predictions.jsonl` 和 question status |

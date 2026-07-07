@@ -18,9 +18,16 @@ created: 2026-07-05
 | | LoCoMo | LongMemEval | HaluMem | BEAM | MemBench |
 | --- | --- | --- | --- | --- | --- |
 | Mem0 / MemoryOS / A-Mem / LightMem | ✅ smoke+full(历史) | ✅ 1-conv pilot | ⬜ | ⬜ | 🧩 adapter 就绪待 smoke |
-| MemOS / SimpleMem / Letta / Cognee / LangMem / Supermemory | ⬜ | ⬜ | ⬜ | ⬜ | 🧩 adapter 就绪待 smoke |
+| SimpleMem | 🧩 adapter 就绪待 smoke | 🧩 adapter 就绪待 smoke | ⬜ | ⬜ | ⬜ |
+| MemOS / Letta / Cognee / LangMem / Supermemory | ⬜ | ⬜ | ⬜ | ⬜ | 🧩 adapter 就绪待 smoke |
 
 ## 当前断点
+
+- 2026-07-07（Codex）：ws02.4 SimpleMem adapter T1-T6 已完成并逐 task commit；
+  text backend 原生 v3 provider 已接入 registry，LoCoMo / LongMemEval registered
+  fake smoke 均通过，`method-interface-inventory.md` 已补 SimpleMem 节。全量回归
+  **810 passed**，高于 802 基线；下一步交架构师复跑验收，真实 smoke 需用户
+  另行确认预算。
 
 - 2026-07-07（最新，架构师）：**真实 API 对照 smoke 抓到并修复协议 v3 首个
   回归**。四条 LoCoMo smoke（mem0/memoryos/amem/lightmem, workers=2）跑通；
