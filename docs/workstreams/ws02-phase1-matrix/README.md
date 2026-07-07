@@ -22,6 +22,27 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-07（最新，架构师）：**真实 API 对照 smoke 抓到并修复协议 v3 首个
+  回归**。四条 LoCoMo smoke（mem0/memoryos/amem/lightmem, workers=2）跑通；
+  LightMem×LongMemEval 在 ingest 阶段崩溃（`odd message count:
+  e47becba/sharegpt_qRdLQvN_7`）。根因：`_aggregate_pairs` 按位置两两切分，
+  而 LongMemEval 23867 个 session 中 1942 个（8.1%）不以 user 开头。修复
+  （commit 见 git log）：pair 语义改为 **user 锚定交换对**（spec 已修订）；
+  LightMem orphan 跳过（=官方裁剪）；**Mem0 LongMemEval 粒度 pair→session**，
+  官方 CHUNK_SIZE=2 位置切块回归 adapter 内部。assistant-first 等价测试锁死，
+  全量回归 **802 passed（新基线）**。LongMemEval 对照 smoke 需用户重跑同一命令。
+- 2026-07-07（架构师）：**已知问题两条**（全量 run 前需处置，不阻塞 smoke）：
+  1. LongMemEval s_cleaned 有 **14 个 session** 不满足"裁开头后偶数且严格
+     user/assistant 交替"，LightMem 新旧路径同样 fail-fast，全量前需定案
+     （跳过整个 session / 跳过 conversation / 修数据，待架构师出口径）。
+  2. **isolated-worker 路径 manifest 缺协议章**：`--workers >1` 时根 system 是
+     `_UnusedRootSystem` 占位（`cli/run_prediction.py:608`），
+     `_method_manifest_with_protocol` 提前返回，manifest 无
+     protocol_version/prompt_track（workers=1 正常有 `v3/native`）。实际 ingest
+     仍走 v3 worker 实例，属审计字段缺失非行为缺陷。修复方向：registration
+     声明协议身份 + worker 构建时运行时交叉校验（fail-fast），已列 actor 任务。
+- 2026-07-07（架构师）：**ws02.1 MemBench 架构师验收通过**（细节见 ws02.1
+  README）；验收中直修 choice parser 大小写抢答缺陷（大写优先两段式）。
 - 2026-07-07（Codex）：ws02.1 MemBench adapter T1-T6 已完成并逐 task commit；
   loader/registry/unified reader/choice accuracy/fake registered prediction →
   evaluation/resume 回归均通过，全量基线保持 **791 passed**。MemBench 列已进入
