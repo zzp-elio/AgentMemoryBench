@@ -23,6 +23,15 @@ created: 2026-07-05
 
 ## 当前断点
 
+- 2026-07-08（架构师 Opus 4.8 接任）：按 playbook §10 五步自检上任（基线
+  819 复跑确认、git 干净、活历史核对）。启动 ws02.2 HaluMem，用户定范围
+  **full operation-level**。spec draft 已产出（[ws02.2/spec.md](../ws02.2-halumem/spec.md)）：
+  **关键结论——协议 v3 零实体改动即可承载 operation-level 三段**（首任架构师
+  已埋 `extraction_probe`/`memory_update_probe`/`SessionMemoryReport`/
+  `session_memory_report` 扩展位），推翻 2026-06-29 调研卡"需扩协议"旧判断。
+  真实工作量 = adapter + operation-level runner（唯一新 runner 能力，task-family
+  级共享非专用 runner）+ 3 judge evaluator + 能力门控。待用户批 D1（update
+  探针 gold-as-query 隐私政策）后写 plan。
 - 2026-07-07（最新，架构师，晚间收官）：**真实 API 对照 smoke 全部通过，
   协议 v3 重构正式收官**——LoCoMo 四条 + LightMem×LongMemEval 重跑（修复后
   同一 conversation e47becba：跑通、manifest `protocol_version=v3`、
