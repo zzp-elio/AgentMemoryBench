@@ -64,11 +64,19 @@ class Session:
     start_time: str | None = None
     end_time: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    private_metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """返回 JSON 可序列化字典。"""
+        """返回 method 可见的 JSON 可序列化字典。"""
 
-        return asdict(self)
+        return {
+            "session_id": self.session_id,
+            "turns": [turn.to_dict() for turn in self.turns],
+            "session_time": self.session_time,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass

@@ -12,6 +12,7 @@ from .contracts import (
 )
 from .locomo import LoCoMoAdapter
 from .longmemeval import LongMemEvalAdapter
+from .halumem import HaluMemAdapter
 from .registry import (
     BenchmarkRegistration,
     BenchmarkRegistry,
@@ -29,6 +30,7 @@ __all__ = [
     "BenchmarkRegistry",
     "BenchmarkVariantSpec",
     "PreparedBenchmarkRun",
+    "HaluMemAdapter",
     "LoCoMoAdapter",
     "LongMemEvalAdapter",
     "RunScope",

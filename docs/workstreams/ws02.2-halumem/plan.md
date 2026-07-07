@@ -35,7 +35,7 @@ author: Claude Opus 4.8（架构师）
 
 ## Task 分解
 
-### T1 HaluMem adapter（数据 → 统一 Dataset，隐私隔离）
+### T1 HaluMem adapter（数据 → 统一 Dataset，隐私隔离） ✅
 
 改动范围：新增 `src/memory_benchmark/benchmark_adapters/halumem.py` +
 `tests/test_halumem_adapter.py`。
@@ -69,6 +69,19 @@ author: Claude Opus 4.8（架构师）
 验收：`uv run pytest tests/test_halumem_adapter.py -q` 全绿；测试须含
 ①三层映射断言 ②公开 Conversation 私钥扫描全绿（gold 不泄漏）③时间转换
 ④`is_generated_qa_session` 标志保留 ⑤双 variant 源文件。
+
+执行记录（2026-07-08，Codex）：
+
+```text
+$ uv run pytest tests/test_halumem_adapter.py -q
+......                                                                   [100%]
+6 passed in 0.05s
+```
+
+```text
+$ uv run pytest -q
+825 passed, 3 deselected, 2 warnings, 6 subtests passed in 104.61s (0:01:44)
+```
 
 ### T2 benchmark registration + operation-level 分派声明
 
