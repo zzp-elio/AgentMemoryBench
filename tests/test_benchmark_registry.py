@@ -21,6 +21,10 @@ from memory_benchmark.benchmark_adapters.locomo import (
     LoCoMoAdapter,
     build_locomo_smoke_dataset,
 )
+from memory_benchmark.benchmark_adapters.halumem import (
+    HALUMEM_MEMZERO_PROMPT_PROFILE,
+    HaluMemAdapter,
+)
 from memory_benchmark.benchmark_adapters.longmemeval import LongMemEvalAdapter
 from memory_benchmark.benchmark_adapters.membench import (
     MEMBENCH_INSTRUCTION_FIRST_PROFILE,
@@ -126,10 +130,15 @@ def _make_registration(
 
 
 def test_prediction_registry_exposes_only_current_phase_benchmark() -> None:
-    """当前 phase 应开放 LoCoMo、LongMemEval 与 MemBench prediction。"""
+    """当前 phase 应开放 LoCoMo、LongMemEval、MemBench 与 HaluMem prediction。"""
 
-    assert list_benchmarks() == ["locomo", "longmemeval", "membench"]
-    assert list_prediction_benchmarks() == ["locomo", "longmemeval", "membench"]
+    assert list_benchmarks() == ["halumem", "locomo", "longmemeval", "membench"]
+    assert list_prediction_benchmarks() == [
+        "halumem",
+        "locomo",
+        "longmemeval",
+        "membench",
+    ]
 
 
 def test_variant_selector_uses_default_concrete_variant_and_stable_order() -> None:
@@ -432,6 +441,7 @@ def test_locomo_registration_declares_conversation_qa_capabilities() -> None:
         }
     )
     assert registration.prediction_enabled is True
+    assert registration.operation_level is False
     assert registration.default_variant == "locomo10"
     assert registration.variants == (
         BenchmarkVariantSpec(
@@ -456,6 +466,7 @@ def test_longmemeval_registration_declares_both_variants_and_prediction_enabled(
             }
     )
     assert registration.prediction_enabled is True
+    assert registration.operation_level is False
     assert registration.default_variant == "s_cleaned"
     assert registration.variants == (
         BenchmarkVariantSpec(
@@ -485,6 +496,7 @@ def test_membench_registration_declares_variants_and_prediction_enabled() -> Non
         }
     )
     assert registration.prediction_enabled is True
+    assert registration.operation_level is False
     assert registration.prompt_track == "unified"
     assert registration.unified_prompt_builder is not None
     assert registration.prediction_transform is not None
@@ -527,6 +539,62 @@ def test_membench_registration_declares_variants_and_prediction_enabled() -> Non
     )
     assert resolve_variant_selector(registration, None) == ("0_10k",)
     assert resolve_variant_selector(registration, "all") == ("0_10k", "100k")
+
+
+def test_halumem_registration_declares_operation_level_unified_prompt() -> None:
+    """HaluMem registration 应声明 operation-level runner 与 unified prompt。"""
+
+    registration = get_benchmark_registration("halumem")
+
+    assert registration.adapter_cls is HaluMemAdapter
+    assert registration.task_family is TaskFamily.CONVERSATION_QA
+    assert registration.required_capabilities == frozenset()
+    assert registration.prediction_enabled is True
+    assert registration.operation_level is True
+    assert registration.prompt_track == "unified"
+    assert registration.unified_prompt_builder is not None
+    assert registration.default_variant == "medium"
+    assert registration.variants == (
+        BenchmarkVariantSpec(
+            name="medium",
+            source_relative_paths=(Path("data/halumem/HaluMem-Medium.jsonl"),),
+        ),
+        BenchmarkVariantSpec(
+            name="long",
+            source_relative_paths=(Path("data/halumem/HaluMem-Long.jsonl"),),
+        ),
+    )
+    assert resolve_variant_selector(registration, None) == ("medium",)
+    assert resolve_variant_selector(registration, "all") == ("medium", "long")
+
+
+def test_halumem_unified_prompt_builder_uses_official_memzero_prompt() -> None:
+    """HaluMem unified prompt 应复刻官方 PROMPT_MEMZERO 拼接形态。"""
+
+    registration = get_benchmark_registration("halumem")
+    question = Question(
+        question_id="conv-1:s1:q1",
+        conversation_id="conv-1",
+        text="Where does Riley live?",
+    )
+    retrieval_result = RetrievalResult(
+        formatted_memory="[2025-09-04] Riley lives in Boston.",
+        metadata={"provider": "fake"},
+    )
+
+    prompt = registration.unified_prompt_builder(question, retrieval_result)
+
+    assert prompt.metadata["answer_prompt_profile"] == HALUMEM_MEMZERO_PROMPT_PROFILE
+    assert prompt.metadata["prompt_track"] == "unified"
+    assert prompt.metadata["official_source"].endswith("prompts.py:1-40")
+    assert prompt.prompt_messages == [
+        PromptMessage(role="user", content=prompt.answer_prompt)
+    ]
+    assert "[2025-09-04] Riley lives in Boston." in prompt.answer_prompt
+    assert "Question: Where does Riley live?" in prompt.answer_prompt
+    assert "You have access to memories from two speakers in a conversation." in (
+        prompt.answer_prompt
+    )
 
 
 def test_membench_unified_prompt_builder_uses_official_instruction_first() -> None:

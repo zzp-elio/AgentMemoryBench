@@ -70,7 +70,7 @@ author: Claude Opus 4.8（架构师）
 ①三层映射断言 ②公开 Conversation 私钥扫描全绿（gold 不泄漏）③时间转换
 ④`is_generated_qa_session` 标志保留 ⑤双 variant 源文件。
 
-执行记录（2026-07-08，Codex）：
+执行记录（2026-07-07，Codex）：
 
 ```text
 $ uv run pytest tests/test_halumem_adapter.py -q
@@ -83,7 +83,7 @@ $ uv run pytest -q
 825 passed, 3 deselected, 2 warnings, 6 subtests passed in 104.61s (0:01:44)
 ```
 
-### T2 benchmark registration + operation-level 分派声明
+### T2 benchmark registration + operation-level 分派声明 ✅
 
 改动范围：`benchmark_adapters/registry.py`（+ 可能
 `benchmark_adapters/contracts.py`）、`tests/test_benchmark_registry.py`。
@@ -104,6 +104,19 @@ $ uv run pytest -q
 ①HaluMem 注册可取出且 `operation_level=True` ②既有 benchmark 默认
 `operation_level=False` 不变 ③unified prompt builder 双向一致性校验
 （对齐 MemBench 先例）。
+
+执行记录（2026-07-07，Codex）：
+
+```text
+$ uv run pytest tests/test_benchmark_registry.py -q
+....................................                                     [100%]
+36 passed in 17.06s
+```
+
+```text
+$ uv run pytest -q
+827 passed, 3 deselected, 2 warnings, 6 subtests passed in 104.60s (0:01:44)
+```
 
 ### T3 operation-level runner（唯一新 runner 能力）
 

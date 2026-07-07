@@ -40,6 +40,11 @@ from .contracts import (
     normalize_variant_run_id_collision_key,
     normalize_variant_run_id_token,
 )
+from .halumem import (
+    HALUMEM_VARIANT_SPECS,
+    build_halumem_unified_answer_prompt,
+    prepare_halumem_run,
+)
 from .locomo import LOCOMO_VARIANT_SPECS, prepare_locomo_run
 from .longmemeval import LONGMEMEVAL_VARIANT_SPECS, LongMemEvalAdapter
 from .membench import (
@@ -219,6 +224,7 @@ class BenchmarkRegistration:
     prepare_run: Callable[[Path, BenchmarkLoadRequest], PreparedBenchmarkRun]
     prediction_enabled: bool
     prompt_track: str = "native"
+    operation_level: bool = False
     unified_prompt_builder: (
         Callable[[Question, RetrievalResult], AnswerPromptResult] | None
     ) = None
@@ -398,6 +404,7 @@ def _try_register_adapter(
     prepare_run: Callable[[Path, BenchmarkLoadRequest], PreparedBenchmarkRun],
     prediction_enabled: bool,
     prompt_track: str = "native",
+    operation_level: bool = False,
     unified_prompt_builder: (
         Callable[[Question, RetrievalResult], AnswerPromptResult] | None
     ) = None,
@@ -422,6 +429,7 @@ def _try_register_adapter(
             prepare_run=prepare_run,
             prediction_enabled=prediction_enabled,
             prompt_track=prompt_track,
+            operation_level=operation_level,
             unified_prompt_builder=unified_prompt_builder,
             prediction_transform=prediction_transform,
         )
@@ -496,6 +504,20 @@ def _build_default_registry() -> BenchmarkRegistry:
         prompt_track="unified",
         unified_prompt_builder=build_membench_unified_answer_prompt,
         prediction_transform=normalize_membench_choice_prediction,
+    )
+    _try_register_adapter(
+        registry,
+        "memory_benchmark.benchmark_adapters.halumem",
+        "HaluMemAdapter",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(),
+        variants=HALUMEM_VARIANT_SPECS,
+        default_variant="medium",
+        prepare_run=prepare_halumem_run,
+        prediction_enabled=True,
+        prompt_track="unified",
+        operation_level=True,
+        unified_prompt_builder=build_halumem_unified_answer_prompt,
     )
     return registry
 

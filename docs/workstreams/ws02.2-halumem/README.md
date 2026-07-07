@@ -14,6 +14,14 @@ created: 2026-07-08
 
 ## 当前断点
 
+- 2026-07-07（Codex）：按用户要求只完成 T1/T2 后停工交架构师验收。T1
+  HaluMem adapter 已提交 `fa3d5e5`；T2 benchmark registration +
+  `operation_level` 分派声明与本断点记录在本提交内；验收输出已追记到
+  [plan.md](plan.md) 对应 task 下。基线不跌破：T1 全量回归
+  `825 passed, 3 deselected, 2 warnings, 6 subtests passed in 104.61s
+  (0:01:44)`，T2 全量回归 `827 passed, 3 deselected, 2 warnings, 6
+  subtests passed in 104.60s (0:01:44)`。下一步：架构师验收 T1/T2，
+  通过后再放行 T3 operation-level runner。
 - 2026-07-08（架构师 Opus 4.8）：**spec approved + plan ready，待 actor 施工**。
   用户评审定案三点：① D1 批准（遵循 HaluMem 官方 gold-as-query）；② 定调
   **弃用 `TaskFamily/MethodCapability/validate_compatibility` enum 门控，改
