@@ -89,3 +89,19 @@
 - retry/resume 路径写 artifact 时想清楚"重放会不会重复追加"
   （session report 曾因 extend 而重复，后改整段替换）。
 - 等价测试比对的是**调用序列全序列**，不是"最终状态差不多"。
+
+## 7. 好行为（值得学的正例）
+
+- **plan 指导与你亲眼看到的真实数据结构冲突时，防御性保留原始数据 + 上报，
+  不要静默照做**。判例（2026-07-08，Codex 做对了）：架构师 plan 说"evidence
+  存 memory_points index"，但 Codex 看到真实 evidence 是
+  `list[{memory_content,memory_type}]`，于是**既按 plan 做了 index、又把
+  `raw_evidence` 全结构保留进 metadata**——后来架构师发现 index 映射会丢跨
+  session evidence，幸亏 raw 还在，零数据损失。教训：plan 是二手指导会有错，
+  真实数据/官方源码是第一手，两者冲突时保留第一手 + 写进断点交架构师裁。
+- **plan 里泛指的事实源与实际任务类型不符时，判断后继续或上报**。判例：plan
+  写"机制卡是唯一事实源"，但 T1/T2 是 benchmark adapter（不涉及 method 行为），
+  Codex 判断依据官方 wrapper + 数据即可、未误停工，同时点出该表述不精确交
+  架构师修正。这种"看穿 plan 措辞不精确但按任务实质正确推进 + 上报"是理想
+  actor 行为。
+- **验收命令的真实输出逐条粘回**（不概括、不编）——架构师复跑核对以此为准。

@@ -54,6 +54,22 @@
 10. **架构师认错要具体并写进记录**。ws01 T7 勘误块、M-A T3 裁定块都明写
     "架构师撰写失误"——错误归属清晰，流程才能改进；对峙与认错是同一枚
     硬币的两面。
+11. **第一手源优先，二手文档会带病**（2026-07-08 用户点破 + 架构师自检
+    确认）。100% 可信的事实源是**第三方仓库源码 + 真实数据**
+    （`third_party/{benchmarks,methods}/` + `data/`）；调研卡、机制卡是二手
+    转述，会过时/有误。判例：① HaluMem 调研卡（2026-06-29）说"需扩协议"——
+    错，读 `protocol.py` 才知 v3 已埋好扩展位；② 架构师写 HaluMem spec 时又
+    偷懒用调研卡 §4.1 的 metric 口径当证据，没直读 `eval_tools.py`，直到自检
+    才补上第一手 judge 签名；③ plan 把 evidence 写成"存 index"，读
+    `datasets/halumem.md` + 真实数据才知 evidence 是
+    `list[{memory_content,memory_type}]` 且可跨 session。**规矩**：
+    (a) 每个设计决策的证据必须能落到官方仓库 `文件:行号` 或真实数据，卡片
+    只作导航不作终审；(b) **一个 benchmark 要读全 `docs/survey/` 的三个文件夹**
+    （`benchmarks/`＝定位与接口、`datasets/`＝字段与数据结构、`workflows/`＝
+    评测流程），我只读 benchmarks/ 就漏了 evidence 结构和 6 类 question type；
+    (c) 给 actor 的 plan 里事实源要**按任务类型**写对——benchmark 任务指官方
+    repo + 三卡，method 任务才指机制卡，别对 benchmark 任务写"机制卡是唯一
+    事实源"（无 `mechanism-<benchmark>.md`，Codex 正确点出）。
 
 ## 4. 审查手艺（隐性知识核心）
 
@@ -169,19 +185,21 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
 仓库含测评代码（`third_party/methods/`，如 LightMem/experiments、mem0
 memory-benchmarks）、5 个 benchmark 官方仓库（`third_party/benchmarks/`）。
 
-## 9. 当前项目快照（2026-07-07 晚更新；接任先核对是否过期）
+## 9. 当前项目快照（2026-07-08 更新；接任先核对是否过期）
 
 - 主线 ws02：5×10 smoke 矩阵，里程碑 2026-07-20。**协议 v3 已全链路落地，
-  真实 API 对照 smoke 全部通过（2026-07-07 晚收官）**：LoCoMo 四条 +
-  LightMem×LongMemEval（修复后重跑原崩溃 conversation e47becba：v3 章、
-  sentinel=0、答案正常）。对照 smoke 抓到的 pair 聚合回归已修复（pair 语义
-  修订见 spec §2 + §4.3 判例）。全量回归基线 **819 passed**。
-- **矩阵进展**：MemBench（ws02.1）与 SimpleMem（ws02.4）均架构师验收通过
-  （真实 smoke 待预算）——第三列 + 第五行打开；本项目第一条 unified prompt
-  链路、第一个零成本 evaluator、第一个 finalize 钩子 method 全部落地。
-  后续队列：HaluMem（ws02.2）、BEAM（ws02.3）spec 由架构师起草；method 侧
-  LangMem → Supermemory → MemOS → Cognee → Letta。每格极小 smoke 攒成本表
-  → ws05 组装导师申请材料。
+  真实 API 对照 smoke 全部通过（2026-07-07 晚收官）**。全量回归基线
+  **827 passed**（HaluMem T1/T2 后；2026-07-07 曾为 819）。
+- **矩阵进展**：MemBench（ws02.1）与 SimpleMem（ws02.4）架构师验收通过；
+  **HaluMem（ws02.2）spec approved + plan（T1-T7）**，operation-level（抽取/
+  更新/QA 三段，协议 v3 零改动，接口即契约弃 enum 门控）。T1/T2（adapter+
+  registration）Codex 已交、架构师验收出两处 plan 失误（evidence 存 index 错、
+  smoke 口径不够小）已修 plan、并入下一批 re-touch。后续 BEAM（ws02.3）+
+  method 侧 LangMem→Supermemory→MemOS→Cognee→Letta。
+- **smoke 必须极小（用户 2026-07-08 重申）**：LoCoMo/LongMemEval 是
+  ~20 rounds/40 turns 级。新 benchmark 接入必须让 smoke 能裁到同量级——
+  HaluMem 一 user≈65 sessions 太大，须支持"每 user 前 M 整 session"截断
+  （F2 判例）。写新 benchmark adapter 的 smoke 口径时先想清截断单元。
 - **已知问题（全量 run 前必须处置，详见 ws02 README 断点）**：
   LongMemEval 14 个 session 不满足严格交替口径（新旧路径同样 fail-fast），
   需架构师定口径。（manifest 协议章缺失已于 2026-07-07 闭环：registration

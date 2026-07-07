@@ -14,6 +14,17 @@ created: 2026-07-08
 
 ## 当前断点
 
+- 2026-07-08（架构师 Opus 4.8 验收）：**T1/T2 验收通过**（本机复跑
+  `tests/test_halumem_adapter.py` + `test_benchmark_registry.py` = 42 passed，
+  全量 827 passed）。验收以第一手源核对（HaluMem 官方仓库 `eval_memzero.py`/
+  `eval_tools.py` + 真实数据 + `docs/survey` 三份 HaluMem 卡全读）——查出**两处
+  架构师 plan 失误**（非 Codex，Codex 防御性保留 raw_evidence 反而救了场）：
+  **F1** evidence 应存 memory_content 非 index（且可跨 session）；**F2** smoke
+  口径只裁 user 不裁 session，1 user≈65 sessions 太大，须支持每 user 前 M
+  整 session 截断。两项已写进 plan（T1 findings 块）并入下一批 re-touch。
+  Codex 还正确点出 plan"机制卡是唯一事实源"对 benchmark 任务不精确，已修
+  （按任务类型区分第一手源）。下一批：re-touch T1（F1+F2）+ T3
+  operation-level runner。
 - 2026-07-07（Codex）：按用户要求只完成 T1/T2 后停工交架构师验收。T1
   HaluMem adapter 已提交 `fa3d5e5`；T2 benchmark registration +
   `operation_level` 分派声明与本断点记录在本提交内；验收输出已追记到
