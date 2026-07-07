@@ -66,12 +66,139 @@ tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_cl
 
 ## T2 Registry 注册与 variant/smoke
 
-- [ ] benchmark registry 注册 `membench`：variant `0_10k`（默认，4 主文件）/
+- [x] benchmark registry 注册 `membench`：variant `0_10k`（默认，4 主文件）/
   `100k`（4 主文件）；根目录 20 条补充样本排除；`prediction_enabled=True`。
-- [ ] smoke 裁剪：每文件前 N 条 trajectory（`--conversations N`），不裁
+- [x] smoke 裁剪：每文件前 N 条 trajectory（`--conversations N`），不裁
   message_list；formal 不裁剪。
 - 验收：registry/smoke focused 测试全绿；`uv run memory-benchmark predict
   smoke --help` 可见 membench 选项（离线断言 choices 列表即可）。
+
+实测备注：`100k` 主文件内原始 `tid` 会跨 scenario 复用；T2 采用
+`source_stream + level + question_type + scenario + tid` 作为
+`conversation_id` 与重复检测边界，variant/formal 以实测唯一 conversation_id
+为准。
+
+验收输出：
+
+```text
+$ uv run pytest tests/test_benchmark_registry.py tests/test_membench_conversation_adapter.py tests/test_main_cli.py::test_main_accepts_membench_benchmark_choice -q
+................................                                         [100%]
+32 passed in 19.66s
+```
+
+```text
+$ uv run memory-benchmark predict smoke --help
+usage: memory-benchmark predict [-h] [--root ROOT]
+                                [--method {amem,lightmem,mem0,memoryos}]
+                                [--method-class METHOD_CLASS]
+                                [--allow-unsafe-custom-parallel] --benchmark
+                                {locomo,longmemeval,membench}
+                                [--profile {smoke,official-full}]
+                                [--variant VARIANT] [--run-id RUN_ID]
+                                [--resume] [--allow-api] [--confirm-full]
+                                [--rounds ROUNDS]
+                                [--smoke-turn-limit SMOKE_TURN_LIMIT]
+                                [--conversations CONVERSATIONS]
+                                [--smoke-conversation-limit SMOKE_CONVERSATION_LIMIT]
+                                [--workers WORKERS]
+                                [--smoke-max-workers SMOKE_MAX_WORKERS]
+                                [--enable-efficiency-observability | --disable-efficiency-observability]
+                                [--max-new-conversations MAX_NEW_CONVERSATIONS]
+                                [--conversation-budget CONVERSATION_BUDGET]
+                                [--retry-failed]
+                                [--questions-per-conversation QUESTIONS_PER_CONVERSATION]
+                                [--question-limit-per-conversation QUESTION_LIMIT_PER_CONVERSATION]
+                                [--answer-prompt-file ANSWER_PROMPT_FILE]
+                                [--answer-prompt-profile ANSWER_PROMPT_PROFILE]
+                                [{smoke,formal}]
+
+positional arguments:
+  {smoke,formal}        CLI v2 mode: smoke for tiny connectivity tests, formal
+                        for official-profile runs.
+
+options:
+  -h, --help            show this help message and exit
+  --root ROOT           Project root containing configs/, data/, third_party/
+                        and outputs/.
+  --method {amem,lightmem,mem0,memoryos}
+  --method-class METHOD_CLASS
+                        Custom user method class in module:ClassName format.
+  --allow-unsafe-custom-parallel
+                        Allow workers>1 for a custom --method-class. The user
+                        is responsible for run, benchmark, worker and
+                        conversation isolation.
+  --benchmark {locomo,longmemeval,membench}
+  --profile {smoke,official-full}
+  --variant VARIANT
+  --run-id RUN_ID
+  --resume
+  --allow-api, --confirm-api
+  --confirm-full
+  --rounds ROUNDS
+  --smoke-turn-limit SMOKE_TURN_LIMIT
+  --conversations CONVERSATIONS
+  --smoke-conversation-limit SMOKE_CONVERSATION_LIMIT
+  --workers WORKERS
+  --smoke-max-workers SMOKE_MAX_WORKERS
+                        Override smoke conversation worker count; validated by
+                        method profile.
+  --enable-efficiency-observability
+                        Write raw token/latency observations for this
+                        prediction run (default).
+  --disable-efficiency-observability
+                        Disable prediction efficiency observation for this
+                        run.
+  --max-new-conversations MAX_NEW_CONVERSATIONS
+                        per-command budget: advance at most this many
+                        unfinished conversations in this invocation. It does
+                        not become experiment identity and does not affect
+                        resume compatibility.
+  --conversation-budget CONVERSATION_BUDGET
+                        formal mode only: advance at most this many unfinished
+                        conversations in this invocation.
+  --retry-failed        Retry failed conversations recorded in checkpoints. By
+                        default, failed conversations stay quarantined during
+                        resume to avoid repeated API burn.
+  --questions-per-conversation QUESTIONS_PER_CONVERSATION
+                        smoke mode only: maximum questions per selected
+                        conversation.
+  --question-limit-per-conversation QUESTION_LIMIT_PER_CONVERSATION
+                        Per-command question budget for each selected
+                        conversation. It is not experiment identity, so a
+                        later resume can increase it.
+  --answer-prompt-file ANSWER_PROMPT_FILE
+                        Path to a custom framework answer prompt template
+                        containing {question} and {memory_context}.
+  --answer-prompt-profile ANSWER_PROMPT_PROFILE
+                        Answer prompt profile name written to framework-reader
+                        metadata.
+```
+
+```text
+$ uv run pytest -q
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 27%]
+.................................................................... [ 36%]
+........................................................................ [ 45%]
+........................................................................ [ 54%]
+........................................................................ [ 63%]
+........................................................................ [ 73%]
+........................................................................ [ 82%]
+........................................................................ [ 91%]
+.................................................................        [100%]
+=============================== warnings summary ===============================
+tests/test_amem_adapter.py::test_amem_can_import_official_robust_layer_without_calling_api
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/A-mem/memory_layer.py:1: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    from ast import Str
+
+tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_class
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem/src/lightmem/configs/logging/base.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class LoggingConfig(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+779 passed, 3 deselected, 2 warnings, 6 subtests passed in 97.41s (0:01:37)
+```
 
 ## T3 Unified reader（本项目第一条 unified prompt 链路）
 

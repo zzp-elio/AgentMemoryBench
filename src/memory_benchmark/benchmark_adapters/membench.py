@@ -22,7 +22,12 @@ from memory_benchmark.core import (
 from memory_benchmark.core.exceptions import ConfigurationError, DatasetValidationError
 
 from .base import BenchmarkAdapter, reached_limit
-from .contracts import BenchmarkVariantSpec
+from .contracts import (
+    BenchmarkLoadRequest,
+    BenchmarkVariantSpec,
+    PreparedBenchmarkRun,
+    RunScope,
+)
 
 
 MEMBENCH_DATA2TEST_ROOT = Path("data/membench/Membenchdata/data2test")
@@ -123,18 +128,25 @@ class MemBenchAdapter(BenchmarkAdapter):
             raw_data = self.load_json(*source_relative_path.parts)
             source_context = source_relative_path.as_posix()
             source_profile = _source_profile_from_path(source_relative_path)
-            seen_tids_in_file: set[str] = set()
+            seen_conversation_ids_in_file: set[str] = set()
             for question_type, scenario, trajectory in _iter_trajectories(
                 raw_data,
                 source_context,
             ):
                 total_raw_trajectories += 1
                 tid = _required_text(trajectory, "tid", source_context)
-                if tid in seen_tids_in_file:
+                conversation_id = _conversation_id(
+                    source_profile=source_profile,
+                    question_type=question_type,
+                    scenario=scenario,
+                    tid=tid,
+                )
+                if conversation_id in seen_conversation_ids_in_file:
                     raise DatasetValidationError(
-                        f"{source_context}: duplicate tid within source file: {tid}"
+                        f"{source_context}: duplicate conversation_id within source file: "
+                        f"{conversation_id}"
                     )
-                seen_tids_in_file.add(tid)
+                seen_conversation_ids_in_file.add(conversation_id)
                 conversations.append(
                     _conversation_from_trajectory(
                         trajectory,
@@ -178,6 +190,84 @@ class MemBenchAdapter(BenchmarkAdapter):
                 "source_fully_scanned": source_fully_scanned,
             },
         )
+
+
+def prepare_membench_run(
+    project_root: Path,
+    request: BenchmarkLoadRequest,
+) -> PreparedBenchmarkRun:
+    """为 MemBench concrete variant 构造 full 或 per-source smoke 运行。"""
+
+    variant_spec = MEMBENCH_VARIANT_BY_NAME.get(request.variant)
+    if variant_spec is None:
+        allowed = ", ".join(spec.name for spec in MEMBENCH_VARIANT_SPECS)
+        raise ConfigurationError(
+            f"Unknown membench variant '{request.variant}'. Allowed: {allowed}"
+        )
+
+    if request.run_scope is RunScope.FULL:
+        dataset = MemBenchAdapter(project_root, variant=request.variant).load()
+    elif request.run_scope is RunScope.SMOKE:
+        dataset = _build_membench_smoke_dataset(
+            project_root,
+            variant=request.variant,
+            source_relative_paths=variant_spec.source_relative_paths,
+            per_source_limit=request.smoke_conversation_limit,
+        )
+    else:  # pragma: no cover - RunScope 只有 smoke / full
+        raise ConfigurationError(f"unsupported MemBench run scope: {request.run_scope}")
+
+    metadata = dict(dataset.metadata)
+    metadata["variant"] = request.variant
+    metadata["run_scope"] = request.run_scope.value
+    return PreparedBenchmarkRun(
+        variant=request.variant,
+        run_scope=request.run_scope,
+        dataset=Dataset(
+            dataset_name=dataset.dataset_name,
+            conversations=list(dataset.conversations),
+            metadata=metadata,
+        ),
+        source_relative_paths=variant_spec.source_relative_paths,
+    )
+
+
+def _build_membench_smoke_dataset(
+    project_root: Path,
+    *,
+    variant: str,
+    source_relative_paths: tuple[Path, ...],
+    per_source_limit: int,
+) -> Dataset:
+    """按每个 MemBench 主文件前 N 条 trajectory 构造 smoke Dataset。"""
+
+    if per_source_limit < 1:
+        raise ConfigurationError("MemBench smoke per-source limit must be positive")
+
+    conversations: list[Conversation] = []
+    source_counts: dict[str, int] = {}
+    for source_relative_path in source_relative_paths:
+        source_dataset = MemBenchAdapter(
+            project_root,
+            variant=variant,
+            source_relative_paths=(source_relative_path,),
+        ).load(limit=per_source_limit)
+        conversations.extend(source_dataset.conversations)
+        source_counts[source_relative_path.as_posix()] = len(source_dataset.conversations)
+
+    return Dataset(
+        dataset_name=MemBenchAdapter.name,
+        conversations=conversations,
+        metadata={
+            "source_paths": [path.as_posix() for path in source_relative_paths],
+            "variant": variant,
+            "source_format": "membench_data2test",
+            "run_scope": RunScope.SMOKE.value,
+            "smoke_per_source_conversation_limit": per_source_limit,
+            "smoke_source_counts": source_counts,
+            "smoke_selected_conversation_count": len(conversations),
+        },
+    )
 
 
 def _iter_trajectories(
@@ -224,6 +314,7 @@ def _conversation_from_trajectory(
     conversation_id = _conversation_id(
         source_profile=source_profile,
         question_type=question_type,
+        scenario=scenario,
         tid=tid,
     )
     messages = _required_list(trajectory, "message_list", conversation_id)
@@ -389,6 +480,7 @@ def _conversation_id(
     *,
     source_profile: dict[str, str],
     question_type: str,
+    scenario: str,
     tid: str,
 ) -> str:
     """生成 MemBench trajectory conversation_id。"""
@@ -397,8 +489,15 @@ def _conversation_id(
         f"{source_profile['source_stream']}-"
         f"{source_profile['level']}-"
         f"{question_type}-"
+        f"{_safe_id_part(scenario)}-"
         f"{tid}"
     )
+
+
+def _safe_id_part(value: str) -> str:
+    """把 MemBench scenario 文本转换为稳定 conversation_id 片段。"""
+
+    return str(value).strip().replace(" ", "_")
 
 
 def _required_text(raw: dict[str, Any], key: str, context: str) -> str:
@@ -482,4 +581,5 @@ __all__ = [
     "MEMBENCH_100K_SOURCE_PATHS",
     "MEMBENCH_VARIANT_SPECS",
     "MemBenchAdapter",
+    "prepare_membench_run",
 ]

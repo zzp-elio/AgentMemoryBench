@@ -103,7 +103,7 @@ def test_synthetic_fixture_maps_ps_and_os_steps(tmp_path: Path) -> None:
 
     ps_conversation = dataset.conversations[0]
     ps_turn = ps_conversation.sessions[0].turns[0]
-    assert ps_conversation.conversation_id == "first-low-simple-ps-1"
+    assert ps_conversation.conversation_id == "first-low-simple-roles-ps-1"
     assert ps_turn.turn_id == "1"
     assert ps_turn.normalized_role == "user"
     assert ps_turn.content == "'user': I work with Maya.; 'agent': Maya is your colleague."
@@ -114,7 +114,7 @@ def test_synthetic_fixture_maps_ps_and_os_steps(tmp_path: Path) -> None:
 
     os_conversation = dataset.conversations[1]
     os_turn = os_conversation.sessions[0].turns[0]
-    assert os_conversation.conversation_id == "first-low-simple-os-1"
+    assert os_conversation.conversation_id == "first-low-simple-observations-os-1"
     assert os_turn.content == "My favorite cafe is Blue Bottle."
     assert os_turn.metadata["source_step_index"] == 0
     assert "ps_user" not in os_turn.metadata
@@ -149,8 +149,8 @@ def test_question_public_fields_and_private_gold_are_split(tmp_path: Path) -> No
         validate_no_private_keys({"target_step_id": [1]})
 
 
-def test_duplicate_tid_within_one_source_file_fails_fast(tmp_path: Path) -> None:
-    """同一 source file 内重复 tid 会导致 conversation 隔离不可靠，必须 fail-fast。"""
+def test_duplicate_conversation_id_within_one_source_file_fails_fast(tmp_path: Path) -> None:
+    """同一 source file 内重复 conversation_id 会导致隔离不可靠，必须 fail-fast。"""
 
     payload = _synthetic_payload()
     payload["simple"]["roles"].append(payload["simple"]["roles"][0])
@@ -162,7 +162,7 @@ def test_duplicate_tid_within_one_source_file_fails_fast(tmp_path: Path) -> None
         source_relative_paths=(source.relative_to(tmp_path),),
     )
 
-    with pytest.raises(DatasetValidationError, match="duplicate tid"):
+    with pytest.raises(DatasetValidationError, match="duplicate conversation_id"):
         adapter.load()
 
 

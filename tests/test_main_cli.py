@@ -1095,6 +1095,63 @@ def test_main_accepts_longmemeval_benchmark_and_free_string_variant(
     ]
 
 
+def test_main_accepts_membench_benchmark_choice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """argparse 的 benchmark choices 应通过 registry 暴露 membench。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or PredictionBatchResult(
+            benchmark="membench",
+            selector=command.variant or "0_10k",
+            runs=(),
+        ),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "membench",
+            "--variant",
+            "100k",
+            "--run-id",
+            "mem0-membench-smoke",
+            "--allow-api",
+            "--conversations",
+            "2",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received == [
+        PredictCommand(
+            project_root=tmp_path,
+            method="mem0",
+            benchmark="membench",
+            profile="smoke",
+            variant="100k",
+            run_id="mem0-membench-smoke",
+            confirm_api=True,
+            smoke_turn_limit=20,
+            smoke_round_limit=20,
+            smoke_conversation_limit=2,
+            question_limit_per_conversation=1,
+            output_layout="hierarchical",
+        )
+    ]
+
+
 def test_main_maps_repeated_metrics_for_evaluate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

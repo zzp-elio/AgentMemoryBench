@@ -22,6 +22,7 @@ from memory_benchmark.benchmark_adapters.locomo import (
     build_locomo_smoke_dataset,
 )
 from memory_benchmark.benchmark_adapters.longmemeval import LongMemEvalAdapter
+from memory_benchmark.benchmark_adapters.membench import MemBenchAdapter
 from memory_benchmark.core import (
     Conversation,
     Dataset,
@@ -118,10 +119,10 @@ def _make_registration(
 
 
 def test_prediction_registry_exposes_only_current_phase_benchmark() -> None:
-    """当前 phase 应开放 LoCoMo 与 LongMemEval prediction。"""
+    """当前 phase 应开放 LoCoMo、LongMemEval 与 MemBench prediction。"""
 
-    assert list_benchmarks() == ["locomo", "longmemeval"]
-    assert list_prediction_benchmarks() == ["locomo", "longmemeval"]
+    assert list_benchmarks() == ["locomo", "longmemeval", "membench"]
+    assert list_prediction_benchmarks() == ["locomo", "longmemeval", "membench"]
 
 
 def test_variant_selector_uses_default_concrete_variant_and_stable_order() -> None:
@@ -463,6 +464,61 @@ def test_longmemeval_registration_declares_both_variants_and_prediction_enabled(
     assert resolve_variant_selector(registration, "all") == ("s_cleaned", "m_cleaned")
 
 
+def test_membench_registration_declares_variants_and_prediction_enabled() -> None:
+    """MemBench registration 应声明 0_10k/100k 两个 variant 且开放 prediction。"""
+
+    registration = get_benchmark_registration("membench")
+
+    assert registration.adapter_cls is MemBenchAdapter
+    assert registration.task_family is TaskFamily.CONVERSATION_QA
+    assert registration.required_capabilities == frozenset(
+        {
+            MethodCapability.CONVERSATION_ADD,
+            MethodCapability.MEMORY_RETRIEVAL,
+        }
+    )
+    assert registration.prediction_enabled is True
+    assert registration.default_variant == "0_10k"
+    assert registration.variants == (
+        BenchmarkVariantSpec(
+            name="0_10k",
+            source_relative_paths=(
+                Path(
+                    "data/membench/Membenchdata/data2test/0-10k/FirstAgentDataHighLevel_multiple_0.json"
+                ),
+                Path(
+                    "data/membench/Membenchdata/data2test/0-10k/FirstAgentDataLowLevel_multiple_0.json"
+                ),
+                Path(
+                    "data/membench/Membenchdata/data2test/0-10k/ThirdAgentDataHighLevel_multiple_0.json"
+                ),
+                Path(
+                    "data/membench/Membenchdata/data2test/0-10k/ThirdAgentDataLowLevel_multiple_0.json"
+                ),
+            ),
+        ),
+        BenchmarkVariantSpec(
+            name="100k",
+            source_relative_paths=(
+                Path(
+                    "data/membench/Membenchdata/data2test/100k/FirstAgentDataHighLevel_multiple_100.json"
+                ),
+                Path(
+                    "data/membench/Membenchdata/data2test/100k/FirstAgentDataLowLevel_multiple_100.json"
+                ),
+                Path(
+                    "data/membench/Membenchdata/data2test/100k/ThirdAgentDataHighLevel_multiple_100.json"
+                ),
+                Path(
+                    "data/membench/Membenchdata/data2test/100k/ThirdAgentDataLowLevel_multiple_100.json"
+                ),
+            ),
+        ),
+    )
+    assert resolve_variant_selector(registration, None) == ("0_10k",)
+    assert resolve_variant_selector(registration, "all") == ("0_10k", "100k")
+
+
 def test_longmemeval_registration_prepares_full_and_smoke_datasets() -> None:
     """LongMemEval registration 的 full 与 smoke 预处理应写入正确 metadata。"""
 
@@ -509,6 +565,43 @@ def test_longmemeval_registration_prepares_full_and_smoke_datasets() -> None:
     assert sum(len(session.turns) for session in smoke_conversation.sessions) == 2
     assert smoke_conversation.metadata["smoke_retained_round_count"] == 1
     assert smoke_conversation.metadata["smoke_retained_turn_count"] == 2
+
+
+def test_membench_registration_prepares_full_and_per_file_smoke_datasets() -> None:
+    """MemBench smoke 应从每个主文件取前 N 条 trajectory，且不裁剪 message_list。"""
+
+    registration = get_benchmark_registration("membench")
+
+    smoke_run = registration.prepare(
+        Path("."),
+        BenchmarkLoadRequest(
+            variant="0_10k",
+            run_scope=RunScope.SMOKE,
+            smoke_conversation_limit=2,
+            smoke_turn_limit=1,
+        ),
+    )
+
+    assert smoke_run.variant == "0_10k"
+    assert smoke_run.run_scope is RunScope.SMOKE
+    assert smoke_run.dataset.metadata["variant"] == "0_10k"
+    assert smoke_run.dataset.metadata["run_scope"] == "smoke"
+    assert smoke_run.dataset.metadata["smoke_per_source_conversation_limit"] == 2
+    assert smoke_run.dataset.metadata["smoke_selected_conversation_count"] == 8
+    assert set(smoke_run.dataset.metadata["smoke_source_counts"].values()) == {2}
+    assert len(smoke_run.dataset.conversations) == 8
+    assert len(smoke_run.dataset.conversations[0].sessions[0].turns) > 2
+    assert smoke_run.source_relative_paths == registration.variants[0].source_relative_paths
+
+    full_run = registration.prepare(
+        Path("."),
+        BenchmarkLoadRequest(variant="100k", run_scope=RunScope.FULL),
+    )
+    assert full_run.variant == "100k"
+    assert full_run.run_scope is RunScope.FULL
+    assert full_run.dataset.metadata["variant"] == "100k"
+    assert full_run.dataset.metadata["run_scope"] == "full"
+    assert len(full_run.dataset.conversations) == 860
 
 
 def test_locomo_registration_prepares_full_and_smoke_datasets() -> None:

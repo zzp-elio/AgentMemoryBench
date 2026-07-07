@@ -38,6 +38,7 @@ from .contracts import (
 )
 from .locomo import LOCOMO_VARIANT_SPECS, prepare_locomo_run
 from .longmemeval import LONGMEMEVAL_VARIANT_SPECS, LongMemEvalAdapter
+from .membench import MEMBENCH_VARIANT_SPECS, prepare_membench_run
 
 
 logger = get_logger(__name__)
@@ -446,6 +447,17 @@ def _build_default_registry() -> BenchmarkRegistry:
         variants=LONGMEMEVAL_VARIANT_SPECS,
         default_variant="s_cleaned",
         prepare_run=_prepare_longmemeval_run,
+        prediction_enabled=True,
+    )
+    _try_register_adapter(
+        registry,
+        "memory_benchmark.benchmark_adapters.membench",
+        "MemBenchAdapter",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=conversation_qa_capabilities,
+        variants=MEMBENCH_VARIANT_SPECS,
+        default_variant="0_10k",
+        prepare_run=prepare_membench_run,
         prediction_enabled=True,
     )
     return registry
