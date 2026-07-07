@@ -239,9 +239,49 @@ created: 2026-07-07
   .........................                                                [100%]
   25 passed in 0.99s
   ```
-- [ ] **T5 registered fake 全链路**：LoCoMo + LongMemEval fake smoke 各一，
+- [x] **T5 registered fake 全链路**：LoCoMo + LongMemEval fake smoke 各一，
   artifact/manifest（protocol_version=v3, prompt_track=native）齐全。
   验收：端到端测试全绿；`uv run pytest -q` ≥771；compileall 通过。
+
+  验收输出：
+
+  ```text
+  $ uv run pytest tests/test_simplemem_registered_prediction.py -q
+  .                                                                        [100%]
+  1 passed in 0.37s
+  ```
+
+  ```text
+  $ uv run pytest -q
+  ........................................................................ [  8%]
+  ........................................................................ [ 17%]
+  ........................................................................ [ 26%]
+  .................................................................... [ 35%]
+  ........................................................................ [ 43%]
+  ........................................................................ [ 52%]
+  ...................................................................... [ 61%]
+  ........................................................................ [ 70%]
+  ........................................................................ [ 79%]
+  ........................................................................ [ 88%]
+  ........................................................................ [ 97%]
+  ........................                                                 [100%]
+  =============================== warnings summary ===============================
+  tests/test_amem_adapter.py::test_amem_can_import_official_robust_layer_without_calling_api
+    /Users/wz/Desktop/memoryBenchmark/third_party/methods/A-mem/memory_layer.py:1: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+      from ast import Str
+
+  tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_class
+    /Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem/src/lightmem/configs/logging/base.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+      class LoggingConfig(BaseModel):
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  810 passed, 3 deselected, 2 warnings, 6 subtests passed in 127.51s (0:02:07)
+  ```
+
+  ```text
+  $ uv run python -m compileall -q src/memory_benchmark tests
+  # 无输出
+  ```
 - [ ] **T6 收尾**：method-interface-inventory 增 SimpleMem 节、ws02 README
   矩阵表更新、本 README 勾选与断点。验收：git status 干净。
 

@@ -156,7 +156,7 @@ class SimpleMemConfig:
 
 
 class SimpleMem(MemoryProvider):
-    """SimpleMem text backend provider。"""
+    """SimpleMem 文本后端协议 v3 provider。"""
 
     consume_granularity = "turn"
     session_memory_report = False
