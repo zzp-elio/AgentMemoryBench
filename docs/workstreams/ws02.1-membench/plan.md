@@ -18,17 +18,51 @@ prompt 文本必须从官方源码摘录并注明行号，不许改写措辞。
 
 ## T1 Loader 与数据映射
 
-- [ ] 新 `src/memory_benchmark/benchmark_adapters/membench.py`：按 spec §2/§3
+- [x] 新 `src/memory_benchmark/benchmark_adapters/membench.py`：按 spec §2/§3
   实现 data2test 展开（question_type → scenario → trajectory）；
   conversation_id 构造规则、tid 全局唯一断言（冲突 fail-fast）；单 Session；
   PS dict step → 官方合并文本 `'user': ...; 'agent': ...`（metadata 留
   ps_user/ps_agent 分字段）、OS string step 原样；turn_id=str(step_id) 1-based；
   QA 公开/私有切分照 spec §2.3 表。
-- [ ] 测试：迷你合成 fixture（复刻 §2.3 JSON 结构，含 PS/OS 各一、含
+- [x] 测试：迷你合成 fixture（复刻 §2.3 JSON 结构，含 PS/OS 各一、含
   target_step_id）+ canonical 抽样测试（读真实 `data/membench/.../0-10k` 一个
   文件首条 trajectory，核对 step_id 与 target_step_id 指向内容对齐——
   spec §8 off-by-one 风险的实证测试）+ 私有键隔离测试。
 - 验收：`uv run pytest tests/test_membench_conversation_adapter.py -q` 全绿。
+
+验收输出：
+
+```text
+$ uv run pytest tests/test_membench_conversation_adapter.py -q
+.....                                                                    [100%]
+5 passed in 0.06s
+```
+
+```text
+$ uv run pytest -q
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 27%]
+.................................................................... [ 36%]
+........................................................................ [ 45%]
+........................................................................ [ 55%]
+...................................................................... [ 64%]
+........................................................................ [ 73%]
+........................................................................ [ 82%]
+........................................................................ [ 92%]
+..............................................................           [100%]
+=============================== warnings summary ===============================
+tests/test_amem_adapter.py::test_amem_can_import_official_robust_layer_without_calling_api
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/A-mem/memory_layer.py:1: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    from ast import Str
+
+tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_class
+  /Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem/src/lightmem/configs/logging/base.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class LoggingConfig(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+776 passed, 3 deselected, 2 warnings, 6 subtests passed in 98.65s (0:01:38)
+```
 
 ## T2 Registry 注册与 variant/smoke
 
