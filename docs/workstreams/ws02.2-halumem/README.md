@@ -14,6 +14,17 @@ created: 2026-07-08
 
 ## 当前断点
 
+- 2026-07-07（Codex）：完成架构师验收发现的 T1 re-touch（F1 evidence 改存
+  memory_content；F2 smoke 支持每 user 前 M 个完整 session，复用
+  `smoke_turn_limit`）并提交；继续完成 T3 operation-level runner（新
+  `runners/operation_level.py`，按 spec S4.2 逐 session 执行 extraction →
+  update → QA，generated session 只 ingest/end_session 不落三段 artifact，
+  update probe 无写副作用，conversation 级 resume skip）。验收输出已追记到
+  [plan.md](plan.md)：T1 re-touch focused `7 passed`、全量
+  `828 passed, 3 deselected, 2 warnings, 6 subtests passed in 101.26s
+  (0:01:41)`；T3 focused `3 passed`、全量 `831 passed, 3 deselected, 2
+  warnings, 6 subtests passed in 102.16s (0:01:42)`。下一步：停在 T4/T5
+  前，交架构师验收 operation-level runner 与 artifact 口径。
 - 2026-07-08（架构师 Opus 4.8 验收）：**T1/T2 验收通过**（本机复跑
   `tests/test_halumem_adapter.py` + `test_benchmark_registry.py` = 42 passed，
   全量 827 passed）。验收以第一手源核对（HaluMem 官方仓库 `eval_memzero.py`/

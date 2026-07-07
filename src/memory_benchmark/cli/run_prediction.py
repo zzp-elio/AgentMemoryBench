@@ -40,6 +40,7 @@ from memory_benchmark.core import (
 )
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySystem
+from memory_benchmark.core.provider_protocol import MemoryProvider
 from memory_benchmark.methods.custom_loader import load_custom_memory_provider
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.methods.registry import (
@@ -62,6 +63,7 @@ from memory_benchmark.runners.conversation_qa import _make_public_conversation
 from memory_benchmark.runners.ingest_resume import (
     load_completed_conversation_ids,
 )
+from memory_benchmark.runners.operation_level import run_operation_level_predictions
 from memory_benchmark.runners.prediction import (
     PredictionRunPolicy,
     PredictionRunSummary,
@@ -521,19 +523,20 @@ def run_registered_conversation_qa_prediction(
         )
 
     for child in children:
-        _preflight_prediction_run(
-            dataset=child.dataset,
-            run_context=child.run_context,
-            policy=child.policy,
-            method_manifest=child.method_manifest,
-            benchmark_variant=child.variant,
-            run_scope=child.run_scope,
-            source_paths=child.source_paths,
-            efficiency_collector=child.efficiency_collector,
-            model_inventory=child.model_inventory,
-            instrumentation_identity=child.instrumentation_identity,
-            retrieval_observation_contract=child.retrieval_observation_contract,
-        )
+        if not getattr(benchmark_registration, "operation_level", False):
+            _preflight_prediction_run(
+                dataset=child.dataset,
+                run_context=child.run_context,
+                policy=child.policy,
+                method_manifest=child.method_manifest,
+                benchmark_variant=child.variant,
+                run_scope=child.run_scope,
+                source_paths=child.source_paths,
+                efficiency_collector=child.efficiency_collector,
+                model_inventory=child.model_inventory,
+                instrumentation_identity=child.instrumentation_identity,
+                retrieval_observation_contract=child.retrieval_observation_contract,
+            )
 
     requires_openai_settings = (
         method_registration.requires_api or use_framework_answer_reader
@@ -610,38 +613,73 @@ def run_registered_conversation_qa_prediction(
             if use_isolated_worker_instances
             else method_registration.system_factory(build_context)
         )
-        summary = run_predictions(
-            dataset=child.dataset,
-            system=system,
-            run_context=child.run_context,
-            policy=child.policy,
-            method_manifest=child.method_manifest,
-            benchmark_variant=child.variant,
-            run_scope=child.run_scope,
-            source_paths=child.source_paths,
-            efficiency_collector=child.efficiency_collector,
-            model_inventory=child.model_inventory,
-            instrumentation_identity=child.instrumentation_identity,
-            retrieval_observation_contract=child.retrieval_observation_contract,
-            system_factory=method_registration.system_factory,
-            build_context_template=build_context,
-            supports_shared_instance_parallelism=supports_shared_instance_parallelism,
-            answer_reader=answer_reader,
-            unified_prompt_builder=getattr(
+        if getattr(benchmark_registration, "operation_level", False):
+            if use_isolated_worker_instances:
+                raise ConfigurationError(
+                    "operation-level prediction currently requires max_workers=1"
+                )
+            if not isinstance(system, MemoryProvider):
+                raise ConfigurationError(
+                    "operation-level prediction requires a protocol v3 MemoryProvider"
+                )
+            if answer_reader is None:
+                raise ConfigurationError(
+                    "operation-level prediction requires framework answer reader"
+                )
+            unified_prompt_builder = getattr(
                 benchmark_registration,
                 "unified_prompt_builder",
                 None,
-            ),
-            prediction_transform=getattr(
-                benchmark_registration,
-                "prediction_transform",
-                None,
-            ),
-            protocol_version=getattr(
-                method_registration, "protocol_version", ""
-            ),
-            clean_failed_ingest_conversation=clean_failed_ingest_conversation,
-        )
+            )
+            if unified_prompt_builder is None:
+                raise ConfigurationError(
+                    "operation-level prediction requires unified_prompt_builder"
+                )
+            summary = run_operation_level_predictions(
+                dataset=child.dataset,
+                provider=system,
+                run_context=child.run_context,
+                policy=child.policy,
+                method_manifest=child.method_manifest,
+                benchmark_variant=child.variant,
+                run_scope=child.run_scope,
+                source_paths=child.source_paths,
+                answer_reader=answer_reader,
+                unified_prompt_builder=unified_prompt_builder,
+            )
+        else:
+            summary = run_predictions(
+                dataset=child.dataset,
+                system=system,
+                run_context=child.run_context,
+                policy=child.policy,
+                method_manifest=child.method_manifest,
+                benchmark_variant=child.variant,
+                run_scope=child.run_scope,
+                source_paths=child.source_paths,
+                efficiency_collector=child.efficiency_collector,
+                model_inventory=child.model_inventory,
+                instrumentation_identity=child.instrumentation_identity,
+                retrieval_observation_contract=child.retrieval_observation_contract,
+                system_factory=method_registration.system_factory,
+                build_context_template=build_context,
+                supports_shared_instance_parallelism=supports_shared_instance_parallelism,
+                answer_reader=answer_reader,
+                unified_prompt_builder=getattr(
+                    benchmark_registration,
+                    "unified_prompt_builder",
+                    None,
+                ),
+                prediction_transform=getattr(
+                    benchmark_registration,
+                    "prediction_transform",
+                    None,
+                ),
+                protocol_version=getattr(
+                    method_registration, "protocol_version", ""
+                ),
+                clean_failed_ingest_conversation=clean_failed_ingest_conversation,
+            )
         results.append(
             PredictionVariantResult(
                 variant=child.variant,
