@@ -269,10 +269,41 @@ $ uv run pytest -q
    evidence 的 memory_content（T1-F1 修正后 `GoldAnswerInfo.evidence` 即该
    列表）**。
 
+**T4 第一手口径补充（架构师 2026-07-08 读 `evaluation.py` 逐行核对，必须遵守——
+调研卡没讲清这些，之前 spec 也漏了）**：
+
+- **integrity 与 update 是互斥路由，不是独立两段**（`evaluation.py:58-70`）：
+  对每个 gold memory point——`is_update=="True" 且 memories_from_system 非空`
+  → 进 **update** 评测；**否则**（非 update，或 update 但检索为空）→ 进
+  **integrity/recall**。即成功探测到的 update 点**从 recall 分母中剔除**。
+  T4 必须复刻此路由，否则 recall 分母错。
+- **integrity 聚合**（`evaluation.py:214-246`）：非 interference gold 计入
+  `recall(all)=(integrity_score==2 的数)/(非 interference gold 数)`；
+  `weighted_recall=Σ(0.5·integrity_score·importance)/Σ importance`（**0.5
+  因子**：score2→满分、score1→半分）；extracted 为空串时 integrity 直接记 0
+  （`:108-111`）。
+- **FMR 在 memory_accuracy 名下**（`:247-250`）：
+  `interference_accuracy=(interference gold 中 integrity_score==0 的数)/
+  (interference gold 数)`。
+- **accuracy 聚合**（`:259-286`）：需 `is_included_in_golden_memories`；
+  `target_accuracy(all)=Σ(0.5·accuracy_score, 仅 included)/(included 数)`；
+  `weighted_accuracy(all)=Σ(0.5·accuracy_score, 全部)/(全部 extracted 数)`。
+- **F1**（`:289-292`）：`compute_f1(precision=target_accuracy(all),
+  recall=recall(all))`。
+- **accuracy judge 的 dialogue_str 格式**（`:74-81`）：
+  `[{timestamp}]{role}: {content}`，每个 **assistant turn 后加一空行**；
+  `golden_memories_str` **排除 interference**（`:83-85`）。
+- **update judge 输入**（`:158-162`）：`"\n".join(memories_from_system)`、
+  `memory_content`、`"\n".join(original_memories)`；ratio 分母 = 全部 update
+  records（`:321`，即有 memories_from_system 的点）。
+- **QA judge 输入**（`:180-185`）：question、answer、
+  `"\n".join(e["memory_content"] for e in evidence)`、system_response；
+  Memory Boundary 类 evidence=`[]`（key_memory_points 为空串）。
+
 验收：`uv run pytest tests/test_halumem_*.py -q` 全绿（judge 用 fake client
-离线）；每个 evaluator 测 ①judge 输出→聚合口径正确（对照 `evaluation.py`）
-②category_breakdown ③N/A（extraction 段某 method 无报告时不计入分母、记 N/A
-不记 0）。
+离线）；每个 evaluator 测 ①judge 输出→聚合口径与 `evaluation.py` 逐条对齐
+（含 integrity/update 互斥路由、0.5 因子、FMR、F1）②category_breakdown
+③N/A（extraction 段某 method 无报告时不计入分母、记 N/A 不记 0）。
 
 ### T5 逐 method extraction 能力核实（D4，接口即契约的落地）
 

@@ -14,6 +14,20 @@ created: 2026-07-08
 
 ## 当前断点
 
+- 2026-07-08（架构师 Opus 4.8 验收 T1 re-touch + T3）：**通过**。本机复跑
+  `test_operation_level_runner.py`+`test_halumem_adapter.py`=10 passed，全量
+  831。第一手核对（读 `evaluation.py` scorer 逐行）确认 runner 语义全对：update
+  探针条件（`operation_level.py:328-347`，runner 端 `is_update!="False" 且
+  original_memories）、三段驱动 + 累积状态（测试 `update_write_counts==
+  [(1,1),(3,3)]` 同时锁死无写副作用 + 累积）、`is_generated_qa_session` 跳过
+  三段、extraction N/A、resume 均覆盖。Codex "计划外发现"（operation-level 跳过
+  generic preflight + CLI 分派 + 约束 max_workers=1）经查正确。**架构师第一手
+  新发现**（趁 T4 未建补进 plan）：`evaluation.py:58-70` **integrity/update
+  互斥路由**——成功探测的 update 点从 recall 分母剔除；已把 evaluation.py 逐行
+  聚合口径（0.5 因子、FMR、F1、dialogue_str 格式、排除 interference）钉进
+  plan T4 补充块。数据核对：`is_generated_qa_session` 仅 Long（Medium=0/
+  Long=1030）、`is_update` 仅 True/False——用户四点理解全部第一手证实。
+  下一批：T4 三 evaluator。
 - 2026-07-07（Codex）：完成架构师验收发现的 T1 re-touch（F1 evidence 改存
   memory_content；F2 smoke 支持每 user 前 M 个完整 session，复用
   `smoke_turn_limit`）并提交；继续完成 T3 operation-level runner（新

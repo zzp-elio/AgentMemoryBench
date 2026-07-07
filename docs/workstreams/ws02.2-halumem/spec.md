@@ -213,8 +213,14 @@ method"的默认边界，是 HaluMem 设计本身要求的探针（官方 :210-2
 
 ## S5 三个 Evaluator（全 LLM judge，requires_api=True）
 
-均对齐官方 `eval/eval_tools.py` judge prompt 与聚合口径（调研卡 §4/§5.3）。
-evaluator 模板：现有 `longmemeval_judge.py` / `locomo_judge.py`。
+均对齐官方 `eval/eval_tools.py` + `eval/evaluation.py` 的 judge prompt 与聚合
+口径（**第一手源码为准，逐行口径见 plan T4 补充块**）。evaluator 模板：现有
+`longmemeval_judge.py` / `locomo_judge.py`。
+
+> 更正（2026-07-08，架构师读 `evaluation.py` 第一手）：下表把三段列为并列，
+> 易误读为"独立评分"。实际 **integrity 与 update 对 gold memory point 是互斥
+> 路由**（`evaluation.py:58-70`）——`is_update=="True" 且检索非空`的点进 update、
+> **从 recall 分母剔除**，其余进 integrity。T4 以 plan 补充块的逐行口径为准。
 
 | metric_name | 官方 prompt | judge 输出 | 主聚合指标 |
 | --- | --- | --- | --- |
