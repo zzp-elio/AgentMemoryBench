@@ -1,3 +1,5 @@
+⚠ **2026-07-07 核查：本文 §2.3（两个 Method 协议）、§2.4（AnswerPromptResult 为核心输出）、§5（CLI 层）、§7（Prediction Runner 引擎）、§8（四个 Method Adapter 详细对比）仍描述 v2 协议（`add+retrieve` / `BaseMemoryProvider` / `AnswerPromptResult`），当前主协议已升级为 v3（`ingest+retrieve` / `MemoryProvider` / `RetrievalResult`，见 [spec-protocol-v3.md](../workstreams/ws02-phase1-matrix/spec-protocol-v3.md)），待 ws03 重写。**
+
 # AgentMemoryBenchmark 完整架构与执行流程
 
 本文档提供项目的端到端完整说明，涵盖从研究动机、架构设计、数据流转、method 实现、评测方法论到实验结果的各方面，达到可据此撰写学术论文的深度。

@@ -1,3 +1,5 @@
+⚠ **2026-07-07 核查：本文全文仍描述 v2 协议（`BaseMemoryProvider` + `add()/retrieve()` 返回 `AnswerPromptResult`），当前主协议已升级为 v3（`MemoryProvider` + `ingest()/retrieve()` 返回 `RetrievalResult`，见 [spec-protocol-v3.md](../workstreams/ws02-phase1-matrix/spec-protocol-v3.md)），待 ws03 重写或随 M-C 阶段同步更新。**
+
 # Custom Method Onboarding
 
 本指南面向普通用户：你已经有自己的 memory method，希望在 AgentMemoryBench 已集成的

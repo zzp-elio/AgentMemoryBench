@@ -1,3 +1,5 @@
+⚠ **2026-07-07 核查：本文 Method 层（`BaseMemorySystem` / `end_to_end` vs `memory_module` 分类）、Runner 层（`add+get_answer` 流程）、当前状态块（"MemoryOS 使用 max_workers=1"、"LongMemEval 统一 prediction 仍未启用"）仍描述 v2 协议与过期状态，当前主协议已升级为 v3（`ingest+retrieve`，见 [spec-protocol-v3.md](../workstreams/ws02-phase1-matrix/spec-protocol-v3.md)），待 ws03 重写。**
+
 # 架构说明
 
 长期架构以多 task family 为扩展方向，当前只实现 `conversation_qa`。完整设计以

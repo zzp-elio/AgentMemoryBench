@@ -12,92 +12,66 @@ method 接入统一 benchmark 的研究者。
 
 ## 当前状态
 
-当前代码主线只实现 **conversation + QA** task family：
+当前主线只实现 **conversation + QA** task family：
 
 ```text
 conversation history -> question -> answer-level score
 ```
 
-Phase 1 只跑纯文本闭环。2026-07-04 已锁定第一阶段目标矩阵：
-5 个 benchmark、10 个 method，并尽可能覆盖更多质量与效率 metric。多模态字段已在
-core 中保留，但当前阶段不主动运行多模态 benchmark。
+### Phase 1 目标与进展（2026-07-07）
 
-2026-06-26 起，项目最高优先级临时切换为 benchmark landscape survey：先系统调研更多
-agent memory benchmark 的数据结构、评测流程、metric 和 method 接口需求，再决定是否
-调整当前协议，避免框架过拟合 LoCoMo / LongMemEval。调研入口见
-[docs/survey/benchmarks/README.md](docs/survey/benchmarks/README.md)；汇报讨论版横向简报见
-[docs/survey/benchmarks/meeting-brief-5-benchmarks.md](docs/survey/benchmarks/meeting-brief-5-benchmarks.md)
-（文件名沿用早期 5-benchmark 命名，内容已更新为 7 个 benchmark）。
+Phase 1 范围已于 2026-07-04 锁定：**5 个 benchmark × 10 个 method**，里程碑 2026-07-20。
+多模态字段已在 core 中保留，但当前阶段不主动运行多模态 benchmark。
 
-已接入或正在验证的范围：
+Phase 1 的**交付物是 5×10 smoke 矩阵**（每格极小规模真实测试 + 成本 observation），
+不是全量实验。全量实验在预算获批后另启。
+
+**已完成**：
+
+- **协议**：v3 provider 协议（`ingest + retrieve`）已批准并全链路落地（M-A/M-B 验收通过），
+  全量回归基线 **802 passed**。协议全文：
+  [spec-protocol-v3.md](docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md)
+- **Benchmark adapter（2/5）**：LoCoMo、LongMemEval S/M
+- **Method adapter（4/10，均已按 retrieve-first 接入）**：Mem0、MemoryOS、A-Mem、LightMem
+- **效率观测**：token、latency、model identity、memory context tokens 等原始 observation
+- **CLI v2**：`predict smoke/formal` + `evaluate` + `run`；conversation 级并行/resume
+
+**进行中**：
+
+- MemBench adapter（[ws02.1](docs/workstreams/ws02.1-membench/README.md)）— 架构师验收通过，
+  本项目第一条 unified prompt 链路 + 第一个零成本 evaluator 落地
+- SimpleMem adapter（[ws02.4](docs/workstreams/ws02.4-simplemem/README.md)）— T1 完成，T2-T6 待施工
+
+**缺口**：3 个新 benchmark adapter（HaluMem、BEAM 的 spec 待架构师起草）、
+6 个新 method adapter（LangMem、Supermemory、MemOS、Cognee、Letta、SimpleMem 剩余）。
+推进顺序与策略见 [路线图](docs/roadmap.md) 与
+[架构师手册 §9.6](docs/reference/architect-playbook.md#96-全局规划原理防漂移北极星2026-07-07-与用户对齐)。
+
+### 已实现基线详情
 
 | 类型 | 当前状态 |
 | --- | --- |
 | Phase 1 目标 Benchmark | LoCoMo、LongMemEval、HaluMem、BEAM、MemBench |
 | Phase 1 目标 Method | A-Mem、MemoryOS、MemOS、LightMem、SimpleMem、Mem0、Letta/MemGPT、Cognee、LangMem、Supermemory |
-| 已接入/验证中 Benchmark | LoCoMo、LongMemEval S/M |
-| 已接入/验证中 Method | Mem0、MemoryOS、A-Mem、LightMem |
+| 已接入 Benchmark | LoCoMo、LongMemEval S/M |
+| 已接入 Method | Mem0、MemoryOS、A-Mem、LightMem |
 | 质量指标 | LoCoMo token F1、LoCoMo LLM judge、LongMemEval LLM judge |
-| 效率观测 | token、latency、model identity、memory context tokens 等原始 observation |
-| 已完成调研 | BEAM、MemoryAgentBench、MemoryBench、HaluMem、MemBench、PersonaMem、MemoryArena |
-| 暂缓接入 | Mem-Gallery，以及 landscape survey 中判定不适合 Phase 1 的 benchmark |
-| Supermemory 口径 | 纳入 Phase 1，但只按 self-host/local OSS 版本做 adapter feasibility，不默认使用 Enterprise/full platform 专有能力 |
-| Phase 1 排除 | Zep；Graphiti 也不作为替代，因为仍属于 Zep 体系 |
-| 已移除 | PrefEval，不恢复 adapter、测试、文档或原始仓库 |
+| 效率观测 | token、latency、model identity、memory context tokens |
+| Supermemory 口径 | 纳入 Phase 1，仅 self-host/local OSS；不用 Enterprise/full platform |
+| Phase 1 排除 | Zep、Graphiti（属 Zep 体系） |
+| 已移除 | PrefEval（不恢复 adapter、测试、文档或原始仓库） |
 
-当前 Mem0 full 并发策略已调整：历史实现使用共享 OSS `Memory` 实例并保留过 LoCoMo
-turn-level resume；现在统一改为框架 isolated conversation 并发和 conversation-level
-resume。`mem0-locomo-full-v3` 已定位到 embedding API SSL 断连，当前已补 retry/timeout
-兜底。后续 `outputs/mem0-locomo-full-v4/` 已跑完 10 conversations / 1540 questions，并
-生成 F1、LLM judge 和 efficiency summary；OpenCode 发现的全局 `reference_date` 只传年份
-问题已在 2026-06-23 修复：后续 Mem0 LoCoMo run 会把公开 history 中最后一个 session time
-写入官方 answer prompt 的 `reference_date`。这不自动重写或判定 full-v4 作废；如需最严谨
-复现 Mem0 官方 LoCoMo prompt，应使用新 run_id 重新跑 Mem0 LoCoMo。
-最新任务状态见
-[docs/task-ledger.md](docs/task-ledger.md)。
+### 关键约束
 
-当前主线已迁移到 retrieve-first memory-module 协议：method 实现
-`add(conversation) + retrieve(question)`，由 method adapter 返回完整 answer prompt
-messages，再由 framework reader 统一负责 answer LLM 调用。设计文档见
-[Retrieve-First Memory Module 架构设计](docs/archive/specs/2026-06-20-retrieve-first-memory-module-design.md)。
-实施计划见
-[Retrieve-First Memory Module 实施计划](docs/archive/plans/2026-06-20-retrieve-first-memory-module.md)。
-当前 core protocol、framework reader、retrieval artifact、retrieval/answer resume、
-registered prediction reader wiring、四个内置 method adapter 的 `retrieve()`、framework
-answer efficiency observation 和 artifact evaluation compatibility 均已落地。旧
-`get_answer()` 路径仍作为迁移期兼容保留。2026-06-22 已执行一轮 LoCoMo 2c20t 真实
-smoke，但发现 isolated worker 仍走 legacy answer path；当前代码已修复，严格
-retrieve-first API smoke 已用新 run id 重跑通过，四个内置 method 均写出
-`answer_prompts.prediction.jsonl` 和非空 `prompt_messages`。
+- **预算强约束**：全量实验必须先有成本估算表并经导师批准；当前一切真实 run 均为极小
+  smoke。真实 API 调用须用户显式确认 method、benchmark、样本规模和 `run_id`。
+- 当前所有真实 LLM 调用统一 `gpt-4o-mini`；未经用户改口不得切换模型。
+- 真实费用按 ohmygpt 实际价格离线计算，不绑定 OpenAI 官方价。
+- smoke 使用官方 method 参数；成本控制只通过数据规模裁剪。
+- `outputs/memoryos-locomo-full-20260603/` 是受保护实验资产。
 
-LongMemEval 适配已完成第一轮真实闭环：Mem0 和 LightMem 使用各自已有 LongMemEval prompt/检索路径；
-A-Mem 和 MemoryOS 已补 retrieve-first LongMemEval 分支，复用 LightMem-style reader
-prompt，同时保留各自 method-specific 记忆上下文。A-Mem 保留 query keywords、category
-k 和 memory context；MemoryOS 保留 recent context、retrieval queue、user profile、
-long-term knowledge 和 assistant knowledge。MemoryOS 还额外支持可选
-`memoryos_pypi_generic_v1` reader profile，用于复用 MemoryOS PyPI generic prompt
-结构，但默认仍是 LightMem-style LongMemEval QA prompt。LongMemEval judge 默认走
-LightMem LongMemEval 流程：task-specific yes/no prompt、Chat Completions、
-`temperature=0.0`、`top_p=0.8`、`max_tokens=2000`，便于和 LightMem 论文结果对比。
-上述代码路径已通过离线 focused 测试，并已完成四个 method 的 LongMemEval-S `s_cleaned`
-official-full 1-conv cost pilot：
-`outputs/{lightmem,mem0,memoryos,amem}-longmemeval-s-1conv-costpilot-20260622-s-cleaned`
-均为 1/500 conversations、1/500 questions completed，LongMemEval judge 均为 1/1。
-这些 run 可继续用同一 `run_id` 加 `--resume` 扩大规模。OpenCode 文档里的美元估算使用
-OpenAI 官方 GPT-4o-mini 价格，只作参考；真实费用需要按 ohmygpt 实际价格离线换算。
-
-LLM/provider 灵活配置方向也已完成设计：
-[LLM Provider 与 Prompt 配置设计](docs/workstreams/ws03-architecture-slimming/2026-06-21-llm-provider-config-design.md)。
-第一版计划只实现 OpenAI-compatible provider，覆盖 OpenAI、ohmygpt、DeepSeek 兼容接口和
-本地 OpenAI-compatible server；Anthropic/Gemini 和进程内 Hugging Face provider 留作
-后续扩展。当前运行能力仍以 `.env` 中的 OpenAI-compatible `gpt-4o-mini` 配置为准。
-
-真实 API prediction、LLM judge 或 full profile 实验必须由用户显式确认 method、benchmark、
-样本规模和 `run_id`。框架不会在普通测试或默认命令里自动发起付费调用。
-
-最新任务状态以 [AGENTS.md](AGENTS.md)、[docs/current-roadmap.md](docs/current-roadmap.md)
-和 [docs/task-ledger.md](docs/task-ledger.md) 为准。长期架构设计见
-[项目目标与架构设计](docs/archive/specs/2026-06-12-project-goals-architecture-design.md)。
+最新任务状态以 [AGENTS.md](AGENTS.md)、[docs/roadmap.md](docs/roadmap.md) 和各
+[workstream README](docs/workstreams/) 为准。
 
 ## 快速开始
 
@@ -265,8 +239,13 @@ Dataset
 
 ## Method 接口
 
-当前主协议是 retrieve-first memory module。新 method 只需要写入 conversation，并按
-question 返回 method 自己构造好的完整 answer prompt messages：
+当前主协议为 **v3 `MemoryProvider`**（`ingest(unit) + retrieve(query) -> RetrievalResult`），
+粒度由实例级 `consume_granularity` 声明、框架事件流聚合投递。协议全文：
+[docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md](docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md)。
+
+四个内置 method adapter（Mem0、MemoryOS、A-Mem、LightMem）当前通过兼容桥接运行，
+仍使用 `add(conversation) + retrieve(question)` 的 v2 接口形态；原生 v3 迁移属
+M-B/M-C 阶段（见 ws02 plan）。新 method 接入应直接按 v3 协议实现 `MemoryProvider`。
 
 ```python
 from memory_benchmark.core import (
@@ -330,8 +309,8 @@ OpenAI-compatible framework reader；完整多 provider 配置仍处于设计后
 强制内部 LLM/embedding 观测。自定义 method 默认 `workers=1`；如果用户显式传
 `--allow-unsafe-custom-parallel`，框架才允许 `workers>1`，并由用户自行保证外部数据库、
 文件、namespace 和 conversation 隔离安全。手把手示例见
-[docs/custom-method-onboarding.md](docs/custom-method-onboarding.md)。当前内置 method
-原生接口审计见 [docs/method-interface-inventory.md](docs/method-interface-inventory.md)。
+[docs/reference/custom-method-onboarding.md](docs/reference/custom-method-onboarding.md)。当前内置 method
+原生接口审计见 [docs/reference/method-interface-inventory.md](docs/reference/method-interface-inventory.md)。
 
 ## 统一命令行入口
 
@@ -614,13 +593,17 @@ uv run python -m unittest tests/test_API.py -v
 
 ## 参考文档
 
-- [AGENTS.md](AGENTS.md): 当前项目入口、断点和最高优先级工程规则。
-- [docs/current-roadmap.md](docs/current-roadmap.md): 动态路线图。
-- [docs/task-ledger.md](docs/task-ledger.md): 当前任务与文档状态总账。
-- [docs/benchmark-scope.md](docs/benchmark-scope.md): benchmark 范围。
-- [docs/archive/reference/method-interface.md](docs/archive/reference/method-interface.md): method 接口。
-- [docs/data-model.md](docs/data-model.md): core 数据模型说明。
-- [docs/method-resource-parameter-audit.md](docs/method-resource-parameter-audit.md): method 参数与资源审计。
-- [docs/huggingface-datasets.md](docs/huggingface-datasets.md): dataset 上传到 Hugging Face 的流程。
-- [docs/future-ideas.md](docs/future-ideas.md): 实验监控 AI、新 method 接入 skill 等后期想法。
+- [AGENTS.md](AGENTS.md): 项目入口、硬规则、协作模式、导航。
+- [docs/roadmap.md](docs/roadmap.md): Phase 1 目标、workstream 索引、全局约束、恢复流程。
+- [docs/workstreams/](docs/workstreams/): 各任务线状态页（README）+ spec + plan + notes。
+- [docs/reference/architecture.md](docs/reference/architecture.md): 架构分层说明。
+- [docs/reference/architecture-execution-flow.md](docs/reference/architecture-execution-flow.md): 完整架构与执行流程（论文级深度）。
+- [docs/reference/data-model.md](docs/reference/data-model.md): core 数据模型说明。
+- [docs/reference/custom-method-onboarding.md](docs/reference/custom-method-onboarding.md): 自定义 method 轻量接入指南。
+- [docs/reference/method-interface-inventory.md](docs/reference/method-interface-inventory.md): 内置 method 原生接口审计。
+- [docs/reference/method-resource-parameter-audit.md](docs/reference/method-resource-parameter-audit.md): method 参数与资源审计。
+- [docs/reference/huggingface-datasets.md](docs/reference/huggingface-datasets.md): Hugging Face dataset 发布流程。
+- [docs/reference/future-ideas.md](docs/reference/future-ideas.md): 实验监控 AI、新 method 接入 skill 等后期想法。
+- [docs/reference/architect-playbook.md](docs/reference/architect-playbook.md): 架构师角色完整交接文档。
+- [docs/reference/actor-handbook.md](docs/reference/actor-handbook.md): 执行者施工规矩全文。
 - [docs/archive/specs/2026-06-12-project-goals-architecture-design.md](docs/archive/specs/2026-06-12-project-goals-architecture-design.md): 长期项目目标与架构设计。

@@ -1,3 +1,5 @@
+⚠ **2026-07-07 核查：本文描述的 Dataset → Conversation → Session → Turn 层级仍是 benchmark adapter 的规范数据模型（v3 spec §1 确认为"三层同构"），但未涵盖 v3 协议新增的 TurnEvent 事件流表示与 IsolationUnit 隔离模型，待 ws03 补全。**
+
 # 数据模型
 
 统一数据模型用于把不同 conversation + QA benchmark 转成同一套 Python 对象。
