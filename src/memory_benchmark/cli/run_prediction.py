@@ -637,6 +637,9 @@ def run_registered_conversation_qa_prediction(
                 "prediction_transform",
                 None,
             ),
+            protocol_version=getattr(
+                method_registration, "protocol_version", ""
+            ),
             clean_failed_ingest_conversation=clean_failed_ingest_conversation,
         )
         results.append(
@@ -929,6 +932,7 @@ def _run_custom_conversation_qa_prediction(
                 "prediction_transform",
                 None,
             ),
+            protocol_version="v2-bridged",
         )
         results.append(
             PredictionVariantResult(

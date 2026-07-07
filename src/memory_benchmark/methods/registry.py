@@ -101,6 +101,8 @@ class MethodRegistration:
         model_name_getter: 从强类型配置读取生成模型名。
         max_workers_getter: 从强类型配置读取 conversation 并发数。
         display_name: 用于 CLI、manifest 和报错的人类可读 method 名称。
+        protocol_version: method 显式声明的 provider 协议版本，供 manifest 盖章与
+            worker 运行时交叉校验使用。
         workload_estimator: 可选的公开工作量估算 hook。
         allow_smoke_worker_override: 是否允许 `--smoke-max-workers` 覆盖配置值。
         efficiency_model_inventory_getter: 启用效率观测时生成模型清单。
@@ -122,6 +124,7 @@ class MethodRegistration:
     model_name_getter: Callable[[Any], str]
     max_workers_getter: Callable[[Any], int]
     display_name: str
+    protocol_version: str
     workload_estimator: Callable[[Conversation, Any], int] | None = None
     allow_smoke_worker_override: bool = False
     efficiency_model_inventory_getter: (
@@ -713,6 +716,7 @@ _REGISTRATIONS = {
         model_name_getter=_amem_model_name,
         max_workers_getter=_amem_max_workers,
         display_name="A-Mem",
+        protocol_version="v3",
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_amem_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(
@@ -742,6 +746,7 @@ _REGISTRATIONS = {
         model_name_getter=_mem0_model_name,
         max_workers_getter=_mem0_max_workers,
         display_name="Mem0",
+        protocol_version="v3",
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_mem0_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(
@@ -771,6 +776,7 @@ _REGISTRATIONS = {
         model_name_getter=_lightmem_model_name,
         max_workers_getter=_lightmem_max_workers,
         display_name="LightMem",
+        protocol_version="v3",
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_lightmem_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(
@@ -800,6 +806,7 @@ _REGISTRATIONS = {
         model_name_getter=_memoryos_model_name,
         max_workers_getter=_memoryos_max_workers,
         display_name="MemoryOS",
+        protocol_version="v3",
         allow_smoke_worker_override=True,
         workload_estimator=_estimate_memoryos_update_batches,
         efficiency_model_inventory_getter=_memoryos_efficiency_model_inventory,
@@ -830,6 +837,7 @@ _REGISTRATIONS = {
         model_name_getter=_simplemem_model_name,
         max_workers_getter=_simplemem_max_workers,
         display_name="SimpleMem",
+        protocol_version="v3",
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_simplemem_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(

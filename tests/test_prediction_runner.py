@@ -39,6 +39,7 @@ from memory_benchmark.core.interfaces import (
     BaseMemorySystem,
     BaseResumableMemorySystem,
 )
+from memory_benchmark.core.provider_bridge import LegacyProviderBridge
 from memory_benchmark.core.provider_protocol import (
     BRIDGE_EMPTY_MEMORY_SENTINEL,
     IngestResult,
@@ -57,6 +58,8 @@ from memory_benchmark.methods.mock import MockMemoryProvider
 from memory_benchmark.runners.ingest_resume import TurnIngestCheckpointStore
 from memory_benchmark.runners.prediction import (
     PredictionRunPolicy,
+    _method_manifest_with_protocol,
+    _validate_protocol_version,
     run_predictions,
 )
 from memory_benchmark.storage import atomic_write_json, atomic_write_jsonl, read_jsonl
@@ -3241,6 +3244,7 @@ def test_registered_isolated_prediction_does_not_construct_root_system(
         model_name_getter=lambda config: "fake-model",
         max_workers_getter=lambda config: config.max_workers,
         display_name="FakeMethod",
+        protocol_version="",
         supports_shared_instance_parallelism=False,
     )
     monkeypatch.setattr(
@@ -3408,3 +3412,110 @@ def test_merge_session_report_records_replaces_same_conversation() -> None:
         ),
     )
     assert [record["memories"] for record in merged] == [["keep"], ["new-a"], ["new-b"]]
+
+
+# ---- _method_manifest_with_protocol (declaration-based) ----
+
+
+def test_method_manifest_with_protocol_always_stamps_three_fields() -> None:
+    """声明式盖章应始终输出 protocol_version、prompt_track、profile 三字段。"""
+
+    result = _method_manifest_with_protocol(
+        method_manifest={},
+        protocol_version="v3",
+    )
+    assert result["protocol_version"] == "v3"
+    assert result["prompt_track"] == "native"
+    assert result["profile"] == {}
+
+
+def test_method_manifest_with_protocol_setdefault_preserves_caller_values() -> None:
+    """setdefault 不覆盖调用方已填入的字段值。"""
+
+    result = _method_manifest_with_protocol(
+        method_manifest={
+            "prompt_track": "unified",
+            "profile": {"checkpointing": False},
+        },
+        protocol_version="v2-bridged",
+        prompt_track="native",
+    )
+    assert result["protocol_version"] == "v2-bridged"
+    assert result["prompt_track"] == "unified"
+    assert result["profile"] == {"checkpointing": False}
+
+
+# ---- _validate_protocol_version (cross-validation in worker) ----
+
+
+class _FakeV3Provider(MemoryProvider):
+    """用于校验测试的 fake MemoryProvider。"""
+
+    consume_granularity = "turn"
+
+    def ingest(self, unit: TurnEvent) -> IngestResult:
+        """v3 ingest 协议桩，仅用于类型检查。"""
+        raise NotImplementedError
+
+    def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
+        """v3 retrieve 协议桩，仅用于类型检查。"""
+        raise NotImplementedError
+
+
+class _FakeV2Provider(BaseMemoryProvider):
+    """fake BaseMemoryProvider，经 LegacyProviderBridge 后变为 v2-bridged。"""
+
+    def add(self, conversations):
+        """旧协议 add 桩，仅用于类型检查。"""
+        raise NotImplementedError
+
+    def retrieve(self, question):
+        """旧协议 retrieve 桩，仅用于类型检查。"""
+        raise NotImplementedError
+
+
+class _FakeBaseSystem(BaseMemorySystem):
+    """直接继承 BaseMemorySystem，不实现任何 provider 协议。"""
+
+    def add(self, conversations):
+        """旧协议 add 桩，仅用于类型检查。"""
+        raise NotImplementedError
+
+    def get_answer(self, question):
+        """旧协议 get_answer 桩，仅用于类型检查。"""
+        raise NotImplementedError
+
+
+def test_validate_protocol_version_v3_accepts_memory_provider() -> None:
+    """声明 v3 + 实例是 MemoryProvider → 通过。"""
+
+    _validate_protocol_version("v3", _FakeV3Provider())
+
+
+def test_validate_protocol_version_v3_rejects_base_memory_system() -> None:
+    """声明 v3 但 factory 返回 BaseMemorySystem（非 MemoryProvider）→ fail-fast。"""
+
+    with pytest.raises(ConfigurationError, match="declares protocol_version='v3'"):
+        _validate_protocol_version("v3", _FakeBaseSystem())
+
+
+def test_validate_protocol_version_v3_rejects_legacy_bridge() -> None:
+    """声明 v3 但 factory 返回 LegacyProviderBridge（应为 v2-bridged）→ fail-fast。"""
+
+    bridged = LegacyProviderBridge(_FakeV2Provider())
+    with pytest.raises(ConfigurationError, match="declares protocol_version='v3'"):
+        _validate_protocol_version("v3", bridged)
+
+
+def test_validate_protocol_version_v2_bridged_accepts_legacy_bridge() -> None:
+    """声明 v2-bridged + 实例是 LegacyProviderBridge → 通过。"""
+
+    bridged = LegacyProviderBridge(_FakeV2Provider())
+    _validate_protocol_version("v2-bridged", bridged)
+
+
+def test_validate_protocol_version_v2_bridged_rejects_memory_provider() -> None:
+    """声明 v2-bridged 但 factory 返回直接 MemoryProvider → fail-fast。"""
+
+    with pytest.raises(ConfigurationError, match="declares protocol_version='v2-bridged'"):
+        _validate_protocol_version("v2-bridged", _FakeV3Provider())

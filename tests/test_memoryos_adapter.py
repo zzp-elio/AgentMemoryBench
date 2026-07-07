@@ -257,7 +257,7 @@ def test_memoryos_registry_builds_native_v3_provider(tmp_path: Path) -> None:
     assert provider.consume_granularity == "session"
     assert _method_manifest_with_protocol(
         method_manifest={},
-        system=provider,
+        protocol_version="v3",
     )["protocol_version"] == "v3"
 
 

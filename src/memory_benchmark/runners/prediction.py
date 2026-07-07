@@ -333,6 +333,7 @@ def run_predictions(
         Callable[[Question, RetrievalResult], AnswerPromptResult] | None
     ) = None,
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
+    protocol_version: str = "",
     *,
     system_factory: Callable[
         [MethodBuildContext], _PredictionSystem
@@ -372,8 +373,9 @@ def run_predictions(
     prompt_track = "unified" if unified_prompt_builder is not None else "native"
     method_manifest = _method_manifest_with_protocol(
         method_manifest=method_manifest,
-        system=system,
+        protocol_version=protocol_version,
         prompt_track=prompt_track,
+        system=system,
     )
     dataset_fingerprint, manifest = _build_prediction_resume_artifacts(
         dataset=dataset,
@@ -520,6 +522,7 @@ def run_predictions(
                 answer_reader=answer_reader,
                 unified_prompt_builder=unified_prompt_builder,
                 prediction_transform=prediction_transform,
+                protocol_version=protocol_version,
             )
         else:
             ingest_conversations = [
@@ -1185,19 +1188,70 @@ def _normalize_memory_system(system: _PredictionSystem) -> BaseMemorySystem | Me
 def _method_manifest_with_protocol(
     *,
     method_manifest: dict[str, object],
-    system: BaseMemorySystem | MemoryProvider,
+    protocol_version: str = "",
     prompt_track: str = "native",
+    system: BaseMemorySystem | MemoryProvider | None = None,
 ) -> dict[str, object]:
-    """按实际 provider 类型补充协议身份字段。"""
+    """按注册声明协议版本补充 manifest 协议身份字段。
 
-    if not isinstance(system, MemoryProvider):
-        return method_manifest
+    首选路径：显式 protocol_version（来自 MethodRegistration.protocol_version），
+    保证 workers>1 路径中不需要真实 method 实例也能正确盖章。
+    回退路径：当 protocol_version 为空且 system 可用时，沿用旧 isinstance 推断，
+    用于未通过注册表的测试/自定义路径向后兼容。
+    """
+
+    if not protocol_version:
+        if system is not None and isinstance(system, MemoryProvider):
+            protocol_version = (
+                "v2-bridged"
+                if isinstance(system, LegacyProviderBridge)
+                else "v3"
+            )
+        else:
+            return method_manifest
     normalized = dict(method_manifest)
-    protocol_version = "v2-bridged" if isinstance(system, LegacyProviderBridge) else "v3"
     normalized.setdefault("protocol_version", protocol_version)
     normalized.setdefault("prompt_track", prompt_track)
     normalized.setdefault("profile", {})
     return normalized
+
+
+def _validate_protocol_version(
+    protocol_version: str,
+    system: BaseMemorySystem | MemoryProvider,
+) -> None:
+    """交叉校验 method 声明的协议版本与实际实例类型一致，不符则 fail-fast。
+
+    这保证注册声明的 protocol_version 不会因 factory 实现错误而产生不可复现的
+    manifest，尤其在 isolated worker 路径中需要独立校验。
+
+    当 protocol_version 为空字符串时跳过校验——这用于未通过注册表的测试/自定义路径。
+    """
+
+    if not protocol_version:
+        return
+    if protocol_version == "v3":
+        if not isinstance(system, MemoryProvider):
+            raise ConfigurationError(
+                f"Method declares protocol_version='v3' but factory produced "
+                f"{type(system).__name__} (expected MemoryProvider). "
+                "Update the method adapter to implement MemoryProvider or fix "
+                "the registration's protocol_version."
+            )
+        if isinstance(system, LegacyProviderBridge):
+            raise ConfigurationError(
+                "Method declares protocol_version='v3' but factory produced a "
+                "LegacyProviderBridge (v2-bridged). If this method uses "
+                "BaseMemoryProvider, set protocol_version='v2-bridged' in its "
+                "registration."
+            )
+    elif protocol_version == "v2-bridged":
+        if not isinstance(system, LegacyProviderBridge):
+            raise ConfigurationError(
+                f"Method declares protocol_version='v2-bridged' but factory "
+                f"produced {type(system).__name__} (expected "
+                "LegacyProviderBridge wrapping a BaseMemoryProvider)."
+            )
 
 
 def _is_memory_provider(system: BaseMemorySystem | MemoryProvider) -> bool:
@@ -1317,6 +1371,7 @@ def _run_isolated_worker_pipeline(
         Callable[[Question, RetrievalResult], AnswerPromptResult] | None
     ) = None,
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
+    protocol_version: str = "",
 ) -> None:
     """使用独立 method instance 并行处理 conversation 的 ingest 与 answer。
 
@@ -1407,6 +1462,7 @@ def _run_isolated_worker_pipeline(
                 answer_prompt_records,
                 cancellation_event,
                 policy.max_consecutive_failures,
+                protocol_version=protocol_version,
             )
             future_to_chunk[future] = worker_idx
 
@@ -1592,6 +1648,8 @@ def _isolated_worker(
     existing_retrieval_records: dict[str, dict[str, Any]],
     cancellation_event: Event | None = None,
     max_consecutive_failures: int | None = 3,
+    *,
+    protocol_version: str = "",
 ) -> tuple[_ConversationAnswerBatch | _ConversationFailureBatch, ...]:
     """单个独立 worker：创建 method instance，串行处理分配到的 conversation。
 
@@ -1600,6 +1658,7 @@ def _isolated_worker(
     """
 
     system = _normalize_memory_system(system_factory(build_context))
+    _validate_protocol_version(protocol_version, system)
     results: list[_ConversationAnswerBatch | _ConversationFailureBatch] = []
     consecutive_failures = 0
     for work_item in work_items:

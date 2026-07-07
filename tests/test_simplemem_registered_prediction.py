@@ -193,6 +193,73 @@ def test_simplemem_registered_prediction_runs_locomo_and_longmemeval_fake_smoke(
         assert "gold_answers" not in public_questions[0]
 
 
+def test_simplemem_registered_prediction_workers_gt_1_manifest_has_protocol_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--smoke-max-workers > 1 时 manifest 必须包含三协议身份字段。"""
+
+    FakeSimpleMemForRegisteredPrediction.instances.clear()
+    real_paths = load_path_settings(PROJECT_ROOT)
+    test_paths = replace(real_paths, outputs_root=tmp_path / "outputs")
+    monkeypatch.setattr(
+        run_prediction_module,
+        "load_path_settings",
+        lambda project_root: test_paths,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "load_openai_settings",
+        lambda project_root: OpenAISettings(
+            api_key="sk-test",
+            base_url="https://example.invalid/v1",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "OpenAICompatibleAnswerLLMClient",
+        FakeAnswerClient,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "get_benchmark_registration",
+        lambda benchmark_name: _fake_registration(benchmark_name),
+    )
+    monkeypatch.setattr(
+        method_registry_module,
+        "SimpleMem",
+        FakeSimpleMemForRegisteredPrediction,
+    )
+
+    result = run_prediction_module.run_registered_conversation_qa_prediction(
+        project_root=PROJECT_ROOT,
+        method_name="simplemem",
+        benchmark_name="locomo",
+        profile_name="smoke",
+        run_id="simplemem-locomo-fake-smoke-workers2",
+        confirm_api=True,
+        smoke_turn_limit=2,
+        smoke_conversation_limit=1,
+        smoke_max_workers=2,
+        enable_efficiency_observability=False,
+    )
+
+    assert result.benchmark == "locomo"
+    run_dir = tmp_path / "outputs" / "simplemem-locomo-fake-smoke-workers2"
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["method_name"] == "SimpleMem"
+    assert manifest["method"]["protocol_version"] == "v3"
+    assert manifest["method"]["prompt_track"] == "native"
+    assert manifest["method"]["profile"] == {}
+    # 交叉校验：worker 内实例必须是 MemoryProvider
+    assert len(FakeSimpleMemForRegisteredPrediction.instances) >= 1
+    for instance in FakeSimpleMemForRegisteredPrediction.instances:
+        assert isinstance(instance, MemoryProvider)
+
+
 class FakeAnswerClient:
     """离线 fake framework answer client，避免 registered 测试触发真实 API。"""
 

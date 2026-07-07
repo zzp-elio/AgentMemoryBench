@@ -804,7 +804,7 @@ def test_mem0_registry_specializes_consume_granularity_by_benchmark(
     assert longmemeval.consume_granularity == "session"
     assert _method_manifest_with_protocol(
         method_manifest={},
-        system=locomo,
+        protocol_version="v3",
     )["protocol_version"] == "v3"
 
 
