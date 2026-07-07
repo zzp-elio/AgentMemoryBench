@@ -68,10 +68,143 @@ created: 2026-07-07
 纪律：ws 系列全部照旧；基线 771 不得跌破；机制卡是第三方行为唯一事实源，
 与实现冲突时停工。
 
-- [ ] **T1 依赖与配置**：uv 隔离验证 simplemem text 路径依赖集；
+- [x] **T1 依赖与配置**：uv 隔离验证 simplemem text 路径依赖集；
   `configs/methods/simplemem.toml` + 强类型 config（LLM/embedding 路径/
   窗口参数/timeout/retry）；本地模型路径强校验；registry 骨架 +
   source identity。验收：config/registry focused 测试全绿；依赖实测输出留档。
+
+  验收输出：
+
+  ```text
+  $ rm -rf /tmp/simplemem-text-venv && uv venv /tmp/simplemem-text-venv && uv pip install --python /tmp/simplemem-text-venv/bin/python openai pydantic lancedb sentence-transformers numpy dateparser pyarrow tantivy rank_bm25 && uv pip install --python /tmp/simplemem-text-venv/bin/python --no-deps -e third_party/methods/SimpleMem
+  Using CPython 3.12.8 interpreter at: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+  Creating virtual environment at: /tmp/simplemem-text-venv
+  Activate with: source /tmp/simplemem-text-venv/bin/activate
+  Using Python 3.12.8 environment at: /private/tmp/simplemem-text-venv
+  Resolved 61 packages in 7.04s
+  Prepared 1 package in 207ms
+  Installed 61 packages in 886ms
+   + annotated-doc==0.0.4
+   + annotated-types==0.7.0
+   + anyio==4.14.1
+   + certifi==2026.6.17
+   + click==8.4.2
+   + dateparser==1.4.1
+   + deprecation==2.1.0
+   + distro==1.9.0
+   + filelock==3.29.6
+   + fsspec==2026.6.0
+   + h11==0.16.0
+   + hf-xet==1.5.1
+   + httpcore==1.0.9
+   + httpx==0.28.1
+   + huggingface-hub==1.22.0
+   + idna==3.18
+   + jinja2==3.1.6
+   + jiter==0.16.0
+   + joblib==1.5.3
+   + lance-namespace==0.9.0
+   + lance-namespace-urllib3-client==0.9.0
+   + lancedb==0.34.0
+   + markdown-it-py==4.2.0
+   + markupsafe==3.0.3
+   + mdurl==0.1.2
+   + mpmath==1.3.0
+   + narwhals==2.23.0
+   + networkx==3.6.1
+   + numpy==2.5.1
+   + openai==2.44.0
+   + packaging==26.2
+   + pyarrow==24.0.0
+   + pydantic==2.13.4
+   + pydantic-core==2.46.4
+   + pygments==2.20.0
+   + python-dateutil==2.9.0.post0
+   + pytz==2026.2
+   + pyyaml==6.0.3
+   + rank-bm25==0.2.2
+   + regex==2026.6.28
+   + rich==15.0.0
+   + safetensors==0.8.0
+   + scikit-learn==1.9.0
+   + scipy==1.18.0
+   + sentence-transformers==5.6.0
+   + setuptools==81.0.0
+   + shellingham==1.5.4
+   + six==1.17.0
+   + sniffio==1.3.1
+   + sympy==1.14.0
+   + tantivy==0.26.0
+   + threadpoolctl==3.6.0
+   + tokenizers==0.22.2
+   + torch==2.12.1
+   + tqdm==4.68.3
+   + transformers==5.13.0
+   + typer==0.26.8
+   + typing-extensions==4.16.0
+   + typing-inspection==0.4.2
+   + tzlocal==5.4.4
+   + urllib3==2.7.0
+  Using Python 3.12.8 environment at: /private/tmp/simplemem-text-venv
+  Resolved 1 package in 388ms
+     Building simplemem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/SimpleMem
+        Built simplemem @ file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/SimpleMem
+  Prepared 1 package in 154ms
+  Installed 1 package in 1ms
+   + simplemem==0.3.0 (from file:///Users/wz/Desktop/memoryBenchmark/third_party/methods/SimpleMem)
+  ```
+
+  ```text
+  $ PYTHONPATH=third_party/methods/SimpleMem /tmp/simplemem-text-venv/bin/python - <<'PY'
+  from pathlib import Path
+  from main import SimpleMemSystem
+  from simplemem.core.settings import settings
+  model_path = Path('models/Qwen3-Embedding-0.6B')
+  print('SimpleMemSystem', SimpleMemSystem.__name__)
+  print('default_window', settings.WINDOW_SIZE)
+  print('default_overlap', settings.OVERLAP_SIZE)
+  print('model_exists', model_path.exists())
+  print('model_files', sorted(path.name for path in model_path.iterdir())[:5])
+  PY
+  SimpleMemSystem SimpleMemSystem
+  default_window 40
+  default_overlap 2
+  model_exists True
+  model_files ['.cache', '.gitattributes', '1_Pooling', 'README.md', 'config.json']
+  ```
+
+  ```text
+  $ uv run pytest tests/test_simplemem_adapter.py tests/test_method_registry.py -q
+  ....................                                                     [100%]
+  20 passed in 0.32s
+  ```
+
+  ```text
+  $ uv run pytest -q
+  ........................................................................ [  9%]
+  ........................................................................ [ 18%]
+  ........................................................................ [ 27%]
+  .................................................................... [ 35%]
+  ........................................................................ [ 44%]
+  ........................................................................ [ 53%]
+  ...................................................................... [ 62%]
+  ........................................................................ [ 71%]
+  ........................................................................ [ 80%]
+  ........................................................................ [ 89%]
+  ........................................................................ [ 98%]
+  ............                                                             [100%]
+  =============================== warnings summary ===============================
+  tests/test_amem_adapter.py::test_amem_can_import_official_robust_layer_without_calling_api
+    /Users/wz/Desktop/memoryBenchmark/third_party/methods/A-mem/memory_layer.py:1: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+      from ast import Str
+
+  tests/test_lightmem_adapter.py::test_lightmem_can_import_official_lightmemory_class
+    /Users/wz/Desktop/memoryBenchmark/third_party/methods/LightMem/src/lightmem/configs/logging/base.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+      class LoggingConfig(BaseModel):
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  798 passed, 3 deselected, 2 warnings, 6 subtests passed in 94.86s (0:01:34)
+  ```
 - [ ] **T2 写入链路**：`ingest(TurnEvent)` + 时间转换器 + `end_conversation→
   finalize()`；fake SimpleMemSystem 记录调用序列，断言逐 turn add_dialogue
   顺序、timestamp 转换、finalize 恰在末尾一次。验收：adapter ingest focused

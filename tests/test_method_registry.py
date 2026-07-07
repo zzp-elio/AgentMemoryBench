@@ -15,6 +15,7 @@ from memory_benchmark.core import (
 )
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.methods.memoryos_adapter import MemoryOSPaperConfig
+from memory_benchmark.methods.simplemem_adapter import SimpleMemConfig
 from memory_benchmark.methods.registry import (
     MethodBuildContext,
     get_method_registration,
@@ -29,7 +30,7 @@ pytestmark = pytest.mark.unit
 def test_registry_lists_conversation_qa_methods() -> None:
     """统一入口应暴露当前已接入的 conversation-QA method。"""
 
-    assert list_methods() == ["amem", "lightmem", "mem0", "memoryos"]
+    assert list_methods() == ["amem", "lightmem", "mem0", "memoryos", "simplemem"]
 
 
 def test_mem0_registration_declares_capabilities_factory_and_api_boundary() -> None:
@@ -75,10 +76,30 @@ def test_memoryos_registration_uses_generic_contract() -> None:
     assert registration.requires_api is True
 
 
+def test_simplemem_registration_declares_text_backend_contract() -> None:
+    """SimpleMem registration 应声明 v3 retrieve-first text backend 契约。"""
+
+    registration = get_method_registration("simplemem")
+
+    assert registration.config_type is SimpleMemConfig
+    assert registration.profile_names == frozenset({"smoke", "official-full"})
+    assert registration.task_families == frozenset({TaskFamily.CONVERSATION_QA})
+    assert registration.provided_capabilities == frozenset(
+        {
+            MethodCapability.CONVERSATION_ADD,
+            MethodCapability.MEMORY_RETRIEVAL,
+        }
+    )
+    assert registration.profile_relative_path == Path("configs/methods/simplemem.toml")
+    assert registration.requires_api is True
+    assert registration.allow_smoke_worker_override is True
+    assert registration.supports_shared_instance_parallelism is False
+
+
 def test_built_in_methods_advertise_memory_retrieval_capability() -> None:
     """retrieve-first prediction 要求内置 method 声明 memory_retrieval。"""
 
-    for method_name in ("mem0", "memoryos", "amem", "lightmem"):
+    for method_name in ("mem0", "memoryos", "amem", "lightmem", "simplemem"):
         registration = get_method_registration(method_name)
 
         assert MethodCapability.CONVERSATION_ADD in registration.provided_capabilities
@@ -104,6 +125,7 @@ def test_clean_retry_support_is_only_declared_by_methods_with_safe_state_cleanup
     assert get_method_registration("lightmem").clean_failed_ingest_state is not None
     assert get_method_registration("memoryos").clean_failed_ingest_state is not None
     assert get_method_registration("mem0").clean_failed_ingest_state is None
+    assert get_method_registration("simplemem").clean_failed_ingest_state is None
 
 
 def test_clean_retry_hook_uses_failed_worker_state_for_isolated_runs(
@@ -255,6 +277,41 @@ infer = true
 
     assert config.profile_name == "official_full"
     assert config.top_k == 200
+
+
+def test_load_method_profile_returns_strongly_typed_simplemem_config(
+    tmp_path: Path,
+) -> None:
+    """registry 应能从 SimpleMem TOML 构造强类型 text backend 配置。"""
+
+    profile_path = tmp_path / "configs" / "methods" / "simplemem.toml"
+    profile_path.parent.mkdir(parents=True)
+    profile_path.write_text(
+        """
+[smoke]
+llm_model = "gpt-4o-mini"
+embedding_model_path = "models/Qwen3-Embedding-0.6B"
+embedding_dimension = 1024
+window_size = 40
+overlap_size = 2
+semantic_top_k = 25
+keyword_top_k = 5
+structured_top_k = 5
+max_workers = 1
+""",
+        encoding="utf-8",
+    )
+
+    config = load_method_profile(
+        method_name="simplemem",
+        profile_name="smoke",
+        project_root=tmp_path,
+    )
+
+    assert isinstance(config, SimpleMemConfig)
+    assert config.profile_name == "smoke"
+    assert config.llm_model == "gpt-4o-mini"
+    assert config.embedding_model_path == "models/Qwen3-Embedding-0.6B"
 
 
 def test_unknown_method_is_rejected() -> None:

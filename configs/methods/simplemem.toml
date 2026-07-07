@@ -1,0 +1,38 @@
+# SimpleMem text backend official profile.
+# smoke 只缩小 benchmark 数据规模；method 参数保持官方 text path 默认值。
+
+[smoke]
+llm_model = "gpt-4o-mini"
+embedding_model_path = "models/Qwen3-Embedding-0.6B"
+embedding_dimension = 1024
+window_size = 40
+overlap_size = 2
+semantic_top_k = 25
+keyword_top_k = 5
+structured_top_k = 5
+api_timeout_seconds = 60.0
+api_max_retries = 8
+max_workers = 1
+enable_planning = true
+enable_reflection = true
+max_reflection_rounds = 2
+enable_parallel_processing = true
+enable_parallel_retrieval = true
+
+[official_full]
+llm_model = "gpt-4o-mini"
+embedding_model_path = "models/Qwen3-Embedding-0.6B"
+embedding_dimension = 1024
+window_size = 40
+overlap_size = 2
+semantic_top_k = 25
+keyword_top_k = 5
+structured_top_k = 5
+api_timeout_seconds = 60.0
+api_max_retries = 8
+max_workers = 10
+enable_planning = true
+enable_reflection = true
+max_reflection_rounds = 2
+enable_parallel_processing = true
+enable_parallel_retrieval = true

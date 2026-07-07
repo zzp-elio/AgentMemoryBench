@@ -50,6 +50,11 @@ from .memoryos_adapter import (
     build_memoryos_source_identity,
     clean_memoryos_conversation_state,
 )
+from .simplemem_adapter import (
+    SimpleMem,
+    SimpleMemConfig,
+    build_simplemem_source_identity,
+)
 
 
 @dataclass(frozen=True)
@@ -171,6 +176,34 @@ def _build_mem0_system(context: MethodBuildContext) -> BaseMemorySystem:
             "pair" if context.benchmark_name == "longmemeval" else "turn"
         ),
     )
+
+
+def _build_simplemem_system(context: MethodBuildContext) -> BaseMemorySystem:
+    """根据统一 build context 构造 SimpleMem text backend adapter。"""
+
+    if not isinstance(context.config, SimpleMemConfig):
+        raise ConfigurationError("SimpleMem factory requires SimpleMemConfig")
+    return SimpleMem(
+        config=context.config,
+        path_settings=context.path_settings,
+        storage_root=context.storage_root,
+    )
+
+
+def _simplemem_model_name(config: Any) -> str:
+    """从 SimpleMem 强类型配置读取 LLM 名称。"""
+
+    if not isinstance(config, SimpleMemConfig):
+        raise ConfigurationError("SimpleMem model getter requires SimpleMemConfig")
+    return config.llm_model
+
+
+def _simplemem_max_workers(config: Any) -> int:
+    """从 SimpleMem 强类型配置读取 conversation 并发数。"""
+
+    if not isinstance(config, SimpleMemConfig):
+        raise ConfigurationError("SimpleMem worker getter requires SimpleMemConfig")
+    return config.max_workers
 
 
 def _build_amem_system(context: MethodBuildContext) -> BaseMemorySystem:
@@ -707,6 +740,31 @@ _REGISTRATIONS = {
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
         clean_failed_ingest_state=_clean_memoryos_failed_ingest_state,
+    ),
+    "simplemem": MethodRegistration(
+        name="simplemem",
+        task_families=frozenset({TaskFamily.CONVERSATION_QA}),
+        provided_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.MEMORY_RETRIEVAL,
+            }
+        ),
+        profile_sections=(
+            ("smoke", "smoke"),
+            ("official-full", "official_full"),
+        ),
+        profile_relative_path=Path("configs/methods/simplemem.toml"),
+        config_type=SimpleMemConfig,
+        requires_api=True,
+        system_factory=_build_simplemem_system,
+        source_identity_factory=build_simplemem_source_identity,
+        model_name_getter=_simplemem_model_name,
+        max_workers_getter=_simplemem_max_workers,
+        display_name="SimpleMem",
+        allow_smoke_worker_override=True,
+        retrieval_observation_contract_getter=_separable_retrieval_contract,
+        supports_shared_instance_parallelism=False,
     ),
 }
 

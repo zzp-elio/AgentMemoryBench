@@ -13,6 +13,11 @@ from .memoryos_adapter import (
     MemoryOSPaperConfig,
     build_memoryos_source_identity,
 )
+from .simplemem_adapter import (
+    SimpleMem,
+    SimpleMemConfig,
+    build_simplemem_source_identity,
+)
 from .registry import (
     MethodBuildContext,
     MethodRegistration,
@@ -33,6 +38,9 @@ __all__ = [
     "MemoryOSAddEstimate",
     "MemoryOSPaperConfig",
     "build_memoryos_source_identity",
+    "SimpleMem",
+    "SimpleMemConfig",
+    "build_simplemem_source_identity",
     "MethodBuildContext",
     "MethodRegistration",
     "get_method_registration",
