@@ -1,7 +1,7 @@
 ---
 id: ws02.2
 parent: ws02
-status: implemented-pending-acceptance（fake 全链路通过，待架构师验收/真实 smoke）
+status: accepted（架构师验收通过 2026-07-08，剩真实 smoke 待预算）
 created: 2026-07-08
 ---
 # ws02.2 HaluMem Adapter（Phase 1 第二个新 benchmark，operation-level）
@@ -14,6 +14,21 @@ created: 2026-07-08
 
 ## 当前断点
 
+- 2026-07-08（架构师 Opus 4.8 验收）：**通过（ACCEPTED）**。本机复跑
+  `uv run pytest -q` = **843 passed, 3 deselected**（与 Codex 报告一致）；
+  git log 确认 6 commit（`050cef2`→`e41a6f3`）逐 task 落地、树干净；未改
+  `third_party/`。第一手抽查关键交付：**R1** session 私有 artifact 落地
+  （`experiment_paths.py:145` 路径 + `operation_level.py:441-468` 写入 +
+  `halumem_common.py:72` 读取）；**R2** `--sessions`/`smoke_session_limit`
+  落地且 `predict formal` 正确拒绝（`cli/main.py:195,578`）；**T4 口径第一手
+  核对全对**——extraction evaluator 的 integrity/update 互斥路由
+  （`halumem_extraction.py:108` `is_update=="True" and key in update_memory_keys`
+  跳 integrity）、accuracy 0.5 因子（:195）、integrity==2→1.0（:164）、
+  interference 分离（:242-257）、`compute_f1`（:14）均与官方 `evaluation.py`
+  钉进 plan 的口径一致；**T5** Mem0 在 HaluMem 下特化 `consume_granularity=
+  session` 返回 session 增量报告。**验收性质说明**：extraction（最高风险、口径
+  最复杂）已逐行核；update/qa 走同一 pinned 块 + fake 链路测试全过，未逐行复核。
+  剩：极小真实 API smoke（`--conversations 1 --sessions 1`，待用户预算）。
 - 2026-07-08（Codex）：**T3-patch/R2/T4/T5/T6/T7 已完成并逐 task commit**。
   结果：R1 session 级 evaluator-private artifact 已落地；R2 HaluMem 专用
   `smoke_session_limit` + CLI `--sessions` 已落地；三个 judge evaluator
@@ -115,7 +130,7 @@ created: 2026-07-08
 - [x] 用户批准 spec（2026-07-08，D1 接受官方做法 + S6 改接口即契约）
 - [x] 架构师写实施 plan（[plan.md](plan.md)，T1-T7）
 - [x] actor 施工 + fake 全链路（2026-07-08，T3-patch/R2/T4/T5/T6/T7）
-- [ ] 架构师验收
+- [x] 架构师验收（2026-07-08，843 passed 复跑 + 口径第一手抽查）
 - [ ] 极小真实 smoke（待用户确认预算）
 
 ## 决策点（详见 spec.md §7，均已定案）

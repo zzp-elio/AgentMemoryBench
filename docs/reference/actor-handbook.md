@@ -105,3 +105,11 @@
   架构师修正。这种"看穿 plan 措辞不精确但按任务实质正确推进 + 上报"是理想
   actor 行为。
 - **验收命令的真实输出逐条粘回**（不概括、不编）——架构师复跑核对以此为准。
+- **发现 plan 有事实缺口就停工上报，别硬编绕过**。判例（2026-07-08，Codex
+  做对了）：T4 开工前发现 extraction/update 评测是 **session 级**（官方
+  `evaluation.py:54-95` 遍历每 session 的 memory_points，与有没有 question
+  无关），但当时 artifact 只有 question 级私有标签，491 个"有 memory_point
+  但无 question"的 session 的 gold 无法还原 → extraction 分母会漏。Codex 没
+  硬着头皮做，而是停工写断点、把二选一（新增 session 私有 artifact vs report
+  metadata 携带 gold）交架构师裁定（架构师裁 R1=新增 artifact）。**宁可停工问，
+  也不要在缺口上硬编——错的实现比停工代价大得多。**
