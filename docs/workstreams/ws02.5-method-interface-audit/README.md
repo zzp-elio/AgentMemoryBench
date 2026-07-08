@@ -75,6 +75,20 @@ LangMem/Supermemory）逐个核：
 
 ## 当前断点
 
+- 2026-07-08（架构师 Opus 4.8 验收 P1 LightMem）：**通过**。本机复跑
+  `uv run pytest -q -m "not api"` = **892 passed, 0 failed**。**第一手核实迁移
+  忠实**：官方 `lightmem.py` `retrieve()`（:644-707）内部就是
+  `text_embedder.embed(query)` → `embedding_retriever.search(return_full=True)`
+  →（仅当传 `boundmem_tags` 才 `filter_by_tags`，默认不过滤）→ 格式化成
+  `f"{time_stamp} {weekday} {memory}"`。所以 adapter 直接调 `search(return_full=
+  True)`（:1035）① 用的是同一个官方 search 组件；② 默认参数下无隐藏过滤被跳过；
+  ③ answer prompt 用 `_format_lightmem_memory_as_official_retrieve`（:1555）还原
+  官方 `{ts} {wd} {mem}` 格式（对齐官方 :701），不偏离。两路径统一 list[dict]
+  （F1 解决），删自复刻 `_cosine_similarity`。**Step1 等价 gate 我复核结构成立**
+  （retrieve==search 包一层），数值等价采信 actor 记录的详细 diff（未独立重演
+  cosine 数值）。**残留（非阻塞）**：若将来用到 `boundmem_tags`，adapter 须补
+  `filter_by_tags`（当前 benchmark 不用）。**下一步**：MemoryOS eval→pypi（架构师
+  写 plan 中）；接口文档汇总；P2 A-Mem 文档留痕。
 - 2026-07-08（actor workbuddy+GLM5.2，完成 P1 迁移）：LightMem 统一 retrieve。
   Step1 gate 通过（自复刻 `_retrieve_locomo_memories` get_all+手算cosine vs
   官方 `VectorRetriever.retrieve` retrievers.py:111-132 逐行等价：候选集同
@@ -94,7 +108,10 @@ LangMem/Supermemory）逐个核：
   adapter `_format_simplemem_contexts` 逐行等价，actor 未画蛇添足加 keywords、
   且 dedup（unified 复用 native formatter，两口径一致）。**下一步**：LightMem
   P1（含 Step1 等价 gate）+ MemoryOS eval→pypi（架构师写 plan 中）。
-- 2026-07-08（actor Claude Sonnet，完成 P0 修复）：SimpleMem F1——
+- 2026-07-08（actor **WorkBuddy/GLM-5.2**，完成 P0 修复；**身份更正**：此前 actor
+  自标"Claude Sonnet"有误——实际由 GLM-5.2 驱动、产品层 WorkBuddy，架构师照搬其
+  自标未核实，一并纠正。SimpleMem 审计 + P0 写任务均为同一 WorkBuddy/GLM-5.2）：
+  SimpleMem F1——
   `_format_simplemem_memory` 改为复用 `_format_simplemem_contexts`，覆盖官方
   `AnswerGenerator._format_contexts` 全部 6 字段（lossless_restatement+timestamp
   +location+persons+entities+topic），unified/native 同口径不丢 Symbolic 层；

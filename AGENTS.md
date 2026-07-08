@@ -40,7 +40,11 @@
   角色完整交接文档：`docs/reference/architect-playbook.md`（任何 agent 可按其
   "上任自检"接任架构师，作为不可用时的备份机制）。
 - **执行者（actor）= 轮换池**（2026-07-07 起）：Codex / OpenCode+DeepSeek /
-  Claude Sonnet 等，可能随时换人、新开会话，**一律视为"刚进公司的新人"**。actor
+  WorkBuddy(GLM-5.2) / Claude Sonnet 等，可能随时换人、新开会话，**一律视为
+  "刚进公司的新人"**。**actor 写交接记录时须核实自己会话的实际模型（看系统提示），
+  别顺手套用本池里的名字**（2026-07-08 判例：一个 WorkBuddy/GLM-5.2 会话把自己
+  误标成"Claude Sonnet"，架构师又照搬未核实——身份自标也要验证，同"验证 actor
+  断言"一理）。actor
   规矩全文在 `docs/reference/actor-handbook.md`（上工流程、红线、停工条件、报告
   格式）。**每张任务卡必须自包含**：列出要读的文件清单（`AGENTS.md` → 目标
   workstream README → spec/plan → `actor-handbook.md`）、把裁定与口径写全；

@@ -2,7 +2,7 @@
 audit: SimpleMem
 workstream: ws02.5
 mode: 只读审计（不改 src/ 与 tests/，不改 third_party/）
-auditor: actor（新人，Claude Sonnet）
+auditor: actor（新人，WorkBuddy/GLM-5.2；原误标 Claude Sonnet 已更正）
 date: 2026-07-08
 adapter_file: src/memory_benchmark/methods/simplemem_adapter.py（小写）
 vendored_root: third_party/methods/SimpleMem/
