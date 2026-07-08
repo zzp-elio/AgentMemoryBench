@@ -75,6 +75,13 @@ LangMem/Supermemory）逐个核：
 
 ## 当前断点
 
+- 2026-07-08（actor Claude Sonnet，完成 P0 修复）：SimpleMem F1——
+  `_format_simplemem_memory` 改为复用 `_format_simplemem_contexts`，覆盖官方
+  `AnswerGenerator._format_contexts` 全部 6 字段（lossless_restatement+timestamp
+  +location+persons+entities+topic），unified/native 同口径不丢 Symbolic 层；
+  改 `test_simplemem_adapter.py` 旧格式断言 + 新增 Symbolic 字段覆盖测试。
+  focused 13 passed，全量 892 passed（基线 891 +1）。commit `3e177c3`。**下一步**：
+  架构师复跑验收；P1 MemoryOS eval→pypi / P1 LightMem 统一 retrieve 待派。
 - 2026-07-08（架构师 Opus 4.8 建档）：记录 MemoryOS `eval/` vs `memoryos-pypi`
   第一手发现 + 全 method 审计裁决。**下一步**：逐 method 审计（可先抽查
   MemoryOS 出样例，再派 actor 按上方 (a)-(e) 清单逐个核 + 写接口文档）。尚未
@@ -85,7 +92,7 @@ LangMem/Supermemory）逐个核：
 - [x] 架构师建档 + 裁决（2026-07-08）
 - [x] 逐 method 接口审计（2026-07-08，Mem0/A-Mem/LightMem/SimpleMem by workbuddy+GLM5.2；MemoryOS by 架构师）+ 架构师验收裁定（见上表）
 - [ ] 产出 method 接口文档（注入 + 检索）— 可由 4 份 audit-*.md 汇总
-- [ ] 迁移/修复（写任务串行）：P0 SimpleMem 补字段 / P1 MemoryOS eval→pypi / P1 LightMem 统一 retrieve / P2 A-Mem 文档留痕
+- [ ] 迁移/修复（写任务串行）：[x] P0 SimpleMem 补字段（2026-07-08，commit 3e177c3）/ [ ] P1 MemoryOS eval→pypi / [ ] P1 LightMem 统一 retrieve / [ ] P2 A-Mem 文档留痕
 - [ ] formatted_memory 全路径完整落盘核对
 
 ## MemoryOS 版本裁定（架构师第一手，2026-07-08）
