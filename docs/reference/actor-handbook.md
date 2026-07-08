@@ -113,3 +113,10 @@
   硬着头皮做，而是停工写断点、把二选一（新增 session 私有 artifact vs report
   metadata 携带 gold）交架构师裁定（架构师裁 R1=新增 artifact）。**宁可停工问，
   也不要在缺口上硬编——错的实现比停工代价大得多。**
+- **识破 plan 里"过度/不准确的契约"，按算法实质做 + 上报，别机械照搬**。判例
+  （2026-07-09，WorkBuddy/GLM-5.2 做对了）：MemoryOS 迁移 plan 说"retrieve 前后
+  记忆状态/文件不变"，但 actor 第一手发现 MemoryOS 检索**固有地**更新 mid_term
+  `N_visit`/heat（算法机制，非污染），强行压掉不忠实。actor 没机械照搬 plan，而是
+  按算法实质验收（只锁"add_memory 未调 + 记忆**内容**不变"）+ 把差异上报请裁
+  （架构师回 method 官方 eval 证实 actor 对、更正了 plan）。**plan 是架构师写的、
+  也会错；你第一手看到的算法机制与 plan 冲突时，按机制做 + 上报，是理想行为。**

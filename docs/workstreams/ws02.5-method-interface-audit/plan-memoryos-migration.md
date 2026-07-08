@@ -62,8 +62,10 @@ assistant_knowledge **全部组装成 `formatted_memory`**（沿用官方 :270-3
 add_memory**。这样 formatted_memory **覆盖短/中/长全部记忆层**（满足 ws02.5(c)
 完整性）。
 
-- **无写副作用契约**（同 HaluMem update 探针）：retrieve 前后 MemoryOS 记忆状态
-  不变（fake 断言 add_memory 未被调用 / 文件未变）。
+- **不污染契约（更正版，见 T3 ⚠）**：retrieve 只锁"不写新内容污染"——不调
+  step-10 `add_memory`、short_term 条目/profile/knowledge 内容不变。**但检索
+  固有的 mid_term heat/`N_visit` 更新必须保留**（算法机制，作者 eval:236-237
+  就这么做），**不要**照搬 HaluMem update 探针的"状态全不变"。
 
 ### 4. 参数 = pypi 官方默认
 
@@ -98,8 +100,16 @@ consume_granularity="pair"；orphan/dangling 按上方裁定注入不丢。LLM c
 改动：新 `retrieve` 复刻 get_response 步骤1-7，组装短+中+长+knowledge 成
 formatted_memory，跳过答题与 add_memory。
 验收：focused 测试 ①formatted_memory 含短/中/长各层内容（给构造好的记忆状态，
-断言各层都出现）②**无写副作用**（retrieve 前后记忆状态/文件不变、add_memory
-未被调用）③非空。
+断言各层都出现）②**不污染记忆内容**（retrieve 未调 step-10 `add_memory`、
+short_term 条目/profile/knowledge 内容前后不变）③非空。
+**⚠ 架构师更正（2026-07-08，用户点破 + eval 第一手证实）**：这里**不能**要求
+"retrieve 前后记忆状态/文件完全不变"——那是**过度套用** HaluMem update 探针。
+MemoryOS 检索**固有地**更新 mid_term 的 `N_visit`/`last_visit_time`/heat 并
+save（驱动中→长晋升），这是**算法机制**：作者自己的 eval `search_sessions_by_
+summary`（`eval/mid_term_memory.py:236-237` `N_visit+=1`、`last_visit_time=now`、
+`:265 rebuild_heap`）就这么做。**必须保留**这个 heat 变化（压掉就不是 MemoryOS）。
+契约只锁"不写新内容污染"（step-10 add_memory + short/profile/knowledge 内容），
+mid_term 访问统计/heat 变化如实发生、不断言。
 
 ### T4 参数改 pypi 官方默认 + 清理 eval/ 残留
 改动：配置改 pypi 默认；删 eval/-specific 逻辑/import；profile 标注差异。

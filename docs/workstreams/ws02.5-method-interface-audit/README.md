@@ -75,6 +75,27 @@ LangMem/Supermemory）逐个核：
 
 ## 当前断点
 
+- 2026-07-09（架构师 Opus 4.8 验收 P1 MemoryOS）：**通过**。本机复跑
+  `uv run pytest -q -m "not api"` = **804 passed, 0 failed**。第一手核对：
+  **T3 剥离全 5 层 ✅**——`_assemble_memoryos_formatted_memory`（memoryos_adapter
+  .py:1220）忠实复刻官方 `get_response`（memoryos.py:268-302），覆盖 短期
+  history + 中期 retrieved_pages + 长期 profile + user_knowledge +
+  assistant_knowledge；**无污染写 ✅**——retrieve 跳过 step-10 `add_memory`。
+  **三个待裁定的裁决**：
+  - **① LoCoMo→session、LongMemEval→pair 粒度特化 = 采纳**。第一手成立：LoCoMo
+    `normalized_role=None`（role=speaker 名），pair 按 `role=="user"` 锚失效；
+    与既有 LightMem/A-Mem 按 benchmark 设粒度的模式一致。
+  - **② 检索触发 mid_term heat/`N_visit` 更新 = 保留（actor 做对了，架构师
+    plan 那句"记忆状态不变"是错的、已更正）**。用户点破 + 第一手证实：这是
+    MemoryOS 算法机制，作者自己的 eval `search_sessions_by_summary`
+    （`eval/mid_term_memory.py:236-237` `N_visit+=1`/`last_visit_time`、`:265
+    rebuild_heap`）就这么做。**契约只锁"不写新内容污染"，不锁 heat 变化**。
+    plan-memoryos-migration.md 的 T3 + §3 已更正。
+  - **③ 804 vs 892（-88）= 接受**。旧 test_memoryos_adapter.py eval-专属测试
+    （~140）被 pypi 测试（51）合理替代（892-140+51+1=804），非功能 regression；
+    但 pypi 路径测试数（51）后续写接口文档时复核是否有覆盖缺口。
+  **下一步**：接口文档汇总（5 method）；P2 A-Mem 文档留痕；然后 5×5 真实 smoke
+  （待预算）。**ws02.5 迁移/修复清单已全清（P0+3×P1+Mem0 不动）。**
 - 2026-07-08（actor WorkBuddy/GLM-5.2，完成 P1 迁移）：MemoryOS eval→pypi。
   T1 pypi 引擎命名包加载（`memoryos_pypi_vendor`，importlib spec_from_file_location；
   目录名含连字符无法作包名）+ per-conversation 物理隔离（独立 Memoryos 实例，

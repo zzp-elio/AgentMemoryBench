@@ -149,6 +149,17 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
    旗标无差别套用（footgun）。**最小 smoke 只需 flow-through**（跑通即可，能否
    覆盖全评测模式/答对无所谓）——别把"覆盖全模式"这种 nice-to-have 当成最小
    smoke 的门槛（见 §7 track record ③ 的 2→5→1 教训）。
+7. **"无写副作用"不是普适契约——区分"污染"vs"算法机制"**（2026-07-09 用户点破
+   MemoryOS 检索后固化）：写 retrieve 契约时，**必须防的**是"把 eval 的探测内容
+   写进记忆"造成污染（HaluMem update 探针的 gold-as-query、MemoryOS `get_response`
+   步骤10 把问答本身 `add_memory`）；**必须保留的**是 method 算法**固有**的
+   检索-触发状态变化（MemoryOS 检索令 mid_term `N_visit++`/heat 更新 → 驱动
+   中→长晋升，是算法核心；压掉就不是这个 method 了）。**判断依据 = 回 method
+   官方 eval 看作者的意图协议**：MemoryOS 作者自己的 eval
+   `search_sessions_by_summary`（`eval/mid_term_memory.py:236-237`）检索时就
+   `N_visit+=1`——证明检索改状态是设计意图。别把一个 benchmark 的"无副作用"
+   契约（HaluMem）盲目套到另一个（MemoryOS）。判例：架构师 MemoryOS plan 写
+   "retrieve 前后记忆状态不变"过度了，actor 识破 + 上报，架构师据 eval 更正。
 
 ## 5. plan 写作手艺
 
