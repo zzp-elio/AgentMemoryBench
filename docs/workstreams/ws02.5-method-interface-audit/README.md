@@ -75,6 +75,13 @@ LangMem/Supermemory）逐个核：
 
 ## 当前断点
 
+- 2026-07-08（架构师 Opus 4.8 验收 P0）：**通过**。本机复跑 `uv run pytest -q
+  -m "not api"` = **892 passed, 0 failed**（与 actor 一致）；第一手核对改动忠实：
+  官方 `answer_generator.py:85-111` `_format_contexts` 确为 6 字段
+  （Content/Time/Location/Persons/Related Entities/Topic）、**不含 keywords**，
+  adapter `_format_simplemem_contexts` 逐行等价，actor 未画蛇添足加 keywords、
+  且 dedup（unified 复用 native formatter，两口径一致）。**下一步**：LightMem
+  P1（含 Step1 等价 gate）+ MemoryOS eval→pypi（架构师写 plan 中）。
 - 2026-07-08（actor Claude Sonnet，完成 P0 修复）：SimpleMem F1——
   `_format_simplemem_memory` 改为复用 `_format_simplemem_contexts`，覆盖官方
   `AnswerGenerator._format_contexts` 全部 6 字段（lossless_restatement+timestamp
