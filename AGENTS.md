@@ -17,6 +17,21 @@
   LLM（双口径 native/unified）。协议全文：
   `docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md`。旧
   `BaseMemorySystem` / `BaseMemoryProvider(add+retrieve)` 仅为兼容桥路径。
+- **运行主线（4 步，2026-07-08 与用户对齐）**：① 给 method 注入记忆（ingest）；
+  ② 用 query 检索记忆（retrieve → `formatted_memory`）——**每个 method 一律用
+  通用产品接口，不用 benchmark 专用评测实现**（公平/可比/代表性，见 ws02.5 审计）；
+  ③ 用检索回的记忆 + **框架自带的 answer LLM 配置与 answer prompt** 回答问题
+  （unified 口径，非 method 原生答题——这样只有"记忆质量"在变，隔离出可比性）；
+  ④ 从实验结果算 metric，涉及 LLM judge 时用**框架自带的 judge LLM 配置与
+  prompt**。
+- **prompt 来源政策**：answer/judge prompt **benchmark 官方仓库有就先用它的**，
+  没有才自研（可参考 method 仓库里的 benchmark 评测代码作**格式**参考）。**红线：
+  answer/judge prompt 必须 per-benchmark、method 无关**（同一 benchmark 上所有
+  method 用同一 prompt），参考 method 代码只借格式、不得引入某 method 的专属优势。
+- **native 口径保留作 sanity 交叉核对**：主线用 unified，但框架仍支持 native
+  （method 原生 prompt_messages）；对 retrieve 与答题耦合的 method（如
+  MemoryOS `get_response`），"忠实抽出 formatted_memory"是难点，正是 ws02.5
+  审计要钉死的，native 数可作旁证。
 - 当前所有真实 LLM 调用统一 `gpt-4o-mini`；未经用户改口不得切换模型。
 
 ## 协作模式

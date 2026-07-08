@@ -1,7 +1,7 @@
 ---
 id: ws02.3
 parent: ws02
-status: plan-ready（[plan.md](plan.md) 已产出，待 actor 施工）
+status: accepted（架构师验收通过 2026-07-08，剩真实 smoke 待预算）
 created: 2026-07-08
 ---
 # ws02.3 BEAM Adapter（Phase 1 第三个新 benchmark，conversation-QA + rubric judge）
@@ -13,6 +13,22 @@ created: 2026-07-08
 
 ## 当前断点
 
+- 2026-07-08（架构师 Opus 4.8 验收）：**通过（ACCEPTED）**。本机干净复跑
+  `uv run pytest -q -m "not api"` = **891 passed, 3 deselected, 0 failed**。
+  actor 报的"1 failed"（`test_main_cli.py::test_cli_help_subprocesses_are_stable`）
+  **确认是 transient flake、非 BEAM 回归**：隔离连跑 2 次全过、我全量复跑 0 failed
+  （subprocess 稳定性测试，全量并跑时偶发 timing 抖动）。git log 确认 7 commit
+  （`b1cd078`→`19bd217`）逐 task、未改 `third_party/`。第一手抽查关键交付：
+  `ast.literal_eval` 解析 probing（`beam.py:302`）、`->->` 尾标记正则含 `N/A`
+  变体（:111）、**answer 字段按 ability fallback**（`_ANSWER_FIELD_CANDIDATES`
+  :375-394，覆盖 actor 第一手发现的 ideal_response/ideal_answer/answer/
+  expected_compliance/ideal_summary 不一致 + 防御保留原始字段 + 找不到即报错）、
+  **int→float 0.5 锁测严谨**（`test_beam_rubric_judge.py:188`
+  `test_score_0_5_is_preserved_not_truncated_to_0`，断言 0.5 不被截成 0）、
+  隐私（rubric/ideal_response→GoldAnswerInfo，公开侧过私钥扫描）。**验收性质
+  说明**：抽查了最高风险项（int→float 锁、answer 字段 fallback、解析、隐私），
+  未逐条复核全部 91 test，也未逐行对 rubric 聚合 vs `compute_metrics.py`（只
+  核了最关键的 0.5 保留）。剩：极小真实 API smoke（待预算）。
 - 2026-07-08（actor DeepSeek V4 Pro）：**T1-T6 全部完成**，887 passed（基线 843
   不跌破），compileall 通过。**一手发现**：不同 ability 的 question_obj 字段不同
   （`ideal_response` 仅 abstention 有，其余用 `ideal_answer`/`answer`/
@@ -66,7 +82,7 @@ uv run memory-benchmark evaluate \
 - [x] 用户批准 spec（2026-07-08，D6 拍板；D1-D5 架构师已定）
 - [x] 架构师写实施 plan（[plan.md](plan.md)，2026-07-08）
 - [x] actor 施工 T1-T6 + fake 全链路（2026-07-08，DeepSeek V4 Pro；91 focused tests 全绿）
-- [ ] 架构师验收
+- [x] 架构师验收（2026-07-08，891 passed 干净复跑 + 关键交付第一手抽查）
 - [ ] 极小真实 smoke（待用户确认预算）
 
 ## 决策点（详见 spec.md §5）

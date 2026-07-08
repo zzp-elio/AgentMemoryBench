@@ -18,11 +18,21 @@
 恢复/防 API 空烧兜底工程通过验证；已有 LoCoMo full 结果届时在完成后的 5×10
 架构下用新 run_id 重跑。
 
-已实现基线（截至 2026-07-05）：LoCoMo、LongMemEval 两个 adapter；Mem0、
-MemoryOS、A-Mem、LightMem 四个 method 已按 retrieve-first 主协议接入并通过
-真实极小 smoke（LoCoMo 4-method full 已有历史结果；LongMemEval 1-conv cost
-pilot 已完成）；效率观测、conversation 级并行/resume、CLI v2、自定义 method
-轻量接入均已落地。缺口：3 个新 benchmark adapter、6 个新 method adapter。
+已实现基线（截至 2026-07-08）：**5 个 benchmark adapter 全部落地**——LoCoMo、
+LongMemEval（原有）+ MemBench、HaluMem、BEAM（2026-07-08 架构师验收通过，均过
+fake 全链路）；**5 个 method adapter**——Mem0、MemoryOS、A-Mem、LightMem、
+SimpleMem；效率观测、conversation 级并行/resume、CLI v2、自定义 method 轻量接入
+均已落地。**重要口径澄清（2026-07-08 用户）**：既有 LoCoMo 4-method full 结果是
+**旧协议 V2** 跑的、且未记效率指标，**不算 v3 架构下的极小 smoke**——所以 v3
+真实 smoke 目前一格都没跑。
+
+未跑真实 smoke，计划（2026-07-08 与用户对齐）：先填满当前 **5 method × 5
+benchmark = 25 格**的极小 v3 smoke（LoCoMo 列 5 格都要重跑，旧 V2 full 不进表），
+再以后每接一个新 method 只跑它 × 5 benchmark。**前置门 = ws02.5 method 接口
+保真审计**（确保用通用产品接口 + formatted_memory 完整，否则 smoke 数字不可信）。
+
+缺口：5 个 method adapter（MemOS、Letta、Cognee、LangMem、Supermemory）；ws02.5
+接口审计；真实 5×5 smoke（待预算 + 审计）。
 
 ## Workstream 索引
 
@@ -32,8 +42,9 @@ pilot 已完成）；效率观测、conversation 级并行/resume、CLI v2、自
 | [ws02](workstreams/ws02-phase1-matrix/README.md) | phase1-matrix | open | P0 | 5×10 smoke 矩阵（里程碑 7.20）：method 审计、新 adapter、极小 smoke（主线） |
 | [ws02.1](workstreams/ws02.1-membench/README.md) | membench-adapter | accepted | P0 | MemBench T1-T6 架构师验收通过（2026-07-07）；剩极小真实 smoke 待预算 |
 | [ws02.2](workstreams/ws02.2-halumem/README.md) | halumem-adapter | accepted | P0 | HaluMem operation-level 架构师验收通过（2026-07-08，843 passed + 口径第一手核对）；剩极小真实 smoke 待预算 |
-| [ws02.3](workstreams/ws02.3-beam/README.md) | beam-adapter | adapter-ready | P0 | BEAM（conversation-QA + rubric judge）：T1-T6 施工完成（91 tests 全绿，887 passed），待架构师验收 + 极小真实 smoke |
+| [ws02.3](workstreams/ws02.3-beam/README.md) | beam-adapter | accepted | P0 | BEAM（conversation-QA + rubric judge）架构师验收通过（2026-07-08，891 passed 干净复跑 + 关键交付第一手抽查）；剩极小真实 smoke 待预算 |
 | [ws02.4](workstreams/ws02.4-simplemem/README.md) | simplemem-adapter | accepted | P0 | SimpleMem T1-T6 架构师验收通过（2026-07-07）；剩极小真实 smoke 待预算 |
+| [ws02.5](workstreams/ws02.5-method-interface-audit/README.md) | method-interface-audit | open | P0 | **5×5 smoke 前置门**：审计每个 method 用通用产品接口（非 benchmark 专用 eval）注入/检索、formatted_memory 完整落盘、产出 method 接口文档（注入+检索，5→10）|
 | [ws03](workstreams/ws03-architecture-slimming/README.md) | architecture-slimming | open | P1 | registry/capability/legacy 接口与 CLI 减重、LLMRuntimeConfig |
 | [ws04](workstreams/ws04-terminal-observability/README.md) | terminal-observability | open | P2 | isolated 进度心跳、第三方 stdout/tqdm 治理 |
 | [ws05](workstreams/ws05-experiment-reporting/README.md) | experiment-reporting | open | P1 | 全量实验申请材料：成本估算表 + 结果汇总 + 兜底验证清单（依赖 ws02） |
