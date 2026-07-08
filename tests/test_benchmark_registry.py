@@ -21,6 +21,10 @@ from memory_benchmark.benchmark_adapters.locomo import (
     LoCoMoAdapter,
     build_locomo_smoke_dataset,
 )
+from memory_benchmark.benchmark_adapters.beam import (
+    BEAM_ANSWER_PROMPT_PROFILE,
+    BeamAdapter,
+)
 from memory_benchmark.benchmark_adapters.halumem import (
     HALUMEM_MEMZERO_PROMPT_PROFILE,
     HaluMemAdapter,
@@ -130,10 +134,11 @@ def _make_registration(
 
 
 def test_prediction_registry_exposes_only_current_phase_benchmark() -> None:
-    """当前 phase 应开放 LoCoMo、LongMemEval、MemBench 与 HaluMem prediction。"""
+    """当前 phase 应开放 LoCoMo、LongMemEval、MemBench、HaluMem 与 BEAM prediction。"""
 
-    assert list_benchmarks() == ["halumem", "locomo", "longmemeval", "membench"]
+    assert list_benchmarks() == ["beam", "halumem", "locomo", "longmemeval", "membench"]
     assert list_prediction_benchmarks() == [
+        "beam",
         "halumem",
         "locomo",
         "longmemeval",
@@ -803,3 +808,99 @@ def test_locomo_registration_prepares_full_and_smoke_datasets() -> None:
     assert smoke_run.dataset.metadata["smoke_conversation_limit"] == 2
     assert len(smoke_run.dataset.conversations) == 2
     assert smoke_run.dataset.conversations == expected_smoke.conversations
+
+
+# ---------------------------------------------------------------------------
+# BEAM registration
+# ---------------------------------------------------------------------------
+
+
+def test_beam_registration_declares_conversation_qa_unified_prompt() -> None:
+    """BEAM registration 应声明 conversation-QA、unified prompt、无 operation_level。"""
+
+    registration = get_benchmark_registration("beam")
+
+    assert registration.adapter_cls is BeamAdapter
+    assert registration.task_family is TaskFamily.CONVERSATION_QA
+    assert registration.required_capabilities == frozenset()
+    assert registration.prediction_enabled is True
+    assert registration.operation_level is False
+    assert registration.prompt_track == "unified"
+    assert registration.unified_prompt_builder is not None
+    assert registration.prediction_transform is None
+    assert registration.default_variant == "100k"
+    assert registration.variants == (
+        BenchmarkVariantSpec(
+            name="100k",
+            source_relative_paths=(Path("data/BEAM/beam_dataset/100K"),),
+        ),
+        BenchmarkVariantSpec(
+            name="500k",
+            source_relative_paths=(Path("data/BEAM/beam_dataset/500K"),),
+        ),
+        BenchmarkVariantSpec(
+            name="1m",
+            source_relative_paths=(Path("data/BEAM/beam_dataset/1M"),),
+        ),
+    )
+    assert resolve_variant_selector(registration, None) == ("100k",)
+    assert resolve_variant_selector(registration, "all") == ("100k", "500k", "1m")
+
+
+def test_beam_unified_prompt_builder_uses_official_rag_prompt() -> None:
+    """BEAM unified prompt 应复刻官方 answer_generation_for_rag（RAG 路径）。"""
+
+    registration = get_benchmark_registration("beam")
+    question = Question(
+        question_id="1:abstention:q1",
+        conversation_id="1",
+        text="What did I do yesterday?",
+    )
+    retrieval_result = RetrievalResult(
+        formatted_memory="Yesterday you wrote code.",
+        metadata={"provider": "fake"},
+    )
+
+    prompt = registration.unified_prompt_builder(question, retrieval_result)
+
+    assert prompt.metadata["answer_prompt_profile"] == BEAM_ANSWER_PROMPT_PROFILE
+    assert prompt.metadata["prompt_track"] == "unified"
+    assert prompt.metadata["official_source"].endswith("prompts.py:11683-11701")
+    assert prompt.prompt_messages == [
+        PromptMessage(role="user", content=prompt.answer_prompt)
+    ]
+    # 双向一致性：formatted_memory 应出现在 prompt 中（替换 <context>）
+    assert "Yesterday you wrote code." in prompt.answer_prompt
+    # question 文本应出现在 prompt 中（替换 <question>）
+    assert "What did I do yesterday?" in prompt.answer_prompt
+    # RAG 约束关键词
+    assert "Answer ONLY based on the provided context" in prompt.answer_prompt
+    # 确认是 RAG 路径而非 long-context 路径（不应出现 "NOTE: Only provide the answer"）
+    assert "NOTE: Only provide the answer" not in prompt.answer_prompt
+
+
+def test_beam_registration_prepares_smoke_with_turn_truncation() -> None:
+    """BEAM smoke 应按 turn 数裁剪。"""
+
+    registration = get_benchmark_registration("beam")
+
+    smoke_run = registration.prepare(
+        Path("."),
+        BenchmarkLoadRequest(
+            variant="100k",
+            run_scope=RunScope.SMOKE,
+            smoke_turn_limit=4,
+            smoke_conversation_limit=1,
+        ),
+    )
+    assert smoke_run.variant == "100k"
+    assert smoke_run.run_scope is RunScope.SMOKE
+    assert smoke_run.dataset.metadata["variant"] == "100k"
+    assert smoke_run.dataset.metadata["run_scope"] == "smoke"
+    assert smoke_run.dataset.metadata["smoke_turn_limit"] == 4
+    assert len(smoke_run.dataset.conversations) == 1
+    conversation = smoke_run.dataset.conversations[0]
+    total_turns = sum(len(s.turns) for s in conversation.sessions)
+    assert total_turns <= 4
+    # 确保至少有一个 question（probing 不应被裁剪）
+    assert len(conversation.questions) >= 1

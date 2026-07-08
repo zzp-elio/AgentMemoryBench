@@ -40,6 +40,11 @@ from .contracts import (
     normalize_variant_run_id_collision_key,
     normalize_variant_run_id_token,
 )
+from .beam import (
+    BEAM_VARIANT_SPECS,
+    build_beam_unified_answer_prompt,
+    prepare_beam_run,
+)
 from .halumem import (
     HALUMEM_VARIANT_SPECS,
     build_halumem_unified_answer_prompt,
@@ -518,6 +523,19 @@ def _build_default_registry() -> BenchmarkRegistry:
         prompt_track="unified",
         operation_level=True,
         unified_prompt_builder=build_halumem_unified_answer_prompt,
+    )
+    _try_register_adapter(
+        registry,
+        "memory_benchmark.benchmark_adapters.beam",
+        "BeamAdapter",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(),
+        variants=BEAM_VARIANT_SPECS,
+        default_variant="100k",
+        prepare_run=prepare_beam_run,
+        prediction_enabled=True,
+        prompt_track="unified",
+        unified_prompt_builder=build_beam_unified_answer_prompt,
     )
     return registry
 

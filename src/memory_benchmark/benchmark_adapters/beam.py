@@ -324,6 +324,28 @@ def _conversation_from_row(
                 )
             question_id = f"{conversation_id}:{ability}:q{q_idx}"
             question_text = _required_text(q_obj, "question", question_id)
+
+            # 不同 ability 的 "答案" 字段不同（第一手实测）：
+            # abstention → ideal_response; contradiction_resolution → ideal_answer;
+            # event_ordering/information_extraction/knowledge_update/
+            # multi_session_reasoning/temporal_reasoning → answer;
+            # instruction_following/preference_following → expected_compliance;
+            # summarization → ideal_summary
+            gold_answer_text = _resolve_answer_field(q_obj, question_id)
+
+            # 防御性保留原始 question_obj 全部字段（不含 question 文本自身），
+            # 对齐 actor 好行为判例（raw_evidence 保留）。
+            gold_metadata: dict[str, Any] = {
+                "ability": ability,
+                **{k: copy.deepcopy(v) for k, v in q_obj.items() if k != "question"},
+                # row 级私有元信息
+                "conversation_seed": row.get("conversation_seed"),
+                "user_profile": row.get("user_profile"),
+                "conversation_plan": row.get("conversation_plan"),
+                "user_questions": row.get("user_questions"),
+                "narratives": row.get("narratives"),
+            }
+
             questions.append(
                 Question(
                     question_id=question_id,
@@ -335,23 +357,9 @@ def _conversation_from_row(
             )
             gold_answers[question_id] = GoldAnswerInfo(
                 question_id=question_id,
-                answer=_required_text(q_obj, "ideal_response", question_id),
+                answer=gold_answer_text,
                 evidence=[],
-                metadata={
-                    "ability": ability,
-                    "rubric": copy.deepcopy(q_obj.get("rubric")),
-                    "ideal_response": q_obj.get("ideal_response"),
-                    "difficulty": q_obj.get("difficulty"),
-                    "abstention_type": q_obj.get("abstention_type"),
-                    "why_unanswerable": q_obj.get("why_unanswerable"),
-                    "plan_reference": q_obj.get("plan_reference"),
-                    # row 级私有元信息
-                    "conversation_seed": row.get("conversation_seed"),
-                    "user_profile": row.get("user_profile"),
-                    "conversation_plan": row.get("conversation_plan"),
-                    "user_questions": row.get("user_questions"),
-                    "narratives": row.get("narratives"),
-                },
+                metadata=gold_metadata,
             )
 
     return Conversation(
@@ -360,6 +368,31 @@ def _conversation_from_row(
         questions=questions,
         gold_answers=gold_answers,
         metadata={},
+    )
+
+
+# 不同 ability 的 gold answer 字段名映射（第一手实测，按尝试优先级排序）。
+_ANSWER_FIELD_CANDIDATES: tuple[str, ...] = (
+    "ideal_response",       # abstention
+    "ideal_answer",         # contradiction_resolution
+    "answer",               # event_ordering, information_extraction, knowledge_update,
+                            #   multi_session_reasoning, temporal_reasoning
+    "expected_compliance",  # instruction_following, preference_following
+    "ideal_summary",        # summarization
+)
+
+
+def _resolve_answer_field(q_obj: dict[str, Any], question_id: str) -> str:
+    """按优先级查找 question_obj 中的 gold answer 字段。"""
+
+    for field_name in _ANSWER_FIELD_CANDIDATES:
+        value = q_obj.get(field_name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raise DatasetValidationError(
+        f"{question_id}: no valid answer field found (tried: "
+        + ", ".join(_ANSWER_FIELD_CANDIDATES)
+        + ")"
     )
 
 
