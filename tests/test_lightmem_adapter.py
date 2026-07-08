@@ -231,12 +231,13 @@ class FakeLightMemEmbedder:
 
 
 class FakeLightMemEmbeddingRetriever:
-    """模拟 LightMem 官方 Qdrant retriever 的 get_all 接口。"""
+    """模拟 LightMem 官方 Qdrant retriever 的 search/get_all 接口。"""
 
     def __init__(self) -> None:
         """初始化带 payload/vector 的 fake Qdrant entries。"""
 
         self.get_all_calls: list[dict[str, object]] = []
+        self.search_calls: list[dict[str, object]] = []
         self.entries = [
             {
                 "id": "alice-tea",
@@ -277,6 +278,43 @@ class FakeLightMemEmbeddingRetriever:
             {"with_vectors": with_vectors, "with_payload": with_payload}
         )
         return self.entries
+
+    def search(
+        self,
+        query_vector,
+        limit: int = 5,
+        filters=None,
+        exclude_ids=None,
+        return_full: bool = False,
+    ):
+        """模拟官方 Qdrant retriever 的 search（cosine top-k，返回带 payload 结果）。
+
+        与 LightMemory.retrieve 内部调用 embedding_retriever.search 的行为一致：
+        按 cosine 相似度排序，返回前 limit 条，return_full=True 时带 payload。
+        """
+
+        self.search_calls.append(
+            {
+                "limit": limit,
+                "filters": filters,
+                "return_full": return_full,
+            }
+        )
+        scored: list[tuple[float, dict[str, object]]] = []
+        for entry in self.entries:
+            vec = entry.get("vector")
+            if vec is None:
+                continue
+            dot = sum(a * b for a, b in zip(query_vector, vec))
+            query_norm = sum(a * a for a in query_vector) ** 0.5
+            vec_norm = sum(b * b for b in vec) ** 0.5
+            score = dot / (query_norm * vec_norm) if query_norm and vec_norm else 0.0
+            scored.append((score, entry))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [
+            {"id": entry["id"], "score": score, "payload": entry["payload"]}
+            for score, entry in scored[:limit]
+        ]
 
 
 class FakeLightMemManager:
@@ -370,8 +408,8 @@ def _snapshot_lightmem_backend_calls(system: LightMem) -> list[dict[str, object]
         )
     for text in backend.text_embedder.embedded_texts:
         calls.append({"op": "embed_query", "query": text})
-    for call in backend.embedding_retriever.get_all_calls:
-        calls.append({"op": "get_all", "kwargs": call})
+    for call in backend.embedding_retriever.search_calls:
+        calls.append({"op": "search", "kwargs": call})
     return calls
 
 
@@ -590,8 +628,9 @@ def test_lightmem_add_and_get_answer_with_fake_backend() -> None:
     assert isinstance(answer, AnswerResult)
     assert answer.answer == "fake lightmem answer"
     assert backend.queries == []
-    assert backend.embedding_retriever.get_all_calls == [
-        {"with_vectors": True, "with_payload": True}
+    assert backend.embedding_retriever.get_all_calls == []
+    assert backend.embedding_retriever.search_calls == [
+        {"limit": 2, "filters": None, "return_full": True}
     ]
     assert "Alice likes jasmine tea." in chat.prompts[0]
     first_message = backend.added_messages[0]["messages"][0]
@@ -628,8 +667,9 @@ def test_lightmem_load_existing_conversation_state_rebuilds_backend() -> None:
 
     assert answer.answer == "fake lightmem answer"
     assert backend.added_messages == []
-    assert backend.embedding_retriever.get_all_calls == [
-        {"with_vectors": True, "with_payload": True}
+    assert backend.embedding_retriever.get_all_calls == []
+    assert backend.embedding_retriever.search_calls == [
+        {"limit": 2, "filters": None, "return_full": True}
     ]
     assert "Alice likes jasmine tea." in chat.prompts[0]
 
@@ -810,9 +850,9 @@ def test_native_lightmem_locomo_matches_bridge_force_and_update_sequence() -> No
     assert [call["op"] for call in native_result.calls[-4:]] == [
         "construct_update",
         "offline_update",
-        "embed_query",
-        "get_all",
-    ]
+            "embed_query",
+            "search",
+        ]
 
 
 def test_native_lightmem_longmemeval_matches_bridge_pair_sequence() -> None:
@@ -1121,8 +1161,9 @@ def test_lightmem_locomo_get_answer_uses_qdrant_payload_vector_search() -> None:
 
     assert backend.queries == []
     assert backend.text_embedder.embedded_texts == ["What does Alice like?"]
-    assert backend.embedding_retriever.get_all_calls == [
-        {"with_vectors": True, "with_payload": True}
+    assert backend.embedding_retriever.get_all_calls == []
+    assert backend.embedding_retriever.search_calls == [
+        {"limit": 2, "filters": None, "return_full": True}
     ]
     prompt = chat.prompts[0]
     assert "Alice likes jasmine tea." in prompt
@@ -1165,11 +1206,11 @@ def test_lightmem_retrieve_locomo_uses_specialized_context() -> None:
     assert [message.role for message in retrieval.prompt_messages] == ["system"]
     assert "Alice likes jasmine tea." in retrieval.answer_prompt
     assert retrieval.metadata["method"] == "lightmem"
-    assert retrieval.metadata["retrieval_profile"] == "locomo_qdrant_combined"
+    assert retrieval.metadata["retrieval_profile"] == "lightmemory_retrieve"
 
 
 def test_lightmem_retrieve_longmemeval_uses_backend_retrieve() -> None:
-    """LongMemEval retrieve 应保留官方 LightMemory.retrieve online 路径。"""
+    """LongMemEval retrieve 应走官方检索组件返回带 payload 的结果（统一 search 路径）。"""
 
     backend = FakeLightMemoryBackend()
     method = LightMem(
@@ -1193,12 +1234,10 @@ def test_lightmem_retrieve_longmemeval_uses_backend_retrieve() -> None:
 
     retrieval = method.retrieve(conversation.questions[0])
 
-    assert backend.queries == [
-        {
-            "query": "What does Alice like?",
-            "limit": 20,
-            "filters": None,
-        }
+    assert backend.queries == []
+    assert backend.embedding_retriever.get_all_calls == []
+    assert backend.embedding_retriever.search_calls == [
+        {"limit": 20, "filters": None, "return_full": True}
     ]
     assert retrieval.question_id == "q-long"
     assert retrieval.conversation_id == "conv-long"
@@ -1207,9 +1246,9 @@ def test_lightmem_retrieve_longmemeval_uses_backend_retrieve() -> None:
         "user",
     ]
     assert retrieval.prompt_messages[0].content == "You are a helpful assistant."
-    assert "2026-01-01 Alice likes tea" in retrieval.answer_prompt
+    assert "Alice likes jasmine tea." in retrieval.answer_prompt
     assert "What does Alice like?" in retrieval.answer_prompt
-    assert retrieval.metadata["answer_context"] == "2026-01-01 Alice likes tea"
+    assert "[Memory recorded on:" in retrieval.metadata["answer_context"]
     assert retrieval.metadata["method"] == "lightmem"
     assert retrieval.metadata["retrieval_profile"] == "lightmemory_retrieve"
 

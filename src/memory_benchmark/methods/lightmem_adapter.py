@@ -692,28 +692,12 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         backend = self._backends[question.conversation_id]
         collector = self._efficiency_collector
         retrieval_started_ns = perf_counter_ns()
-        if _is_longmemeval_question(question, self._conversation_metadata):
-            retrieval_profile = "lightmemory_retrieve"
-            if collector is not None and collector.enabled:
-                with collector.operation_stage(EfficiencyStage.RETRIEVAL):
-                    memories = backend.retrieve(
-                        question.text,
-                        limit=self.config.retrieve_limit,
-                        filters=None,
-                    )
-            else:
-                memories = backend.retrieve(
-                    question.text,
-                    limit=self.config.retrieve_limit,
-                    filters=None,
-                )
+        retrieval_profile = "lightmemory_retrieve"
+        if collector is not None and collector.enabled:
+            with collector.operation_stage(EfficiencyStage.RETRIEVAL):
+                memories = self._retrieve_with_payload(backend, question)
         else:
-            retrieval_profile = "locomo_qdrant_combined"
-            if collector is not None and collector.enabled:
-                with collector.operation_stage(EfficiencyStage.RETRIEVAL):
-                    memories = self._retrieve_locomo_memories(backend, question)
-            else:
-                memories = self._retrieve_locomo_memories(backend, question)
+            memories = self._retrieve_with_payload(backend, question)
         memory_context = "\n".join(
             _format_lightmem_memory(memory) for memory in memories
         )
@@ -1015,12 +999,18 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             score_threshold=0.9,
         )
 
-    def _retrieve_locomo_memories(
+    def _retrieve_with_payload(
         self,
         backend: Any,
         question: Question,
     ) -> list[dict[str, Any]]:
-        """复刻 LightMem LoCoMo `search_locomo.py` 的 combined vector search。
+        """通过官方检索组件 `embedding_retriever.search` 检索，返回带 payload 的结果。
+
+        复用 `LightMemory.retrieve` 内部的检索路径（`text_embedder.embed` +
+        `embedding_retriever.search`），但保留官方 retrieve 会丢弃的 payload，
+        供 LoCoMo speaker 分组与统一 formatted_memory 使用。LongMemEval 与
+        LoCoMo 两路径统一调用此方法，消除原 LoCoMo 自复刻的 get_all + 手算
+        cosine（ws02.5 P1：统一走官方 retrieve 组件）。
 
         输入:
             backend: 当前 conversation 的官方 LightMemory 实例。
@@ -1034,38 +1024,41 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         embedding_retriever = getattr(backend, "embedding_retriever", None)
         if text_embedder is None or not hasattr(text_embedder, "embed"):
             raise ConfigurationError(
-                f"LightMem LoCoMo backend has no text embedder: {question.conversation_id}"
+                f"LightMem backend has no text embedder: {question.conversation_id}"
             )
-        if embedding_retriever is None or not hasattr(embedding_retriever, "get_all"):
+        if embedding_retriever is None or not hasattr(embedding_retriever, "search"):
             raise ConfigurationError(
-                "LightMem LoCoMo backend has no Qdrant entry loader: "
+                "LightMem backend has no official embedding retriever: "
                 f"{question.conversation_id}"
             )
-        entries = embedding_retriever.get_all(with_vectors=True, with_payload=True)
         query_vector = text_embedder.embed(question.text)
+        results = embedding_retriever.search(
+            query_vector=query_vector,
+            limit=self.config.retrieve_limit,
+            filters=None,
+            return_full=True,
+        )
         retrieved: list[dict[str, Any]] = []
-        for entry in entries:
-            vector = entry.get("vector") if isinstance(entry, dict) else None
-            if vector is None:
+        for result in results:
+            if not isinstance(result, dict):
                 continue
-            payload = entry.get("payload", {}) if isinstance(entry, dict) else {}
-            score = _cosine_similarity(query_vector, vector)
+            payload = result.get("payload", {})
+            if not isinstance(payload, dict):
+                payload = {}
             retrieved.append(
                 {
-                    "id": str(entry.get("id")) if isinstance(entry, dict) else "",
-                    "score": float(score),
-                    "payload": payload if isinstance(payload, dict) else {},
+                    "id": str(result.get("id", "")),
+                    "score": float(result.get("score", 0.0)),
+                    "payload": payload,
                     "source": "vector",
                     "_retrieved_speaker": (
                         str(payload.get("speaker_name"))
-                        if isinstance(payload, dict)
-                        and payload.get("speaker_name") is not None
+                        if payload.get("speaker_name") is not None
                         else "Unknown"
                     ),
                 }
             )
-        retrieved.sort(key=lambda item: item["score"], reverse=True)
-        return retrieved[: self.config.retrieve_limit]
+        return retrieved
 
     @staticmethod
     def _metadata_memory_from_lightmem_item(memory: Any) -> dict[str, Any]:
@@ -1226,7 +1219,10 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         """构造 LightMem 官方 answer LLM role messages。"""
 
         if _is_longmemeval_question(question, self._conversation_metadata):
-            memory_context = "\n".join(str(memory) for memory in memories)
+            memory_context = "\n".join(
+                _format_lightmem_memory_as_official_retrieve(memory)
+                for memory in memories
+            )
             return [
                 PromptMessage(role="system", content="You are a helpful assistant."),
                 PromptMessage(
@@ -1556,19 +1552,30 @@ def _format_lightmem_memory_date(time_stamp: str) -> str | None:
     return parsed.strftime("%d %B %Y")
 
 
-def _cosine_similarity(left: Any, right: Any) -> float:
-    """计算两个向量的 cosine similarity。"""
+def _format_lightmem_memory_as_official_retrieve(memory: Any) -> str:
+    """按官方 `LightMemory.retrieve` 的格式化口径（lightmem.py:693-701）输出单条记忆。
 
-    left_values = [float(value) for value in left]
-    right_values = [float(value) for value in right]
-    if len(left_values) != len(right_values):
-        raise ConfigurationError("LightMem vector dimensions do not match")
-    dot_product = sum(a * b for a, b in zip(left_values, right_values, strict=True))
-    left_norm = sum(value * value for value in left_values) ** 0.5
-    right_norm = sum(value * value for value in right_values) ** 0.5
-    if left_norm == 0 or right_norm == 0:
-        return 0.0
-    return dot_product / (left_norm * right_norm)
+    官方 retrieve 返回 `"{time_stamp} {weekday} {memory}"` 的 list[str]，
+    本函数从带 payload 的 retrieval dict 中还原同一格式，使 LongMemEval 路径
+    在统一改用 `embedding_retriever.search`（返回 dict）后，answer prompt 的
+    memory 呈现与官方 `run_lightmem_gpt.py:186` `'\n'.join(related_memories)`
+    保持一致（ws02.5 P1：统一检索组件但不改 answer prompt 格式）。
+    """
+
+    if not isinstance(memory, dict):
+        return str(memory)
+    payload = memory.get("payload")
+    source = payload if isinstance(payload, dict) else memory
+    time_stamp = str(source.get("time_stamp", "") or "")
+    weekday = str(source.get("weekday", "") or "")
+    memory_text = (
+        source.get("memory")
+        or source.get("original_memory")
+        or source.get("compressed_memory")
+        or memory.get("memory")
+        or ""
+    )
+    return f"{time_stamp} {weekday} {memory_text}".strip()
 
 
 def _user_visible_prompt_text(messages: list[PromptMessage]) -> str:
