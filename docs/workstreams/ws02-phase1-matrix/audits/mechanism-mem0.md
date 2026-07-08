@@ -101,3 +101,7 @@
 pair→session 修订（2026-07-07，对照 smoke 回归修复的连带定案）：
 
 - 框架级 pair 聚合改为 user 锚定后，位置切分不再由框架提供；而 Mem0 官方 LongMemEval `CHUNK_SIZE=2` 恰是**位置切块（不裁开头、允许 (assistant, user) 组）**。为在全部 session 形状（含 8.1% assistant 开头）上精确复刻官方分组，LongMemEval 粒度改声明为 `session`，`Mem0.ingest(SessionBatch)` 在 adapter 内部按官方 `range(0, len, 2)` 切块调用 `Memory.add()`。assistant-first 等价测试锁死 bridge==native。证据：`src/memory_benchmark/methods/mem0_adapter.py`（`_ingest_native_session`）、`tests/test_mem0_adapter.py::test_native_mem0_longmemeval_assistant_first_session_keeps_official_chunks`。
+
+HaluMem extraction 裁定（2026-07-08，ws02.2 T5）：
+
+- Mem0 可提供 session 增量 extraction 报告：HaluMem registry 将 Mem0 的 `consume_granularity` 特化为 `session`，并只在 HaluMem 下打开 `session_memory_report`；`Mem0.end_session()` 返回当前 session 内 `Memory.add()` 返回的 `results[*].memory`。证据：`third_party/methods/mem0-main/mem0/memory/main.py:608-611`、`third_party/methods/mem0-main/mem0/memory/main.py:659-660`、`third_party/methods/mem0-main/mem0/memory/main.py:957-971`、`tests/test_mem0_adapter.py::test_mem0_halumem_session_report_returns_current_session_add_results`。

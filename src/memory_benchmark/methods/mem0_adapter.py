@@ -50,6 +50,8 @@ from memory_benchmark.core.provider_protocol import (
     RetrievalResult,
     RetrievedItem,
     SessionBatch,
+    SessionMemoryReport,
+    SessionRef,
     TurnEvent,
     TurnPair,
     UnitRef,
@@ -281,6 +283,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         existing_conversation_ids: set[str] | None = None,
         efficiency_collector: EfficiencyCollector | None = None,
         consume_granularity: ConsumeGranularity | None = None,
+        session_memory_report: bool = False,
     ):
         """初始化 Mem0 adapter。
 
@@ -295,6 +298,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
             efficiency_collector: runner 管理的可选效率 observation collector。
             consume_granularity: v3 provider 实例级消费粒度；registry 会按 benchmark
                 profile 设置，缺省为 LoCoMo 官方 turn 级。
+            session_memory_report: 是否在 session 边界公开 Mem0 本 session 新增记忆。
 
         输出:
             None。构造生产 backend 时不会调用 API，但会初始化本地 Qdrant 和客户端。
@@ -335,6 +339,8 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         self._added_conversation_ids = set(existing_conversation_ids or ())
         self._conversation_metadata: dict[str, dict[str, Any]] = {}
         self._native_speaker_roles: dict[str, dict[str, str]] = {}
+        self._session_report_memories: dict[tuple[str, str | None], list[str]] = {}
+        self.session_memory_report = session_memory_report
         if consume_granularity is not None:
             self.consume_granularity = consume_granularity
         if any(not conversation_id.strip() for conversation_id in self._added_conversation_ids):
@@ -532,9 +538,12 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         session_time = self._session_time_from_event(first)
         conversation = self._native_conversation_from_event(first)
         session = self._native_session_from_event(first)
+        report_key = (batch.isolation_key, session.session_id)
+        if self.session_memory_report:
+            self._session_report_memories[report_key] = []
         for start in range(0, len(turns), 2):
             chunk = turns[start : start + 2]
-            self._memory.add(
+            add_result = self._memory.add(
                 [
                     self._turn_to_message(
                         turn,
@@ -548,6 +557,28 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 infer=self.config.infer,
                 prompt=self._observation_time_prompt(session_time),
             )
+            if self.session_memory_report:
+                self._session_report_memories[report_key].extend(
+                    self._memory_texts_from_add_result(add_result)
+                )
+
+    def end_session(self, ref: SessionRef) -> SessionMemoryReport | None:
+        """在 HaluMem session 边界返回本 session 的 Mem0 add().results 记忆。"""
+
+        if not self.session_memory_report:
+            return None
+        memories = self._session_report_memories.pop(
+            (ref.isolation_key, ref.session_id),
+            [],
+        )
+        return SessionMemoryReport(
+            session_ref=ref,
+            memories=memories,
+            metadata={
+                "method": "mem0",
+                "source": "mem0_add_results",
+            },
+        )
 
     def _ensure_native_namespace(self, event: TurnEvent) -> None:
         """首次看到 v3 isolation_key 时登记 namespace 与公开 metadata。"""
@@ -1482,6 +1513,24 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 }
             )
         return normalized
+
+    @staticmethod
+    def _memory_texts_from_add_result(raw_result: Any) -> list[str]:
+        """从 Mem0 `Memory.add()` 返回值中提取新增 memory 文本。"""
+
+        if not isinstance(raw_result, dict):
+            return []
+        results = raw_result.get("results")
+        if not isinstance(results, list):
+            return []
+        memories: list[str] = []
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            memory = item.get("memory")
+            if isinstance(memory, str) and memory.strip():
+                memories.append(memory)
+        return memories
 
     def _reader_messages(
         self,

@@ -96,3 +96,7 @@
 - registered 主路径已是 `consume_granularity="turn"` 的 v3 provider；`AMem.ingest(TurnEvent)` 直接复用 `_call_runtime_add()` 拼 `Speaker X says: ...` 并调用 `add_note(content, time)`，不再从整段 `Conversation` 双层遍历后写入。
 - conversation 级持久化移动到 `end_conversation()`，继续保存 `memories.pkl`、`retriever.pkl`、`retriever_embeddings.npy` 与 `state_manifest.json`；等价测试比较桥接与原生路径的 add/retrieve 调用和状态文件内容哈希。
 - 旧 `add()` 本轮按计划保留，理由是旧接口、resume 恢复和桥接等价对照仍依赖它；category 5 拒绝、LongMemEval reader prompt、OpenAI-compatible client 注入与 usage observer 语义不变。
+
+HaluMem extraction 裁定（2026-07-08，ws02.2 T5）：
+
+- A-Mem 本轮不提供 session 增量 extraction 报告，保持不覆写 `end_session()`，HaluMem extraction 记 N/A。原因是原生边界是单 note `add_note(content, time)`，返回值只有 note id；它没有 session flush 或 session 级新增 memory 列表，conversation 级持久化是本仓 adapter 的 runner 边界。证据：`third_party/methods/A-mem/memory_layer_robust.py:377-397`、`src/memory_benchmark/methods/amem_adapter.py:258-277`、`src/memory_benchmark/methods/amem_adapter.py:687-695`。

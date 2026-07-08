@@ -99,3 +99,7 @@
 - registered 主路径已是 `consume_granularity="session"` 的 v3 provider；`MemoryOS.ingest(SessionBatch)` 按 session 恢复公开 conversation 片段，复用 `conversation_to_memory_pages()` 生成 QA pages，不再从整段 `Conversation` 自行拆所有 session。
 - 原生路径继续逐 page 调 `short_memory.add_qa_pair()`，满载时触发 `bulk_evict_and_update_mid_term()` 并检查热度更新；等价测试比较桥接与原生路径的 short-term pages 序列，覆盖连续同 speaker 与图片 caption 语料。
 - `end_conversation()` 对 MemoryOS 保持 no-op；旧 `add()` 本轮按计划保留，理由是旧接口、resume 挂载和桥接等价对照仍依赖它。
+
+HaluMem extraction 裁定（2026-07-08，ws02.2 T5）：
+
+- MemoryOS 本轮不提供 session 增量 extraction 报告，保持不覆写 `end_session()`，HaluMem extraction 记 N/A。原因是原生写入单元是 QA page/short-term queue，满载后迁移到 mid-term，且长期更新依赖 heat 与未分析 pages；session 内新增 page 不等价于最终可检索 memory。证据：`third_party/methods/MemoryOS-main/eval/main_loco_parse.py:159-200`、`third_party/methods/MemoryOS-main/eval/main_loco_parse.py:247-259`、`third_party/methods/MemoryOS-main/eval/dynamic_update.py:132-180`。

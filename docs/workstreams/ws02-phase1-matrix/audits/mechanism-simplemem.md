@@ -84,3 +84,9 @@
 - Phase 1 是否使用 `SimpleMem` auto router、`SimpleMemSystem` text backend，还是 EvolveMem/Omni 子系统，需要架构师裁定；本卡按 text backend 与 MemoryData 实际接入口径分析。证据：`third_party/methods/SimpleMem/README.md:130-138`、`third_party/methods/SimpleMem/simplemem/router.py:260-332`、`第三方框架参考/MemoryData/methods/simplemem/simplemem_adapter.py:16-21`。
 - 官方默认 LLM 是 `gpt-4.1-mini`，项目硬规则当前统一 `gpt-4o-mini`；未来接入时需要 adapter 显式覆盖 `model`。证据：`third_party/methods/SimpleMem/simplemem/core/settings.py:12-24`、`第三方框架参考/MemoryData/methods/simplemem/simplemem_adapter.py:127-129`。
 - 默认安装一次性包含 text、multimodal 和 EvolveMem 依赖；是否能为 Phase 1 维护 text-only 依赖集，需后续接入时验证。证据：`third_party/methods/SimpleMem/setup.py:24-50`。
+
+## 7. 现有 adapter 的形变记录
+
+HaluMem extraction 裁定（2026-07-08，ws02.2 T5）：
+
+- SimpleMem 不提供干净的 session 增量 extraction 报告，本轮保持不覆写 `end_session()`，HaluMem extraction 记 N/A。原因是原生 `add_dialogue()` 先进入 `dialogue_buffer`，只有窗口满 `WINDOW_SIZE` 时自动 `process_window()`，剩余内容要到 `finalize()/process_remaining()` 才抽取并写入；MemoryEntry 可能跨 session/window 合并，不能安全归因到单个 session 的新增 memory。证据：`third_party/methods/SimpleMem/simplemem/core/memory_builder.py:51-67`、`third_party/methods/SimpleMem/simplemem/core/memory_builder.py:157-168`。

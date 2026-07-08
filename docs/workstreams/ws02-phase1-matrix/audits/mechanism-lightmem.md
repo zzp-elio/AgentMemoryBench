@@ -103,3 +103,7 @@
 orphan 处置（2026-07-07，对照 smoke 回归修复）：
 
 - 框架 pair 聚合改为 user 锚定后，assistant 开头 session 产出 orphan 单元；`_native_pair_batch` 对 orphan 经官方开头裁剪得到空批次时返回 None，`ingest` 直接跳过——与旧路径整段 session 裁剪行为等价（assistant-first 等价测试锁死）。已知遗留：LongMemEval s_cleaned 有 14 个 session 不满足"裁剪后偶数且严格 user/assistant 交替"口径，新旧路径同样 fail-fast，全量 run 前需定案（见 ws02 README 已知问题）。证据：`src/memory_benchmark/methods/lightmem_adapter.py`（`_native_pair_batch`）、`tests/test_lightmem_adapter.py::test_native_lightmem_longmemeval_assistant_first_skips_orphan_like_official_trim`。
+
+HaluMem extraction 裁定（2026-07-08，ws02.2 T5）：
+
+- LightMem 本轮不提供 session 增量 extraction 报告，保持不覆写 `end_session()`，HaluMem extraction 记 N/A。原因是原生 `add_memory()` 的中间批次不保证抽取或可检索，只有 `force_segment/force_extract` 与后续 offline update 边界完成后才形成稳定 memory；这不是单个 session 边界能干净表达的新增 memory 列表。证据：`third_party/methods/LightMem/src/lightmem/memory/lightmem.py:204-257`、`third_party/methods/LightMem/src/lightmem/memory/lightmem.py:300-310`、`third_party/methods/LightMem/src/lightmem/memory/lightmem.py:457-642`。

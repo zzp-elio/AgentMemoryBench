@@ -366,7 +366,7 @@ $ uv run pytest -q
 839 passed, 3 deselected, 2 warnings, 6 subtests passed in 104.98s (0:01:44)
 ```
 
-### T5 逐 method extraction 能力核实（D4，接口即契约的落地）
+### T5 逐 method extraction 能力核实（D4，接口即契约的落地） ✅
 
 改动范围：`methods/mem0_adapter.py`（+ 测试）；`audits/mechanism-*.md` 记录
 逐 method 裁定；**不改**其余 method 的行为（保持不覆写 end_session = N/A）。
@@ -386,6 +386,19 @@ $ uv run pytest -q
 
 验收：`uv run pytest tests/test_mem0_adapter.py -q` 全绿（含 Mem0 HaluMem
 extraction 报告测试）；机制卡逐 method 裁定已写。
+
+执行记录（2026-07-08，Codex）：
+
+```text
+$ uv run pytest tests/test_mem0_adapter.py -q
+.........................                                                [100%]
+25 passed in 1.17s
+```
+
+```text
+$ uv run pytest -q
+840 passed, 3 deselected, 2 warnings, 6 subtests passed in 116.79s (0:01:56)
+```
 
 ### T6 registered fake 全链路 smoke
 
@@ -493,6 +506,19 @@ evaluator-private session artifact，不走 report metadata。**
 4. **T5（逐 method extraction）**：Mem0 实现 session 增量报告（HaluMem 下粒度
    特化 session）；SimpleMem/其余默认 N/A（不覆写 end_session），机制卡记裁定+
    证据。
+
+   执行记录（2026-07-08，Codex）：
+
+   ```text
+   $ uv run pytest tests/test_mem0_adapter.py -q
+   .........................                                                [100%]
+   25 passed in 1.17s
+   ```
+
+   ```text
+   $ uv run pytest -q
+   840 passed, 3 deselected, 2 warnings, 6 subtests passed in 116.79s (0:01:56)
+   ```
 5. **T6 fake 全链路 smoke** + **T7 收尾**。
 
 **纪律（每 actor 会话开工必读）**：① 一手源 = 第三方仓库代码 + 真实数据，调研卡

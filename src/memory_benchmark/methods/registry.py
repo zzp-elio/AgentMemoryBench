@@ -178,8 +178,11 @@ def _build_mem0_system(context: MethodBuildContext) -> BaseMemorySystem:
         },
         efficiency_collector=context.efficiency_collector,
         consume_granularity=(
-            "session" if context.benchmark_name == "longmemeval" else "turn"
+            "session"
+            if context.benchmark_name in {"longmemeval", "halumem"}
+            else "turn"
         ),
+        session_memory_report=context.benchmark_name == "halumem",
     )
 
 

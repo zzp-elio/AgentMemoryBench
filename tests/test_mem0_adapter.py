@@ -17,6 +17,7 @@ from memory_benchmark.config.settings import OpenAISettings, load_path_settings
 from memory_benchmark.core import Conversation, Question, Session, Turn
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.provider_protocol import MemoryProvider
+from memory_benchmark.core.provider_protocol import SessionBatch, SessionRef
 from memory_benchmark.methods.mem0_adapter import (
     Mem0,
     Mem0Config,
@@ -24,6 +25,10 @@ from memory_benchmark.methods.mem0_adapter import (
 )
 from memory_benchmark.methods.registry import MethodBuildContext, _build_mem0_system
 from memory_benchmark.observability.efficiency import EfficiencyCollector
+from memory_benchmark.runners.event_stream import (
+    GranularityAggregator,
+    build_turn_events,
+)
 from memory_benchmark.runners.prediction import _method_manifest_with_protocol
 from tests.equivalence_utils import run_bridge_sequence, run_native_sequence
 from tests.fake_corpus import build_multimodal_consecutive_speaker_conversation
@@ -762,6 +767,75 @@ def test_native_mem0_longmemeval_assistant_first_session_keeps_official_chunks()
     ]
 
 
+def test_mem0_halumem_session_report_returns_current_session_add_results() -> None:
+    """HaluMem session 模式应在边界返回本 session 的 Mem0 add().results。"""
+
+    conversation = Conversation(
+        conversation_id="halu-user-1",
+        sessions=[
+            Session(
+                session_id="session-a",
+                session_time="Sep 01, 2025, 10:00:00",
+                turns=[
+                    Turn(
+                        turn_id=f"a:t{index}",
+                        speaker="user" if index % 2 == 0 else "assistant",
+                        normalized_role="user" if index % 2 == 0 else "assistant",
+                        content=f"session a message {index}",
+                    )
+                    for index in range(3)
+                ],
+            ),
+            Session(
+                session_id="session-b",
+                session_time="Sep 02, 2025, 10:00:00",
+                turns=[
+                    Turn(
+                        turn_id="b:t0",
+                        speaker="user",
+                        normalized_role="user",
+                        content="session b message 0",
+                    )
+                ],
+            ),
+        ],
+        metadata={"source_path": "data/halumem/HaluMem-Medium.jsonl"},
+    )
+    provider = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+        consume_granularity="session",
+        session_memory_report=True,
+    )
+    reports = []
+    events = tuple(build_turn_events(conversation, "halumem-run_halu-user-1"))
+
+    for signal in GranularityAggregator("session").aggregate(
+        events,
+        isolation_key="halumem-run_halu-user-1",
+    ):
+        if isinstance(signal, SessionBatch):
+            provider.ingest(signal)
+        elif isinstance(signal, SessionRef):
+            reports.append(provider.end_session(signal))
+
+    assert [report.session_ref.session_id for report in reports if report] == [
+        "session-a",
+        "session-b",
+    ]
+    assert reports[0] is not None
+    assert reports[0].memories == [
+        "[Session time: Sep 01, 2025, 10:00:00] user: session a message 0",
+        "[Session time: Sep 01, 2025, 10:00:00] user: session a message 2",
+    ]
+    assert reports[1] is not None
+    assert reports[1].memories == [
+        "[Session time: Sep 02, 2025, 10:00:00] user: session b message 0",
+    ]
+    assert provider.session_memory_report is True
+
+
 def test_mem0_registry_specializes_consume_granularity_by_benchmark(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -797,11 +871,25 @@ def test_mem0_registry_specializes_consume_granularity_by_benchmark(
             benchmark_name="longmemeval",
         )
     )
+    halumem = _build_mem0_system(
+        MethodBuildContext(
+            config=Mem0Config.smoke(),
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=load_path_settings(),
+            storage_root=tmp_path / "halumem",
+            benchmark_name="halumem",
+        )
+    )
 
     assert isinstance(locomo, MemoryProvider)
     assert locomo.consume_granularity == "turn"
+    assert locomo.session_memory_report is False
     assert isinstance(longmemeval, MemoryProvider)
     assert longmemeval.consume_granularity == "session"
+    assert longmemeval.session_memory_report is False
+    assert isinstance(halumem, MemoryProvider)
+    assert halumem.consume_granularity == "session"
+    assert halumem.session_memory_report is True
     assert _method_manifest_with_protocol(
         method_manifest={},
         protocol_version="v3",
