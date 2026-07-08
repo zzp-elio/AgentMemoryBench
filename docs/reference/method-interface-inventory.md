@@ -1,6 +1,6 @@
 # Method 原生接口清单
 
-更新日期：2026-07-07
+更新日期：2026-07-08
 
 本文记录第三方 method 仓库原生暴露的接口、官方实验脚本的调用方式，以及本项目 adapter
 应该如何包装成统一 memory-module 接口。
@@ -77,7 +77,7 @@ framework answer LLM(prompt_messages) -> answer
 | LongMemEval prompt | `benchmarks/longmemeval/prompts.py::get_answer_generation_prompt` |
 | 模型配置 | OSS server 默认 fact extraction `gpt-4o-mini`、embedding `text-embedding-3-small`；当前阶段 answerer/judge 统一改用 `gpt-4o-mini` |
 | API 配置 | Mem0 extraction/embedder 和 answerer LLM 都需要从配置层传入 API key/base URL |
-| 当前 adapter 状态 | M-B 后为原生 v3 `MemoryProvider`：LoCoMo 默认 `consume_granularity=turn`，LongMemEval 由 registry 按 benchmark profile 实例级特化为 `pair`；`ingest()` 直接复用官方 `Memory.add` 写入序列，`retrieve(RetrievalQuery)` 直接复用官方 search、memory formatting 和 LoCoMo / LongMemEval prompt 构造并返回 `RetrievalResult`。旧 `add()` / `retrieve(question)` / `get_answer()` 暂时作为兼容 wrapper |
+| 当前 adapter 状态 | M-B 后为原生 v3 `MemoryProvider`：LoCoMo 默认 `consume_granularity=turn`，LongMemEval / HaluMem 由 registry 按 benchmark profile 实例级特化为 `session`；`ingest()` 直接复用官方 `Memory.add` 写入序列，`retrieve(RetrievalQuery)` 直接复用官方 search、memory formatting 和 LoCoMo / LongMemEval prompt 构造并返回 `RetrievalResult`。HaluMem 下额外打开 `session_memory_report`，`end_session()` 返回本 session `Memory.add().results[*].memory` 作为 extraction report。旧 `add()` / `retrieve(question)` / `get_answer()` 暂时作为兼容 wrapper |
 
 ## MemoryOS
 
@@ -180,6 +180,30 @@ framework answer LLM(prompt_messages) -> answer
 | 状态隔离 | 每个 `isolation_key` 映射到独立 `method_state/isolation_<sha16>/lancedb` 和固定 table `memories`；wrapper 写公开 `conversation_id.txt` marker，供 failed_ingest clean retry 删除对应 isolation 目录 |
 | 当前 adapter 状态 | ws02.4 T1-T6 后为原生 v3 `MemoryProvider`：`consume_granularity=turn`，`ingest(TurnEvent)` 调 `add_dialogue()`，`end_conversation(UnitRef)` 调 `finalize()`；`retrieve(RetrievalQuery)` 直接调用 `hybrid_retriever.retrieve()` 并返回 `formatted_memory`、native `prompt_messages` 和 `RetrievedItem`。LoCoMo / LongMemEval registered fake smoke 已通过；真实 API smoke 待用户确认预算 |
 | 已知差异 | 不接 multimodal / EvolveMem / Omni；不做 provenance sidecar，`provenance_granularity=none`；真实 API smoke 尚未运行，不能宣称官方效果复现 |
+
+## HaluMem operation-level 接入状态
+
+HaluMem 在 ws02.2 采用 full operation-level runner，不是普通 conversation-QA
+runner。runner 对每个 user 按 session 顺序执行：
+
+```text
+ingest(session) -> end_session(extraction report) -> update probes -> QA
+```
+
+当前实现状态（2026-07-08）：
+
+- benchmark adapter 已支持 Medium / Long variant、每 user 前 M 个完整 session 的
+  smoke 裁剪，CLI 使用 HaluMem 专用 `--sessions`，最小 smoke 为 `--sessions 1`。
+- operation-level runner 写公开 input/output artifacts，并新增
+  `evaluator_private_session_labels.jsonl` 承载 session 级 gold memory_points +
+  dialogue；gold 不进入 method 或 provider report metadata。
+- 三个 evaluator 已注册：`halumem-extraction`、`halumem-update`、`halumem-qa`。
+  extraction/update 读 session 私有 artifact，QA 读 question 私有 labels。
+- Mem0 在 HaluMem 下声明 `consume_granularity=session` 和
+  `session_memory_report=True`，可产出 session 增量 extraction report。
+- SimpleMem、MemoryOS、A-Mem、LightMem 不提供干净 session 增量 extraction report；
+  HaluMem extraction 对这些 method 记 N/A，update + QA 仍按 v3 retrieve 路径运行。
+- fake registered 全链路已通过，真实 API smoke 仍需用户确认预算、规模和 run_id。
 
 ## Resume 策略分层
 

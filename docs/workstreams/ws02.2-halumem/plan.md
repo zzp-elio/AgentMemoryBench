@@ -430,13 +430,33 @@ $ uv run pytest -q
 843 passed, 3 deselected, 2 warnings, 6 subtests passed in 111.76s (0:01:51)
 ```
 
-### T7 收尾
+### T7 收尾 ✅
 
 改动范围：`docs/reference/method-interface-inventory.md`（HaluMem 接入节）、
 ws02 README 矩阵表（HaluMem 列点亮为 adapter 就绪待 smoke）、ws02.2 README
 勾选与断点、roadmap 行。
 
 验收：`git status --short` 干净；文档链接有效。
+
+执行记录（2026-07-08，Codex）：
+
+```text
+$ uv run pytest tests/test_documentation_standards.py -q
+.....                                                                    [100%]
+5 passed in 0.65s
+```
+
+```text
+$ test -f docs/workstreams/ws02.2-halumem/spec.md && test -f docs/workstreams/ws02.2-halumem/plan.md && test -f docs/workstreams/ws02.2-halumem/README.md && test -f docs/workstreams/ws02-phase1-matrix/README.md && test -f docs/reference/method-interface-inventory.md && test -f docs/roadmap.md
+```
+
+```text
+$ git diff --check
+```
+
+```text
+$ git status --short
+```
 
 ## 基线与顺序
 

@@ -1,7 +1,7 @@
 ---
 id: ws02.2
 parent: ws02
-status: plan-ready（spec approved，待 actor 施工）
+status: implemented-pending-acceptance（fake 全链路通过，待架构师验收/真实 smoke）
 created: 2026-07-08
 ---
 # ws02.2 HaluMem Adapter（Phase 1 第二个新 benchmark，operation-level）
@@ -14,6 +14,17 @@ created: 2026-07-08
 
 ## 当前断点
 
+- 2026-07-08（Codex）：**T3-patch/R2/T4/T5/T6/T7 已完成并逐 task commit**。
+  结果：R1 session 级 evaluator-private artifact 已落地；R2 HaluMem 专用
+  `smoke_session_limit` + CLI `--sessions` 已落地；三个 judge evaluator
+  `halumem-extraction` / `halumem-update` / `halumem-qa` 已注册并离线 fake 测；
+  Mem0 在 HaluMem 下特化 `consume_granularity=session` 并返回 session
+  `add().results` extraction report；SimpleMem/MemoryOS/A-Mem/LightMem 已在机制卡
+  记录 extraction N/A 裁定；fake registered 全链路 smoke + resume pending 回归通过。
+  最新验收：`tests/test_halumem_registered_prediction.py` 3 passed，
+  `compileall` 通过，全量 **843 passed, 3 deselected, 2 warnings, 6 subtests**。
+  当前无 actor 施工断点；下一步交架构师复跑验收，真实 API smoke 需用户确认预算、
+  规模和 run_id。
 - 2026-07-08（架构师 Opus 4.8 裁定，解 Codex 停工 + smoke 定案）：**R1** Codex
   停工正确——extraction/update 评测是 session 级（`evaluation.py:54-95` 遍历每
   session 的 memory_points，与 question 无关），491 个无 question 的 memory
@@ -103,7 +114,7 @@ created: 2026-07-08
 - [x] 架构师起草 spec（2026-07-08）
 - [x] 用户批准 spec（2026-07-08，D1 接受官方做法 + S6 改接口即契约）
 - [x] 架构师写实施 plan（[plan.md](plan.md)，T1-T7）
-- [ ] actor 施工 + fake 全链路
+- [x] actor 施工 + fake 全链路（2026-07-08，T3-patch/R2/T4/T5/T6/T7）
 - [ ] 架构师验收
 - [ ] 极小真实 smoke（待用户确认预算）
 

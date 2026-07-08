@@ -13,16 +13,22 @@ created: 2026-07-05
 完成判据：矩阵覆盖表 + 全矩阵成本估算表（ohmygpt 实价）可交给导师讨论
 全量预算。**本 workstream 不做任何全量实验。**
 
-矩阵现状（2026-07-05）：
+矩阵现状（2026-07-08）：
 
 | | LoCoMo | LongMemEval | HaluMem | BEAM | MemBench |
 | --- | --- | --- | --- | --- | --- |
-| Mem0 / MemoryOS / A-Mem / LightMem | ✅ smoke+full(历史) | ✅ 1-conv pilot | ⬜ | ⬜ | 🧩 adapter 就绪待 smoke |
-| SimpleMem | 🧩 adapter 就绪待 smoke | 🧩 adapter 就绪待 smoke | ⬜ | ⬜ | ⬜ |
+| Mem0 / MemoryOS / A-Mem / LightMem | ✅ smoke+full(历史) | ✅ 1-conv pilot | 🧩 adapter 就绪待 smoke | ⬜ | 🧩 adapter 就绪待 smoke |
+| SimpleMem | 🧩 adapter 就绪待 smoke | 🧩 adapter 就绪待 smoke | 🧩 adapter 就绪待 smoke | ⬜ | ⬜ |
 | MemOS / Letta / Cognee / LangMem / Supermemory | ⬜ | ⬜ | ⬜ | ⬜ | 🧩 adapter 就绪待 smoke |
 
 ## 当前断点
 
+- 2026-07-08（Codex）：ws02.2 HaluMem adapter T3-patch/R2/T4/T5/T6/T7 已完成并
+  逐 task commit。operation-level runner、HaluMem 专用 `--sessions` smoke 轴、
+  三个 judge evaluator、Mem0 session extraction report、fake registered 全链路均
+  已落地；全量回归 **843 passed**。HaluMem 列对已接入 v3 providers
+  （Mem0/MemoryOS/A-Mem/LightMem/SimpleMem）进入 **adapter 就绪待真实 smoke**
+  状态；真实 smoke 仍需用户确认预算、规模和 run_id。下一步交架构师复跑验收。
 - 2026-07-08（架构师 Opus 4.8 接任）：按 playbook §10 五步自检上任（基线
   819 复跑确认、git 干净、活历史核对）。启动 ws02.2 HaluMem，用户定范围
   **full operation-level**。spec draft 已产出（[ws02.2/spec.md](../ws02.2-halumem/spec.md)）：
