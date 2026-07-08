@@ -204,7 +204,7 @@ def prepare_halumem_run(
     elif request.run_scope is RunScope.SMOKE:
         dataset = _build_halumem_smoke_dataset(
             adapter.load(limit=request.smoke_conversation_limit),
-            session_limit_per_user=request.smoke_turn_limit,
+            session_limit_per_user=request.smoke_session_limit or 1,
         )
     else:  # pragma: no cover - RunScope 只有 smoke / full
         raise ConfigurationError(f"unsupported HaluMem run scope: {request.run_scope}")

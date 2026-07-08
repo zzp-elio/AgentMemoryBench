@@ -192,6 +192,7 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--confirm-full", action="store_true")
     parser.add_argument("--rounds", type=int, default=None)
+    parser.add_argument("--sessions", type=int, default=None)
     parser.add_argument("--smoke-turn-limit", type=int, default=None)
     parser.add_argument("--conversations", type=int, default=None)
     parser.add_argument(
@@ -394,6 +395,7 @@ def _prediction_command_from_args(args: argparse.Namespace) -> PredictCommand:
         smoke_turn_limit=normalized["smoke_turn_limit"],
         smoke_round_limit=normalized["smoke_round_limit"],
         smoke_conversation_limit=normalized["smoke_conversation_limit"],
+        smoke_session_limit=normalized["smoke_session_limit"],
         smoke_max_workers=normalized["workers"],
         max_new_conversations=normalized["max_new_conversations"],
         retry_failed_conversations=args.retry_failed_conversations,
@@ -448,6 +450,7 @@ def _normalize_legacy_prediction_args(args: argparse.Namespace) -> dict[str, Any
     """保持旧 `predict --profile ...` 写法可用，并接入新别名。"""
 
     _reject_conflicting_aliases(args)
+    _validate_smoke_axis_args(args)
     return {
         "profile": args.profile or "smoke",
         "confirm_full": args.confirm_full,
@@ -465,6 +468,10 @@ def _normalize_legacy_prediction_args(args: argparse.Namespace) -> dict[str, Any
             ),
             default=1,
             field_name="conversations",
+        ),
+        "smoke_session_limit": _positive_or_none(
+            args.sessions,
+            field_name="sessions",
         ),
         "workers": _positive_or_none(
             args.workers if args.workers is not None else args.smoke_max_workers,
@@ -494,6 +501,7 @@ def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]
     """校验并归一化 `predict smoke` 参数。"""
 
     _reject_conflicting_aliases(args)
+    _validate_smoke_axis_args(args)
     if args.resume:
         raise MemoryBenchmarkError("predict smoke does not support --resume")
     if args.retry_failed_conversations:
@@ -503,6 +511,7 @@ def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]
             "predict smoke does not support --conversation-budget or "
             "--max-new-conversations; use --conversations"
         )
+    halumem_smoke = args.benchmark == "halumem"
     round_limit = (
         args.rounds if args.rounds is not None else args.smoke_turn_limit
     )
@@ -514,7 +523,9 @@ def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]
             default=20,
             field_name="rounds",
         ),
-        "smoke_round_limit": _positive_or_default(
+        "smoke_round_limit": None
+        if halumem_smoke
+        else _positive_or_default(
             round_limit,
             default=20,
             field_name="rounds",
@@ -528,6 +539,13 @@ def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]
             default=1,
             field_name="conversations",
         ),
+        "smoke_session_limit": _positive_or_default(
+            args.sessions,
+            default=1,
+            field_name="sessions",
+        )
+        if halumem_smoke
+        else None,
         "workers": _positive_or_none(
             args.workers if args.workers is not None else args.smoke_max_workers,
             field_name="workers",
@@ -556,6 +574,8 @@ def _normalize_formal_prediction_args(args: argparse.Namespace) -> dict[str, Any
         raise MemoryBenchmarkError("predict formal does not support --rounds")
     if args.conversations is not None or args.smoke_conversation_limit is not None:
         raise MemoryBenchmarkError("predict formal does not support --conversations")
+    if args.sessions is not None:
+        raise MemoryBenchmarkError("predict formal does not support --sessions")
     if (
         args.questions_per_conversation is not None
         or args.question_limit_per_conversation is not None
@@ -569,6 +589,7 @@ def _normalize_formal_prediction_args(args: argparse.Namespace) -> dict[str, Any
         "smoke_turn_limit": 20,
         "smoke_round_limit": None,
         "smoke_conversation_limit": 1,
+        "smoke_session_limit": None,
         "workers": _positive_or_none(
             args.workers if args.workers is not None else args.smoke_max_workers,
             field_name="workers",
@@ -608,6 +629,22 @@ def _reject_conflicting_aliases(args: argparse.Namespace) -> None:
     if args.conversation_budget is not None and args.max_new_conversations is not None:
         raise MemoryBenchmarkError(
             "Use either --conversation-budget or --max-new-conversations, not both"
+        )
+
+
+def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
+    """按 benchmark 校验 smoke 历史裁剪轴。"""
+
+    if args.benchmark == "halumem":
+        if args.rounds is not None or args.smoke_turn_limit is not None:
+            raise MemoryBenchmarkError(
+                "HaluMem smoke uses --sessions; do not pass --rounds or "
+                "--smoke-turn-limit"
+            )
+        return
+    if args.sessions is not None:
+        raise MemoryBenchmarkError(
+            "--sessions is only supported for HaluMem smoke"
         )
 
 

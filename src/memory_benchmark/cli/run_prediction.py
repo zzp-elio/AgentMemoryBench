@@ -250,6 +250,7 @@ def run_registered_conversation_qa_prediction(
     smoke_turn_limit: int = DEFAULT_SMOKE_TURN_LIMIT,
     smoke_round_limit: int | None = None,
     smoke_conversation_limit: int = 1,
+    smoke_session_limit: int | None = None,
     smoke_max_workers: int | None = None,
     max_new_conversations: int | None = None,
     retry_failed_conversations: bool = False,
@@ -316,6 +317,7 @@ def run_registered_conversation_qa_prediction(
             smoke_turn_limit=smoke_turn_limit,
             smoke_round_limit=smoke_round_limit,
             smoke_conversation_limit=smoke_conversation_limit,
+            smoke_session_limit=smoke_session_limit,
             smoke_max_workers=smoke_max_workers,
             max_new_conversations=max_new_conversations,
             retry_failed_conversations=retry_failed_conversations,
@@ -446,6 +448,11 @@ def run_registered_conversation_qa_prediction(
                     smoke_round_limit=smoke_round_limit,
                 ),
                 smoke_conversation_limit=smoke_conversation_limit,
+                smoke_session_limit=_resolve_adapter_smoke_session_limit(
+                    benchmark_name=benchmark_name,
+                    smoke_session_limit=smoke_session_limit,
+                    smoke_round_limit=smoke_round_limit,
+                ),
             ),
         )
         workload_estimate = _estimate_method_workload(
@@ -712,6 +719,7 @@ def _run_custom_conversation_qa_prediction(
     smoke_turn_limit: int,
     smoke_round_limit: int | None,
     smoke_conversation_limit: int,
+    smoke_session_limit: int | None,
     smoke_max_workers: int | None,
     max_new_conversations: int | None,
     retry_failed_conversations: bool,
@@ -816,6 +824,11 @@ def _run_custom_conversation_qa_prediction(
                     smoke_round_limit=smoke_round_limit,
                 ),
                 smoke_conversation_limit=smoke_conversation_limit,
+                smoke_session_limit=_resolve_adapter_smoke_session_limit(
+                    benchmark_name=benchmark_name,
+                    smoke_session_limit=smoke_session_limit,
+                    smoke_round_limit=smoke_round_limit,
+                ),
             ),
         )
         method_manifest = _build_custom_method_manifest(
@@ -1172,6 +1185,27 @@ def _resolve_adapter_smoke_history_limit(
     if benchmark_name == "locomo":
         return smoke_round_limit * 2
     return smoke_round_limit
+
+
+def _resolve_adapter_smoke_session_limit(
+    *,
+    benchmark_name: str,
+    smoke_session_limit: int | None,
+    smoke_round_limit: int | None,
+) -> int | None:
+    """解析 HaluMem 专用 session smoke 轴，并拒绝错误 benchmark 轴。"""
+
+    if benchmark_name == "halumem":
+        if smoke_round_limit is not None:
+            raise ConfigurationError("HaluMem smoke uses sessions, not rounds")
+        if smoke_session_limit is None:
+            return 1
+        if smoke_session_limit < 1:
+            raise ConfigurationError("sessions must be at least 1")
+        return smoke_session_limit
+    if smoke_session_limit is not None:
+        raise ConfigurationError("--sessions is only supported for HaluMem")
+    return None
 
 
 def _question_limit_for_scope(

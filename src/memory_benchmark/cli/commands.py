@@ -52,6 +52,7 @@ class PredictCommand:
     smoke_turn_limit: int = 20
     smoke_round_limit: int | None = None
     smoke_conversation_limit: int = 1
+    smoke_session_limit: int | None = None
     smoke_max_workers: int | None = None
     max_new_conversations: int | None = None
     retry_failed_conversations: bool = False
@@ -135,6 +136,7 @@ def execute_predict(command: PredictCommand) -> PredictionBatchResult:
         smoke_turn_limit=command.smoke_turn_limit,
         smoke_round_limit=command.smoke_round_limit,
         smoke_conversation_limit=command.smoke_conversation_limit,
+        smoke_session_limit=command.smoke_session_limit,
         smoke_max_workers=command.smoke_max_workers,
         max_new_conversations=command.max_new_conversations,
         retry_failed_conversations=command.retry_failed_conversations,

@@ -458,6 +458,20 @@ evaluator-private session artifact，不走 report metadata。**
    **最小 smoke = `--sessions 1`（跑通 extraction+QA，第一手 session[0]
    `n_mp=15`+`has_questions=True` 证据），不是旧写的 ≥5**。HaluMem 忽略
    `--rounds`；LoCoMo/LME 忽略 `--sessions`——**传错轴要明确报错，别静默**。
+
+   执行记录（2026-07-08，Codex）：
+
+   ```text
+   $ uv run pytest tests/test_halumem_adapter.py tests/test_main_cli.py tests/test_prediction_cli.py -q
+   ........................................................................ [ 90%]
+   ........                                                                 [100%]
+   80 passed in 7.65s
+   ```
+
+   ```text
+   $ uv run pytest -q
+   834 passed, 3 deselected, 2 warnings, 6 subtests passed in 108.76s (0:01:48)
+   ```
 3. **T4（三 evaluator）**：extraction/update evaluator 读 R1 session artifact 取
    gold memory_points + dialogue_str；QA evaluator 读 question 级私有标签。聚合
    口径**逐行照 T4"第一手口径补充"块 + `evaluation.py`**（integrity/update

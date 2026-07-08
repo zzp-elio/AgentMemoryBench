@@ -282,7 +282,7 @@ def test_prepare_halumem_run_smoke_limits_user_count(tmp_path: Path) -> None:
         BenchmarkLoadRequest(
             variant="medium",
             run_scope=RunScope.SMOKE,
-            smoke_turn_limit=2,
+            smoke_session_limit=2,
             smoke_conversation_limit=1,
         ),
     )

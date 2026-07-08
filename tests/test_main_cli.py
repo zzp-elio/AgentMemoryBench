@@ -188,6 +188,7 @@ def test_execute_predict_delegates_to_registered_prediction(
             "smoke_turn_limit": 3,
             "smoke_round_limit": None,
             "smoke_conversation_limit": 1,
+            "smoke_session_limit": None,
             "smoke_max_workers": 1,
             "max_new_conversations": None,
                 "retry_failed_conversations": False,
@@ -726,6 +727,103 @@ def test_main_maps_predict_smoke_v2_arguments_to_command(
             output_layout="hierarchical",
         )
     ]
+
+
+def test_main_maps_halumem_smoke_sessions_to_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HaluMem smoke 应使用 session 轴而不是 round/turn 轴。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "halumem",
+            "--run-id",
+            "mem0-halumem-smoke",
+            "--allow-api",
+            "--conversations",
+            "1",
+            "--sessions",
+            "1",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received == [
+        PredictCommand(
+            project_root=tmp_path,
+            method="mem0",
+            benchmark="halumem",
+            profile="smoke",
+            run_id="mem0-halumem-smoke",
+            confirm_api=True,
+            smoke_turn_limit=20,
+            smoke_round_limit=None,
+            smoke_session_limit=1,
+            smoke_conversation_limit=1,
+            question_limit_per_conversation=1,
+            output_layout="hierarchical",
+        )
+    ]
+
+
+def test_main_rejects_rounds_for_halumem_smoke(tmp_path: Path) -> None:
+    """HaluMem 不接受 round/turn 轴裁剪。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "halumem",
+            "--allow-api",
+            "--rounds",
+            "2",
+        ]
+    )
+
+    assert exit_code == 2
+
+
+def test_main_rejects_sessions_for_non_halumem_smoke(tmp_path: Path) -> None:
+    """非 HaluMem benchmark 不接受 session 轴裁剪。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--allow-api",
+            "--sessions",
+            "1",
+        ]
+    )
+
+    assert exit_code == 2
 
 
 def test_main_maps_predict_formal_v2_arguments_to_command(
