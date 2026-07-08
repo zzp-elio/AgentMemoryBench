@@ -33,12 +33,16 @@ from memory_benchmark.storage import ExperimentPaths
 
 
 class _FakeBeamJudgeClient:
-    """返回固定分数的 fake judge client。
-
-    可以用 judge_json(prompt) 被 BeamRubricJudgeEvaluator._judge_json 调用。
-    """
+    """返回固定分数的 fake judge client，记录所有调用。"""
 
     def __init__(self, score: float = 1.0, reason: str = "fake"):
+        """初始化 fake judge 客户端。
+
+        输入:
+            score: 每次 judge_json 调用返回的固定分数（0.0/0.5/1.0）。
+            reason: 返回的 reason 文本。
+        """
+
         self.score = score
         self.reason = reason
         self.calls: list[str] = []
@@ -48,6 +52,23 @@ class _FakeBeamJudgeClient:
 
         self.calls.append(prompt)
         return {"score": self.score, "reason": self.reason}
+
+
+class _MixedFakeClient:
+    """轮流返回 1.0、0.5、0.0 的 fake judge，用于测试混合分数聚合。"""
+
+    def __init__(self):
+        """初始化轮转 fake judge 客户端。"""
+
+        self.call_count = 0
+
+    def judge_json(self, prompt: str) -> dict[str, Any]:
+        """按轮转顺序返回 1.0/0.5/0.0 三种分数。"""
+
+        scores = [1.0, 0.5, 0.0]
+        score = scores[self.call_count % 3]
+        self.call_count += 1
+        return {"score": score, "reason": "mixed"}
 
 
 # ---------------------------------------------------------------------------
@@ -190,16 +211,6 @@ def test_score_0_5_is_preserved_not_truncated_to_0() -> None:
 
 def test_score_mixture_preserves_float_precision() -> None:
     """混合分数 (1.0, 0.5, 0.0) 应保留浮点精度，(1+0.5+0)/3=0.5。"""
-
-    class _MixedFakeClient:
-        def __init__(self):
-            self.call_count = 0
-
-        def judge_json(self, prompt: str) -> dict[str, Any]:
-            scores = [1.0, 0.5, 0.0]
-            score = scores[self.call_count % 3]
-            self.call_count += 1
-            return {"score": score, "reason": "mixed"}
 
     evaluator = BeamRubricJudgeEvaluator(
         mode="compact",
