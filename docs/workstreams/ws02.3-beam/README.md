@@ -1,7 +1,7 @@
 ---
 id: ws02.3
 parent: ws02
-status: spec-approved（D6 已决，待架构师写 plan）
+status: plan-ready（[plan.md](plan.md) 已产出，待 actor 施工）
 created: 2026-07-08
 ---
 # ws02.3 BEAM Adapter（Phase 1 第三个新 benchmark，conversation-QA + rubric judge）
@@ -24,14 +24,20 @@ created: 2026-07-08
 - 2026-07-08（用户拍板 D6）：**D6 已决**——用户认可"v1 先做统一 rubric judge、
   event_ordering 的 kendall-tau 排序分 defer 到 v2"，但明确要求"别忘记后续
   加上"，故排序分是**承诺项（committed follow-up），非可选**。D6 是 BEAM 唯一
-  开放决策点，拍板即等于 spec 实质定案 → **plan 解锁**。下一步：架构师写
-  BEAM plan（含 kendall-tau 作为有触发条件的独立 backlog task + README 长期挂账）。
+  开放决策点，拍板即等于 spec 实质定案 → **plan 解锁**。
+- 2026-07-08（架构师写 plan）：**[plan.md](plan.md) 已产出**（T1-T6 + 承诺
+  backlog）。施工前补了唯一未定的一手源——**BEAM unified answer prompt = 官方
+  `answer_generation_for_rag`**（`src/prompts.py:11683-11701`，`<context>`/
+  `<question>` 占位，RAG 路径，语义"只用 context 答、不用内部知识"），解 spec
+  D1-note。裁剪轴=turn（不是 session）。**待 actor 施工**（T1 adapter → T2
+  registration → T3 rubric judge 修 int bug → T4 fake 全链路 → T5 smoke CLI →
+  T6 收尾）。
 
 ## 任务清单
 
 - [x] 架构师起草 spec（2026-07-08，第一手核对）
 - [x] 用户批准 spec（2026-07-08，D6 拍板；D1-D5 架构师已定）
-- [ ] 架构师写实施 plan
+- [x] 架构师写实施 plan（[plan.md](plan.md)，2026-07-08）
 - [ ] actor 施工 + fake 全链路
 - [ ] 架构师验收
 - [ ] 极小真实 smoke（待用户确认预算）
