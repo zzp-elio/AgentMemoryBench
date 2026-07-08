@@ -100,6 +100,15 @@ adapter 的 `retrieve()`（`:682-752`）按 benchmark 分两条路径：
 
 adapter **未使用** benchmark 专用评测实现（`experiments/` 下的 add_locomo.py/search_locomo.py 评测 pipeline 未被调用）。主体（注入、update、LongMemEval 检索）走通用产品 `LightMemory`。**唯一偏离**：LoCoMo 检索路径自复刻 combined cosine，但用官方 backend 组件，算法与官方 `VectorRetriever.retrieve` 等价（见 Q4 详证）。
 
+> **P1 修复（2026-07-08，commit `63ccba2`）**：上述偏离已消除。LoCoMo 路径
+> `_retrieve_locomo_memories`（get_all+手算 cosine 自复刻）改为 `_retrieve_with_payload`
+> 调官方 `embedding_retriever.search(return_full=True)` 拿带 payload 结果；retrieve()
+> LongMemEval/LoCoMo 两路径统一返回 `list[dict]`（F1 解决）；LongMemEval answer
+> prompt 用新增 `_format_lightmem_memory_as_official_retrieve` 还原官方 retrieve
+> `'{ts} {wd} {mem}'` 格式（不偏离 run_lightmem_gpt.py:186）；删 `_cosine_similarity`；
+> retrieval_profile 统一 `lightmemory_retrieve`。Step1 gate 已核实自复刻 vs
+> VectorRetriever 逐行等价（无主场优势）。focused 33 passed，全量 892 passed。
+
 ---
 
 ## Q3 原生注入/检索接口 + 耦合评估

@@ -75,6 +75,18 @@ LangMem/Supermemory）逐个核：
 
 ## 当前断点
 
+- 2026-07-08（actor workbuddy+GLM5.2，完成 P1 迁移）：LightMem 统一 retrieve。
+  Step1 gate 通过（自复刻 `_retrieve_locomo_memories` get_all+手算cosine vs
+  官方 `VectorRetriever.retrieve` retrievers.py:111-132 逐行等价：候选集同
+  qdrant.get_all、cosine 公式数学一致、排序截断一致，无主场优势）；Step2
+  `_retrieve_locomo_memories`→`_retrieve_with_payload` 改调官方
+  `embedding_retriever.search(return_full=True)` 拿带 payload 结果，retrieve()
+  LongMemEval/LoCoMo 两路径统一返回 list[dict]（F1 解决），LongMemEval answer
+  prompt 用新增 `_format_lightmem_memory_as_official_retrieve` 还原官方
+  `'{ts} {wd} {mem}'` 格式（不偏离 run_lightmem_gpt.py:186），删
+  `_cosine_similarity`，retrieval_profile 统一 `lightmemory_retrieve`。focused
+  lightmem 33 passed，全量 892 passed（基线不跌破）。commit `63ccba2`。
+  **下一步**：架构师复跑验收；P1 MemoryOS eval→pypi 待派。
 - 2026-07-08（架构师 Opus 4.8 验收 P0）：**通过**。本机复跑 `uv run pytest -q
   -m "not api"` = **892 passed, 0 failed**（与 actor 一致）；第一手核对改动忠实：
   官方 `answer_generator.py:85-111` `_format_contexts` 确为 6 字段
@@ -99,7 +111,7 @@ LangMem/Supermemory）逐个核：
 - [x] 架构师建档 + 裁决（2026-07-08）
 - [x] 逐 method 接口审计（2026-07-08，Mem0/A-Mem/LightMem/SimpleMem by workbuddy+GLM5.2；MemoryOS by 架构师）+ 架构师验收裁定（见上表）
 - [ ] 产出 method 接口文档（注入 + 检索）— 可由 4 份 audit-*.md 汇总
-- [ ] 迁移/修复（写任务串行）：[x] P0 SimpleMem 补字段（2026-07-08，commit 3e177c3）/ [ ] P1 MemoryOS eval→pypi / [ ] P1 LightMem 统一 retrieve / [ ] P2 A-Mem 文档留痕
+- [ ] 迁移/修复（写任务串行）：[x] P0 SimpleMem 补字段（2026-07-08，commit 3e177c3）/ [ ] P1 MemoryOS eval→pypi / [x] P1 LightMem 统一 retrieve（2026-07-08，commit 63ccba2）/ [ ] P2 A-Mem 文档留痕
 - [ ] formatted_memory 全路径完整落盘核对
 
 ## MemoryOS 版本裁定（架构师第一手，2026-07-08）
