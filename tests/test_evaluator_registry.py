@@ -29,6 +29,9 @@ def test_registry_lists_only_currently_supported_unified_metrics() -> None:
     """统一入口应列出当前已装配的 LoCoMo 与 LongMemEval 指标。"""
 
     assert list_metrics() == [
+        "halumem-extraction",
+        "halumem-qa",
+        "halumem-update",
         "locomo-f1",
         "locomo-judge",
         "longmemeval-judge",

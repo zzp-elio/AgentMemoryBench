@@ -273,7 +273,7 @@ $ uv run pytest -q
 831 passed, 3 deselected, 2 warnings, 6 subtests passed in 102.16s (0:01:42)
 ```
 
-### T4 三个 judge evaluator + QA unified prompt
+### T4 三个 judge evaluator + QA unified prompt ✅
 
 改动范围：`evaluators/halumem_extraction.py`、`evaluators/halumem_update.py`、
 `evaluators/halumem_qa.py`、`evaluators/registry.py`、HaluMem unified prompt
@@ -352,6 +352,19 @@ $ uv run pytest -q
 离线）；每个 evaluator 测 ①judge 输出→聚合口径与 `evaluation.py` 逐条对齐
 （含 integrity/update 互斥路由、0.5 因子、FMR、F1）②category_breakdown
 ③N/A（extraction 段某 method 无报告时不计入分母、记 N/A 不记 0）。
+
+执行记录（2026-07-08，Codex）：
+
+```text
+$ uv run pytest tests/test_halumem_*.py -q
+............                                                             [100%]
+12 passed in 1.87s
+```
+
+```text
+$ uv run pytest -q
+839 passed, 3 deselected, 2 warnings, 6 subtests passed in 104.98s (0:01:44)
+```
 
 ### T5 逐 method extraction 能力核实（D4，接口即契约的落地）
 

@@ -83,6 +83,16 @@ def run_artifact_evaluation(
             f"artifact benchmark mismatch: expected {expected_benchmark}, got {benchmark_name}"
         )
     run_id = _require_non_empty_string(manifest.get("run_id"), "manifest run_id")
+    artifact_evaluator = getattr(evaluator, "evaluate_run_artifacts", None)
+    if callable(artifact_evaluator):
+        return _run_artifact_level_evaluation(
+            paths=paths,
+            manifest=manifest,
+            benchmark_name=benchmark_name,
+            run_id=run_id,
+            evaluator=evaluator,
+            max_workers=max_workers,
+        )
 
     public_records = _read_required_jsonl(
         paths.public_questions_path,
@@ -209,6 +219,73 @@ def run_artifact_evaluation(
         category_breakdown = _build_category_breakdown(score_records, categories)
         if category_breakdown:
             summary_dict["category_breakdown"] = category_breakdown
+    atomic_write_jsonl(score_path, score_records)
+    atomic_write_json(summary_path, summary_dict)
+    return summary
+
+
+def _run_artifact_level_evaluation(
+    *,
+    paths: ExperimentPaths,
+    manifest: dict[str, Any],
+    benchmark_name: str,
+    run_id: str,
+    evaluator: BaseAnswerEvaluator,
+    max_workers: int,
+) -> EvaluationRunSummary:
+    """运行自带 artifact 聚合逻辑的 evaluator。"""
+
+    payload = evaluator.evaluate_run_artifacts(
+        paths=paths,
+        manifest=manifest,
+        max_workers=max_workers,
+    )
+    if not isinstance(payload, dict):
+        raise ConfigurationError("artifact-level evaluator must return a dict")
+    metric_name = _require_non_empty_string(
+        payload.get("metric_name"),
+        "artifact evaluator metric_name",
+    )
+    raw_score_records = payload.get("score_records", [])
+    if not isinstance(raw_score_records, list) or any(
+        not isinstance(record, dict) for record in raw_score_records
+    ):
+        raise ConfigurationError("artifact evaluator score_records must be a list")
+    score_records = raw_score_records
+    score_path = paths.metric_scores_path(metric_name)
+    summary_path = paths.metric_summary_path(metric_name)
+    total_questions = _non_negative_int_or_default(
+        payload.get("total_questions"),
+        len(score_records),
+        "artifact evaluator total_questions",
+    )
+    mean_score = _number_or_default(
+        payload.get("mean_score"),
+        _mean_score(score_records),
+        "artifact evaluator mean_score",
+    )
+    correct_count = payload.get("correct_count")
+    if correct_count is not None:
+        correct_count = _non_negative_int_or_default(
+            correct_count,
+            0,
+            "artifact evaluator correct_count",
+        )
+    summary = EvaluationRunSummary(
+        run_id=run_id,
+        benchmark_name=benchmark_name,
+        metric_name=metric_name,
+        total_questions=total_questions,
+        mean_score=mean_score,
+        correct_count=correct_count,
+        score_path=str(score_path.resolve()),
+        summary_path=str(summary_path.resolve()),
+    )
+    summary_dict = summary.to_dict()
+    extra_summary = payload.get("summary", {})
+    if not isinstance(extra_summary, dict):
+        raise ConfigurationError("artifact evaluator summary must be a JSON object")
+    summary_dict.update(extra_summary)
     atomic_write_jsonl(score_path, score_records)
     atomic_write_json(summary_path, summary_dict)
     return summary
@@ -553,3 +630,38 @@ def _require_prediction_answer(value: Any) -> str:
     if not value.strip():
         raise ConfigurationError("prediction answer is empty")
     return value
+
+
+def _mean_score(score_records: list[dict[str, Any]]) -> float:
+    """从 score record 计算默认均值。"""
+
+    scores = [
+        record.get("score")
+        for record in score_records
+        if isinstance(record.get("score"), int | float)
+    ]
+    return sum(float(score) for score in scores) / len(scores) if scores else 0.0
+
+
+def _non_negative_int_or_default(
+    value: Any,
+    default: int,
+    field_name: str,
+) -> int:
+    """读取非负整数，缺省时返回 default。"""
+
+    if value is None:
+        return default
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    raise ConfigurationError(f"{field_name} must be a non-negative integer")
+
+
+def _number_or_default(value: Any, default: float, field_name: str) -> float:
+    """读取数值，缺省时返回 default。"""
+
+    if value is None:
+        return default
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    raise ConfigurationError(f"{field_name} must be a number")

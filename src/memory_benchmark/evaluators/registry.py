@@ -15,6 +15,9 @@ from memory_benchmark.config import load_path_settings
 from memory_benchmark.config.profiles import load_typed_profile
 from memory_benchmark.core import ConfigurationError
 
+from .halumem_extraction import HalumemExtractionEvaluator
+from .halumem_qa import HalumemQAEvaluator
+from .halumem_update import HalumemUpdateEvaluator
 from .llm_judge import LLMJudgeProfileConfig
 from .longmemeval_judge import LongMemEvalJudgeEvaluator
 from .locomo_f1 import LoCoMoF1Evaluator
@@ -100,7 +103,94 @@ def _build_longmemeval_judge(
     )
 
 
+def _build_halumem_extraction(
+    *,
+    profile_name: str,
+    model: str | None = None,
+    client: Any | None = None,
+    project_root: str | None = None,
+    env_file: str | None = None,
+) -> HalumemExtractionEvaluator:
+    """按已验证 profile 构造 HaluMem extraction judge。"""
+
+    return HalumemExtractionEvaluator(
+        mode=profile_name,
+        model=model,
+        client=client,
+        project_root=project_root,
+        env_file=env_file,
+    )
+
+
+def _build_halumem_update(
+    *,
+    profile_name: str,
+    model: str | None = None,
+    client: Any | None = None,
+    project_root: str | None = None,
+    env_file: str | None = None,
+) -> HalumemUpdateEvaluator:
+    """按已验证 profile 构造 HaluMem update judge。"""
+
+    return HalumemUpdateEvaluator(
+        mode=profile_name,
+        model=model,
+        client=client,
+        project_root=project_root,
+        env_file=env_file,
+    )
+
+
+def _build_halumem_qa(
+    *,
+    profile_name: str,
+    model: str | None = None,
+    client: Any | None = None,
+    project_root: str | None = None,
+    env_file: str | None = None,
+) -> HalumemQAEvaluator:
+    """按已验证 profile 构造 HaluMem QA judge。"""
+
+    return HalumemQAEvaluator(
+        mode=profile_name,
+        model=model,
+        client=client,
+        project_root=project_root,
+        env_file=env_file,
+    )
+
+
 _REGISTRATIONS = {
+    "halumem-extraction": EvaluatorRegistration(
+        cli_name="halumem-extraction",
+        metric_name="halumem_extraction",
+        supported_benchmarks=frozenset({"halumem"}),
+        requires_api=True,
+        profile_names=frozenset({"compact", "detailed"}),
+        profile_relative_path=Path("configs/evaluators/llm_judge.toml"),
+        config_type=LLMJudgeProfileConfig,
+        factory=_build_halumem_extraction,
+    ),
+    "halumem-update": EvaluatorRegistration(
+        cli_name="halumem-update",
+        metric_name="halumem_update",
+        supported_benchmarks=frozenset({"halumem"}),
+        requires_api=True,
+        profile_names=frozenset({"compact", "detailed"}),
+        profile_relative_path=Path("configs/evaluators/llm_judge.toml"),
+        config_type=LLMJudgeProfileConfig,
+        factory=_build_halumem_update,
+    ),
+    "halumem-qa": EvaluatorRegistration(
+        cli_name="halumem-qa",
+        metric_name="halumem_qa",
+        supported_benchmarks=frozenset({"halumem"}),
+        requires_api=True,
+        profile_names=frozenset({"compact", "detailed"}),
+        profile_relative_path=Path("configs/evaluators/llm_judge.toml"),
+        config_type=LLMJudgeProfileConfig,
+        factory=_build_halumem_qa,
+    ),
     "locomo-f1": EvaluatorRegistration(
         cli_name="locomo-f1",
         metric_name="locomo_f1",
