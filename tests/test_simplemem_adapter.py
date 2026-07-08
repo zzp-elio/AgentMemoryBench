@@ -23,6 +23,7 @@ from memory_benchmark.methods.simplemem_adapter import (
     clean_simplemem_conversation_state,
     parse_simplemem_timestamp,
 )
+from memory_benchmark.methods.simplemem_adapter import _format_simplemem_memory
 
 
 pytestmark = pytest.mark.unit
@@ -244,11 +245,17 @@ def test_simplemem_retrieve_uses_hybrid_retriever_and_builds_native_prompt(
 
     assert system.retrieve_queries == ["When will Alice meet Bob?"]
     assert system.ask_queries == []
-    assert result.formatted_memory == "\n".join(
-        [
-            "[2023-05-08T13:56:00] Alice will meet Bob at the cafe.",
-            "[2023-05-08T14:03:00] The meeting topic is the new product.",
-        ]
+    assert result.formatted_memory == (
+        "[Context 1]\n"
+        "Content: Alice will meet Bob at the cafe.\n"
+        "Time: 2023-05-08T13:56:00\n"
+        "Persons: Alice, Bob\n"
+        "Topic: meeting\n"
+        "\n"
+        "[Context 2]\n"
+        "Content: The meeting topic is the new product.\n"
+        "Time: 2023-05-08T14:03:00\n"
+        "Related Entities: new product"
     )
     assert result.items is not None
     assert [item.item_id for item in result.items] == ["m1", "m2"]
@@ -269,6 +276,34 @@ def test_simplemem_retrieve_uses_hybrid_retriever_and_builds_native_prompt(
     assert result.metadata["prompt_source"] == (
         "third_party/methods/SimpleMem/simplemem/core/answer_generator.py:43-52,117-153"
     )
+
+
+def test_simplemem_formatted_memory_covers_all_symbolic_fields() -> None:
+    """formatted_memory 应覆盖 MemoryEntry 全部 Symbolic 层字段，不丢 location/persons/entities/topic。
+
+    对齐 ws02.5 audit F1：unified 口径用的 formatted_memory 必须与官方
+    ``AnswerGenerator._format_contexts``（answer_generator.py:85-111）同口径，
+    覆盖 lossless_restatement + timestamp + location + persons + entities + topic。
+    """
+
+    entry = FakeMemoryEntry(
+        entry_id="m-full",
+        lossless_restatement="Alice met Bob at Starbucks to discuss product XYZ.",
+        timestamp="2025-11-15T14:30:00",
+        location="Starbucks, Shanghai",
+        persons=["Alice", "Bob"],
+        entities=["product XYZ"],
+        topic="product marketing",
+    )
+
+    memory = _format_simplemem_memory([entry])
+
+    assert "Content: Alice met Bob at Starbucks to discuss product XYZ." in memory
+    assert "Time: 2025-11-15T14:30:00" in memory
+    assert "Location: Starbucks, Shanghai" in memory
+    assert "Persons: Alice, Bob" in memory
+    assert "Related Entities: product XYZ" in memory
+    assert "Topic: product marketing" in memory
 
 
 def test_simplemem_clean_retry_removes_partial_state_and_replays_all_turns(

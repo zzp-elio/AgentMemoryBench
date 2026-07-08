@@ -465,17 +465,20 @@ def clean_simplemem_conversation_state(
 
 
 def _format_simplemem_memory(contexts: list[Any]) -> str:
-    """把命中 MemoryEntry 拼成统一 formatted_memory。"""
+    """把命中 MemoryEntry 拼成统一 formatted_memory。
 
-    lines = []
-    for context in contexts:
-        timestamp = _optional_context_text(context, "timestamp") or "unknown"
-        lines.append(
-            f"[{timestamp}] {_required_context_text(context, 'lossless_restatement')}"
-        )
-    if not lines:
-        return "No relevant information found"
-    return "\n".join(lines)
+    与官方 ``AnswerGenerator._format_contexts``（见
+    ``third_party/methods/SimpleMem/simplemem/core/answer_generator.py:85-111``）
+    同口径，覆盖 MemoryEntry 全部 answer 可见字段：lossless_restatement(Semantic)
+    + timestamp/location/persons/entities/topic(Symbolic)，不丢 Symbolic 层。
+
+    与 ``_format_simplemem_contexts`` 同输出，保证 unified 口径的 formatted_memory
+    与 native 口径 ``prompt_messages`` 里的 context_str 看到一致的记忆——只有
+    "记忆质量"在变，不因口径不同而漏字段。官方 ``_format_contexts`` 不含 keywords
+    （Lexical 层不进 answer context），此处与官方保持一致。
+    """
+
+    return _format_simplemem_contexts(contexts)
 
 
 def _format_simplemem_contexts(contexts: list[Any]) -> str:
