@@ -13,6 +13,33 @@ created: 2026-07-08
 
 ## 当前断点
 
+- 2026-07-08（actor DeepSeek V4 Pro）：**T1-T6 全部完成**，887 passed（基线 843
+  不跌破），compileall 通过。**一手发现**：不同 ability 的 question_obj 字段不同
+  （`ideal_response` 仅 abstention 有，其余用 `ideal_answer`/`answer`/
+  `expected_compliance`/`ideal_summary`），adapter 用优先级 fallback 处理；
+  `->->` 尾标记只在 user turn 出现（主要是 `main_question` 类型）。**所有测试**：
+  22 T1 + 39 T2 + 23 T3 + 4 T4 + 3 T5 = 91 focused tests 全绿。待架构师验收。
+  下一步：①架构师复跑验收；②极小真实 smoke（待用户预算确认）。
+
+### 真实 smoke 命令（待预算确认）
+
+```bash
+# BEAM 100k（20 conversation）+ turn 截断 10 轮 + 1 worker
+uv run memory-benchmark predict \
+  --benchmark beam --variant 100k \
+  --method mem0 --profile smoke \
+  --rounds 10 --max-conversations 1 \
+  --confirm-api --run-id beam-100k-mem0-smoke-20260708
+
+# 评测（fake judge 离线验证后换真实 judge）
+uv run memory-benchmark evaluate \
+  --run-id beam-100k-mem0-smoke-20260708 \
+  --metric beam-rubric-judge --profile compact --confirm-api
+```
+
+注意：BEAM 单 conversation 100K token，真实 API 有成本；smoke 先跑 1 conversation
++ turn 截断确认流程，再决定是否扩大。
+
 - 2026-07-08（架构师 Opus 4.8）：**spec draft 已产出**（[spec.md](spec.md)），
   全部结论**第一手核对**（官方仓库 + 真实 arrow 数据 + 三份 survey 卡）。关键
   结论：① BEAM 是 **conversation-QA 家族**，复用现有 runner，无需 operation-level
@@ -38,7 +65,7 @@ created: 2026-07-08
 - [x] 架构师起草 spec（2026-07-08，第一手核对）
 - [x] 用户批准 spec（2026-07-08，D6 拍板；D1-D5 架构师已定）
 - [x] 架构师写实施 plan（[plan.md](plan.md)，2026-07-08）
-- [ ] actor 施工 + fake 全链路
+- [x] actor 施工 T1-T6 + fake 全链路（2026-07-08，DeepSeek V4 Pro；91 focused tests 全绿）
 - [ ] 架构师验收
 - [ ] 极小真实 smoke（待用户确认预算）
 
