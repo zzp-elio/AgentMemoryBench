@@ -400,7 +400,7 @@ $ uv run pytest -q
 840 passed, 3 deselected, 2 warnings, 6 subtests passed in 116.79s (0:01:56)
 ```
 
-### T6 registered fake 全链路 smoke
+### T6 registered fake 全链路 smoke ✅
 
 改动范围：`tests/test_halumem_registered_prediction.py`。
 
@@ -412,6 +412,23 @@ end_session 的用例，断言 extraction N/A 而 update+QA 正常。
 
 验收：该文件全绿；`uv run pytest -q` ≥819 passed；
 `uv run python -m compileall -q src/memory_benchmark tests` 通过。
+
+执行记录（2026-07-08，Codex）：
+
+```text
+$ uv run pytest tests/test_halumem_registered_prediction.py -q
+...                                                                      [100%]
+3 passed in 2.26s
+```
+
+```text
+$ uv run python -m compileall -q src/memory_benchmark tests
+```
+
+```text
+$ uv run pytest -q
+843 passed, 3 deselected, 2 warnings, 6 subtests passed in 111.76s (0:01:51)
+```
 
 ### T7 收尾
 
@@ -520,6 +537,23 @@ evaluator-private session artifact，不走 report metadata。**
    840 passed, 3 deselected, 2 warnings, 6 subtests passed in 116.79s (0:01:56)
    ```
 5. **T6 fake 全链路 smoke** + **T7 收尾**。
+
+   T6 执行记录（2026-07-08，Codex）：
+
+   ```text
+   $ uv run pytest tests/test_halumem_registered_prediction.py -q
+   ...                                                                      [100%]
+   3 passed in 2.26s
+   ```
+
+   ```text
+   $ uv run python -m compileall -q src/memory_benchmark tests
+   ```
+
+   ```text
+   $ uv run pytest -q
+   843 passed, 3 deselected, 2 warnings, 6 subtests passed in 111.76s (0:01:51)
+   ```
 
 **纪律（每 actor 会话开工必读）**：① 一手源 = 第三方仓库代码 + 真实数据，调研卡
 二手可疑，口径拿不准去 `evaluation.py` 逐行核；② 遇 plan 未覆盖的事实缺口 →
