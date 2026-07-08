@@ -75,6 +75,31 @@ LangMem/Supermemory）逐个核：
 
 ## 当前断点
 
+- 2026-07-08（actor WorkBuddy/GLM-5.2，完成 P1 迁移）：MemoryOS eval→pypi。
+  T1 pypi 引擎命名包加载（`memoryos_pypi_vendor`，importlib spec_from_file_location；
+  目录名含连字符无法作包名）+ per-conversation 物理隔离（独立 Memoryos 实例，
+  user_id+data_storage_path）+ `build_memoryos_source_identity` 改 hash
+  memoryos-pypi/*.py（12 文件）；T2 `add_memory` pair/session 粒度（registry 按
+  benchmark 设：LongMemEval→pair，LoCoMo→session；LoCoMo role=speaker 名，pair
+  聚合按 role=="user" 锚失效，与 LightMem/A-Mem 既有模式一致）+ orphan/dangling
+  空串容错（第一手验证通过）；T3 retrieve 剥离 `get_response` 步骤 1-7 全层
+  formatted_memory（短期 history + 中期 retrieved_pages + 长期 profile +
+  user_knowledge + assistant_knowledge）+ 无写副作用测试锁（`add_memory` 未被调
+  + 记忆内容前后不变）；T4 pypi 官方默认参数（10/2000/7/5.0）+ 字段改名
+  （heat_threshold→mid_term_heat_threshold 等）+ runner/TOML 同步；T5 focused
+  51 passed + 受影响测试修复（registered_prediction/official_smoke_profiles/
+  config_profiles/locomo_smoke/locomo_full_runner/documentation）；T6
+  method-interface-inventory.md MemoryOS 节更新。全量 `uv run pytest -q -m "not api"`
+  = **804 passed, 0 failed, 3 deselected, 4 subtests passed**（compileall OK）。
+  commit `c73d4d5`。**804 vs 892 差 88**：旧 test_memoryos_adapter.py eval-专属
+  测试（~140 含 parametrize）被 pypi 测试（51）合理替代（892-140+51+1=804），
+  非功能 regression。**待架构师裁定**：①804<892 测试数下降是否接受（迁移本质
+  替换 eval→pypi，旧 eval 测试不再适用）；②`retrieve_context` 内部
+  `search_sessions` 会更新 mid_term 访问统计（N_visit/last_visit_time/H_segment）
+  并 save——MemoryOS 检索算法固有行为（LFU/heat），非 add_memory 写副作用，不改
+  third_party 无法消除；T3 测试锁按"add_memory 未调 + 记忆**内容**不变"验收，
+  mid_term 访问统计变化如实记录未断言。**下一步**：架构师复跑验收 + 第一手核对
+  （重点 T3 剥离是否全层 + 零写副作用、T1 隔离）。
 - 2026-07-08（架构师 Opus 4.8 验收 P1 LightMem）：**通过**。本机复跑
   `uv run pytest -q -m "not api"` = **892 passed, 0 failed**。**第一手核实迁移
   忠实**：官方 `lightmem.py` `retrieve()`（:644-707）内部就是
@@ -131,7 +156,7 @@ LangMem/Supermemory）逐个核：
 - [x] 架构师建档 + 裁决（2026-07-08）
 - [x] 逐 method 接口审计（2026-07-08，Mem0/A-Mem/LightMem/SimpleMem by workbuddy+GLM5.2；MemoryOS by 架构师）+ 架构师验收裁定（见上表）
 - [ ] 产出 method 接口文档（注入 + 检索）— 可由 4 份 audit-*.md 汇总
-- [ ] 迁移/修复（写任务串行）：[x] P0 SimpleMem 补字段（2026-07-08，commit 3e177c3）/ [ ] P1 MemoryOS eval→pypi / [x] P1 LightMem 统一 retrieve（2026-07-08，commit 63ccba2）/ [ ] P2 A-Mem 文档留痕
+- [ ] 迁移/修复（写任务串行）：[x] P0 SimpleMem 补字段（2026-07-08，commit 3e177c3）/ [x] P1 MemoryOS eval→pypi（2026-07-08，commit c73d4d5）/ [x] P1 LightMem 统一 retrieve（2026-07-08，commit 63ccba2）/ [ ] P2 A-Mem 文档留痕
 - [ ] formatted_memory 全路径完整落盘核对
 
 ## MemoryOS 版本裁定（架构师第一手，2026-07-08）
