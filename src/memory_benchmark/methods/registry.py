@@ -543,6 +543,13 @@ def _build_memoryos_system(context: MethodBuildContext) -> BaseMemorySystem:
         storage_root=context.storage_root,
         config=context.config,
         efficiency_collector=context.efficiency_collector,
+        # 按 benchmark 设消费粒度（与 LightMem/A-Mem 既有模式一致）：
+        # LongMemEval 数据 role=user/assistant 适合 pair 聚合；LoCoMo 数据
+        # role=speaker 名，pair 聚合失效，用 session 粒度由 adapter 内部按
+        # speaker 配对成 add_memory。详见 plan-memoryos-migration.md T2。
+        consume_granularity=(
+            "pair" if context.benchmark_name == "longmemeval" else "session"
+        ),
     )
     for conversation in context.completed_conversations:
         system.load_existing_conversation_state(conversation)

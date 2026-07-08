@@ -81,25 +81,30 @@ framework answer LLM(prompt_messages) -> answer
 
 ## MemoryOS
 
-事实来源：
+事实来源（ws02.5 迁移后，memoryos-pypi 通用产品引擎，不再用 eval/ LoCoMo 主场副本）：
 
-- `third_party/methods/MemoryOS-main/memoryos-pypi/memoryos.py`
-- `third_party/methods/MemoryOS-main/memoryos-pypi/prompts.py`
-- `third_party/methods/MemoryOS-main/eval/main_loco_parse.py`
-- `third_party/methods/MemoryOS-main/eval/retrieval_and_answer.py`
+- `third_party/methods/MemoryOS-main/memoryos-pypi/memoryos.py`（`Memoryos` 类：`add_memory`/`get_response`）
+- `third_party/methods/MemoryOS-main/memoryos-pypi/retriever.py`（`Retriever.retrieve_context`）
+- `third_party/methods/MemoryOS-main/memoryos-pypi/{short_term,mid_term,long_term,updater,utils}.py`
 - `src/memory_benchmark/methods/memoryos_adapter.py`
+- 版本裁定与迁移 plan：`docs/workstreams/ws02.5-method-interface-audit/{README.md,plan-memoryos-migration.md}`
 
 | 项 | 记录 |
 | --- | --- |
-| 原生写入接口 | PyPI/官方语义近似 `add_memory(user_input, agent_response, timestamp, meta_data)` |
-| 官方写入粒度 | LoCoMo eval 使用 dialogue page / QA pair，即 user turn + assistant turn |
-| 原生检索接口 | eval 路径使用 `retrieval_system.retrieve(query, thresholds, client)` |
-| 原生回答接口 | LoCoMo eval 路径使用 `generate_system_response_with_meta(...)` |
-| 官方回答流程 | `retrieve(...) -> generate_system_response_with_meta(...)` |
-| 模型配置 | 论文优先；当前 LoCoMo 运行使用 `gpt-4o-mini` 与本地/缓存 `all-MiniLM-L6-v2` |
-| API 配置 | OpenAI-compatible key/base URL 传给 MemoryOS eval client |
-| LongMemEval prompt profile | 默认 `lightmem_longmemeval_reader_v1`，用于和 LightMem LongMemEval QA 流程对比；可选 `memoryos_pypi_generic_v1`，复用 MemoryOS PyPI generic prompt 结构，但它不是 LongMemEval 专用 QA prompt |
-| 当前 adapter 状态 | M-B 后为原生 v3 `MemoryProvider`：`consume_granularity=session`，`ingest(SessionBatch)` 重建公开 session 输入并复用 `conversation_to_memory_pages()` 写入 page / QA pair，保留迁移、heat 与 full-memory 检查；`retrieve(RetrievalQuery)` 调用 `retrieval_system.retrieve(...)` 并按 LoCoMo / LongMemEval profile 构造 `RetrievalResult`。旧 `add()` / `retrieve(question)` / `get_answer()` 暂时保持兼容行为，避免破坏 system prompt observer 和历史复查路径 |
+| 原生写入接口 | `Memoryos.add_memory(user_input, agent_response, timestamp=None, meta_data=None)`（memoryos.py:226）|
+| 官方写入粒度 | QA pair（user turn + assistant turn）。adapter `consume_granularity` 按 benchmark：LongMemEval→`pair`，LoCoMo→`session`（registry 按 benchmark profile 实例级设，与 LightMem/A-Mem 既有模式一致）。LoCoMo 数据 role=speaker 名，pair 聚合按 `role=="user"` 锚失效，故用 session 粒度由 adapter 内部 `conversation_to_memory_pages` 按 speaker 配对 |
+| 写入 LLM 触发 | `add_memory` 满 STM 时触发 `updater.process_short_term_to_mid_term`（LLM：summarize/continuity/meta_info）+ `_trigger_profile_and_knowledge_update_if_needed`（LLM：profile/knowledge 抽取）。fake 测试须 stub `backend.client.chat_completion` |
+| orphan/dangling 容错 | dangling user（second=None, role=user）→ `agent_response=""`；orphan assistant（second=None, role≠user）→ `user_input=""`。空串容错已第一手验证通过 |
+| 原生检索接口 | pypi **无独立公开 retrieve**；检索埋在 `get_response`（memoryos.py:252-348）步骤 1-7 |
+| adapter 检索（剥离） | 复刻 `get_response` 步骤 1-7：`retriever.retrieve_context`（中期 pages + user/assistant knowledge）+ `short_term_memory.get_all`（短期 history）+ `user_long_term_memory.get_raw_user_profile`（长期 profile），组装全层 formatted_memory；**跳过步骤 8-9 答题 LLM 与步骤 10 `add_memory` 写副作用** |
+| formatted_memory 全层 | 短期 history + 中期 retrieved_pages + 长期 user_profile + 长期 user_knowledge + 长期 assistant_knowledge（忠实复刻 get_response :270-302）。漏任何一层=记忆不完整=数字失真 |
+| 无写副作用契约 | retrieve 不触发 `add_memory`；记忆内容（short_term/profile/user_knowledge/assistant_knowledge）前后不变。注：`retrieve_context` 内部 `search_sessions` 会更新 mid_term 访问统计（N_visit/last_visit_time/H_segment）并 save——这是 MemoryOS 检索算法固有行为（用于 LFU/heat），非 add_memory 写副作用，不改 third_party 无法消除 |
+| 原生回答接口 | `get_response`（步骤 8-9 答题 LLM + 步骤 10 add_memory）；adapter **不用**，主线用框架 unified answer prompt（retrieve-first）|
+| 参数 | pypi 官方默认（short_term_capacity=10/mid_term_capacity=2000/long_term_knowledge_capacity=100/retrieval_queue_capacity=7/mid_term_heat_threshold=5.0/mid_term_similarity_threshold=0.6），不再用旧 eval/ LoCoMo 调参（旧 7/200 等）|
+| 模型配置 | `gpt-4o-mini` + 本地 `all-MiniLM-L6-v2`（pypi 默认）|
+| 隔离 | per-conversation 独立 `Memoryos` 实例（user_id + data_storage_path）；clean-retry = 删该 conversation 目录 |
+| pypi 包加载 | 目录名含连字符无法作包名；adapter 用 `importlib.util.spec_from_file_location` 加载为命名包 `memoryos_pypi_vendor`（submodule_search_locations），带锁缓存，不污染全局 `utils` |
+| 当前 adapter 状态 | 原生 v3 `MemoryProvider`：`consume_granularity` 按 benchmark；`ingest(TurnPair/SessionBatch)`→`add_memory`；`retrieve(RetrievalQuery/Question)` 剥离全层 formatted_memory 无写副作用；旧 `add()`/`get_answer()` 兼容 |
 
 ## A-Mem
 

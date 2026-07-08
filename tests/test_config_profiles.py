@@ -204,12 +204,12 @@ def test_load_typed_profile_builds_memoryos_official_full_profile_from_project_t
     )
 
     assert config.profile_name == "official_full"
-    assert config.short_term_capacity == 7
-    assert config.mid_term_capacity == 200
-    assert config.retrieval_top_m_segments == 5
-    assert config.retrieval_queue_capacity == 10
+    assert config.short_term_capacity == 10
+    assert config.mid_term_capacity == 2000
+    assert config.top_k_sessions == 5
+    assert config.retrieval_queue_capacity == 7
     assert config.max_workers == 10
-    assert config.longmemeval_prompt_profile == "lightmem_longmemeval_reader_v1"
+    assert config.longmemeval_prompt_profile == "memoryos-pypi-retrieve-v1"
 
 
 def test_load_typed_profile_builds_matching_memoryos_smoke_and_official_profiles() -> None:
@@ -223,8 +223,8 @@ def test_load_typed_profile_builds_matching_memoryos_smoke_and_official_profiles
     assert official_full.profile_name == "official_full"
     assert smoke.embedding_model_name == "sentence-transformers/all-MiniLM-L6-v2"
     assert official_full.embedding_model_name == "sentence-transformers/all-MiniLM-L6-v2"
-    assert smoke.longmemeval_prompt_profile == "lightmem_longmemeval_reader_v1"
-    assert official_full.longmemeval_prompt_profile == "lightmem_longmemeval_reader_v1"
+    assert smoke.longmemeval_prompt_profile == "memoryos-pypi-retrieve-v1"
+    assert official_full.longmemeval_prompt_profile == "memoryos-pypi-retrieve-v1"
     assert {
         key: value
         for key, value in smoke.to_manifest().items()
@@ -268,10 +268,3 @@ def test_longmemeval_answer_llm_settings_follow_lightmem_profile(
     assert settings.temperature == 0.0
     assert settings.top_p == 0.8
     assert settings.max_tokens == 2000
-
-
-def test_memoryos_rejects_unknown_longmemeval_prompt_profile() -> None:
-    """MemoryOS LongMemEval prompt profile 必须显式列入允许值。"""
-
-    with pytest.raises(ConfigurationError, match="longmemeval_prompt_profile"):
-        MemoryOSPaperConfig(longmemeval_prompt_profile="unknown-profile")

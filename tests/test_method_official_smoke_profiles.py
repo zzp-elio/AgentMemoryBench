@@ -43,9 +43,9 @@ def test_smoke_profiles_keep_official_method_parameters() -> None:
     assert mem0.top_k == 200
 
     assert isinstance(memoryos, MemoryOSPaperConfig)
-    assert memoryos.short_term_capacity == 7
-    assert memoryos.mid_term_capacity == 200
+    assert memoryos.short_term_capacity == 10
+    assert memoryos.mid_term_capacity == 2000
     assert memoryos.long_term_knowledge_capacity == 100
-    assert memoryos.heat_threshold == 5
-    assert memoryos.retrieval_top_m_segments == 5
-    assert memoryos.retrieval_queue_capacity == 10
+    assert memoryos.mid_term_heat_threshold == 5.0
+    assert memoryos.top_k_sessions == 5
+    assert memoryos.retrieval_queue_capacity == 7

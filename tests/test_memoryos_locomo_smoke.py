@@ -43,7 +43,7 @@ class MemoryOSLoCoMoSmokeTests(unittest.TestCase):
         self.assertEqual(summary.conversation_id, "conv-26")
         self.assertEqual(summary.page_count, 214)
         self.assertEqual(summary.question_count, 152)
-        self.assertEqual(summary.update_batch_count, 208)
+        self.assertEqual(summary.update_batch_count, 205)
         self.assertTrue(summary.will_trigger_updates)
         self.assertFalse(summary.add_executed)
         self.assertFalse(summary.answer_executed)

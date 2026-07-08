@@ -636,12 +636,12 @@ def _public_memoryos_config_summary(
         "short_term_capacity": config.short_term_capacity,
         "mid_term_capacity": config.mid_term_capacity,
         "long_term_knowledge_capacity": config.long_term_knowledge_capacity,
-        "heat_threshold": config.heat_threshold,
-        "topic_similarity_threshold": config.topic_similarity_threshold,
-        "retrieval_top_m_segments": config.retrieval_top_m_segments,
+        "mid_term_heat_threshold": config.mid_term_heat_threshold,
+        "mid_term_similarity_threshold": config.mid_term_similarity_threshold,
+        "top_k_sessions": config.top_k_sessions,
         "retrieval_queue_capacity": config.retrieval_queue_capacity,
-        "segment_threshold": config.segment_threshold,
-        "page_threshold": config.page_threshold,
+        "segment_similarity_threshold": config.segment_similarity_threshold,
+        "page_similarity_threshold": config.page_similarity_threshold,
         "knowledge_threshold": config.knowledge_threshold,
     }
     canonical_config = json.dumps(

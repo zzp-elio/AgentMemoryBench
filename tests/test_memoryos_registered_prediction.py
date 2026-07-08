@@ -56,15 +56,16 @@ def _write_memoryos_profiles(project_root: Path) -> None:
 llm_model = "gpt-4o-mini"
 embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2"
 short_term_capacity = 1
-mid_term_capacity = 200
+mid_term_capacity = 2000
 long_term_knowledge_capacity = 100
-heat_threshold = 5
-topic_similarity_threshold = 0.6
-retrieval_top_m_segments = 5
-retrieval_queue_capacity = 10
-segment_threshold = 0.1
-page_threshold = 0.1
-knowledge_threshold = 0.1
+retrieval_queue_capacity = 7
+mid_term_heat_threshold = 5.0
+mid_term_similarity_threshold = 0.6
+segment_similarity_threshold = 0.1
+page_similarity_threshold = 0.1
+knowledge_threshold = 0.01
+top_k_sessions = 5
+top_k_knowledge = 20
 api_timeout_seconds = 120
 api_max_retries = 8
 api_retry_wait_seconds = 5
@@ -72,20 +73,22 @@ api_retry_backoff_multiplier = 2
 api_retry_max_wait_seconds = 60
 suppress_official_stdout = true
 max_workers = 1
+longmemeval_prompt_profile = "memoryos-pypi-retrieve-v1"
 
 [official_full]
 llm_model = "gpt-4o-mini"
 embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2"
 short_term_capacity = 1
-mid_term_capacity = 200
+mid_term_capacity = 2000
 long_term_knowledge_capacity = 100
-heat_threshold = 5
-topic_similarity_threshold = 0.6
-retrieval_top_m_segments = 5
-retrieval_queue_capacity = 10
-segment_threshold = 0.1
-page_threshold = 0.1
-knowledge_threshold = 0.1
+retrieval_queue_capacity = 7
+mid_term_heat_threshold = 5.0
+mid_term_similarity_threshold = 0.6
+segment_similarity_threshold = 0.1
+page_similarity_threshold = 0.1
+knowledge_threshold = 0.01
+top_k_sessions = 5
+top_k_knowledge = 20
 api_timeout_seconds = 120
 api_max_retries = 8
 api_retry_wait_seconds = 5
@@ -93,6 +96,7 @@ api_retry_backoff_multiplier = 2
 api_retry_max_wait_seconds = 60
 suppress_official_stdout = true
 max_workers = 1
+longmemeval_prompt_profile = "memoryos-pypi-retrieve-v1"
 """,
         encoding="utf-8",
     )
@@ -250,6 +254,7 @@ class _FakeMemoryOS(BaseMemoryProvider):
         storage_root: str | Path | None = None,
         config=None,
         efficiency_collector=None,
+        consume_granularity: str | None = None,
     ):
         """保存 factory 参数，并初始化恢复与写入调用记录。"""
 
@@ -258,6 +263,8 @@ class _FakeMemoryOS(BaseMemoryProvider):
         self.storage_root = Path(storage_root) if storage_root is not None else None
         self.config = config
         self.efficiency_collector = efficiency_collector
+        if consume_granularity is not None:
+            self.consume_granularity = consume_granularity
         self.loaded_conversation_ids: list[str] = []
         self.add_calls: list[list[Conversation]] = []
         self.answered_question_ids: list[str] = []

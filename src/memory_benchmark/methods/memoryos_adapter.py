@@ -1,42 +1,57 @@
-"""MemoryOS 的 conversation-QA v2 适配器。
+"""MemoryOS 的 conversation-QA 适配器（memoryos-pypi 通用产品引擎）。
 
-本模块把 MemoryOS 官方 `eval/` 目录中的 LoCoMo 评测实现包装成当前项目的
-`BaseMemorySystem`。适配器只允许加入不改变算法返回的纯 observer hook；所有 API key、
-base URL、论文参数和 embedding 缓存都在本项目侧注入，避免直接运行官方脚本中的硬编码配置。
+本模块把 MemoryOS 官方 ``memoryos-pypi`` 包（``pip install memoryos`` 得到的通用
+产品引擎）包装成当前项目的 ``MemoryProvider`` / ``BaseMemorySystem``。adapter 负责
+配置、per-conversation 物理隔离、统一接口与效率观测；不重写 MemoryOS 的核心记忆
+算法。
+
+迁移背景（ws02.5）：原 adapter 包装 ``eval/`` 目录的 LoCoMo 专用评测副本，存在
+"主场优势"问题。现改用通用产品 ``memoryos-pypi``，使 MemoryOS 跨全部 benchmark
+使用同一套注入/检索接口，保证公平与可比。
+
+关键设计：
+- 注入 = ``add_memory(user_input, agent_response, timestamp)``（pair 粒度），
+  consume_granularity="pair"。orphan/dangling turn 按空侧留空串注入不丢。
+- 检索 = 从 ``get_response`` 剥离纯检索步骤 1-7，组装短/中/长/各 knowledge 层成
+  formatted_memory，跳过步骤 8-9 答题与步骤 10 的 add_memory 写副作用。
+- 参数 = pypi 官方默认（short_term_capacity=10 等），不再用 LoCoMo 调参。
+- 答题 = 框架 unified answer prompt（retrieve-first 主线），不用 MemoryOS 的
+  get_response 答题。
 """
 
 from __future__ import annotations
 
 import contextlib
 import hashlib
-import importlib
+import importlib.util
 import io
 import json
 import math
-import openai as openai_package
 import re
 import shutil
 import sys
 import threading
 import time
 import uuid
-from contextvars import ContextVar
-from dataclasses import asdict, dataclass
-from functools import partial
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from types import ModuleType
+from time import perf_counter_ns
 from typing import Any
 
-import httpcore
-import httpx
 from openai import APIConnectionError, APITimeoutError, OpenAI
 
-from memory_benchmark.config.settings import PathSettings, load_path_settings, load_settings
+from memory_benchmark.config.settings import (
+    OpenAISettings,
+    PathSettings,
+    load_path_settings,
+    load_settings,
+)
 from memory_benchmark.core import (
     AddResult,
     AnswerResult,
+    ConfigurationError,
     Conversation,
-    ImageRef,
     Question,
     AnswerPromptResult,
     PromptMessage,
@@ -54,95 +69,90 @@ from memory_benchmark.core.provider_protocol import (
     RetrievalResult,
     SessionBatch,
     TurnEvent,
+    TurnPair,
+    UnitRef,
 )
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
     MeasurementSource,
+    extract_api_token_usage,
     resolve_token_usage,
 )
 from memory_benchmark.utils.logger import get_logger
 
 
 LOGGER = get_logger(__name__)
-MEMORYOS_METHOD_DIRECTORY = "MemoryOS-main"
-MEMORYOS_ADAPTER_VERSION = "conversation-qa-v1"
-MEMORYOS_WRAPPER_SOURCE_MODE = "official-eval-wrapper"
-MEMORYOS_VENDORED_SOURCE_MODE = "vendored-official-eval"
-MEMORYOS_COMBINED_SOURCE_MODE = "vendored-official-eval-with-framework-wrapper"
-MEMORYOS_WRAPPER_LOGICAL_PATH = "src/memory_benchmark/methods/memoryos_adapter.py"
-MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION = "lightmem_longmemeval_reader_v1"
-MEMORYOS_PYPI_GENERIC_READER_PROMPT_VERSION = "memoryos_pypi_generic_v1"
-MEMORYOS_LONGMEMEVAL_READER_PROMPT_PROFILES = frozenset(
-    {
-        MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION,
-        MEMORYOS_PYPI_GENERIC_READER_PROMPT_VERSION,
-    }
-)
-LONGMEMEVAL_QUESTION_TYPES = frozenset(
-    {
-        "single-session-user",
-        "single-session-assistant",
-        "single-session-preference",
-        "temporal-reasoning",
-        "knowledge-update",
-        "multi-session",
-    }
-)
-MEMORYOS_EVAL_MODULE_NAMES = [
-    "utils",
-    "short_term_memory",
-    "mid_term_memory",
-    "long_term_memory",
-    "dynamic_update",
-    "retrieval_and_answer",
-    "main_loco_parse",
-]
 
-_MEMORYOS_EVAL_IMPORT_LOCK = threading.Lock()
+MEMORYOS_METHOD_DIRECTORY = "MemoryOS-main"
+MEMORYOS_PYPI_SUBDIRECTORY = "memoryos-pypi"
+MEMORYOS_ADAPTER_VERSION = "conversation-qa-v1"
+MEMORYOS_WRAPPER_SOURCE_MODE = "memoryos-pypi-wrapper"
+MEMORYOS_VENDORED_SOURCE_MODE = "vendored-memoryos-pypi"
+MEMORYOS_COMBINED_SOURCE_MODE = "vendored-memoryos-pypi-with-framework-wrapper"
+MEMORYOS_WRAPPER_LOGICAL_PATH = "src/memory_benchmark/methods/memoryos_adapter.py"
+MEMORYOS_READER_PROMPT_VERSION = "memoryos-pypi-retrieve-v1"
+MEMORYOS_MEMORY_LLM_MODEL_ID = "memoryos-chat-llm"
+MEMORYOS_EMBEDDING_MODEL_ID = "memoryos-embedding"
+MEMORYOS_DEFAULT_ASSISTANT_ID = "default_assistant_profile"
+
+# pypi 官方默认参数（memoryos.py:30-44），与旧 eval/ LoCoMo 调参不同。
+_MEMORYOS_PYPI_DEFAULT_SHORT_TERM_CAPACITY = 10
+_MEMORYOS_PYPI_DEFAULT_MID_TERM_CAPACITY = 2000
+_MEMORYOS_PYPI_DEFAULT_LONG_TERM_KNOWLEDGE_CAPACITY = 100
+_MEMORYOS_PYPI_DEFAULT_RETRIEVAL_QUEUE_CAPACITY = 7
+_MEMORYOS_PYPI_DEFAULT_HEAT_THRESHOLD = 5.0
+_MEMORYOS_PYPI_DEFAULT_SIMILARITY_THRESHOLD = 0.6
+
+_MEMORYOS_PYPI_IMPORT_LOCK = threading.Lock()
+_MEMORYOS_PYPI_PACKAGE_NAME = "memoryos_pypi_vendor"
+_MEMORYOS_PYPI_CACHE: dict[str, Any] = {}
 
 
 @dataclass(frozen=True)
 class MemoryOSPaperConfig:
-    """MemoryOS 论文中 LoCoMo 实验设置的本项目表示。
+    """MemoryOS 通用产品（memoryos-pypi）运行 profile。
 
     字段:
-        llm_model: 论文主结果使用的回答模型。
-        embedding_model_name: 开源 eval 默认 MiniLM；这里使用完整 HF 模型名。
-        short_term_capacity: STM dialogue page queue length。
-        mid_term_capacity: MTM 最大 segment 数量/长度的适配值。
-        long_term_knowledge_capacity: User KB / Agent Traits 的论文容量。
-        heat_threshold: MTM -> LPM 更新阈值。
-        topic_similarity_threshold: 论文中的相似度阈值 theta。
-        retrieval_top_m_segments: 检索 MTM segment 的 top-m。
-        retrieval_queue_capacity: LoCoMo retrieved dialogue page top-k。
-        segment_threshold: 开源 eval 检索时使用的 segment 过滤阈值。
-        page_threshold: 开源 eval 检索时使用的 page 过滤阈值。
-        knowledge_threshold: 开源 eval 检索时使用的 long-term knowledge 阈值。
-        api_timeout_seconds: 单次 OpenAI-compatible API 请求超时时间。
-        api_max_retries: 单次 MemoryOS LLM 调用失败后的最大重试次数。
-        api_retry_wait_seconds: 第一次重试前等待秒数。
-        api_retry_backoff_multiplier: 后续重试等待时间的指数放大倍数。
-        api_retry_max_wait_seconds: 单次重试等待时间上限。
-        suppress_official_stdout: 是否屏蔽 MemoryOS 官方脚本中的 print 输出。
-        max_workers: conversation 级建议并发数，当前固定为 1。
-        longmemeval_prompt_profile: LongMemEval reader prompt profile。默认使用
-            LightMem-style QA prompt；可选 MemoryOS PyPI generic prompt。
-        profile_name: 可审计的 profile 名称。
+        llm_model: MemoryOS add_memory 触发的 profile/knowledge 抽取与 mid-term
+            summarize 使用的 LLM；框架答题另用 unified reader。
+        embedding_model_name: 本地 SentenceTransformer embedding 模型名。
+        short_term_capacity: STM dialogue page 队列容量（pypi 默认 10）。
+        mid_term_capacity: MTM 最大 segment 数（pypi 默认 2000）。
+        long_term_knowledge_capacity: User KB / Agent Knowledge 容量（pypi 默认 100）。
+        retrieval_queue_capacity: 检索中期 page top-k（pypi 默认 7）。
+        mid_term_heat_threshold: MTM segment heat 触发 profile/knowledge 更新的阈值。
+        mid_term_similarity_threshold: STM→MTM 合并 session 的相似度阈值。
+        segment_similarity_threshold: 检索 session 级相似度阈值。
+        page_similarity_threshold: 检索 page 级相似度阈值。
+        knowledge_threshold: 检索长期知识相似度阈值。
+        top_k_sessions: 检索中期 session top-k。
+        top_k_knowledge: 检索长期知识 top-k。
+        api_timeout_seconds: OpenAI-compatible 请求超时秒数。
+        api_max_retries: 失败后最大重试次数。
+        api_retry_wait_seconds: 首次重试等待秒数。
+        api_retry_backoff_multiplier: 后续重试等待指数放大倍数。
+        api_retry_max_wait_seconds: 单次重试等待上限。
+        suppress_official_stdout: 是否压制第三方 stdout。
+        max_workers: conversation 级建议并发数。
+        longmemeval_prompt_profile: 遗留字段，保留向后兼容；迁移后 retrieve 统一
+            用 memoryos-pypi-retrieve-v1，不再按此字段分支。
+        profile_name: 可审计 profile 名称。
     """
 
     llm_model: str = "gpt-4o-mini"
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
-    short_term_capacity: int = 7
-    mid_term_capacity: int = 200
-    long_term_knowledge_capacity: int = 100
-    heat_threshold: float = 5.0
-    topic_similarity_threshold: float = 0.6
-    retrieval_top_m_segments: int = 5
-    retrieval_queue_capacity: int = 10
-    segment_threshold: float = 0.1
-    page_threshold: float = 0.1
-    knowledge_threshold: float = 0.1
+    short_term_capacity: int = _MEMORYOS_PYPI_DEFAULT_SHORT_TERM_CAPACITY
+    mid_term_capacity: int = _MEMORYOS_PYPI_DEFAULT_MID_TERM_CAPACITY
+    long_term_knowledge_capacity: int = _MEMORYOS_PYPI_DEFAULT_LONG_TERM_KNOWLEDGE_CAPACITY
+    retrieval_queue_capacity: int = _MEMORYOS_PYPI_DEFAULT_RETRIEVAL_QUEUE_CAPACITY
+    mid_term_heat_threshold: float = _MEMORYOS_PYPI_DEFAULT_HEAT_THRESHOLD
+    mid_term_similarity_threshold: float = _MEMORYOS_PYPI_DEFAULT_SIMILARITY_THRESHOLD
+    segment_similarity_threshold: float = 0.1
+    page_similarity_threshold: float = 0.1
+    knowledge_threshold: float = 0.01
+    top_k_sessions: int = 5
+    top_k_knowledge: int = 20
     api_timeout_seconds: float = 120.0
     api_max_retries: int = 8
     api_retry_wait_seconds: float = 5.0
@@ -150,7 +160,7 @@ class MemoryOSPaperConfig:
     api_retry_max_wait_seconds: float = 60.0
     suppress_official_stdout: bool = True
     max_workers: int = 1
-    longmemeval_prompt_profile: str = MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION
+    longmemeval_prompt_profile: str = MEMORYOS_READER_PROMPT_VERSION
     profile_name: str = "custom"
 
     def __post_init__(self) -> None:
@@ -159,75 +169,48 @@ class MemoryOSPaperConfig:
         _require_non_empty_string(self.llm_model, "llm_model")
         _require_non_empty_string(self.embedding_model_name, "embedding_model_name")
         _require_non_empty_string(self.profile_name, "profile_name")
-        _require_non_empty_string(
-            self.longmemeval_prompt_profile,
-            "longmemeval_prompt_profile",
-        )
-        if (
-            self.longmemeval_prompt_profile
-            not in MEMORYOS_LONGMEMEVAL_READER_PROMPT_PROFILES
-        ):
-            allowed = ", ".join(sorted(MEMORYOS_LONGMEMEVAL_READER_PROMPT_PROFILES))
-            raise ConfigurationError(
-                "MemoryOS longmemeval_prompt_profile must be one of: "
-                f"{allowed}"
-            )
+        _require_non_empty_string(self.longmemeval_prompt_profile, "longmemeval_prompt_profile")
 
         for field_name in (
             "short_term_capacity",
             "mid_term_capacity",
             "long_term_knowledge_capacity",
-            "retrieval_top_m_segments",
             "retrieval_queue_capacity",
+            "top_k_sessions",
+            "top_k_knowledge",
             "max_workers",
         ):
             _require_positive_int(getattr(self, field_name), field_name)
 
         _require_non_negative_int(self.api_max_retries, "api_max_retries")
         if type(self.suppress_official_stdout) is not bool:
-            raise ConfigurationError(
-                "MemoryOS suppress_official_stdout must be a boolean"
-            )
+            raise ConfigurationError("MemoryOS suppress_official_stdout must be a boolean")
 
-        heat_threshold = _require_finite_number(self.heat_threshold, "heat_threshold")
-        if heat_threshold < 0:
-            raise ConfigurationError("MemoryOS heat_threshold must be non-negative")
+        heat = _require_finite_number(self.mid_term_heat_threshold, "mid_term_heat_threshold")
+        if heat < 0:
+            raise ConfigurationError("MemoryOS mid_term_heat_threshold must be non-negative")
 
         for field_name in (
-            "topic_similarity_threshold",
-            "segment_threshold",
-            "page_threshold",
+            "mid_term_similarity_threshold",
+            "segment_similarity_threshold",
+            "page_similarity_threshold",
             "knowledge_threshold",
         ):
             value = _require_finite_number(getattr(self, field_name), field_name)
             if value < 0 or value > 1:
                 raise ConfigurationError(f"MemoryOS {field_name} must be within [0, 1]")
 
-        api_timeout_seconds = _require_finite_number(
-            self.api_timeout_seconds,
-            "api_timeout_seconds",
-        )
-        if api_timeout_seconds <= 0:
+        api_timeout = _require_finite_number(self.api_timeout_seconds, "api_timeout_seconds")
+        if api_timeout <= 0:
             raise ConfigurationError("MemoryOS api_timeout_seconds must be positive")
-        api_retry_wait_seconds = _require_finite_number(
-            self.api_retry_wait_seconds,
-            "api_retry_wait_seconds",
-        )
-        if api_retry_wait_seconds < 0:
+        retry_wait = _require_finite_number(self.api_retry_wait_seconds, "api_retry_wait_seconds")
+        if retry_wait < 0:
             raise ConfigurationError("MemoryOS api_retry_wait_seconds must be non-negative")
-        api_retry_backoff_multiplier = _require_finite_number(
-            self.api_retry_backoff_multiplier,
-            "api_retry_backoff_multiplier",
-        )
-        if api_retry_backoff_multiplier < 1:
-            raise ConfigurationError(
-                "MemoryOS api_retry_backoff_multiplier must be at least 1"
-            )
-        api_retry_max_wait_seconds = _require_finite_number(
-            self.api_retry_max_wait_seconds,
-            "api_retry_max_wait_seconds",
-        )
-        if api_retry_max_wait_seconds <= 0:
+        backoff = _require_finite_number(self.api_retry_backoff_multiplier, "api_retry_backoff_multiplier")
+        if backoff < 1:
+            raise ConfigurationError("MemoryOS api_retry_backoff_multiplier must be at least 1")
+        retry_max = _require_finite_number(self.api_retry_max_wait_seconds, "api_retry_max_wait_seconds")
+        if retry_max <= 0:
             raise ConfigurationError("MemoryOS api_retry_max_wait_seconds must be positive")
 
     def to_manifest(self) -> dict[str, Any]:
@@ -237,45 +220,110 @@ class MemoryOSPaperConfig:
             **asdict(self),
             "adapter_version": MEMORYOS_ADAPTER_VERSION,
             "source_mode": MEMORYOS_WRAPPER_SOURCE_MODE,
+            "engine": "memoryos-pypi",
         }
+
+
+@dataclass(frozen=True)
+class MemoryOSAddEstimate:
+    """MemoryOS add 阶段的成本估算。
+
+    字段:
+        page_count: conversation 会转换出的 MemoryOS QA pair 数量。
+        short_term_capacity: 当前配置的 STM 容量。
+        update_batch_count: 预计触发 short-term -> mid-term 更新的批次数。
+        remaining_short_term_pages: add 结束后仍留在 STM 中的 page 数。
+        will_trigger_updates: 是否会触发至少一次 MemoryOS 更新。
+    """
+
+    page_count: int
+    short_term_capacity: int
+    update_batch_count: int
+    remaining_short_term_pages: int
+    will_trigger_updates: bool
+
+
+def _load_memoryos_pypi_classes(path_settings: PathSettings) -> dict[str, Any]:
+    """加载 vendored memoryos-pypi 包，返回官方 ``Memoryos`` 类等组件。
+
+    memoryos-pypi 目录名含连字符，无法作为常规包名导入。这里用
+    ``importlib.util.spec_from_file_location`` 把它加载为命名包
+    ``memoryos_pypi_vendor``，使其内部 ``from .utils import`` 相对导入正常工作，
+    且不污染全局 ``utils`` 等通用模块名。加载结果带锁缓存，避免重复 exec。
+
+    输入:
+        path_settings: 项目路径配置，用于解析 MemoryOS third_party 目录。
+
+    输出:
+        dict: 含 ``Memoryos`` 类与 ``package`` 模块引用的缓存字典。
+
+    异常:
+        ConfigurationError: memoryos-pypi 包缺失或无法加载。
+    """
+
+    with _MEMORYOS_PYPI_IMPORT_LOCK:
+        if _MEMORYOS_PYPI_CACHE:
+            return _MEMORYOS_PYPI_CACHE
+        pypi_dir = path_settings.resolve_third_party_method_path(
+            MEMORYOS_METHOD_DIRECTORY,
+            MEMORYOS_PYPI_SUBDIRECTORY,
+        )
+        init_path = pypi_dir / "__init__.py"
+        if not init_path.is_file():
+            raise ConfigurationError(f"MemoryOS pypi package missing: {pypi_dir}")
+        spec = importlib.util.spec_from_file_location(
+            _MEMORYOS_PYPI_PACKAGE_NAME,
+            str(init_path),
+            submodule_search_locations=[str(pypi_dir)],
+        )
+        if spec is None or spec.loader is None:
+            raise ConfigurationError(f"MemoryOS pypi package cannot be loaded: {pypi_dir}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[_MEMORYOS_PYPI_PACKAGE_NAME] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception as exc:
+            sys.modules.pop(_MEMORYOS_PYPI_PACKAGE_NAME, None)
+            raise ConfigurationError(
+                f"MemoryOS pypi package failed to load: {pypi_dir}: {exc}"
+            ) from exc
+        memoryos_cls = getattr(module, "Memoryos", None)
+        if memoryos_cls is None:
+            raise ConfigurationError(
+                f"MemoryOS pypi package exposes no Memoryos class: {pypi_dir}"
+            )
+        _MEMORYOS_PYPI_CACHE["Memoryos"] = memoryos_cls
+        _MEMORYOS_PYPI_CACHE["package"] = module
+        _MEMORYOS_PYPI_CACHE["package_dir"] = pypi_dir
+        return _MEMORYOS_PYPI_CACHE
 
 
 def build_memoryos_source_identity(
     path_settings: PathSettings | None = None,
 ) -> dict[str, Any]:
-    """计算 vendored 官方 eval 源码加本项目 wrapper 的确定性身份。
+    """计算 vendored memoryos-pypi 源码加本项目 wrapper 的确定性身份。
 
     输入:
         path_settings: 可选项目路径配置；为空时从当前项目根加载。
 
     输出:
         dict: 组合 SHA-256、vendored 官方文件列表以及稳定 wrapper 审计字段。
-
-    说明:
-        vendored 部分覆盖 `MemoryOS-main/eval/*.py`、根 `README.md`、`LICENSE` 和
-        可选 PyPI prompt profile 使用的 `memoryos-pypi/prompts.py`；wrapper 部分只覆盖当前执行的
-        `src/memory_benchmark/methods/memoryos_adapter.py`。输出不暴露绝对路径。
     """
 
     settings = path_settings or load_path_settings()
     memoryos_root = settings.resolve_third_party_method_path(MEMORYOS_METHOD_DIRECTORY)
+    pypi_dir = memoryos_root / MEMORYOS_PYPI_SUBDIRECTORY
     source_files = sorted(
-        [
-            path
-            for path in (memoryos_root / "eval").glob("*.py")
-            if path.is_file()
-        ]
-        + [
-            path
-            for path in (
-                memoryos_root / "README.md",
-                memoryos_root / "LICENSE",
-                memoryos_root / "memoryos-pypi" / "prompts.py",
-            )
-            if path.is_file()
-        ],
+        [path for path in pypi_dir.glob("*.py") if path.is_file()],
         key=lambda path: path.relative_to(memoryos_root).as_posix(),
-    )
+    ) + [
+        path
+        for path in (
+            memoryos_root / "README.md",
+            memoryos_root / "LICENSE",
+        )
+        if path.is_file()
+    ]
     if not source_files:
         raise ConfigurationError(f"MemoryOS source files missing: {memoryos_root}")
 
@@ -387,145 +435,16 @@ def _require_finite_number(value: object, field_name: str) -> float:
     return numeric_value
 
 
-def _validate_existing_state_files(state_dir: Path) -> None:
-    """校验 resume 所需的现有状态文件结构。
-
-    输入:
-        state_dir: 单个 conversation 的 MemoryOS 状态目录。
-
-    异常:
-        ConfigurationError: 必需文件缺失、JSON 损坏或顶层 schema 不符合当前 wrapper
-            允许恢复的最小语义。
-    """
-
-    short_term_path = state_dir / "short_term.json"
-    if not short_term_path.is_file():
-        raise ConfigurationError(
-            f"MemoryOS existing state missing short_term.json: {short_term_path}"
-        )
-    short_payload = _load_existing_state_json(
-        short_term_path,
-        "short_term.json",
-    )
-    if not isinstance(short_payload, list):
-        raise ConfigurationError(
-            f"MemoryOS short_term.json must contain a top-level list: {short_term_path}"
-        )
-
-    mid_term_path = state_dir / "mid_term.json"
-    if mid_term_path.is_file():
-        mid_payload = _load_existing_state_json(mid_term_path, "mid_term.json")
-        if not isinstance(mid_payload, dict):
-            raise ConfigurationError(
-                f"MemoryOS mid_term.json must contain a top-level dict: {mid_term_path}"
-            )
-        if not isinstance(mid_payload.get("sessions"), dict):
-            raise ConfigurationError(
-                f"MemoryOS mid_term.json must contain a 'sessions' dict: {mid_term_path}"
-            )
-        if not isinstance(mid_payload.get("access_frequency"), dict):
-            raise ConfigurationError(
-                f"MemoryOS mid_term.json must contain an 'access_frequency' dict: {mid_term_path}"
-            )
-
-    long_term_path = state_dir / "long_term.json"
-    if long_term_path.is_file():
-        long_payload = _load_existing_state_json(long_term_path, "long_term.json")
-        if not isinstance(long_payload, dict):
-            raise ConfigurationError(
-                f"MemoryOS long_term.json must contain a top-level dict: {long_term_path}"
-            )
-        if not isinstance(long_payload.get("user_profiles"), dict):
-            raise ConfigurationError(
-                f"MemoryOS long_term.json must contain a 'user_profiles' dict: {long_term_path}"
-            )
-        if not isinstance(long_payload.get("knowledge_base"), list):
-            raise ConfigurationError(
-                f"MemoryOS long_term.json must contain a 'knowledge_base' list: {long_term_path}"
-            )
-        if not isinstance(long_payload.get("assistant_knowledge"), list):
-            raise ConfigurationError(
-                f"MemoryOS long_term.json must contain an 'assistant_knowledge' list: {long_term_path}"
-            )
-
-
-def _load_existing_state_json(path: Path, semantic_name: str) -> Any:
-    """读取并包装现有状态 JSON，给出带语义的错误信息。"""
-
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ConfigurationError(
-            f"MemoryOS {semantic_name} cannot be read as valid JSON: {path}"
-        ) from exc
-
-
-@dataclass
-class MemoryOSConversationState:
-    """单个 conversation_id 对应的一套 MemoryOS 状态。
-
-    字段:
-        conversation_id: 当前记忆命名空间。
-        speaker_a: LoCoMo speaker_a，MemoryOS eval 中作为 user。
-        speaker_b: LoCoMo speaker_b，MemoryOS eval 中作为 assistant。
-        short_memory: MemoryOS eval 的 ShortTermMemory 实例。
-        mid_memory: MemoryOS eval 的 MidTermMemory 实例。
-        long_memory: MemoryOS eval 的 LongTermMemory 实例。
-        dynamic_updater: MemoryOS eval 的 DynamicUpdate 实例。
-        retrieval_system: MemoryOS eval 的 RetrievalAndAnswer 实例。
-        storage_dir: 当前 conversation 的状态文件目录。
-    """
-
-    conversation_id: str
-    speaker_a: str
-    speaker_b: str
-    short_memory: Any
-    mid_memory: Any
-    long_memory: Any
-    dynamic_updater: Any
-    retrieval_system: Any
-    storage_dir: Path
-
-
-@dataclass(frozen=True)
-class MemoryOSAddEstimate:
-    """MemoryOS add 阶段的成本估算。
-
-    字段:
-        page_count: conversation 会转换出的 MemoryOS page 数量。
-        short_term_capacity: 当前配置的 STM 容量。
-        update_batch_count: 预计触发 short-term -> mid-term 更新的批次数。
-        remaining_short_term_pages: add 结束后仍留在 STM 中的 page 数。
-        will_trigger_updates: 是否会触发至少一次 MemoryOS 更新。
-    """
-
-    page_count: int
-    short_term_capacity: int
-    update_batch_count: int
-    remaining_short_term_pages: int
-    will_trigger_updates: bool
-
-
-@dataclass
-class _MemoryOSEvalModules:
-    """MemoryOS eval 目录脚本模块集合。
-
-    这些模块以脚本形式互相 `import utils`，因此只能按官方 eval 目录路径加载。
-    """
-
-    utils: ModuleType
-    short_term_memory: ModuleType
-    mid_term_memory: ModuleType
-    long_term_memory: ModuleType
-    dynamic_update: ModuleType
-    retrieval_and_answer: ModuleType
-    main_loco_parse: ModuleType
-
-
 class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
-    """MemoryOS 的 conversation-QA v2 method wrapper。"""
+    """使用官方 memoryos-pypi ``Memoryos`` 的统一 memory system。
 
-    consume_granularity: ConsumeGranularity = "session"
+    每个 conversation 对应一个独立 ``Memoryos`` 实例（user_id + data_storage_path
+    隔离），clean-retry = 删该 conversation 的状态目录。注入走 ``add_memory``
+    pair 粒度；检索从 ``get_response`` 剥离纯检索步骤 1-7，组装全层
+    formatted_memory，跳过答题与 add_memory 写副作用。
+    """
+
+    consume_granularity: ConsumeGranularity = "pair"
     provenance_granularity = "none"
 
     def __init__(
@@ -535,69 +454,91 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         storage_root: str | Path | None = None,
         config: MemoryOSPaperConfig | None = None,
         efficiency_collector: EfficiencyCollector | None = None,
+        *,
+        backend_factory: Callable[[str], Any] | None = None,
+        answer_client: Any | None = None,
+        openai_settings: OpenAISettings | None = None,
+        path_settings: PathSettings | None = None,
+        consume_granularity: ConsumeGranularity | None = None,
     ):
-        """初始化 MemoryOS wrapper。
+        """初始化 MemoryOS adapter。
 
         输入:
             openai_api_key: OpenAI-compatible API key；为空时从项目配置层读取。
             openai_base_url: API base URL；为空时从项目配置层读取。
             storage_root: MemoryOS 状态文件根目录；为空时写入
-                `outputs/memoryos/<run-id>`，避免不同 run 复用 JSON 状态。
-            config: MemoryOS 论文参数配置；为空时使用 `MemoryOSPaperConfig()`。
+                ``outputs/memoryos/<run-id>``。
+            config: MemoryOS profile；为空时使用 ``MemoryOSPaperConfig()``。
             efficiency_collector: runner 管理的可选效率 observation collector。
-
-        输出:
-            None。实例内部会缓存每个 conversation_id 对应的 MemoryOS 状态。
+            backend_factory: 测试可注入 fake；生产为空时构造官方 pypi Memoryos。
+            answer_client: 测试可注入 fake reader；bridge get_answer 路径使用。
+            openai_settings: 含 key/base_url 的私有配置，优先于单独传入的 key。
+            path_settings: 项目路径配置。
+            consume_granularity: v3 provider 实例级消费粒度；registry 按 benchmark
+                profile 设置（LongMemEval→pair，LoCoMo→session）。缺省为类级
+                ``"pair"``。LongMemEval 数据 role=user/assistant 适合 pair 聚合；
+                LoCoMo 数据 role=speaker 名，pair 聚合失效，用 session 粒度由
+                adapter 内部按 speaker 配对。与 LightMem/A-Mem 既有模式一致。
         """
 
         self.config = config or MemoryOSPaperConfig()
         self._efficiency_collector = efficiency_collector
-        self._memory_context_text_var: ContextVar[str | None] = ContextVar(
-            f"memoryos_memory_context_text_{id(self)}",
-            default=None,
-        )
+        self._backend_factory = backend_factory
+        self._answer_client = answer_client
+        self.path_settings = path_settings or load_path_settings()
+        if consume_granularity is not None:
+            self.consume_granularity = consume_granularity
+
         settings = None
-        if openai_api_key is None or openai_base_url is None:
-            try:
-                settings = load_settings()
-            except ConfigurationError:
-                if openai_api_key is None:
-                    raise
-                settings = None
+        if openai_settings is not None:
+            self.openai_api_key = openai_settings.api_key
+            self.openai_base_url = openai_settings.base_url
+        else:
+            if openai_api_key is None or openai_base_url is None:
+                try:
+                    settings = load_settings()
+                except ConfigurationError:
+                    if openai_api_key is None:
+                        raise
+                    settings = None
+            if openai_api_key is None:
+                if settings is None:
+                    raise ConfigurationError("MemoryOS requires an OpenAI API key")
+                openai_api_key = settings.openai.api_key
+            if openai_base_url is None and settings is not None:
+                openai_base_url = settings.openai.base_url
+            self.openai_api_key = openai_api_key
+            self.openai_base_url = openai_base_url
 
-        if openai_api_key is None:
-            if settings is None:
-                raise ConfigurationError("MemoryOS requires an OpenAI API key")
-            openai_api_key = settings.openai.api_key
-        if openai_base_url is None and settings is not None:
-            openai_base_url = settings.openai.base_url
-
-        path_settings = settings.paths if settings is not None else load_path_settings()
+        path_settings = settings.paths if settings is not None else self.path_settings
         if storage_root is None:
             selected_storage_root = path_settings.outputs_root / "memoryos" / _new_memoryos_run_id()
         else:
             selected_storage_root = Path(storage_root)
-        self.storage_root = selected_storage_root.resolve()
+        self.storage_root = selected_storage_root.expanduser().resolve()
         self.storage_root.mkdir(parents=True, exist_ok=True)
 
-        self.openai_api_key = openai_api_key
-        self.openai_base_url = openai_base_url
-        self._modules = self._load_eval_modules(path_settings)
-        self._client = self._modules.utils.OpenAIClient(
-            api_key=openai_api_key,
-            base_url=openai_base_url,
-        )
-        self._embedding_cache: dict[str, Any] = {}
-        self._embedding_model: Any | None = None
-        self._patch_eval_modules()
-        self._states: dict[str, MemoryOSConversationState] = {}
+        # 生产路径预加载 pypi 包，确保 source identity 与 backend 构造可用。
+        if self._backend_factory is None:
+            _load_memoryos_pypi_classes(self.path_settings)
+
+        self._backends: dict[str, Any] = {}
+        self._conversation_metadata: dict[str, dict[str, Any]] = {}
         self._native_isolation_to_conversation_id: dict[str, str] = {}
 
+    # ------------------------------------------------------------------ #
+    # bridge 路径：add / get_answer / load_existing_conversation_state
+    # ------------------------------------------------------------------ #
+
     def add(self, conversations: Conversation | list[Conversation]) -> AddResult:
-        """写入一个或多个 conversation。
+        """写入一个或多个 conversation（bridge 兼容路径）。
+
+        内部把 conversation 转成 MemoryOS QA pair，逐个调用 ``add_memory``。
+        注意 ``add_memory`` 会触发 LLM（mid-term summarize + profile/knowledge
+        抽取）；离线测试须 stub ``backend.client.chat_completion``。
 
         输入:
-            conversations: runner 传入的单个公开 Conversation 或迁移期兼容列表；即使对象上有
+            conversations: 单个公开 Conversation 或列表；即使对象上有
                 gold_answers，本方法也只读取 sessions、turns 和公开 metadata。
 
         输出:
@@ -611,19 +552,20 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
         conversation_ids: list[str] = []
         for conversation in conversations:
-            if conversation.conversation_id in self._states:
+            if conversation.conversation_id in self._backends:
                 raise ConfigurationError(
                     f"MemoryOS conversation already added: {conversation.conversation_id}"
                 )
-            state = self._create_state(conversation)
+            backend = self._get_or_create_backend(conversation.conversation_id)
+            self._register_conversation_metadata(conversation)
             pages = self.conversation_to_memory_pages(conversation)
-            with self._official_stdout_context():
+            with self._suppress_stdout_if_needed():
                 for page in pages:
-                    state.short_memory.add_qa_pair(dict(page))
-                    if state.short_memory.is_full():
-                        state.dynamic_updater.bulk_evict_and_update_mid_term()
-                    self._update_user_profile_if_needed(state)
-            self._states[conversation.conversation_id] = state
+                    backend.add_memory(
+                        user_input=page["user_input"],
+                        agent_response=page["agent_response"],
+                        timestamp=page["timestamp"],
+                    )
             conversation_ids.append(conversation.conversation_id)
 
         return AddResult(
@@ -634,36 +576,134 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             },
         )
 
+    def load_existing_conversation_state(self, conversation: Conversation) -> None:
+        """挂载已写入磁盘的 conversation 状态，不重复 add 历史对话。
+
+        pypi Memoryos 构造时会从 data_storage_path load JSON 状态，因此重建
+        backend 即可恢复 short/mid/long 各层。resume 路径使用。
+
+        输入:
+            conversation: 需要恢复的 conversation。方法会根据 conversation_id
+                定位 storage_root/<safe-id>/ 下的 pypi 状态目录。
+
+        输出:
+            None。恢复后可直接调用 retrieve / get_answer。
+        """
+
+        if conversation.conversation_id in self._backends:
+            return
+        state_dir = self.storage_root / _safe_path_name(conversation.conversation_id)
+        _validate_existing_pypi_state(state_dir)
+        self._register_conversation_metadata(conversation)
+        self._get_or_create_backend(conversation.conversation_id)
+
+    def get_answer(self, question: Question) -> AnswerResult:
+        """基于 retrieve 的 formatted_memory 回答公开问题（bridge 兼容路径）。
+
+        主线（retrieve-first runner）不调用本方法，改由 framework reader 答题。
+        bridge 路径使用注入的 answer_client；未注入时报错。
+
+        输入:
+            question: method 可见问题，不包含 gold answer 或 evidence。
+
+        输出:
+            AnswerResult: 答案和可审计 metadata。
+        """
+
+        retrieval = self.retrieve(question)
+        prompt = _user_visible_prompt_text(retrieval.prompt_messages)
+        answer_started_ns = perf_counter_ns()
+        collector = self._efficiency_collector
+        answer = self._call_answer_client(prompt=prompt, question=question)
+        if collector is not None and collector.enabled:
+            collector.record_answer_generation(latency_ms=_elapsed_ms(answer_started_ns))
+        return AnswerResult(
+            question_id=question.question_id,
+            conversation_id=question.conversation_id,
+            answer=str(answer).strip(),
+            metadata={
+                "method": "MemoryOS",
+                "reader_prompt_version": MEMORYOS_READER_PROMPT_VERSION,
+            },
+        )
+
+    # ------------------------------------------------------------------ #
+    # v3 provider 路径：ingest / retrieve / end_conversation
+    # ------------------------------------------------------------------ #
+
     def ingest(self, unit: IngestUnit) -> IngestResult:
-        """按 v3 协议写入一个 session batch。"""
+        """按 v3 协议写入一个 ingest unit。
 
-        if not isinstance(unit, SessionBatch):
-            raise ConfigurationError("MemoryOS native provider only accepts SessionBatch")
-        conversation = self._conversation_from_session_batch(unit)
+        pair 粒度：``TurnPair`` → ``add_memory``。dangling user（second=None 且
+        first.role=="user"）→ ``agent_response=""``；orphan assistant（second=None
+        且 first.role!="user"）→ ``user_input=""``。session 粒度（SessionBatch）
+        作为 bridge 兼容入参，内部转 pages 逐个 add_memory。
+
+        输入:
+            unit: TurnPair 或 SessionBatch（兼容）。
+
+        输出:
+            IngestResult: 携带隔离单元引用。
+        """
+
+        if isinstance(unit, TurnPair):
+            return self._ingest_pair(unit)
+        if isinstance(unit, SessionBatch):
+            return self._ingest_session_batch(unit)
+        raise ConfigurationError(
+            "MemoryOS native provider only accepts TurnPair or SessionBatch ingest units"
+        )
+
+    def _ingest_pair(self, pair: TurnPair) -> IngestResult:
+        """把 v3 TurnPair 转成 add_memory 调用。"""
+
+        isolation_key = pair.isolation_key
+        conversation_id = self._conversation_id_from_event(pair.first)
+        self._native_isolation_to_conversation_id[isolation_key] = conversation_id
+        self._ensure_native_metadata(pair.first, conversation_id)
+        backend = self._get_or_create_backend(conversation_id)
+        user_input, agent_response = self._pair_to_add_memory_args(pair)
+        timestamp = self._timestamp_from_event(pair.first)
+        with self._suppress_stdout_if_needed():
+            backend.add_memory(
+                user_input=user_input,
+                agent_response=agent_response,
+                timestamp=timestamp,
+            )
+        return IngestResult(unit_ref=UnitRef(isolation_key))
+
+    def _ingest_session_batch(self, batch: SessionBatch) -> IngestResult:
+        """把 v3 SessionBatch 转成逐个 add_memory（session 粒度入参）。
+
+        session 粒度用于 LoCoMo 等 role=speaker 名的数据：pair 聚合按
+        role=="user" 锚会失效，因此整 session 一次投递，adapter 内部用
+        ``conversation_to_memory_pages`` 按 speaker/role 配对成 QA pair，
+        保证与 bridge add 等价。
+        """
+
+        conversation = self._conversation_from_session_batch(batch)
         conversation_id = conversation.conversation_id
-        self._native_isolation_to_conversation_id[unit.isolation_key] = conversation_id
-        state = self._states.get(conversation_id)
-        if state is None:
-            state = self._create_state(conversation)
-            self._states[conversation_id] = state
+        self._native_isolation_to_conversation_id[batch.isolation_key] = conversation_id
+        self._register_conversation_metadata(conversation)
+        backend = self._get_or_create_backend(conversation_id)
         pages = self.conversation_to_memory_pages(conversation)
-        with self._official_stdout_context():
+        with self._suppress_stdout_if_needed():
             for page in pages:
-                state.short_memory.add_qa_pair(dict(page))
-                if state.short_memory.is_full():
-                    state.dynamic_updater.bulk_evict_and_update_mid_term()
-                self._update_user_profile_if_needed(state)
-        return IngestResult()
+                backend.add_memory(
+                    user_input=page["user_input"],
+                    agent_response=page["agent_response"],
+                    timestamp=page["timestamp"],
+                )
+        return IngestResult(unit_ref=UnitRef(batch.isolation_key))
 
-    @staticmethod
-    def _conversation_from_session_batch(batch: SessionBatch) -> Conversation:
-        """从 v3 SessionBatch 恢复旧 helper 需要的公开 conversation。"""
+    def _conversation_from_session_batch(self, batch: SessionBatch) -> Conversation:
+        """从 v3 SessionBatch 恢复 conversation_to_memory_pages 需要的 Conversation。"""
 
         first_event = batch.events[0] if batch.events else None
         if first_event is None:
             raise ConfigurationError("MemoryOS SessionBatch has no events")
         metadata = dict(first_event.metadata.get("conversation_metadata") or {})
-        conversation_id = MemoryOS._conversation_id_from_event(first_event)
+        conversation_id = self._conversation_id_from_event(first_event)
         metadata["conversation_id"] = conversation_id
         return Conversation(
             conversation_id=conversation_id,
@@ -672,7 +712,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                     session_id=batch.session_id or "",
                     session_time=batch.session_time,
                     metadata=dict(batch.metadata),
-                    turns=[MemoryOS._turn_from_event(event) for event in batch.events],
+                    turns=[self._turn_from_event(event) for event in batch.events],
                 )
             ],
             metadata=metadata,
@@ -680,7 +720,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
     @staticmethod
     def _turn_from_event(event: TurnEvent) -> Turn:
-        """从规范 TurnEvent 恢复旧 adapter helper 需要的 Turn。"""
+        """从规范 TurnEvent 恢复 conversation_to_memory_pages 需要的 Turn。"""
 
         return Turn(
             turn_id=event.turn_id,
@@ -688,27 +728,8 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             content=MemoryOS._original_content_from_event(event),
             normalized_role=event.role if event.role in {"user", "assistant"} else None,
             turn_time=MemoryOS._optional_event_text(event, "original_turn_time"),
-            images=MemoryOS._images_from_event(event),
             metadata=dict(event.metadata.get("turn_metadata") or {}),
         )
-
-    @staticmethod
-    def _conversation_id_from_event(event: TurnEvent) -> str:
-        """从 v3 event metadata 中读取原始 conversation id。"""
-
-        conversation_id = event.metadata.get("conversation_id")
-        if isinstance(conversation_id, str) and conversation_id.strip():
-            return conversation_id
-        return event.isolation_key
-
-    @staticmethod
-    def _original_content_from_event(event: TurnEvent) -> str:
-        """读取事件前原始 turn 文本，避免图片 caption 重复拼接。"""
-
-        original = event.metadata.get("original_content")
-        if isinstance(original, str):
-            return original
-        return event.content
 
     @staticmethod
     def _optional_event_text(event: TurnEvent, field_name: str) -> str | None:
@@ -717,78 +738,63 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         value = event.metadata.get(field_name)
         return value if isinstance(value, str) else None
 
-    @staticmethod
-    def _images_from_event(event: TurnEvent) -> list[ImageRef]:
-        """从 v3 event metadata 恢复公开图片引用。"""
+    def end_conversation(self, ref: UnitRef) -> None:
+        """conversation 边界钩子，默认无操作。"""
 
-        raw_images = event.metadata.get("turn_images")
-        if not isinstance(raw_images, list):
-            return []
-        images: list[ImageRef] = []
-        for raw_image in raw_images:
-            if not isinstance(raw_image, dict):
-                continue
-            images.append(
-                ImageRef(
-                    image_id=raw_image.get("image_id"),
-                    path=raw_image.get("path"),
-                    caption=raw_image.get("caption"),
-                    metadata=dict(raw_image.get("metadata") or {}),
-                )
-            )
-        return images
+        return None
 
-    def retrieve(self, question: Question | RetrievalQuery) -> AnswerPromptResult | RetrievalResult:
-        """执行 MemoryOS 官方 retrieval 并格式化上下文。"""
+    def retrieve(
+        self, question: Question | RetrievalQuery
+    ) -> AnswerPromptResult | RetrievalResult:
+        """执行 MemoryOS 纯检索并格式化全层上下文。
+
+        复刻官方 ``get_response`` 步骤 1-7（``memoryos.py:259-302``）：
+        1. ``retriever.retrieve_context`` 取中期 pages + user/assistant knowledge；
+        2. ``short_term_memory.get_all`` 取短期 history；
+        4. ``user_long_term_memory.get_raw_user_profile`` 取长期 profile；
+        3/5/6 把上述各层组装成文本。
+        **跳过步骤 8-9 答题与步骤 10 的 add_memory 写副作用**。
+
+        输入:
+            question: 公开问题或 v3 RetrievalQuery。
+
+        输出:
+            AnswerPromptResult（Question 口径）或 RetrievalResult（RetrievalQuery
+            口径），均含覆盖短/中/长各层的 formatted_memory。
+        """
 
         if isinstance(question, RetrievalQuery):
             return self._retrieve_native(question)
 
-        state = self._states.get(question.conversation_id)
-        if state is None:
+        conversation_id = question.conversation_id
+        backend = self._backends.get(conversation_id)
+        if backend is None:
             raise ConfigurationError(
-                f"MemoryOS has no conversation state for question: {question.conversation_id}"
+                f"MemoryOS has no conversation state for question: {conversation_id}"
             )
 
-        collector = self._efficiency_collector
         effective_text = _effective_question_text(question)
-        retrieval_started_ns = time.perf_counter_ns()
-        with self._official_stdout_context():
-            if collector is not None and collector.enabled:
-                with collector.operation_stage(EfficiencyStage.RETRIEVAL):
-                    retrieval_result = state.retrieval_system.retrieve(
-                        effective_text,
-                        segment_threshold=self.config.segment_threshold,
-                        page_threshold=self.config.page_threshold,
-                        knowledge_threshold=self.config.knowledge_threshold,
-                        client=self._client,
-                    )
-            else:
-                retrieval_result = state.retrieval_system.retrieve(
-                    effective_text,
-                    segment_threshold=self.config.segment_threshold,
-                    page_threshold=self.config.page_threshold,
-                    knowledge_threshold=self.config.knowledge_threshold,
-                    client=self._client,
-                )
-        prompt_messages, answer_prompt, memory_context = _build_memoryos_answer_prompt(
-            question=question,
-            query=effective_text,
-            state=state,
-            retrieval_result=retrieval_result,
-            longmemeval_prompt_profile=self.config.longmemeval_prompt_profile,
+        collector = self._efficiency_collector
+        retrieval_started_ns = perf_counter_ns()
+        if collector is not None and collector.enabled:
+            with collector.operation_stage(EfficiencyStage.RETRIEVAL):
+                retrieval_results = self._retrieve_context(backend, effective_text)
+        else:
+            retrieval_results = self._retrieve_context(backend, effective_text)
+        formatted_memory = _assemble_memoryos_formatted_memory(backend, retrieval_results)
+        prompt_messages = _build_memoryos_prompt_messages(question, formatted_memory)
+        answer_prompt = "\n\n".join(
+            f"[{message.role}]\n{message.content}" for message in prompt_messages
         )
         if collector is not None and collector.enabled:
             collector.record_retrieval_result(
                 latency_ms=_elapsed_ms(retrieval_started_ns),
                 injected_memory_context_tokens=_count_openai_tokens(
-                    memory_context,
+                    formatted_memory,
                     self.config.llm_model,
                 ),
             )
 
-        retrieval_queue = retrieval_result.get("retrieval_queue") or []
-        long_term_knowledge = retrieval_result.get("long_term_knowledge") or []
         return AnswerPromptResult(
             question_id=question.question_id,
             conversation_id=question.conversation_id,
@@ -796,13 +802,16 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             prompt_messages=prompt_messages,
             metadata={
                 "method": "MemoryOS",
-                "answer_context": memory_context,
-                "retrieved_page_count": len(retrieval_queue),
-                "retrieved_knowledge_count": len(long_term_knowledge),
-                "answer_prompt_profile": _answer_prompt_profile_for_question(
-                    question,
-                    self.config.longmemeval_prompt_profile,
+                "answer_context": formatted_memory,
+                "retrieved_page_count": len(retrieval_results["retrieved_pages"]),
+                "retrieved_user_knowledge_count": len(
+                    retrieval_results["retrieved_user_knowledge"]
                 ),
+                "retrieved_assistant_knowledge_count": len(
+                    retrieval_results["retrieved_assistant_knowledge"]
+                ),
+                "retrieval_profile": "memoryos_pypi_retrieve",
+                "answer_prompt_profile": MEMORYOS_READER_PROMPT_VERSION,
             },
         )
 
@@ -839,138 +848,185 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             metadata=dict(retrieval.metadata),
         )
 
-    def get_answer(self, question: Question) -> AnswerResult:
-        """基于已写入的 conversation 回答公开问题。
+    def _retrieve_context(self, backend: Any, query: str) -> dict[str, Any]:
+        """调用官方 ``retriever.retrieve_context``，传入 config 检索阈值。
 
-        输入:
-            question: method 可见问题，不包含 gold answer 或 evidence。
-
-        输出:
-            AnswerResult: MemoryOS 生成的答案和可审计 metadata。
+        retrieve_context 是纯 embedding 检索（``search_sessions`` /
+        ``search_user_knowledge`` / ``search_assistant_knowledge``），不调 LLM。
+        注意 ``search_sessions`` 会更新 mid_term 访问统计（N_visit/last_visit_time/
+        H_segment）并 save——这是 MemoryOS 检索算法固有行为（用于 LFU/heat），
+        非 add_memory 写副作用。
         """
 
-        state = self._states.get(question.conversation_id)
-        if state is None:
-            raise ConfigurationError(
-                f"MemoryOS has no conversation state for question: {question.conversation_id}"
+        with self._suppress_stdout_if_needed():
+            return backend.retriever.retrieve_context(
+                user_query=query,
+                user_id=backend.user_id,
+                segment_similarity_threshold=self.config.segment_similarity_threshold,
+                page_similarity_threshold=self.config.page_similarity_threshold,
+                knowledge_threshold=self.config.knowledge_threshold,
+                top_k_sessions=self.config.top_k_sessions,
+                top_k_knowledge=self.config.top_k_knowledge,
             )
 
-        collector = self._efficiency_collector
-        effective_text = _effective_question_text(question)
-        retrieval_started_ns = time.perf_counter_ns()
-        with self._official_stdout_context():
-            if collector is not None and collector.enabled:
-                with collector.operation_stage(EfficiencyStage.RETRIEVAL):
-                    retrieval_result = state.retrieval_system.retrieve(
-                        effective_text,
-                        segment_threshold=self.config.segment_threshold,
-                        page_threshold=self.config.page_threshold,
-                        knowledge_threshold=self.config.knowledge_threshold,
-                        client=self._client,
-                    )
+    # ------------------------------------------------------------------ #
+    # backend 构造与隔离
+    # ------------------------------------------------------------------ #
+
+    def _get_or_create_backend(self, conversation_id: str) -> Any:
+        """返回当前 conversation 隔离的官方 pypi Memoryos 实例。"""
+
+        if conversation_id not in self._backends:
+            if self._backend_factory is None:
+                backend = self._create_official_backend(conversation_id)
             else:
-                retrieval_result = state.retrieval_system.retrieve(
-                    effective_text,
-                    segment_threshold=self.config.segment_threshold,
-                    page_threshold=self.config.page_threshold,
-                    knowledge_threshold=self.config.knowledge_threshold,
-                    client=self._client,
-                )
-        retrieval_latency_ms = _elapsed_ms(retrieval_started_ns)
+                backend = self._backend_factory(conversation_id)
+            self._backends[conversation_id] = backend
+        return self._backends[conversation_id]
 
-        answer_started_ns = time.perf_counter_ns()
-        memory_context_token = self._memory_context_text_var.set(None)
-        try:
-            with self._official_stdout_context():
-                if collector is not None and collector.enabled:
-                    with collector.operation_stage(EfficiencyStage.ANSWER):
-                        answer, system_prompt, user_prompt = (
-                            self._modules.main_loco_parse.generate_system_response_with_meta(
-                                effective_text,
-                                state.short_memory,
-                                state.long_memory,
-                                retrieval_result["retrieval_queue"],
-                                retrieval_result["long_term_knowledge"],
-                                self._client,
-                                state.conversation_id,
-                                state.speaker_a,
-                                state.speaker_b,
-                                {
-                                    "conversation_id": state.conversation_id,
-                                    "question_id": question.question_id,
-                                },
-                            )
-                        )
-                else:
-                    answer, system_prompt, user_prompt = (
-                        self._modules.main_loco_parse.generate_system_response_with_meta(
-                            effective_text,
-                            state.short_memory,
-                            state.long_memory,
-                            retrieval_result["retrieval_queue"],
-                            retrieval_result["long_term_knowledge"],
-                            self._client,
-                            state.conversation_id,
-                            state.speaker_a,
-                            state.speaker_b,
-                            {
-                                "conversation_id": state.conversation_id,
-                                "question_id": question.question_id,
-                            },
-                        )
+    def _create_official_backend(self, conversation_id: str) -> Any:
+        """构造 conversation 独占的官方 pypi Memoryos，并注入 timeout/retry。"""
+
+        classes = _load_memoryos_pypi_classes(self.path_settings)
+        memoryos_cls = classes["Memoryos"]
+        data_storage_path = self.storage_root / _safe_path_name(conversation_id)
+        data_storage_path.mkdir(parents=True, exist_ok=True)
+        # pypi OpenAIClient 构造时 OpenAI(api_key) 懒连接，占位 key 不报错；
+        # 真实 key 由调用方传入。
+        api_key = self.openai_api_key or "memoryos-placeholder-key"
+        with self._suppress_stdout_if_needed():
+            backend = memoryos_cls(
+                user_id=_safe_user_id(conversation_id),
+                openai_api_key=api_key,
+                data_storage_path=str(data_storage_path),
+                openai_base_url=self.openai_base_url,
+                assistant_id=MEMORYOS_DEFAULT_ASSISTANT_ID,
+                short_term_capacity=self.config.short_term_capacity,
+                mid_term_capacity=self.config.mid_term_capacity,
+                long_term_knowledge_capacity=self.config.long_term_knowledge_capacity,
+                retrieval_queue_capacity=self.config.retrieval_queue_capacity,
+                mid_term_heat_threshold=self.config.mid_term_heat_threshold,
+                mid_term_similarity_threshold=self.config.mid_term_similarity_threshold,
+                llm_model=self.config.llm_model,
+                embedding_model_name=self.config.embedding_model_name,
+            )
+        self._inject_api_retry_timeout(backend)
+        return backend
+
+    def _inject_api_retry_timeout(self, backend: Any) -> None:
+        """对 pypi OpenAIClient.chat_completion 注入 timeout/retry。
+
+        不修改 vendored 源码；只在 backend 构造后替换 chat_completion 方法。
+        add_memory 触发的所有 LLM（updater summarize/continuity/meta_info +
+        profile/knowledge 抽取）都走 ``client.chat_completion``，统一被覆盖。
+        """
+
+        original_chat_completion = backend.client.chat_completion
+        config = self.config
+        collector = self._efficiency_collector
+
+        def chat_completion_with_retry(
+            model: str,
+            messages: list[dict[str, Any]],
+            temperature: float = 0.7,
+            max_tokens: int = 2000,
+        ) -> str:
+            """带 timeout/retry 与效率观测的 chat_completion 包装。"""
+
+            total_attempts = config.api_max_retries + 1
+            for attempt in range(1, total_attempts + 1):
+                try:
+                    response = backend.client.client.chat.completions.create(
+                        model=model or config.llm_model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=config.api_timeout_seconds,
                     )
-            observed_memory_context_text = self._memory_context_text_var.get()
-        finally:
-            self._memory_context_text_var.reset(memory_context_token)
-        if collector is not None and collector.enabled:
-            memory_context_text = (
-                observed_memory_context_text
-                if observed_memory_context_text is not None
-                else _memoryos_retrieved_context_text(retrieval_result)
-            )
-            collector.record_retrieval_result(
-                latency_ms=retrieval_latency_ms,
-                injected_memory_context_tokens=_count_openai_tokens(
-                    memory_context_text,
-                    self.config.llm_model,
-                ),
-            )
-            collector.record_answer_generation(
-                latency_ms=_elapsed_ms(answer_started_ns),
-            )
+                    content = response.choices[0].message.content or ""
+                    _record_memoryos_llm_call(
+                        collector,
+                        model=model or config.llm_model,
+                        messages=messages,
+                        response=response,
+                        content=content,
+                        config=config,
+                    )
+                    return content
+                except _RETRYABLE_API_ERRORS as error:
+                    if attempt >= total_attempts:
+                        LOGGER.error(
+                            "MemoryOS API call failed after %s attempts: %s",
+                            total_attempts,
+                            type(error).__name__,
+                        )
+                        raise
+                    wait_seconds = _retry_wait_seconds(config, attempt)
+                    LOGGER.warning(
+                        "MemoryOS API call failed on attempt %s/%s with %s; retrying in %.1fs",
+                        attempt,
+                        total_attempts,
+                        type(error).__name__,
+                        wait_seconds,
+                    )
+                    if wait_seconds > 0:
+                        time.sleep(wait_seconds)
+            raise RuntimeError("MemoryOS retry loop exited unexpectedly")
 
-        return AnswerResult(
-            question_id=question.question_id,
-            conversation_id=question.conversation_id,
-            answer=answer,
-            metadata={
-                "method": "MemoryOS",
-                "retrieved_page_count": len(retrieval_result["retrieval_queue"]),
-                "retrieved_knowledge_count": len(retrieval_result["long_term_knowledge"]),
-                "system_prompt": system_prompt,
-            },
-        )
+        backend.client.chat_completion = chat_completion_with_retry
+
+    def get_debug_state(self, conversation_id: str) -> Any:
+        """返回某个 conversation 的 pypi Memoryos backend（测试与 debug 用）。
+
+        输入:
+            conversation_id: 已写入的 conversation id。
+
+        输出:
+            官方 pypi Memoryos 实例，暴露 short_term_memory / mid_term_memory /
+            user_long_term_memory / assistant_long_term_memory / retriever /
+            updater / client 等属性。
+        """
+
+        backend = self._backends.get(conversation_id)
+        if backend is None:
+            raise ConfigurationError(f"MemoryOS state not found: {conversation_id}")
+        return backend
+
+    def get_debug_package(self) -> Any:
+        """返回 vendored memoryos-pypi 包模块（测试与 debug 用）。"""
+
+        return _load_memoryos_pypi_classes(self.path_settings)["package"]
+
+    # ------------------------------------------------------------------ #
+    # 静态辅助：page 转换、workload 估算
+    # ------------------------------------------------------------------ #
 
     @staticmethod
-    def conversation_to_memory_pages(conversation: Conversation) -> list[dict[str, str]]:
-        """把统一 Conversation 转成 MemoryOS eval 的 QA page 列表。
+    def conversation_to_memory_pages(
+        conversation: Conversation,
+    ) -> list[dict[str, str]]:
+        """把统一 Conversation 转成 MemoryOS add_memory 的 QA pair 列表。
+
+        按 normalized_role 配对：user turn 开启一个 page，紧跟 assistant 闭合；
+        dangling user（无后续 assistant）→ agent_response=""；orphan assistant
+        （无前置 user）→ user_input=""。保证不丢 turn。
 
         输入:
             conversation: 已校验的 conversation-QA v2 Conversation。
 
         输出:
-            list[dict[str, str]]: 每条包含 `user_input`、`agent_response` 和
-            `timestamp`，对应 MemoryOS 官方 eval 的 page 格式。
+            list[dict[str, str]]: 每条含 user_input、agent_response、timestamp。
         """
 
-        speaker_a, speaker_b = _resolve_speakers(conversation)
         pages: list[dict[str, str]] = []
-
         for session in conversation.sessions:
-            timestamp = session.session_time or session.start_time or session.end_time or ""
+            timestamp = (
+                session.session_time or session.start_time or session.end_time or ""
+            )
             for turn in session.turns:
                 content = _turn_text_with_image_captions(turn)
-                if turn.speaker == speaker_a:
+                role = _turn_normalized_role(turn)
+                if role == "user":
                     pages.append(
                         {
                             "user_input": content,
@@ -978,7 +1034,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                             "timestamp": timestamp,
                         }
                     )
-                elif turn.speaker == speaker_b:
+                elif role == "assistant":
                     if pages and pages[-1]["agent_response"] == "":
                         pages[-1]["agent_response"] = content
                     else:
@@ -990,56 +1046,32 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                             }
                         )
                 else:
-                    raise ConfigurationError(
-                        f"{conversation.conversation_id}: unknown speaker for MemoryOS: {turn.speaker}"
-                    )
-
+                    # 未知 role：按 speaker 顺序推断（LoCoMo speaker_a 视作 user）。
+                    speaker_a, speaker_b = _resolve_speakers(conversation)
+                    if turn.speaker == speaker_a:
+                        pages.append(
+                            {
+                                "user_input": content,
+                                "agent_response": "",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    elif turn.speaker == speaker_b:
+                        if pages and pages[-1]["agent_response"] == "":
+                            pages[-1]["agent_response"] = content
+                        else:
+                            pages.append(
+                                {
+                                    "user_input": "",
+                                    "agent_response": content,
+                                    "timestamp": timestamp,
+                                }
+                            )
+                    else:
+                        raise ConfigurationError(
+                            f"{conversation.conversation_id}: unknown speaker for MemoryOS: {turn.speaker}"
+                        )
         return pages
-
-    def get_debug_state(self, conversation_id: str) -> MemoryOSConversationState:
-        """返回某个 conversation 的 MemoryOS 内部状态。
-
-        输入:
-            conversation_id: 已写入的 conversation id。
-
-        输出:
-            MemoryOSConversationState: 测试和 debug 可读取的状态对象。
-        """
-
-        state = self._states.get(conversation_id)
-        if state is None:
-            raise ConfigurationError(f"MemoryOS state not found: {conversation_id}")
-        return state
-
-    def load_existing_conversation_state(self, conversation: Conversation) -> None:
-        """挂载已写入磁盘的 conversation 状态，不重复 add 历史对话。
-
-        输入:
-            conversation: 需要恢复的 conversation。方法会根据 `conversation_id`
-                定位 `storage_root/<conversation_id>/` 下的 MemoryOS JSON 状态。
-
-        输出:
-            None。恢复后可直接调用 `get_answer()`。
-        """
-
-        if conversation.conversation_id in self._states:
-            return
-
-        state_dir = self.storage_root / _safe_path_name(conversation.conversation_id)
-        _validate_existing_state_files(state_dir)
-        self._states[conversation.conversation_id] = self._create_state(conversation)
-
-    def get_debug_modules(self) -> _MemoryOSEvalModules:
-        """返回当前实例持有的 MemoryOS eval 模块集合。
-
-        输入:
-            无。
-
-        输出:
-            _MemoryOSEvalModules: 仅供单元测试和 debug 检查导入隔离状态。
-        """
-
-        return self._modules
 
     @staticmethod
     def estimate_add_workload(
@@ -1050,7 +1082,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
         输入:
             conversation: 待写入的统一 Conversation。
-            config: MemoryOS 配置；为空时使用论文默认配置。
+            config: MemoryOS 配置；为空时使用 pypi 默认。
 
         输出:
             MemoryOSAddEstimate: page 数、预计更新批次数和剩余 STM page 数。
@@ -1075,333 +1107,103 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             will_trigger_updates=update_batch_count > 0,
         )
 
-    def _create_state(self, conversation: Conversation) -> MemoryOSConversationState:
-        """为一个 conversation 创建独立 MemoryOS 状态。"""
+    # ------------------------------------------------------------------ #
+    # v3 event → add_memory 参数转换
+    # ------------------------------------------------------------------ #
 
-        speaker_a, speaker_b = _resolve_speakers(conversation)
-        state_dir = self.storage_root / _safe_path_name(conversation.conversation_id)
-        state_dir.mkdir(parents=True, exist_ok=True)
+    def _pair_to_add_memory_args(self, pair: TurnPair) -> tuple[str, str]:
+        """把 v3 TurnPair 转成 (user_input, agent_response)。
 
-        with self._official_stdout_context():
-            short_memory = self._modules.short_term_memory.ShortTermMemory(
-                max_capacity=self.config.short_term_capacity,
-                file_path=str(state_dir / "short_term.json"),
-            )
-            mid_memory = self._modules.mid_term_memory.MidTermMemory(
-                max_capacity=self.config.mid_term_capacity,
-                file_path=str(state_dir / "mid_term.json"),
-            )
-            mid_memory.search_sessions_by_summary = partial(
-                mid_memory.search_sessions_by_summary,
-                top_k=self.config.retrieval_top_m_segments,
-            )
-            long_memory = self._modules.long_term_memory.LongTermMemory(
-                file_path=str(state_dir / "long_term.json"),
-            )
-            dynamic_updater = self._modules.dynamic_update.DynamicUpdate(
-                short_memory,
-                mid_memory,
-                long_memory,
-                topic_similarity_threshold=self.config.topic_similarity_threshold,
-                client=self._client,
-            )
-            retrieval_system = self._modules.retrieval_and_answer.RetrievalAndAnswer(
-                short_memory,
-                mid_memory,
-                long_memory,
-                dynamic_updater,
-                queue_capacity=self.config.retrieval_queue_capacity,
-            )
-
-        return MemoryOSConversationState(
-            conversation_id=conversation.conversation_id,
-            speaker_a=speaker_a,
-            speaker_b=speaker_b,
-            short_memory=short_memory,
-            mid_memory=mid_memory,
-            long_memory=long_memory,
-            dynamic_updater=dynamic_updater,
-            retrieval_system=retrieval_system,
-            storage_dir=state_dir,
-        )
-
-    def _load_eval_modules(self, path_settings: PathSettings) -> _MemoryOSEvalModules:
-        """加载 MemoryOS 官方 eval 目录中的脚本模块。"""
-
-        eval_dir = path_settings.resolve_third_party_method_path("MemoryOS-main", "eval")
-        if not eval_dir.is_dir():
-            raise ConfigurationError(f"MemoryOS eval directory missing: {eval_dir}")
-
-        return self._import_eval_modules_with_safe_openai(eval_dir)
-
-    def _import_eval_modules_with_safe_openai(self, eval_dir: Path) -> _MemoryOSEvalModules:
-        """在官方空 API key 硬编码存在时安全导入 eval 模块。
-
-        MemoryOS `eval/utils.py` 在 import 阶段会执行 `OpenAI(api_key="")`。
-        新版 OpenAI SDK 会立即报错。这里临时把空 key 替换成占位 key，仅用于
-        完成模块导入；导入后 `_patch_eval_modules()` 会注入真实 client。
-        本函数会在导入前后恢复同名 `sys.modules` 和 `sys.path`，避免不同
-        MemoryOS 实例共享被 monkeypatch 的官方 eval 模块。
-        整个导入过程受 `_MEMORYOS_EVAL_IMPORT_LOCK` 保护，避免并行 worker 的
-        sys.modules/sys.path 竞态。
+        - second 非 None：first=user, second=assistant（完整 pair）。
+        - second None + first.role=="user"：dangling user → agent_response=""。
+        - second None + first.role!="user"：orphan assistant → user_input=""。
         """
 
-        with _MEMORYOS_EVAL_IMPORT_LOCK:
-            real_openai_class = openai_package.OpenAI
-            eval_dir_text = str(eval_dir)
-            saved_modules = {
-                module_name: sys.modules.get(module_name)
-                for module_name in MEMORYOS_EVAL_MODULE_NAMES
-            }
-            inserted_path = False
+        first_content = self._original_content_from_event(pair.first)
+        if pair.second is None:
+            if pair.first.role == "user":
+                return first_content, ""
+            return "", first_content
+        second_content = self._original_content_from_event(pair.second)
+        return first_content, second_content
 
-            def safe_openai_constructor(*args: Any, **kwargs: Any) -> OpenAI:
-                """为空 API key 补占位值，保证官方 eval 模块能完成导入。"""
+    @staticmethod
+    def _original_content_from_event(event: TurnEvent) -> str:
+        """读取事件前原始 turn 文本，避免图片 caption 重复拼接。"""
 
-                if not kwargs.get("api_key"):
-                    kwargs["api_key"] = "memoryos-import-placeholder"
-                return real_openai_class(*args, **kwargs)
+        original = event.metadata.get("original_content")
+        if isinstance(original, str):
+            return original
+        return event.content
 
-            openai_package.OpenAI = safe_openai_constructor
-            try:
-                for module_name in MEMORYOS_EVAL_MODULE_NAMES:
-                    sys.modules.pop(module_name, None)
-                if eval_dir_text not in sys.path:
-                    sys.path.insert(0, eval_dir_text)
-                    inserted_path = True
-                return _MemoryOSEvalModules(
-                    utils=importlib.import_module("utils"),
-                    short_term_memory=importlib.import_module("short_term_memory"),
-                    mid_term_memory=importlib.import_module("mid_term_memory"),
-                    long_term_memory=importlib.import_module("long_term_memory"),
-                    dynamic_update=importlib.import_module("dynamic_update"),
-                    retrieval_and_answer=importlib.import_module("retrieval_and_answer"),
-                    main_loco_parse=importlib.import_module("main_loco_parse"),
-                )
-            finally:
-                openai_package.OpenAI = real_openai_class
-                for module_name in MEMORYOS_EVAL_MODULE_NAMES:
-                    sys.modules.pop(module_name, None)
-                for module_name, module in saved_modules.items():
-                    if module is not None:
-                        sys.modules[module_name] = module
-                if inserted_path and eval_dir_text in sys.path:
-                    sys.path.remove(eval_dir_text)
+    @staticmethod
+    def _conversation_id_from_event(event: TurnEvent) -> str:
+        """从 v3 event metadata 中读取原始 conversation id。"""
 
-    def _patch_eval_modules(self) -> None:
-        """注入 API 配置、论文热度公式和 embedding 缓存。"""
+        conversation_id = event.metadata.get("conversation_id")
+        if isinstance(conversation_id, str) and conversation_id.strip():
+            return conversation_id
+        return event.isolation_key
 
-        client_kwargs: dict[str, Any] = {
-            "api_key": self.openai_api_key,
-            "timeout": self.config.api_timeout_seconds,
-            "max_retries": 0,
-        }
-        if self.openai_base_url:
-            client_kwargs["base_url"] = self.openai_base_url
-        self._modules.utils.gpt_client = OpenAI(**client_kwargs)
-        self._client.chat_completion = self._chat_completion_with_retry
-        self._modules.mid_term_memory.client = self._client
-        self._modules.main_loco_parse.H_THRESHOLD = self.config.heat_threshold
-        self._modules.main_loco_parse.memory_context_observer = (
-            self._observe_memory_context
-        )
+    @staticmethod
+    def _timestamp_from_event(event: TurnEvent) -> str:
+        """从 v3 event 读取 timestamp，缺失时回退当前时间。"""
 
-        def compute_segment_heat(session: dict[str, Any], alpha: float = 1.0, beta: float = 1.0, gamma: float = 1.0) -> float:
-            """按论文 Eq.4 alpha/beta/gamma 默认值计算 segment heat。"""
+        original = event.metadata.get("original_turn_time")
+        if isinstance(original, str) and original.strip():
+            return original
+        if event.timestamp:
+            return event.timestamp
+        return _pypi_timestamp_now()
 
-            return (
-                alpha * session.get("N_visit", 0)
-                + beta * session.get("L_interaction", 0)
-                + gamma * session.get("R_recency", 1.0)
-            )
-
-        self._modules.mid_term_memory.compute_segment_heat = compute_segment_heat
-        self._modules.utils.get_embedding = self._get_embedding
-        self._modules.mid_term_memory.get_embedding = self._get_embedding
-        self._modules.long_term_memory.get_embedding = self._get_embedding
-
-    def _observe_memory_context(self, payload: Any) -> None:
-        """接收官方生成函数暴露的最终 prompt memory context。
-
-        输入:
-            payload: 官方函数在发送 LLM 前提供的上下文字段。缺字段时按空文本处理。
-
-        输出:
-            None。该方法只写入当前 ContextVar，不改变 MemoryOS 返回值或状态。
-        """
-
-        if not isinstance(payload, dict):
-            return
-        self._memory_context_text_var.set(
-            _memoryos_memory_context_payload_text(payload)
-        )
-
-    def _chat_completion_with_retry(
+    def _ensure_native_metadata(
         self,
-        model: str,
-        messages: list[dict[str, Any]],
-        temperature: float = 0.7,
-        max_tokens: int = 2000,
-    ) -> str:
-        """替换 MemoryOS 官方 chat_completion，增加超时和连接错误重试。
-
-        输入:
-            model: 本次官方 eval 请求指定的模型名。
-            messages: OpenAI chat messages。
-            temperature: 生成温度。
-            max_tokens: 最大输出 token 数。
-
-        输出:
-            str: OpenAI-compatible chat completion 的第一条 message content。
-        """
-
-        total_attempts = self.config.api_max_retries + 1
-        for attempt in range(1, total_attempts + 1):
-            try:
-                response = self._modules.utils.gpt_client.chat.completions.create(
-                    model=model or self.config.llm_model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                content = response.choices[0].message.content
-                self._record_llm_call(
-                    model=model or self.config.llm_model,
-                    messages=messages,
-                    response=response,
-                    content=content or "",
-                )
-                if attempt > 1:
-                    LOGGER.info(
-                        "MemoryOS API call recovered after %s attempts",
-                        attempt,
-                    )
-                return content or ""
-            except _RETRYABLE_API_ERRORS as error:
-                if attempt >= total_attempts:
-                    LOGGER.error(
-                        "MemoryOS API call failed after %s attempts: %s",
-                        total_attempts,
-                        type(error).__name__,
-                    )
-                    raise
-                wait_seconds = self._retry_wait_seconds(attempt)
-                LOGGER.warning(
-                    "MemoryOS API call failed on attempt %s/%s with %s; retrying in %.1fs",
-                    attempt,
-                    total_attempts,
-                    type(error).__name__,
-                    wait_seconds,
-                )
-                if wait_seconds > 0:
-                    time.sleep(wait_seconds)
-
-        raise RuntimeError("MemoryOS retry loop exited unexpectedly")
-
-    def _record_llm_call(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, Any]],
-        response: Any,
-        content: str,
+        event: TurnEvent,
+        conversation_id: str,
     ) -> None:
-        """记录 MemoryOS eval 通过统一 chat_completion 发出的 LLM 调用。"""
+        """登记 native conversation 的公开 metadata。"""
 
-        collector = self._efficiency_collector
-        if collector is None or not collector.enabled:
-            return
-        prompt_tokens, completion_tokens = _extract_usage_tokens(response)
-        usage = resolve_token_usage(
-            api_input_tokens=prompt_tokens,
-            api_output_tokens=completion_tokens,
-            prompt_text=_messages_to_text(messages),
-            output_text=content,
-            tokenizer=_TiktokenCounter(model or self.config.llm_model),
+        raw = event.metadata.get("conversation_metadata")
+        metadata = dict(raw) if isinstance(raw, dict) else {}
+        metadata["conversation_id"] = conversation_id
+        self._conversation_metadata[conversation_id] = metadata
+
+    def _register_conversation_metadata(self, conversation: Conversation) -> None:
+        """登记 bridge conversation 的公开 metadata。"""
+
+        self._conversation_metadata[conversation.conversation_id] = {
+            **conversation.metadata,
+            "conversation_id": conversation.conversation_id,
+        }
+
+    def _call_answer_client(self, prompt: str, question: Question) -> str:
+        """调用 bridge answer client；未注入时报错。"""
+
+        if self._answer_client is None:
+            raise ConfigurationError(
+                f"MemoryOS answer client is not available for {question.conversation_id}"
+            )
+        response = self._suppress_stdout_if_needed(
+            self._answer_client.create_answer,
+            prompt,
         )
-        collector.record_llm_call(
-            model_id="memoryos-chat-llm",
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            token_measurement_source=usage.source,
-        )
-
-    def _retry_wait_seconds(self, failed_attempt_index: int) -> float:
-        """计算下一次 MemoryOS API 重试前的等待时间。
-
-        输入:
-            failed_attempt_index: 第几次失败，从 1 开始。
-
-        输出:
-            float: 本次重试前应等待的秒数。
-        """
-
-        wait_seconds = self.config.api_retry_wait_seconds * (
-            self.config.api_retry_backoff_multiplier ** (failed_attempt_index - 1)
-        )
-        return min(wait_seconds, self.config.api_retry_max_wait_seconds)
-
-    def _get_embedding(self, text: str, model_name: str | None = None) -> Any:
-        """使用缓存的 MiniLM 模型生成 embedding。"""
-
-        selected_model = self.config.embedding_model_name
-        cache_key = f"{selected_model}::{text}"
-        if cache_key in self._embedding_cache:
-            return self._embedding_cache[cache_key]
-
-        if self._embedding_model is None:
-            from sentence_transformers import SentenceTransformer
-
-            LOGGER.info("Loading MemoryOS embedding model: %s", selected_model)
-            self._embedding_model = SentenceTransformer(selected_model)
-
-        started_ns = time.perf_counter_ns()
-        embedding = self._embedding_model.encode([text], convert_to_numpy=True)[0]
-        self._record_embedding_call(
-            text=text,
-            latency_ms=_elapsed_ms(started_ns),
-        )
-        self._embedding_cache[cache_key] = embedding
-        return embedding
-
-    def _record_embedding_call(self, *, text: str, latency_ms: float) -> None:
-        """记录 MemoryOS 本地 embedding 模型的 cache miss 调用。"""
-
-        collector = self._efficiency_collector
-        if collector is None or not collector.enabled:
-            return
-        collector.record_embedding_call(
-            model_id="memoryos-embedding",
-            input_tokens=_count_sentence_transformer_tokens(
-                self._embedding_model,
-                text,
-            ),
-            latency_ms=latency_ms,
-            token_measurement_source=MeasurementSource.METHOD_NATIVE,
-            latency_measurement_source=MeasurementSource.FRAMEWORK_TIMER,
-        )
-
-    def _update_user_profile_if_needed(self, state: MemoryOSConversationState) -> None:
-        """按 MemoryOS eval 的热度规则触发 user profile / knowledge 更新。"""
-
-        self._modules.main_loco_parse.update_user_profile_from_top_segment(
-            state.mid_memory,
-            state.long_memory,
-            state.conversation_id,
-            self._client,
-        )
-        _trim_long_term_capacity(state.long_memory, self.config.long_term_knowledge_capacity)
+        return str(response)
 
     @contextlib.contextmanager
-    def _official_stdout_context(self):
-        """必要时屏蔽 MemoryOS 官方脚本中的 print 输出。"""
+    def _suppress_stdout_if_needed(self, *args: Any, **kwargs: Any):
+        """按配置压制第三方 stdout；可作 contextmanager 或函数包装器。"""
 
         if not self.config.suppress_official_stdout:
+            if args or kwargs:
+                func = args[0]
+                return func(*args[1:], **kwargs)
             yield
             return
-
-        buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
+        if args:
+            func = args[0]
+            with contextlib.redirect_stdout(io.StringIO()):
+                return func(*args[1:], **kwargs)
+        with contextlib.redirect_stdout(io.StringIO()):
             yield
 
     def _safe_config_metadata(self) -> dict[str, Any]:
@@ -1410,14 +1212,130 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         return self.config.to_manifest()
 
 
+# ---------------------------------------------------------------------- #
+# formatted_memory 全层组装（忠实复刻 get_response :270-302）
+# ---------------------------------------------------------------------- #
+
+
+def _assemble_memoryos_formatted_memory(
+    backend: Any,
+    retrieval_results: dict[str, Any],
+) -> str:
+    """把短期/中期/长期各层记忆组装成 formatted_memory。
+
+    忠实复刻官方 ``get_response``（``memoryos.py:268-302``）的文本拼装口径，
+    覆盖全部记忆层：
+    - 短期：``short_term_memory.get_all()`` → history_text。
+    - 中期：``retrieved_pages`` → retrieval_text。
+    - 长期 profile：``user_long_term_memory.get_raw_user_profile`` → background。
+    - 长期 user knowledge：``retrieved_user_knowledge`` → background 追加。
+    - 长期 assistant knowledge：``retrieved_assistant_knowledge``。
+
+    漏任何一层 = 记忆不完整 = 数字失真（ws02.5(c) 完整性）。
+
+    输入:
+        backend: pypi Memoryos 实例。
+        retrieval_results: ``retriever.retrieve_context`` 返回的 dict。
+
+    输出:
+        str: 覆盖短/中/长各层的 formatted_memory。
+    """
+
+    # 步骤2：短期 history（:269-273）
+    short_term_history = backend.short_term_memory.get_all()
+    history_text = "\n".join(
+        [
+            f"User: {qa.get('user_input', '')}\nAssistant: {qa.get('agent_response', '')} (Time: {qa.get('timestamp', '')})"
+            for qa in short_term_history
+        ]
+    )
+
+    # 步骤3：中期 retrieved_pages（:276-279）
+    retrieved_pages = retrieval_results.get("retrieved_pages") or []
+    retrieval_text = "\n".join(
+        [
+            f"【Historical Memory】\nUser: {page.get('user_input', '')}\nAssistant: {page.get('agent_response', '')}\nTime: {page.get('timestamp', '')}\nConversation chain overview: {page.get('meta_info', 'N/A')}"
+            for page in retrieved_pages
+            if isinstance(page, dict)
+        ]
+    )
+
+    # 步骤4：长期 profile（:282-284）
+    user_profile_text = backend.user_long_term_memory.get_raw_user_profile(backend.user_id)
+    if not user_profile_text or user_profile_text.lower() == "none":
+        user_profile_text = "No detailed profile available yet."
+
+    # 步骤5：长期 user knowledge（:287-293）
+    retrieved_user_knowledge = retrieval_results.get("retrieved_user_knowledge") or []
+    user_knowledge_background = ""
+    if retrieved_user_knowledge:
+        user_knowledge_background = "\n【Relevant User Knowledge Entries】\n"
+        for kn_entry in retrieved_user_knowledge:
+            if isinstance(kn_entry, dict):
+                user_knowledge_background += (
+                    f"- {kn_entry.get('knowledge', '')} (Recorded: {kn_entry.get('timestamp', '')})\n"
+                )
+            else:
+                user_knowledge_background += f"- {kn_entry}\n"
+    background_context = f"【User Profile】\n{user_profile_text}\n{user_knowledge_background}"
+
+    # 步骤6：长期 assistant knowledge（:297-302）
+    retrieved_assistant_knowledge = (
+        retrieval_results.get("retrieved_assistant_knowledge") or []
+    )
+    assistant_knowledge_text = "【Assistant Knowledge Base】\n"
+    if retrieved_assistant_knowledge:
+        for ak_entry in retrieved_assistant_knowledge:
+            if isinstance(ak_entry, dict):
+                assistant_knowledge_text += (
+                    f"- {ak_entry.get('knowledge', '')} (Recorded: {ak_entry.get('timestamp', '')})\n"
+                )
+            else:
+                assistant_knowledge_text += f"- {ak_entry}\n"
+    else:
+        assistant_knowledge_text += "- No relevant assistant knowledge found for this query.\n"
+
+    parts = [history_text, retrieval_text, background_context, assistant_knowledge_text]
+    return "\n\n".join(text for text in parts if text and text.strip())
+
+
+def _build_memoryos_prompt_messages(
+    question: Question,
+    formatted_memory: str,
+) -> list[PromptMessage]:
+    """构造 unified reader 使用的 prompt messages。
+
+    主线 retrieve-first runner 用 framework reader 答题，prompt 由 framework 构造；
+    本方法为 bridge get_answer 与 metadata 记录提供一致口径。
+    """
+
+    return [
+        PromptMessage(role="system", content="You are a helpful assistant."),
+        PromptMessage(
+            role="user",
+            content=(
+                f"Question time:{question.question_time} and question:{question.text}\n"
+                "Please answer the question based on the following memories: "
+                f"{formatted_memory}"
+            )
+            if question.question_time
+            else f"Please answer the question based on the following memories: {formatted_memory}\nQuestion: {question.text}"
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------- #
+# 辅助函数
+# ---------------------------------------------------------------------- #
+
+
 def _resolve_speakers(conversation: Conversation) -> tuple[str, str]:
-    """解析 MemoryOS eval 所需的 speaker_a / speaker_b。"""
+    """解析 MemoryOS 所需的 speaker_a / speaker_b（LoCoMo 兼容）。"""
 
     speaker_a = _metadata_text(conversation.metadata.get("speaker_a"))
     speaker_b = _metadata_text(conversation.metadata.get("speaker_b"))
     if speaker_a and speaker_b:
         return speaker_a, speaker_b
-
     ordered_speakers: list[str] = []
     for session in conversation.sessions:
         for turn in session.turns:
@@ -1425,10 +1343,21 @@ def _resolve_speakers(conversation: Conversation) -> tuple[str, str]:
                 ordered_speakers.append(turn.speaker)
             if len(ordered_speakers) == 2:
                 return ordered_speakers[0], ordered_speakers[1]
-
     raise ConfigurationError(
         f"{conversation.conversation_id}: MemoryOS requires two speakers or speaker_a/speaker_b metadata"
     )
+
+
+def _turn_normalized_role(turn: Any) -> str | None:
+    """读取 turn 的归一化 role（user/assistant），未归一时返回 None。"""
+
+    role = getattr(turn, "normalized_role", None)
+    if role in {"user", "assistant"}:
+        return role
+    metadata_role = turn.metadata.get("role") if turn.metadata else None
+    if metadata_role in {"user", "assistant"}:
+        return metadata_role
+    return None
 
 
 def _turn_text_with_image_captions(turn: Any) -> str:
@@ -1454,43 +1383,116 @@ def _metadata_text(value: Any) -> str | None:
 def _safe_path_name(value: str) -> str:
     """把 conversation_id 转成安全目录名。"""
 
-    return "".join(character if character.isalnum() or character in "-_." else "_" for character in value)
+    return "".join(
+        character if character.isalnum() or character in "-_." else "_"
+        for character in value
+    )
+
+
+def _safe_user_id(conversation_id: str) -> str:
+    """把 conversation_id 转成 pypi Memoryos 的 user_id。
+
+    user_id 同时用作目录名（users/<user_id>）和 profile key，需路径安全且
+    避免特殊字符。复用 _safe_path_name。
+    """
+
+    return _safe_path_name(conversation_id) or "default_user"
 
 
 def _new_memoryos_run_id() -> str:
-    """生成 MemoryOS 默认状态目录使用的唯一 run id。
-
-    输入:
-        无。
-
-    输出:
-        str: 以 `run-` 开头的短 UUID，避免不同实例复用同一 JSON 状态。
-    """
+    """生成 MemoryOS 默认状态目录使用的唯一 run id。"""
 
     return f"run-{uuid.uuid4().hex[:12]}"
 
 
-_RETRYABLE_API_ERRORS = (
-    APITimeoutError,
-    APIConnectionError,
-    httpx.TimeoutException,
-    httpx.ConnectError,
-    httpcore.TimeoutException,
-    httpcore.ConnectError,
-    TimeoutError,
-    ConnectionError,
-)
+def _pypi_timestamp_now() -> str:
+    """返回 pypi 兼容的当前时间戳（与官方 get_timestamp 格式一致）。"""
+
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
 
-def _trim_long_term_capacity(long_memory: Any, capacity: int) -> None:
-    """限制长期知识容量，贴近论文中的 User KB / Agent Traits 容量。"""
+def _effective_question_text(question: Question) -> str:
+    """构造含可选时间上下文的有效问题文本。"""
 
-    if capacity <= 0:
+    if question.question_time:
+        return f"Question time: {question.question_time}. Question: {question.text}"
+    return str(question.text)
+
+
+def _elapsed_ms(started_ns: int) -> float:
+    """把 perf_counter_ns 起点转换为非负毫秒。"""
+
+    return max(0.0, (perf_counter_ns() - started_ns) / 1_000_000)
+
+
+def _count_openai_tokens(text: str, model_name: str) -> int:
+    """使用 OpenAI-compatible tokenizer 估算注入 LLM 的文本 token 数。"""
+
+    if not text:
+        return 0
+    return _TiktokenCounter(model_name).count_tokens(text)
+
+
+def _retry_wait_seconds(config: MemoryOSPaperConfig, failed_attempt_index: int) -> float:
+    """计算下一次 MemoryOS API 重试前的等待时间。"""
+
+    wait_seconds = config.api_retry_wait_seconds * (
+        config.api_retry_backoff_multiplier ** (failed_attempt_index - 1)
+    )
+    return min(wait_seconds, config.api_retry_max_wait_seconds)
+
+
+def _record_memoryos_llm_call(
+    collector: EfficiencyCollector | None,
+    *,
+    model: str,
+    messages: list[dict[str, Any]],
+    response: Any,
+    content: str,
+    config: MemoryOSPaperConfig,
+) -> None:
+    """记录 MemoryOS 通过 chat_completion 发出的 LLM 调用。"""
+
+    if collector is None or not collector.enabled:
         return
-    if len(long_memory.knowledge_base) > capacity:
-        long_memory.knowledge_base = long_memory.knowledge_base[-capacity:]
-    if len(long_memory.assistant_knowledge) > capacity:
-        long_memory.assistant_knowledge = long_memory.assistant_knowledge[-capacity:]
+    prompt_tokens, completion_tokens = extract_api_token_usage(getattr(response, "usage", None))
+    usage = resolve_token_usage(
+        api_input_tokens=prompt_tokens,
+        api_output_tokens=completion_tokens,
+        prompt_text=_messages_to_text(messages),
+        output_text=content,
+        tokenizer=_TiktokenCounter(model or config.llm_model),
+    )
+    collector.record_llm_call(
+        model_id=MEMORYOS_MEMORY_LLM_MODEL_ID,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        token_measurement_source=usage.source,
+    )
+
+
+def _messages_to_text(messages: list[dict[str, Any]]) -> str:
+    """把 OpenAI message list 拼成稳定纯文本，用于 tokenizer fallback。"""
+
+    parts: list[str] = []
+    for message in messages:
+        role = message.get("role")
+        content = message.get("content")
+        if role is not None:
+            parts.append(str(role))
+        if content is not None:
+            parts.append(str(content))
+    return "\n".join(parts)
+
+
+def _user_visible_prompt_text(messages: list[PromptMessage]) -> str:
+    """把 role messages 转成 bridge reader 使用的 prompt 文本。"""
+
+    if len(messages) == 1:
+        return messages[0].content
+    return "\n\n".join(
+        f"[{message.role}]\n{message.content}" for message in messages
+    )
 
 
 class _TiktokenCounter:
@@ -1519,376 +1521,55 @@ class _TiktokenCounter:
         return len(self._encoding.encode(text or ""))
 
 
-def _effective_question_text(question: Question) -> str:
-    """构造含可选时间上下文的有效问题文本。
-
-    LoCoMo 不含 question_time，返回原始文本。LongMemEval 的 question_time
-    会作为时间前缀拼接，供检索和回答 prompt 使用。
-    """
-
-    if question.question_time:
-        return f"Question time: {question.question_time}. Question: {question.text}"
-    return str(question.text)
+_RETRYABLE_API_ERRORS = (
+    APITimeoutError,
+    APIConnectionError,
+    TimeoutError,
+    ConnectionError,
+)
 
 
-def _normalize_category(category: object) -> str | None:
-    """把 question category 归一为非空字符串。"""
+def _validate_existing_pypi_state(state_dir: Path) -> None:
+    """校验 resume 所需的 pypi 状态目录结构。
 
-    if category is None:
-        return None
-    category_text = str(category).strip()
-    return category_text or None
-
-
-def _is_longmemeval_question(question: Question) -> bool:
-    """判断问题是否应使用 LongMemEval reader prompt。"""
-
-    if question.question_time:
-        return True
-    category = _normalize_category(question.category)
-    return category in LONGMEMEVAL_QUESTION_TYPES
-
-
-def _answer_prompt_profile_for_question(
-    question: Question,
-    longmemeval_prompt_profile: str = MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION,
-) -> str:
-    """返回当前 question 对应的 answer prompt profile 名称。"""
-
-    if _is_longmemeval_question(question):
-        return longmemeval_prompt_profile
-    return "memoryos_official_eval"
-
-
-def _elapsed_ms(started_ns: int) -> float:
-    """把 perf_counter_ns 起点转换为非负毫秒。"""
-
-    return max(0.0, (time.perf_counter_ns() - started_ns) / 1_000_000)
-
-
-def _count_openai_tokens(text: str, model_name: str) -> int:
-    """使用 OpenAI-compatible tokenizer 估算注入 LLM 的文本 token 数。"""
-
-    if not text:
-        return 0
-    return _TiktokenCounter(model_name).count_tokens(text)
-
-
-def _count_sentence_transformer_tokens(model: Any, text: str) -> int:
-    """使用 SentenceTransformer 自带 tokenizer 计算本地 embedding 输入 token。"""
-
-    tokenizer = getattr(model, "tokenizer", None)
-    if tokenizer is None:
-        raise ConfigurationError(
-            "MemoryOS embedding token counting requires a SentenceTransformer tokenizer"
-        )
-    encoded = tokenizer(text or "", add_special_tokens=True)
-    input_ids = _get_value(encoded, "input_ids")
-    if isinstance(input_ids, list):
-        if input_ids and isinstance(input_ids[0], list):
-            return len(input_ids[0])
-        return len(input_ids)
-    raise ConfigurationError("MemoryOS embedding tokenizer did not return input_ids")
-
-
-def _memoryos_retrieved_context_text(retrieval_result: dict[str, Any]) -> str:
-    """抽取 MemoryOS 最终回答阶段可见的检索记忆上下文文本。"""
-
-    parts: list[str] = []
-    for page in retrieval_result.get("retrieval_queue", []):
-        if isinstance(page, dict):
-            user_input = str(page.get("user_input") or "").strip()
-            agent_response = str(page.get("agent_response") or "").strip()
-            if user_input:
-                parts.append(user_input)
-            if agent_response:
-                parts.append(agent_response)
-        elif page is not None:
-            parts.append(str(page))
-    for knowledge in retrieval_result.get("long_term_knowledge", []):
-        if isinstance(knowledge, str):
-            text = knowledge.strip()
-        else:
-            text = json.dumps(knowledge, ensure_ascii=False, sort_keys=True)
-        if text:
-            parts.append(text)
-    return "\n".join(parts)
-
-
-def _build_memoryos_answer_prompt(
-    *,
-    question: Question,
-    query: str,
-    state: MemoryOSConversationState,
-    retrieval_result: dict[str, Any],
-    longmemeval_prompt_profile: str = MEMORYOS_LONGMEMEVAL_READER_PROMPT_VERSION,
-) -> tuple[list[PromptMessage], str, str]:
-    """按 MemoryOS 官方 eval prompt 逻辑构造完整 answer role messages。"""
-
-    speaker_a = state.speaker_a
-    speaker_b = state.speaker_b
-    history = state.short_memory.get_all()
-    history_text = "\n".join(
-        [
-            f"{speaker_a}: {qa.get('user_input', '')}\n"
-            f"{speaker_b}: {qa.get('agent_response', '')}\n"
-            f"Time: ({qa.get('timestamp', '')})"
-            for qa in history
-        ]
-    )
-
-    retrieval_queue = retrieval_result.get("retrieval_queue") or []
-    retrieval_text = "\n".join(
-        [
-            f"【Historical Memory】 {speaker_a}: {page.get('user_input', '')}\n"
-            f"{speaker_b}: {page.get('agent_response', '')}\n"
-            f"Time:({page.get('timestamp', '')})\n"
-            f"Conversation chain overview:({page.get('meta_info', '')})\n"
-            for page in retrieval_queue
-            if isinstance(page, dict)
-        ]
-    )
-
-    profile_obj = state.long_memory.get_user_profile(state.conversation_id)
-    user_profile_text = str(profile_obj.get("data", "None")) if profile_obj else "None"
-    background = f"【User Profile】\n{user_profile_text}\n\n"
-    for knowledge in retrieval_result.get("long_term_knowledge") or []:
-        if isinstance(knowledge, dict):
-            background += f"{knowledge.get('knowledge', '')}\n"
-        else:
-            background += f"{knowledge}\n"
-    background = re.sub(r"(?i)\buser\b", speaker_a, background)
-    background = re.sub(r"(?i)\bassistant\b", speaker_b, background)
-
-    assistant_knowledge = state.long_memory.get_assistant_knowledge()
-    assistant_knowledge_text = "【Assistant Knowledge】\n"
-    for knowledge in assistant_knowledge:
-        assistant_knowledge_text += (
-            f"- {knowledge.get('knowledge', '')} ({knowledge.get('timestamp', '')})\n"
-        )
-    assistant_knowledge_text = re.sub(r"\bI\b", speaker_b, assistant_knowledge_text)
-
-    system_prompt = (
-        f"You are role-playing as {speaker_b} in a conversation with the user is playing is  {speaker_a}. "
-        f"Here are some of your character traits and knowledge:\n{assistant_knowledge_text}\n"
-        f"Any content referring to 'User' in the prompt refers to {speaker_a}'s content, and any content referring to 'AI'or 'assiant' refers to {speaker_b}'s content."
-        f"Your task is to answer questions about {speaker_a} or {speaker_b} in an extremely concise manner.\n"
-        f"When the question is: \"What did the charity race raise awareness for?\", you should not answer in the form of: \"The charity race raised awareness for mental health.\" Instead, it should be: \"mental health\", as this is more concise."
-    )
-    user_prompt = (
-        f"<CONTEXT>\n"
-        f"Recent conversation between {speaker_a} and {speaker_b}:\n"
-        f"{history_text}\n\n"
-        f"<MEMORY>\n"
-        f"Relevant past conversations:\n"
-        f"{retrieval_text}\n\n"
-        f"<CHARACTER TRAITS>\n"
-        f"Characteristics of {speaker_a}:\n"
-        f"{background}\n\n"
-        f"the question is: {query}\n"
-        f"Your task is to answer questions about {speaker_a} or {speaker_b} in an extremely concise manner.\n"
-        f"Please only provide the content of the answer, without including 'answer:'\n"
-        f"For questions that require answering a date or time, strictly follow the format \"15 July 2023\" and provide a specific date whenever possible. For example, if you need to answer \"last year,\" give the specific year of last year rather than just saying \"last year.\" Only provide one year, date, or time, without any extra responses.\n"
-        f"If the question is about the duration, answer in the form of several years, months, or days.\n"
-        f"Generate answers primarily composed of concrete entities, such as Mentoring program, school speech, etc"
-    )
-    answer_context = "\n\n".join(
-        text
-        for text in (
-            history_text,
-            retrieval_text,
-            background,
-            assistant_knowledge_text,
-        )
-        if text.strip()
-    )
-    if _is_longmemeval_question(question):
-        if not question.question_time:
-            raise ConfigurationError(
-                "MemoryOS LongMemEval reader prompt requires question_time: "
-                f"{question.question_id}"
-            )
-        if longmemeval_prompt_profile == MEMORYOS_PYPI_GENERIC_READER_PROMPT_VERSION:
-            query_with_time = (
-                f"Question time:{question.question_time} and question:{question.text}"
-            )
-            meta_data_text = "\n".join(
-                item
-                for item in (
-                    f"Question time: {question.question_time}",
-                    f"Question type: {question.category}" if question.category else "",
-                )
-                if item
-            )
-            system_prompt = (
-                "As a communication expert with outstanding communication habits, "
-                f"you embody the role of {speaker_b} throughout the following dialogues.\n"
-                "Here are some of your distinctive personal traits and knowledge:\n"
-                f"{assistant_knowledge_text}\n"
-                "User's profile:\n"
-                f"{meta_data_text or 'None'}\n"
-                "Your task is to generate responses that align with these traits "
-                "and maintain the tone.\n"
-            )
-            user_prompt = (
-                "<CONTEXT>\n"
-                "Drawing from your recent conversation with the user:\n"
-                f"{history_text}\n\n"
-                "<MEMORY>\n"
-                "The memories linked to the ongoing conversation are:\n"
-                f"{retrieval_text or '(No relevant historical memories found)'}\n\n"
-                "<USER TRAITS>\n"
-                "During the conversation process between you and the user in the "
-                "past, you found that the user has the following characteristics:\n"
-                f"{background}\n\n"
-                f"Now, please role-play as {speaker_b} to continue the dialogue "
-                "between you and the user.\n"
-                f"The user just said: {query_with_time}\n"
-                "Please respond to the user's statement using the following format "
-                "(maximum 30 words, must be in English):\n "
-                "When answering questions, be sure to check whether the timestamp "
-                "of the referenced information matches the timeframe of the question"
-            )
-            prompt_messages = [
-                PromptMessage(role="system", content=system_prompt),
-                PromptMessage(role="user", content=user_prompt),
-            ]
-            answer_prompt = "\n\n".join(
-                f"[{message.role}]\n{message.content}" for message in prompt_messages
-            )
-            memory_context = "\n\n".join(
-                text
-                for text in (
-                    history_text,
-                    retrieval_text,
-                    background,
-                    assistant_knowledge_text,
-                )
-                if text.strip()
-            )
-            return prompt_messages, answer_prompt, memory_context
-
-        memory_sections = [
-            "<CONTEXT>\n"
-            f"Recent conversation between {speaker_a} and {speaker_b}:\n"
-            f"{history_text}",
-            "<MEMORY>\n"
-            "Relevant past conversations:\n"
-            f"{retrieval_text or '(No relevant historical memories found)'}",
-            "<CHARACTER TRAITS>\n"
-            f"Characteristics of {speaker_a}:\n"
-            f"{background}",
-            "<ASSISTANT KNOWLEDGE>\n"
-            f"{assistant_knowledge_text}",
-        ]
-        longmemeval_memory_context = "\n\n".join(
-            section for section in memory_sections if section.strip()
-        )
-        user_prompt = (
-            f"Question time:{question.question_time} and question:{question.text}\n"
-            "Please answer the question based on the following memories: "
-            f"{longmemeval_memory_context}"
-        )
-        prompt_messages = [
-            PromptMessage(role="system", content="You are a helpful assistant."),
-            PromptMessage(role="user", content=user_prompt),
-        ]
-        answer_prompt = "\n\n".join(
-            f"[{message.role}]\n{message.content}" for message in prompt_messages
-        )
-        return prompt_messages, answer_prompt, longmemeval_memory_context
-
-    prompt_messages = [
-        PromptMessage(role="system", content=system_prompt),
-        PromptMessage(role="user", content=user_prompt),
-    ]
-    answer_prompt = "\n\n".join(
-        f"[{message.role}]\n{message.content}" for message in prompt_messages
-    )
-    return prompt_messages, answer_prompt, answer_context
-
-
-def _memoryos_memory_context_payload_text(payload: dict[str, Any]) -> str:
-    """把官方 observer payload 转成最终 prompt memory context 计数文本。
+    pypi 状态目录：``users/<user_id>/{short_term,mid_term,long_term_user}.json``
+    + ``assistants/<assistant_id>/long_term_assistant.json``。构造 Memoryos 时
+    会 load 这些 JSON；这里只做最小存在性校验，避免 resume 一个空目录。
 
     输入:
-        payload: `main_loco_parse.generate_system_response_with_meta()` 在发送 LLM
-            前暴露的 memory context 字段。
+        state_dir: 单个 conversation 的 MemoryOS 状态目录（data_storage_path）。
 
-    输出:
-        str: 只包含记忆上下文，不包含最终 question 或通用指令。
+    异常:
+        ConfigurationError: 必需的 short_term.json 缺失或状态目录不存在。
     """
 
-    parts: list[str] = []
-    for field_name in (
-        "history_text",
-        "retrieval_text",
-        "user_profile_and_knowledge",
-        "assistant_knowledge",
-    ):
-        value = payload.get(field_name)
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            parts.append(text)
-    return "\n\n".join(parts)
-
-
-def _extract_usage_tokens(response: Any) -> tuple[int | None, int | None]:
-    """从 OpenAI-compatible response.usage 中提取 input/output token。"""
-
-    usage = _get_value(response, "usage")
-    if usage is None:
-        return None, None
-    prompt_tokens = _get_first_int(
-        usage,
-        ("prompt_tokens", "input_tokens"),
-    )
-    completion_tokens = _get_first_int(
-        usage,
-        ("completion_tokens", "output_tokens"),
-    )
-    return prompt_tokens, completion_tokens
-
-
-def _get_first_int(source: Any, field_names: tuple[str, ...]) -> int | None:
-    """按候选字段顺序读取第一个整数 token 值。"""
-
-    for field_name in field_names:
-        value = _get_value(source, field_name)
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
-    return None
-
-
-def _get_value(source: Any, field_name: str) -> Any:
-    """兼容 dict 和对象属性读取字段。"""
-
-    if isinstance(source, dict):
-        return source.get(field_name)
-    return getattr(source, field_name, None)
-
-
-def _messages_to_text(messages: list[dict[str, Any]]) -> str:
-    """把 OpenAI message list 拼成稳定纯文本，用于 tokenizer fallback。"""
-
-    parts: list[str] = []
-    for message in messages:
-        role = message.get("role")
-        content = message.get("content")
-        if role is not None:
-            parts.append(str(role))
-        if content is not None:
-            parts.append(str(content))
-    return "\n".join(parts)
+    if not state_dir.is_dir():
+        raise ConfigurationError(
+            f"MemoryOS existing state directory missing: {state_dir}"
+        )
+    # pypi 把 user_id 目录放在 users/ 下；user_id 由 conversation_id 派生。
+    # 这里不强校验 user_id 子目录名（避免与 _safe_user_id 耦合），只确认至少
+    # 有一个 users/<id>/short_term.json。
+    users_dir = state_dir / "users"
+    if not users_dir.is_dir():
+        raise ConfigurationError(
+            f"MemoryOS existing state missing users/ directory: {state_dir}"
+        )
+    short_term_files = list(users_dir.glob("*/short_term.json"))
+    if not short_term_files:
+        raise ConfigurationError(
+            f"MemoryOS existing state missing users/*/short_term.json: {state_dir}"
+        )
 
 
 def clean_memoryos_conversation_state(
     storage_root: str | Path,
     conversation_id: str,
 ) -> None:
-    """删除 MemoryOS 单个 conversation 的半写入状态目录。
+    """删除 MemoryOS 单个 conversation 的状态目录。
+
+    pypi 每 conversation 一个 data_storage_path 目录（含 users/ + assistants/），
+    删该目录即 clean-retry。
 
     输入:
         storage_root: 当前 run 的 MemoryOS method state 根目录。
@@ -1908,7 +1589,6 @@ def clean_memoryos_conversation_state(
 __all__ = [
     "MemoryOS",
     "MemoryOSAddEstimate",
-    "MemoryOSConversationState",
     "MemoryOSPaperConfig",
     "build_memoryos_source_identity",
     "clean_memoryos_conversation_state",
