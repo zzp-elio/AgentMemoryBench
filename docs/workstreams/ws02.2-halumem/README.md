@@ -20,8 +20,11 @@ created: 2026-07-08
   session 会漏。裁定加 **session 级 evaluator-private gold artifact**（memory_points
   + dialogue），T3 补写、T4 读（plan R1）。**R2** 用户提案"CLI 控 session 数 +
   smoke 覆盖三模式"采纳：加 `smoke_session_limit`+`--sessions`（替换 turn_limit
-  复用）；**第一手数据修正**：update 模式最早在第 4 个 session、覆盖三模式最小
-  前缀=5，故 `--sessions≥5`（架构师上轮"2 sessions"错、会漏 update）。详见
+  复用）；**最小 smoke = `--sessions 1`**（第一手：Medium user[0] session[0]
+  `n_mp=15`+`has_questions=True`+`n_update=0` → 1 session 跑通 extraction+QA，
+  这才是极小 smoke 真需求）；覆盖三模式是可选更大档（update 最早在第 4 个
+  session，用 `--sessions 4`）。**架构师二次自纠**：上上轮"2 sessions"、上轮
+  "≥5" 同一个错——把"覆盖三模式"(nice-to-have)当"最小 smoke"(真需求)。详见
   plan"架构师裁定第二轮"。下一批：T3 补 R1 artifact + R2 CLI session 控制 + T4
   三 evaluator + T5。
 - 2026-07-08（Codex，停工）：在 T4 三 evaluator 开工前遇到 plan 未覆盖的

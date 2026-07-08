@@ -71,13 +71,19 @@ evaluator 读它；QA evaluator 仍读 question 级私有标签。这是 T3 arti
   用户说得对，HaluMem 的自然裁剪单元是 session，给它一等 CLI 控制比复用
   turn_limit 语义清晰（后者对下一个读者是坑）。LoCoMo/LongMemEval 仍用
   `--rounds`(turn) 裁剪，忽略 `--sessions`。
-- **数据修正（架构师纠用户 + 纠自己上一轮）**：用户要"smoke 覆盖三模式"，但
-  第一手数据实测：**update 模式最早出现在第 4 个 session**（前 3 个只有
-  extraction+QA），全 20 user 覆盖三模式的最小前缀 = 4~5（max=5）。所以要覆盖
-  extraction+update+QA，`--sessions` 须 **≥5**（架构师上一轮随口说的"2
-  sessions"是错的，会漏 update 模式）。推荐 smoke：`--conversations 1
-  --sessions 5`。诚实代价：HaluMem 三模式 smoke（~5 sessions≈100 turns）necessarily
-  比 LoCoMo 的 40 turns 大——因为 update 模式的数据位置决定的，不是可调的。
+- **最小 smoke = `--sessions 1`（架构师二次自纠，2026-07-08 用户校正）**：
+  第一手扫 Medium user[0]：`session[0]` = `n_mp=15`（extraction 有）+
+  `has_questions=True`（QA 有）+ `n_update=0`。所以 **1 个 session 就跑通
+  extraction + QA 两段**，证明管线通——这才是"极小 smoke"的真需求（flow-through，
+  能否答对无所谓，用户 smoke 原则）。推荐最小 smoke：`--conversations 1
+  --sessions 1`。
+- **覆盖三模式是"可选的更大档"，非最小档**：update 模式最早出现在
+  `session[3]`（第 4 个），前 3 个只有 extraction+QA。若额外要点亮 update 段，
+  用 `--sessions 4`（挑 update 早出现的 user，如 Medium user[0] session[3]
+  `n_update=7`）。**架构师两次自纠**：上上轮"2 sessions"、上一轮"≥5"都犯了
+  同一个错——把"覆盖三模式"（nice-to-have）误当"最小 smoke"（真需求），且
+  `--sessions 1` 的第一手证据（session[0] 有 mp 有 question）当时没先看。用户
+  是对的：极小 smoke 先 session=1 试通，三模式覆盖另立一档。
 - HaluMem **不做** turn/round/question 级裁剪（用户定，架构师认同：operation-level
   的累积+session 中心语义下，切 turn 会破坏 session 完整性、切 question 无意义）。
 
@@ -152,7 +158,10 @@ $ uv run pytest -q
   **每 user 前 M 个整 session**（不切断 session，保 operation-level 累积语义），
   M 由 smoke 参数驱动（reinterpret `smoke_turn_limit` 为"每 user 最大 session
   数"，docstring 写清；或加 `smoke_session_limit` 字段——actor 择一，倾向前者
-  免 CLI 改动，拿不准停工上报）。目标：2 users × 2 sessions 即可点亮三段。
+  免 CLI 改动，拿不准停工上报）。**注：本条 smoke 参数方案已被下方"第二轮
+  R2"取代**——定案为加一等 `smoke_session_limit`+`--sessions`（HaluMem 专用），
+  最小 smoke `--sessions 1`（跑通 extraction+QA），不是这里旧写的"2 sessions
+  点亮三段"（2 sessions 到不了 update，见 R2 第一手数据修正）。
 
 这两项并入 actor 下一批（与 T3 同批 re-touch T1）。
 
@@ -234,10 +243,14 @@ $ uv run pytest -q
    `purpose="memory_update_probe"`；不经公开 Conversation。
 5. **update 探针无写副作用契约**（D1 兜底）：断言 update 探针 `retrieve` 前后
    provider 记忆状态不变（对 fake provider 记录的写调用计数断言）。
-6. artifact：extraction 复用 `session_memory_reports.jsonl`；新增
-   `update_probe_results.jsonl`（session_ref + gold memory index +
+6. artifact：extraction 复用 `session_memory_reports.jsonl`（provider 报告）；
+   新增 `update_probe_results.jsonl`（session_ref + gold memory index +
    memories_from_system + duration）；QA 复用 `method_predictions.jsonl`。
-   manifest `protocol_version=v3`/`prompt_track=unified`。
+   manifest `protocol_version=v3`/`prompt_track=unified`。**⚠ R1 补充（见文末
+   任务卡）**：还须新增 **evaluator-private** `evaluator_private_session_labels
+   .jsonl`（session gold memory_points + dialogue，method-agnostic），T4
+   extraction/update evaluator 读它——这是本步在 R1 裁定后的追加，别只写
+   provider 报告。
 7. resume：单元=user（conversation 级），沿用既有 checkpoint 状态机；不做
    session 级断点。复用既有隔离键派生、原子写、efficiency 观测。
 
@@ -390,3 +403,60 @@ ws02 README 矩阵表（HaluMem 列点亮为 adapter 就绪待 smoke）、ws02.2
   跨多个 actor 会话接力；每个 actor 上工先读本 plan"当前进度"（勾选状态）。
 - 做不对可迭代（用户 2026-07-08："一次性作为，做不对也没关系，可后续再改"）——
   但每个 task 的验收门（测试全绿 + 基线不跌）不可跳过。
+
+## 下一批 actor 任务卡（架构师 Opus 4.8 2026-07-08 签发；Codex 从这里接）
+
+> 这张卡是下一批的**唯一权威入口**，凡与上文 T3 步骤6 / T4 步骤3 的旧措辞冲突，
+> 以本卡为准（那两处是 R1 裁定前写的，未并入 session 私有 artifact）。
+
+**先解 Codex 停工的二选一 —— R1 裁定（决定性，非提案）：新增
+evaluator-private session artifact，不走 report metadata。**
+
+裁定 = **Option A**。operation-level runner 新增 `evaluator_private_session_labels
+.jsonl`，每个 `is_generated_qa_session==False` 的 session 一条：
+
+```
+{conversation_id, session_id,
+ memory_points: [<该 session 全部 gold memory point，私有>],
+ dialogue:      [<该 session 的公开 turns，供 accuracy judge 的 dialogue_str>]}
+```
+
+- **写入方 = runner**（它已逐 session 迭代）；gold 从私有 Conversation 取（与既有
+  question 级 `evaluator_private_labels.jsonl` **同一取 gold 路径**，method 永不
+  可见），dialogue 用公开 turns。**method-agnostic**：不管 provider 有没有
+  extraction 能力都写（gold 来自数据集，不依赖 method 是否产报告）。
+- **为何不选 Option B（report metadata 携带 gold）**：① `session_memory_reports
+  .jsonl` 是 provider 产出物（方法抽了什么），塞进 benchmark gold = 混淆两种
+  数据来源，违背四层隐私"gold 不进任何 method-邻接物"的精神；② N/A method 没
+  report（`report=None`），但那 491 个无 question session 的 gold 必须存在才能
+  算 extraction 分母——gold 挂在 method-依赖、可能为 None 的 report 上是脆的；
+  ③ 已有 question 级私有标签先例，加一个 session 级私有标签文件是同机制、同发现
+  路径，evaluator 统一从私有标签文件读 gold。
+
+**批次顺序（一个 actor 会话可接力，每步验收门不可跳）：**
+
+1. **T3-patch（R1 artifact）**：runner 写 `evaluator_private_session_labels.jsonl`
+   （上述 schema，非 generated session 全写，method-agnostic）。测试锁：491-类
+   session（有 mp 无 question）也进该 artifact、公开 conversation 仍过
+   `validate_no_private_keys`。
+2. **R2（CLI session 控制，HaluMem 专用）**：加 `smoke_session_limit` 到
+   `BenchmarkLoadRequest` + `--sessions` 旗标；HaluMem smoke 取每 user 前 M
+   连续 session。**替换** T1-retouch 的"复用 smoke_turn_limit 当 session 数"。
+   **最小 smoke = `--sessions 1`（跑通 extraction+QA，第一手 session[0]
+   `n_mp=15`+`has_questions=True` 证据），不是旧写的 ≥5**。HaluMem 忽略
+   `--rounds`；LoCoMo/LME 忽略 `--sessions`——**传错轴要明确报错，别静默**。
+3. **T4（三 evaluator）**：extraction/update evaluator 读 R1 session artifact 取
+   gold memory_points + dialogue_str；QA evaluator 读 question 级私有标签。聚合
+   口径**逐行照 T4"第一手口径补充"块 + `evaluation.py`**（integrity/update
+   互斥路由、0.5 因子、FMR、F1、dialogue_str 格式、排除 interference）。judge
+   用 fake client 离线测。
+4. **T5（逐 method extraction）**：Mem0 实现 session 增量报告（HaluMem 下粒度
+   特化 session）；SimpleMem/其余默认 N/A（不覆写 end_session），机制卡记裁定+
+   证据。
+5. **T6 fake 全链路 smoke** + **T7 收尾**。
+
+**纪律（每 actor 会话开工必读）**：① 一手源 = 第三方仓库代码 + 真实数据，调研卡
+二手可疑，口径拿不准去 `evaluation.py` 逐行核；② 遇 plan 未覆盖的事实缺口 →
+停工上报，别硬编（你这次 R1 停**对了**）；③ 不改 `third_party/`；④ 不自动
+commit；⑤ 基线 ≥831 不跌破，每 task focused 测试全绿是硬门；⑥ 私有 gold 只走
+evaluator-private artifact，公开 conversation 过私钥扫描。

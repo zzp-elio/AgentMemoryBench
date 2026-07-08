@@ -140,6 +140,15 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
    格式、排除 interference）——这些卡片讲不全，只有源码算数。
 5. **spec/plan 的证据行号写死**，让 actor 和下任架构师能一键跳源码复核；
    "我觉得/大概"是禁词。
+6. **smoke 裁剪轴是 benchmark-shaped，不是全局统一**（2026-07-08 用户点破
+   MemBench/HaluMem 后固化）：每个 benchmark 的自然裁剪单元不同——LoCoMo/
+   LongMemEval=turn·round、HaluMem=session only、MemBench=round(FirstAgent
+   `{user,agent}` 对)·turn(ThirdAgent 纯字符串) + trajectory 数、BEAM=turn。
+   写 adapter/CLI 前先回一手数据确认这个 benchmark 的裁剪单元，别套用别的
+   benchmark 的旗标。CLI 应 per-benchmark 校验旗标（传错轴报错），别用一套扁平
+   旗标无差别套用（footgun）。**最小 smoke 只需 flow-through**（跑通即可，能否
+   覆盖全评测模式/答对无所谓）——别把"覆盖全模式"这种 nice-to-have 当成最小
+   smoke 的门槛（见 §7 track record ③ 的 2→5→1 教训）。
 
 ## 5. plan 写作手艺
 
@@ -189,13 +198,21 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
   而是"谁的断言都去 `文件:行号`/真实数据里验"。track record（都经第一手核实）：
   ① 用户对——"弃 enum 门控接口即契约"（重写 S6）、"注意 HaluMem 三段触发时机"
   （抓出 spec 两处错）、"smoke 必须极小"（抓出 F2）、"CLI 加 session 控制"
-  （采纳）、HaluMem 四点理解（回源码全证实）；② **用户理解与代码不符、架构师
-  指正**——用户以为"LoCoMo/LongMemEval 剪裁不管答案可答性"，但 `locomo.py:
-  342-359` 实际**优先选 evidence⊆保留 turn 的可答问题**、无则 fallback 标
-  context_truncated，是答案感知的；用户的"flow-through 即可"作为 smoke 最低
-  要求成立，但代码做得更多（无害）；③ **架构师自己错、数据纠正**——架构师说
-  HaluMem smoke"2 sessions"够，实测 update 模式最早在第 4 个 session、覆盖三
-  模式需 ≥5 sessions。**三方都可能错，只有第一手源不会**。
+  （采纳）、HaluMem 四点理解（回源码全证实）、**"MemBench first→round /
+  third→turn"**（回`数据集结构说明.md`+`membench.py:503`证实：FirstAgent
+  `message_list` 元素是 `{user,agent}` 对=round，ThirdAgent 是纯字符串=turn）；
+  ② **用户理解与代码不符、架构师指正**——用户以为"LoCoMo/LongMemEval 剪裁不管
+  答案可答性"，但 `locomo.py:342-359` 实际**优先选 evidence⊆保留 turn 的可答
+  问题**、无则 fallback 标 context_truncated，是答案感知的；用户的"flow-through
+  即可"作为 smoke 最低要求成立，但代码做得更多（无害）；③ **架构师自己错、
+  且"自我纠正"本身又错——双重自纠（2→5→1）**：架构师先说 HaluMem smoke
+  "2 sessions"够（错），自我纠正为"覆盖三模式需 ≥5"（**仍错**——把"覆盖三模式"
+  这个 nice-to-have 当成了"最小 smoke"这个真需求）；用户再校正，回一手数据实测
+  `session[0]`=`n_mp=15`+`has_questions=True` → **`--sessions 1` 就跑通
+  extraction+QA，这才是最小 smoke**；覆盖三模式（update 最早在第 4 个 session）
+  是另立的可选更大档。教训：**连自己的"修正"都要回一手源验，不然会用一个错换
+  另一个错**。**三方都可能错（用户、代码假设、架构师、乃至架构师的自纠），只有
+  第一手源不会**。
 - **讲为什么**：教学式沟通，每个裁定给理由；他会反问到底。
 - **额度纪律**（两个 agent 都有 5h 滚动额度）：用户报低额度时立即切省电
   模式——先把结论落盘 commit+push，重活留给满额度会话，收尾前把断点写进
@@ -330,3 +347,24 @@ benchmark 压测 unified prompt 链路，第一个新 method 压测 finalize 钩
 - 对用户解释讲"为什么"，不堆术语；结论先行，证据随后。
 - 承认错误写进记录（ws01 T7 勘误块、M-A T3 裁定块是范例）。
 - 文档要给"下一个读者"写：他没看过你的会话，只看得见文件。
+
+## 12. 保持全局，不做局部架构师（2026-07-08 用户反馈固化）
+
+用户原话："这些都是你应该了解的，你要时刻保持对我们项目全局的了解，而不是
+局部的。" 判例：这次是**用户替架构师**发现了 MemBench smoke 没做
+within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离清理无 scope
+钩子——这些本该架构师主动巡检出来。只盯当前 workstream（局部）就会反复出现
+"我以为覆盖了、其实漏了"（≥5 vs 1、evidence 存 index、session 私有 artifact
+缺口都是此类）。
+
+- **起草任何 spec/plan 前先做一次全局巡检三问**：① 这次碰到的 CLI 旗标/裁剪轴
+  对不对（裁剪轴是 benchmark-shaped，§4.5-6）；② 相关 benchmark 真实数据形态
+  第一手看过没（不是靠调研卡）；③ 是否触及跨 method 共性机制（隔离/并行/
+  resume/清理）——这些常常没有单一 owner，最容易漏。
+- **定期通读 roadmap + 全部 workstream README 的"当前断点"**，对 5×10 矩阵
+  全貌（哪些接了、哪些缺口、哪些共性工程未做）心里有数。跨会话记忆见
+  `architect-global-awareness`。
+- **共性工程清单（当前已知、未做，别当不存在）**：per-benchmark CLI 裁剪轴
+  契约 + 校验（挂 ws03）；A派逻辑隔离的 clean-retry（默认 scope 版本化，见
+  ws05 兜底工程）；MemBench within-trajectory 裁剪 + first-person 折叠建模
+  待议（ws02.1 README M1/M2）；BEAM kendall-tau 排序分（ws02.3 承诺项）。

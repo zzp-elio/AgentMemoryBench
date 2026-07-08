@@ -144,12 +144,14 @@ llm_judge_score（:396-433）。
   conversation_plan/user_questions/narratives 是数据生成元信息，默认不进
   method（对齐调研卡，若做 profile-aware 特殊 profile 另行显式留痕）。
 - **D5（架构师定）judge 模型**：gpt-4o-mini，标注非论文严格复现。
-- **D6（待用户/架构师）event_ordering 排序分是否 v1 纳入**：官方
-  event_ordering = kendall-tau 排序分 + rubric judge 双分量。排序分需额外
-  fact-extraction LLM + 对齐，较重。**架构师推荐**：v1 先做全 10 能力统一
-  rubric judge（含 event_ordering 的 llm_judge_score），kendall-tau 排序分作
-  **标注的增强项**（plan 里列为可选 task，成本/复杂度评估后决定），不阻塞
-  BEAM 列点亮。请用户认可此裁剪或要求 v1 全做。
+- **D6（已决，2026-07-08 用户认可推荐）event_ordering 排序分 v1 defer、但列为
+  承诺项**：官方 event_ordering = kendall-tau 排序分 + rubric judge 双分量。
+  排序分需额外 fact-extraction LLM + 对齐，较重。**定案**：v1 先做全 10 能力统一
+  rubric judge（含 event_ordering 的 llm_judge_score），kendall-tau 排序分
+  **defer 到 v2**——但**是承诺项（committed follow-up），不是可选项**（用户
+  明确"别忘记后续把 kendall-tau 排序加上"）。plan 须把它列成一条独立的、有
+  明确触发条件（v1 smoke 跑通后）的 backlog task，并在 BEAM README 长期挂账，
+  防止日后当"可选"被砍。此裁剪不阻塞 BEAM 列点亮。
 
 ## S6 非目标
 
