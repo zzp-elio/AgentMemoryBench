@@ -5,6 +5,9 @@ from __future__ import annotations
 import pytest
 
 from memory_benchmark.core import ConfigurationError
+from memory_benchmark.evaluators.beam_rubric_judge import (
+    BeamRubricJudgeEvaluator,
+)
 from memory_benchmark.evaluators.longmemeval_judge import (
     LongMemEvalJudgeEvaluator,
 )
@@ -29,6 +32,7 @@ def test_registry_lists_only_currently_supported_unified_metrics() -> None:
     """统一入口应列出当前已装配的 LoCoMo 与 LongMemEval 指标。"""
 
     assert list_metrics() == [
+        "beam-rubric-judge",
         "halumem-extraction",
         "halumem-qa",
         "halumem-update",
@@ -171,3 +175,33 @@ def test_unknown_metric_is_rejected_before_evaluator_construction() -> None:
 
     with pytest.raises(ConfigurationError, match="Unknown metric"):
         get_evaluator_registration("bleu")
+
+
+def test_beam_rubric_judge_registration_requires_api_and_beam_only() -> None:
+    """BEAM rubric judge 应声明 API 成本，并限制在 beam benchmark。"""
+
+    registration = get_evaluator_registration("beam-rubric-judge")
+
+    assert registration.metric_name == "beam_rubric_judge"
+    assert registration.supported_benchmarks == frozenset({"beam"})
+    assert registration.requires_api is True
+    assert registration.profile_names == frozenset({"compact", "detailed"})
+    assert registration.profile_relative_path is not None
+
+    evaluator = create_evaluator(
+        "beam-rubric-judge",
+        benchmark_name="beam",
+        profile_name="detailed",
+        model="gpt-4o-mini",
+        client=object(),
+    )
+    assert isinstance(evaluator, BeamRubricJudgeEvaluator)
+    assert evaluator.mode == "detailed"
+    assert evaluator.model == "gpt-4o-mini"
+
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator(
+            "beam-rubric-judge",
+            benchmark_name="locomo",
+            profile_name="compact",
+        )

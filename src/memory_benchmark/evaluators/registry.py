@@ -15,6 +15,7 @@ from memory_benchmark.config import load_path_settings
 from memory_benchmark.config.profiles import load_typed_profile
 from memory_benchmark.core import ConfigurationError
 
+from .beam_rubric_judge import BeamRubricJudgeEvaluator
 from .halumem_extraction import HalumemExtractionEvaluator
 from .halumem_qa import HalumemQAEvaluator
 from .halumem_update import HalumemUpdateEvaluator
@@ -51,6 +52,25 @@ class EvaluatorRegistration:
     profile_relative_path: Path | None
     config_type: type[Any] | None
     factory: EvaluatorFactory
+
+
+def _build_beam_rubric_judge(
+    *,
+    profile_name: str,
+    model: str | None = None,
+    client: Any | None = None,
+    project_root: str | None = None,
+    env_file: str | None = None,
+) -> BeamRubricJudgeEvaluator:
+    """按已验证 profile 构造 BEAM rubric judge。"""
+
+    return BeamRubricJudgeEvaluator(
+        mode=profile_name,
+        model=model,
+        client=client,
+        project_root=project_root,
+        env_file=env_file,
+    )
 
 
 def _build_locomo_f1(**_: Any) -> LoCoMoF1Evaluator:
@@ -161,6 +181,16 @@ def _build_halumem_qa(
 
 
 _REGISTRATIONS = {
+    "beam-rubric-judge": EvaluatorRegistration(
+        cli_name="beam-rubric-judge",
+        metric_name="beam_rubric_judge",
+        supported_benchmarks=frozenset({"beam"}),
+        requires_api=True,
+        profile_names=frozenset({"compact", "detailed"}),
+        profile_relative_path=Path("configs/evaluators/llm_judge.toml"),
+        config_type=LLMJudgeProfileConfig,
+        factory=_build_beam_rubric_judge,
+    ),
     "halumem-extraction": EvaluatorRegistration(
         cli_name="halumem-extraction",
         metric_name="halumem_extraction",
