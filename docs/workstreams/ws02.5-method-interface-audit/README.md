@@ -87,3 +87,34 @@ LangMem/Supermemory）逐个核：
 - [ ] 产出 method 接口文档（注入 + 检索）
 - [ ] 对用了 benchmark 专用实现的 adapter 评估并迁移到通用接口
 - [ ] formatted_memory 全路径完整落盘核对
+
+## MemoryOS 版本裁定（架构师第一手，2026-07-08）
+
+第一手对比 `third_party/methods/MemoryOS-main/` 各版本目录 + README：
+
+- **核心算法在 pypi 与 chromadb 之间一致**：两者核心文件完全相同（`short_term.py`
+  / `mid_term.py` / `long_term.py` / `memoryos.py` / `retriever.py` / `updater.py`
+  / `prompts.py`），`memoryos-chromadb` 只多一个 `storage_provider.py`（把存储
+  后端换成 ChromaDB 向量库）。**同算法、不同存储后端。**
+- **mcp 不是另一套引擎**：`memoryos-mcp/` 只有 `server_new.py`——把引擎包成
+  MCP Server 对外暴露的**服务层**，供 agent 客户端调用。
+- **eval/ 是第三个变体**（研究评测代码，自带 LoCoMo 数据），我们现在的 adapter
+  包的就是它（LoCoMo 主场版，本 workstream 要迁走）。
+
+**裁定：用 `memoryos-pypi`（通用产品），不用 mcp / chromadb / eval。四条理由**
+（此裁定与用户初步倾向的 chromadb/mcp 不同，架构师据第一手给出）：
+
+1. **mcp 排除**：server/协议层，为 agent 客户端集成而设；我们框架在进程内把
+   method 当 Python 库调，用 MCP 要起服务 + 协议往返，纯增复杂度、搅乱隔离/resume。
+2. **chromadb 排除（留作后备）**：同算法但多 ChromaDB 依赖 + 需跑向量库；而我们
+   每个 conversation 是**小的物理隔离存储**，pypi 的文件式存储（短/中/长期 JSON
+   + 内存 FAISS）更适合——**每 conversation 一个目录 = 最简物理隔离 + 删目录即
+   clean-retry**。ChromaDB 的可扩展持久向量库是生产规模优点，对我们的小隔离空间
+   是过度设计。将来若要逻辑隔离的 scoped-delete，再回头考虑 chromadb。
+3. **pypi 最具代表性**：`pip install memoryos` 得到的就是它，符合本 workstream
+   "用通用产品接口"的公平原则。
+4. **依赖最少、最可复现。**
+
+**迁移前必做（写任务、串行占据，非本裁定范围）**：pypi 引擎与现 adapter 包的
+eval/ 引擎是两套代码——先 diff 两者算法差异 + 确认 pypi `Memoryos` 的 add/
+retrieve 签名（进接口文档）。本裁定只定"用哪个版本"，迁移工程另派。
