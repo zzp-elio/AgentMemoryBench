@@ -87,8 +87,11 @@ LangMem/Supermemory）逐个核：
   （F1 解决），删自复刻 `_cosine_similarity`。**Step1 等价 gate 我复核结构成立**
   （retrieve==search 包一层），数值等价采信 actor 记录的详细 diff（未独立重演
   cosine 数值）。**残留（非阻塞）**：若将来用到 `boundmem_tags`，adapter 须补
-  `filter_by_tags`（当前 benchmark 不用）。**下一步**：MemoryOS eval→pypi（架构师
-  写 plan 中）；接口文档汇总；P2 A-Mem 文档留痕。
+  `filter_by_tags`（当前 benchmark 不用）。**下一步**：MemoryOS eval→pypi 迁移
+  ——**plan 已产出** [plan-memoryos-migration.md](plan-memoryos-migration.md)
+  （架构师第一手：pypi Memoryos 文件式隔离 + add_memory pair 注入 + **从
+  get_response 剥离纯检索、全层 formatted_memory、无写副作用**），待派 actor
+  （写任务串行）；接口文档汇总；P2 A-Mem 文档留痕。
 - 2026-07-08（actor workbuddy+GLM5.2，完成 P1 迁移）：LightMem 统一 retrieve。
   Step1 gate 通过（自复刻 `_retrieve_locomo_memories` get_all+手算cosine vs
   官方 `VectorRetriever.retrieve` retrievers.py:111-132 逐行等价：候选集同
