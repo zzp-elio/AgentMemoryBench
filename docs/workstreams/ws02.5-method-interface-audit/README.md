@@ -83,9 +83,9 @@ LangMem/Supermemory）逐个核：
 ## 任务清单
 
 - [x] 架构师建档 + 裁决（2026-07-08）
-- [ ] 逐 method 接口审计（Mem0/MemoryOS/A-Mem/LightMem/SimpleMem）
-- [ ] 产出 method 接口文档（注入 + 检索）
-- [ ] 对用了 benchmark 专用实现的 adapter 评估并迁移到通用接口
+- [x] 逐 method 接口审计（2026-07-08，Mem0/A-Mem/LightMem/SimpleMem by workbuddy+GLM5.2；MemoryOS by 架构师）+ 架构师验收裁定（见上表）
+- [ ] 产出 method 接口文档（注入 + 检索）— 可由 4 份 audit-*.md 汇总
+- [ ] 迁移/修复（写任务串行）：P0 SimpleMem 补字段 / P1 MemoryOS eval→pypi / P1 LightMem 统一 retrieve / P2 A-Mem 文档留痕
 - [ ] formatted_memory 全路径完整落盘核对
 
 ## MemoryOS 版本裁定（架构师第一手，2026-07-08）
@@ -118,3 +118,35 @@ LangMem/Supermemory）逐个核：
 **迁移前必做（写任务、串行占据，非本裁定范围）**：pypi 引擎与现 adapter 包的
 eval/ 引擎是两套代码——先 diff 两者算法差异 + 确认 pypi `Memoryos` 的 add/
 retrieve 签名（进接口文档）。本裁定只定"用哪个版本"，迁移工程另派。
+
+## 四 method 审计验收 + 架构师逐条裁定（2026-07-08）
+
+actor = workbuddy+GLM5.2（四开会话并行）。**架构师逐份回第一手核对引用行号**
+（不因详尽就信）。审计原文见同目录 `audit-<method>.md`。
+
+| method | 审计结论 | 架构师验收 | 裁定 |
+|---|---|---|---|
+| **Mem0** | 通用 `Memory` 类，纯 search，零迁移 | 结论对（adapter 用 `search()` :876/882 + `add()`）；**但 actor 论据"Memory 无 answer 方法"有误**——Memory **有** `chat()`（`mem0-main/.../main.py:1791`），只是 adapter 没用它 | **不动**（合规） |
+| **LightMem** | LoCoMo 路径自复刻 benchmark 专用检索，LongMemEval 用官方 retrieve | 属实（adapter:1018 docstring 自认"复刻 `search_locomo.py` combined vector search"） | **迁移**：统一走官方 `retrieve()`（扩展其返回 payload 以支持 speaker 分组），消除 benchmark 专用借用 + 解决 F1（两路径返回类型不一）。迁移前先 diff 确认 actor 声称的"逐行等价"（等价=清理；不等价=纠错） |
+| **A-Mem** | 用论文复现包 `RobustAgenticMemorySystem`，非产品库 `A-mem-sys` | 属实（`A-mem/README:3-5` 明写"本仓库为复现论文，用请去 A-mem-sys"）；**关键区别**：复现引擎 **benchmark 无关**（无 LoCoMo 调优，adapter 没碰 LoCoMo 专用文件）→ **无 MemoryOS 那种主场优势问题** | **暂保持现状**：复现引擎忠于 A-Mem 算法、无公平问题、迁 A-mem-sys 成本中高（换引擎 + ChromaDB 依赖）。文档记明"用 A-Mem 论文复现包"；低优先 follow-up：核 A-mem-sys 产品算法是否有别 |
+| **SimpleMem** | 接口合规；F1：formatted_memory 只拼 2/6 字段 | F1 属实（`_format_simplemem_memory` 只取 `timestamp`+`lossless_restatement`，丢 Symbolic 层 location/persons/entities/topic） | **修**：unified 主线口径下会丢记忆 → formatted_memory 补全 6 字段（小改，高优先） |
+| **MemoryOS** | （架构师自审，见上节） | — | **迁移** eval/ → pypi |
+
+**迁移/修复清单（写任务，串行占据；按优先级）**：
+
+- **P0** SimpleMem：formatted_memory 补 4 个 Symbolic 字段（unified 主线必需，小改）。
+- **P1** MemoryOS：eval/ → pypi（大，先 diff 两引擎）。
+- **P1** LightMem：LoCoMo 统一走官方 retrieve（先验"逐行等价"）+ 统一两路径返回类型（F1）。
+- **P2** A-Mem：保持现状 + 文档留痕；低优先核 A-mem-sys 产品。
+- Mem0：不动。
+
+**接口保真总账**：5 个 method 中 Mem0 一开始就对；SimpleMem 接口对但 formatted_memory
+不全；LightMem 一条路径有 benchmark 专用借用；A-Mem 用复现包但无公平问题；
+MemoryOS 用 LoCoMo 主场副本要迁。**只有 MemoryOS 是真"主场优势"问题**，其余是
+不同程度的清理/补全。
+
+**Actor 表现评估（workbuddy+GLM5.2）**：审计能力强——详尽、行号翔实、能区分
+微妙点（A-Mem 复现引擎 benchmark 无关 vs MemoryOS eval/ 耦合；SimpleMem 三视图
+≠ 三记忆层）、抓出真 gap（SimpleMem F1、LightMem 偏离）。**扣分项**：Mem0"无
+answer 方法"论据说过头（结论对、证据错）。**结论**：可承接写任务（如迁移工程），
+但与所有 actor 一样需架构师严格 review。
