@@ -15,7 +15,7 @@ from time import perf_counter
 from typing import Any, Callable
 
 from memory_benchmark.benchmark_adapters.contracts import RunScope
-from memory_benchmark.core import AnswerPromptResult, AnswerResult, Conversation, Dataset, Question
+from memory_benchmark.core import AnswerPromptResult, AnswerResult, Conversation, Dataset, Question, Session
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.provider_protocol import (
     MemoryProvider,
@@ -434,11 +434,21 @@ def _write_operation_input_artifacts(
     paths: ExperimentPaths,
     conversations: list[Conversation],
 ) -> None:
-    """写入公开 question 和 evaluator-only private labels。"""
+    """写入公开 question 与 evaluator-only 私有标签。"""
 
     public_questions: list[dict[str, Any]] = []
     private_labels: list[dict[str, Any]] = []
+    private_session_labels: list[dict[str, Any]] = []
     for conversation in conversations:
+        for session in conversation.sessions:
+            if session.private_metadata.get("is_generated_qa_session") is True:
+                continue
+            private_session_labels.append(
+                _evaluator_private_session_label_record(
+                    conversation_id=conversation.conversation_id,
+                    session=session,
+                )
+            )
         for question in conversation.questions:
             public_question = _make_public_question(question)
             public_questions.append(public_question_record(public_question))
@@ -449,6 +459,28 @@ def _write_operation_input_artifacts(
                 )
     atomic_write_jsonl(paths.public_questions_path, public_questions)
     atomic_write_jsonl(paths.evaluator_private_labels_path, private_labels)
+    atomic_write_jsonl(
+        paths.evaluator_private_session_labels_path,
+        private_session_labels,
+    )
+
+
+def _evaluator_private_session_label_record(
+    *,
+    conversation_id: str,
+    session: Session,
+) -> dict[str, Any]:
+    """构造 HaluMem session 级 evaluator-only gold 记录。"""
+
+    memory_points = session.private_metadata.get("memory_points")
+    if not isinstance(memory_points, list):
+        memory_points = []
+    return {
+        "conversation_id": conversation_id,
+        "session_id": session.session_id,
+        "memory_points": list(memory_points),
+        "dialogue": [turn.to_dict() for turn in session.turns],
+    }
 
 
 def _write_operation_output_artifacts(

@@ -439,6 +439,19 @@ evaluator-private session artifact，不走 report metadata。**
    （上述 schema，非 generated session 全写，method-agnostic）。测试锁：491-类
    session（有 mp 无 question）也进该 artifact、公开 conversation 仍过
    `validate_no_private_keys`。
+
+   执行记录（2026-07-08，Codex）：
+
+   ```text
+   $ uv run pytest tests/test_operation_level_runner.py -q
+   ...                                                                      [100%]
+   3 passed in 0.35s
+   ```
+
+   ```text
+   $ uv run pytest -q
+   831 passed, 3 deselected, 2 warnings, 6 subtests passed in 107.92s (0:01:47)
+   ```
 2. **R2（CLI session 控制，HaluMem 专用）**：加 `smoke_session_limit` 到
    `BenchmarkLoadRequest` + `--sessions` 旗标；HaluMem smoke 取每 user 前 M
    连续 session。**替换** T1-retouch 的"复用 smoke_turn_limit 当 session 数"。

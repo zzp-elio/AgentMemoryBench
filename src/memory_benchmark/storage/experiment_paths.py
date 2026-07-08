@@ -142,6 +142,12 @@ class ExperimentPaths:
         return self.artifacts_dir / "evaluator_private_labels.jsonl"
 
     @property
+    def evaluator_private_session_labels_path(self) -> Path:
+        """返回 evaluator-only session 级私有标签 JSONL 路径。"""
+
+        return self.artifacts_dir / "evaluator_private_session_labels.jsonl"
+
+    @property
     def prediction_model_inventory_path(self) -> Path:
         """返回 prediction 阶段模型清单路径。"""
 

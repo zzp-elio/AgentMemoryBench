@@ -16,6 +16,7 @@ from memory_benchmark.benchmark_adapters.halumem import (
     build_halumem_unified_answer_prompt,
 )
 from memory_benchmark.core import Conversation, Dataset, GoldAnswerInfo, Question, Session, Turn
+from memory_benchmark.core.validators import validate_no_private_keys
 from memory_benchmark.core.provider_protocol import (
     IngestResult,
     MemoryProvider,
@@ -165,6 +166,29 @@ def _operation_dataset(*, include_generated_question: bool = True) -> Dataset:
             },
         ),
         Session(
+            session_id="s-no-question",
+            turns=[
+                Turn(
+                    "s-no-question:t1",
+                    "user",
+                    "I keep a green notebook.",
+                    normalized_role="user",
+                )
+            ],
+            private_metadata={
+                "is_generated_qa_session": False,
+                "memory_points": [
+                    {
+                        "index": 10,
+                        "memory_content": "Riley keeps a green notebook",
+                        "memory_type": "Event Memory",
+                        "is_update": "False",
+                        "original_memories": [],
+                    }
+                ],
+            },
+        ),
+        Session(
             session_id="s2",
             turns=[Turn("s2:t1", "user", "I moved to Seattle.", normalized_role="user")],
             private_metadata={
@@ -275,6 +299,9 @@ def test_operation_level_runner_drives_three_stages_and_writes_artifacts(
 
     artifacts = _context(tmp_path).artifacts_dir
     session_reports = read_jsonl(artifacts / "session_memory_reports.jsonl")
+    session_labels = read_jsonl(
+        artifacts / "evaluator_private_session_labels.jsonl"
+    )
     update_results = read_jsonl(artifacts / "update_probe_results.jsonl")
     predictions = read_jsonl(artifacts / "method_predictions.jsonl")
     manifest = json.loads((_context(tmp_path).run_dir / "manifest.json").read_text())
@@ -283,12 +310,45 @@ def test_operation_level_runner_drives_three_stages_and_writes_artifacts(
     assert summary.completed_questions == 2
     assert [record["session_ref"]["session_id"] for record in session_reports] == [
         "s1",
+        "s-no-question",
         "s2",
     ]
     assert [record["memories"] for record in session_reports] == [
         ["extracted:s1"],
+        ["extracted:s-no-question"],
         ["extracted:s2"],
     ]
+    assert [
+        (record["conversation_id"], record["session_id"])
+        for record in session_labels
+    ] == [
+        ("halu-user-1", "s1"),
+        ("halu-user-1", "s-no-question"),
+        ("halu-user-1", "s2"),
+    ]
+    assert session_labels[1]["memory_points"] == [
+        {
+            "index": 10,
+            "memory_content": "Riley keeps a green notebook",
+            "memory_type": "Event Memory",
+            "is_update": "False",
+            "original_memories": [],
+        }
+    ]
+    assert session_labels[1]["dialogue"] == [
+        {
+            "turn_id": "s-no-question:t1",
+            "speaker": "user",
+            "content": "I keep a green notebook.",
+            "normalized_role": "user",
+            "turn_time": None,
+            "images": [],
+            "metadata": {},
+        }
+    ]
+    assert "s-generated" not in {record["session_id"] for record in session_labels}
+    for conversation in _operation_dataset().conversations:
+        validate_no_private_keys(conversation.to_public_dict())
     assert [record["gold_memory_index"] for record in update_results] == [2, 3]
     assert [record["query_text"] for record in update_results] == [
         "Riley drinks tea",
@@ -307,7 +367,7 @@ def test_operation_level_runner_drives_three_stages_and_writes_artifacts(
     assert "halu-user-1:s-generated:q1" not in {
         record["question_id"] for record in predictions
     }
-    assert provider.update_write_counts == [(1, 1), (3, 3)]
+    assert provider.update_write_counts == [(1, 1), (4, 4)]
     assert provider.calls == [
         ("ingest", "s1", None, 1),
         ("end_session", "s1", None, None),
@@ -315,6 +375,8 @@ def test_operation_level_runner_drives_three_stages_and_writes_artifacts(
         ("retrieve", "qa", "Where does Riley live?", 20),
         ("ingest", "s-generated", None, 1),
         ("end_session", "s-generated", None, None),
+        ("ingest", "s-no-question", None, 1),
+        ("end_session", "s-no-question", None, None),
         ("ingest", "s2", None, 1),
         ("end_session", "s2", None, None),
         ("retrieve", "memory_update_probe", "Riley moved to Seattle", 10),
@@ -322,7 +384,7 @@ def test_operation_level_runner_drives_three_stages_and_writes_artifacts(
         ("end_conversation", "halumem-operation-test_halu-user-1", None, None),
         ("cleanup", "", None, None),
     ]
-    assert "s1 | s-generated | s2" in update_results[1]["formatted_memory"]
+    assert "s1 | s-generated | s-no-question | s2" in update_results[1]["formatted_memory"]
     assert manifest["runner"] == "operation_level_prediction"
     assert manifest["method"]["protocol_version"] == "v3"
     assert manifest["method"]["prompt_track"] == "unified"
@@ -351,8 +413,8 @@ def test_operation_level_runner_writes_extraction_na_when_no_session_report(
     )
     predictions = read_jsonl(_context(tmp_path).artifacts_dir / "method_predictions.jsonl")
 
-    assert [record["status"] for record in session_reports] == ["n/a", "n/a"]
-    assert [record["memories"] for record in session_reports] == [[], []]
+    assert [record["status"] for record in session_reports] == ["n/a", "n/a", "n/a"]
+    assert [record["memories"] for record in session_reports] == [[], [], []]
     assert len(predictions) == 2
 
 
