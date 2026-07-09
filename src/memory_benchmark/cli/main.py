@@ -493,7 +493,9 @@ def _normalize_legacy_prediction_args(args: argparse.Namespace) -> dict[str, Any
             ),
             field_name="questions per conversation",
         ),
-        "output_layout": "flat",
+        # ws02.6: legacy `--profile` 也走分层布局，杜绝结果扁平散落 outputs/ 根。
+        # `--profile` 的彻底废弃另起 actor 卡（涉及 legacy-only 组合的测试删改）。
+        "output_layout": "hierarchical",
     }
 
 

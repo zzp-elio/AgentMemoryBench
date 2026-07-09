@@ -16,8 +16,10 @@ from memory_benchmark.core import ConfigurationError
 
 
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
-DEFAULT_TIMEOUT_SECONDS = 30.0
-DEFAULT_MAX_RETRIES = 2
+# 统一网络兜底：框架 client 与 answer LLM client 使用同一档超时/重试，避免 full
+# 长跑时框架侧只重试 2 次被瞬时抖动打断而白烧前置成本（ws02.6）。
+DEFAULT_TIMEOUT_SECONDS = 60.0
+DEFAULT_MAX_RETRIES = 8
 DEFAULT_ANSWER_TIMEOUT_SECONDS = 60.0
 DEFAULT_ANSWER_MAX_RETRIES = 8
 SUPPORTED_ANSWER_MESSAGE_ROLES = frozenset({"system", "user"})

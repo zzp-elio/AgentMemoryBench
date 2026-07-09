@@ -60,6 +60,8 @@ class PredictCommand:
     enable_efficiency_observability: bool = True
     answer_prompt_file: str | Path | None = None
     answer_prompt_profile: str = "default"
+    # 默认 flat 是自定义 --method-class 的安全兜底（无 registry method 名，拼不出
+    # 分层目录）。注册 method 走 CLI 时由 normalizer 显式升级为 hierarchical。
     output_layout: str = "flat"
 
 

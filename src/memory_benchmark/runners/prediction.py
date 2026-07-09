@@ -1253,6 +1253,12 @@ def _validate_protocol_version(
                 f"produced {type(system).__name__} (expected "
                 "LegacyProviderBridge wrapping a BaseMemoryProvider)."
             )
+    else:
+        raise ConfigurationError(
+            f"Unknown protocol_version: {protocol_version!r} (expected 'v3' or "
+            "'v2-bridged'). Fix the method registration to avoid stamping an "
+            "unreproducible protocol identity into the manifest."
+        )
 
 
 def _is_memory_provider(system: BaseMemorySystem | MemoryProvider) -> bool:

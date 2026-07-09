@@ -668,6 +668,7 @@ def test_main_maps_predict_arguments_to_command(
             smoke_max_workers=10,
             max_new_conversations=2,
             retry_failed_conversations=True,
+            output_layout="hierarchical",
         )
     ]
 
@@ -1001,6 +1002,7 @@ def test_main_maps_predict_efficiency_flag_to_command(
             run_id="run-1",
             confirm_api=True,
             enable_efficiency_observability=True,
+            output_layout="hierarchical",
         )
     ]
 
@@ -1047,6 +1049,7 @@ def test_main_maps_predict_disable_efficiency_flag_to_command(
             run_id="run-1",
             confirm_api=True,
             enable_efficiency_observability=False,
+            output_layout="hierarchical",
         )
     ]
 
@@ -1097,6 +1100,7 @@ def test_main_maps_answer_prompt_arguments_to_predict_command(
             confirm_api=True,
             answer_prompt_file=Path("prompts/locomo.txt"),
             answer_prompt_profile="locomo-custom",
+            output_layout="hierarchical",
         )
     ]
 
@@ -1141,6 +1145,7 @@ def test_main_accepts_memoryos_as_registered_method_choice(
             profile="smoke",
             run_id="memoryos-run",
             confirm_api=True,
+            output_layout="hierarchical",
         )
     ]
 
@@ -1189,6 +1194,7 @@ def test_main_accepts_longmemeval_benchmark_and_free_string_variant(
             profile="smoke",
             variant="unknown-yet-allowed-by-parser",
             confirm_api=True,
+            output_layout="hierarchical",
         )
     ]
 
@@ -1361,6 +1367,7 @@ def test_main_maps_run_arguments_to_run_command(
                 smoke_max_workers=10,
                 max_new_conversations=3,
                 question_limit_per_conversation=2,
+                output_layout="hierarchical",
             ),
             metrics=("locomo-f1", "locomo-judge"),
             judge_profile="detailed",
