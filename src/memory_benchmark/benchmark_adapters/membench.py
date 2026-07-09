@@ -458,12 +458,18 @@ def _conversation_from_trajectory(
         tid=tid,
     )
 
+    # session_time 兜底取首个带时间戳的 turn（用户细节#11：turn 无自身时间戳则回退
+    # session 时间戳），保证 LightMem `turn.turn_time or session.session_time` 不落空。
+    session_time = next(
+        (turn.turn_time for turn in turns if turn.turn_time is not None),
+        None,
+    )
     return Conversation(
         conversation_id=conversation_id,
         sessions=[
             Session(
                 session_id="s1",
-                session_time=None,
+                session_time=session_time,
                 turns=turns,
                 metadata={
                     "source_format": "membench_trajectory",
@@ -487,6 +493,23 @@ def _conversation_from_trajectory(
     )
 
 
+# MemBench 每个 step 文本尾部带 `(place: …; time: '2024-10-01 08:00' Tuesday)`。
+# 只匹配具体时间戳，忽略模板占位 `'YYYY-MM-DD HH:MM'`（非数字，不会命中）。
+_MEMBENCH_TURN_TIME_RE = re.compile(r"time:\s*'(\d{4}-\d{2}-\d{2} \d{2}:\d{2})'")
+
+
+def _membench_turn_time(text: str) -> str | None:
+    """从 MemBench step 文本提取真实 turn 时间戳；无则返回 None。
+
+    时间戳原样保留在 content 里（其它 method 仍能从文本读到），这里只是把它
+    额外结构化到 Turn.turn_time，供 LightMem 等时间感知 method 使用——附带信息
+    对全部 method 一视同仁，不制造主场优势。
+    """
+
+    match = _MEMBENCH_TURN_TIME_RE.search(text)
+    return match.group(1) if match else None
+
+
 def _turn_from_step(
     step: object,
     *,
@@ -505,8 +528,10 @@ def _turn_from_step(
         agent_text = _required_text(step, "agent", f"{conversation_id}:step{turn_id}")
         metadata.update({"ps_user": user_text, "ps_agent": agent_text})
         content = f"'user': {user_text}; 'agent': {agent_text}"
+        turn_time = _membench_turn_time(user_text) or _membench_turn_time(agent_text)
     elif isinstance(step, str):
         content = step
+        turn_time = _membench_turn_time(content)
     else:
         raise DatasetValidationError(
             f"{conversation_id}: message_list[{step_index}] must be a dict or string"
@@ -520,7 +545,7 @@ def _turn_from_step(
         speaker="user",
         normalized_role="user",
         content=content,
-        turn_time=None,
+        turn_time=turn_time,
         metadata=metadata,
     )
 

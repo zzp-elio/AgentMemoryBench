@@ -120,6 +120,56 @@ def test_synthetic_fixture_maps_ps_and_os_steps(tmp_path: Path) -> None:
     assert "ps_user" not in os_turn.metadata
 
 
+def test_membench_extracts_embedded_turn_time_and_session_fallback(
+    tmp_path: Path,
+) -> None:
+    """step 文本内嵌 time 应结构化到 turn_time；session_time 兜底取首个带时间戳的 turn。
+
+    时间戳原样保留在 content（其它 method 仍能从文本读到），只是额外结构化，让
+    LightMem 等时间感知 method 的 `turn.turn_time or session.session_time` 不落空。
+    """
+
+    payload = {
+        "simple": {
+            "roles": [
+                {
+                    "tid": "t-time",
+                    "message_list": [
+                        {
+                            "user": "I love this film. (place: Boston, MA; time: '2024-10-01 08:00' Tuesday)",
+                            "agent": "Nice! (place: Boston, MA; time: '2024-10-01 08:00' Tuesday)",
+                        },
+                        {"user": "No timestamp here.", "agent": "Still none."},
+                    ],
+                    "QA": {
+                        "qid": 1,
+                        "question": "q?",
+                        "answer": "a",
+                        "target_step_id": [0],
+                        "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
+                        "ground_truth": "A",
+                        "time": "'2024-10-01 08:00' Tuesday",
+                    },
+                }
+            ]
+        }
+    }
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, payload)
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+
+    session = dataset.conversations[0].sessions[0]
+    first_turn, second_turn = session.turns
+    assert first_turn.turn_time == "2024-10-01 08:00"
+    assert "time: '2024-10-01 08:00'" in first_turn.content  # 双写：文本仍保留
+    assert second_turn.turn_time is None  # 无内嵌时间戳
+    assert session.session_time == "2024-10-01 08:00"  # 兜底取首个带时间戳的 turn
+
+
 def test_question_public_fields_and_private_gold_are_split(tmp_path: Path) -> None:
     """choices/time/question_type 公开，ground_truth/answer/target_step_id 只进 gold。"""
 

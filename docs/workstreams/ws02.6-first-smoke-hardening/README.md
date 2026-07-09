@@ -88,7 +88,8 @@ token）；③ 每次 LLM 调用一条 `LLMCallObservation`（次数可聚合）
 
 **Phase B — 可信度门（actor 卡，架构师写 spec + 验收）**
 - [ ] halumem operation-level runner 接效率观测（补 halumem 效率数据）
-- [ ] membench adapter 解析 `(place; time)`→`turn_time`（不改 text，双写）
+- [x] membench adapter 解析 `(place; time)`→`turn_time`（不改 text，双写；session_time
+  兜底取首个带时间戳 turn）— 架构师直接改，解掉 lightmem×membench 阻断
 - [ ] locomo/longmemeval 补 unified_prompt_builder（官方模板）+ 默认 unified
 - [ ] answer LLM 配置按 benchmark 归一（跨 method 一致）
 - [ ] 效率完备性逐 adapter 审计（api_usage vs 估计）+ formatted_memory 一致性
@@ -110,5 +111,9 @@ workstream，作为"施工规范"的可执行版。
 ## 进度日志
 
 - **2026-07-09**：建 workstream。Phase A 落 5 项（BEAM 指纹目录、protocol fail-fast、
-  重试统一、lancedb 入依赖、legacy `--profile`→hierarchical）。CLI 测试 73 passed；
-  full 回归见断点。Phase B/C spec 卡待写。
+  重试统一、lancedb 入依赖、legacy `--profile`→hierarchical），commit `d8200e4`，
+  804 passed。
+- **2026-07-09**：Phase B 先解剩余阻断 #7——membench adapter 内嵌时间戳解析
+  （`benchmark_adapters/membench.py:_membench_turn_time` + session_time 兜底），
+  加回归测试 `test_membench_extracts_embedded_turn_time_and_session_fallback`。
+  剩阻断 #6（halumem 效率 runner）；其余 Phase B/C 待 actor spec 卡。
