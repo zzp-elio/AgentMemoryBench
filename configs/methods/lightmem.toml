@@ -1,11 +1,19 @@
 # LightMem 官方 conversation-QA profile。
 # smoke 只缩小 benchmark 数据规模；method 参数保持 LoCoMo reported total-limit=60。
+# ws02.5 config 归一化（方案 B，2026-07-09）：extract_threshold/offline_update
+# score_threshold 从 adapter 硬编码移进 TOML，用 repo 默认——extract_threshold=0.5
+# （configs/base.py:58 default=0.5，旧 adapter 硬编码 0.1 为 paper 对齐已弃用）、
+# offline_update_score_threshold=0.8（README/tutorial 用 0.8，旧 adapter 硬编码 0.9
+# 为 paper 对齐已弃用）。embedder 已是 all-MiniLM 不动。差异留档
+# method-interface-inventory.md hyperparameters 字段。
 
 [smoke]
 llm_model = "gpt-4o-mini"
 embedding_model_path = "models/all-MiniLM-L6-v2"
 llmlingua_model_path = "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
 retrieve_limit = 60
+extract_threshold = 0.5
+offline_update_score_threshold = 0.8
 api_timeout_seconds = 60.0
 api_max_retries = 8
 max_workers = 1
@@ -21,6 +29,8 @@ llm_model = "gpt-4o-mini"
 embedding_model_path = "models/all-MiniLM-L6-v2"
 llmlingua_model_path = "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
 retrieve_limit = 60
+extract_threshold = 0.5
+offline_update_score_threshold = 0.8
 api_timeout_seconds = 60.0
 api_max_retries = 8
 max_workers = 10

@@ -109,6 +109,13 @@ class LightMemConfig:
             512 tokens，因此 adapter 只允许显式声明 512。
         topic_segment: 是否启用官方 topic segmentation。
         text_summary: 是否启用文本摘要。
+        extract_threshold: LightMem extract_threshold（repo 默认 0.5，
+            configs/base.py:58 `default=0.5`）。决定内容是否作为
+            metadata/highlight 提取的阈值。归一化前 paper 对齐 0.1，归一化后
+            用 repo 默认 0.5。
+        offline_update_score_threshold: LightMem offline_update_all_entries 的
+            score_threshold（README/tutorial 用 0.8，函数签名默认 0.9）。
+            归一化前 paper 对齐 0.9，归一化后用 0.8。
         suppress_official_stdout: 是否压制第三方 stdout。
         profile_name: 可审计 profile 名称。
     """
@@ -127,6 +134,8 @@ class LightMemConfig:
     text_summary: bool = True
     embedding_dimensions: int = 384
     embedding_device: str = "cpu"
+    extract_threshold: float = 0.5
+    offline_update_score_threshold: float = 0.8
     llmlingua_device_map: str = "cpu"
     extraction_mode: str = "flat"
     suppress_official_stdout: bool = True
@@ -154,6 +163,14 @@ class LightMemConfig:
         if self.compression_rate <= 0 or self.compression_rate > 1:
             raise ConfigurationError(
                 "LightMem compression_rate must be in the range (0, 1]"
+            )
+        if not 0 < self.extract_threshold <= 1:
+            raise ConfigurationError(
+                "LightMem extract_threshold must be in the range (0, 1]"
+            )
+        if not 0 < self.offline_update_score_threshold <= 1:
+            raise ConfigurationError(
+                "LightMem offline_update_score_threshold must be in the range (0, 1]"
             )
         if self.stm_threshold != 512:
             raise ConfigurationError(
@@ -412,7 +429,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                     "openai_base_url": openai_settings.base_url,
                 },
             },
-            "extract_threshold": 0.1,
+            "extract_threshold": config.extract_threshold,
             "index_strategy": "embedding",
             "text_embedder": {
                 "model_name": "huggingface",
@@ -996,7 +1013,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         self._suppress_stdout_if_needed(backend.construct_update_queue_all_entries)
         self._suppress_stdout_if_needed(
             backend.offline_update_all_entries,
-            score_threshold=0.9,
+            score_threshold=self.config.offline_update_score_threshold,
         )
 
     def _retrieve_with_payload(

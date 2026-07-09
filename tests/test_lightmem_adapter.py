@@ -751,7 +751,7 @@ def test_lightmem_locomo_add_runs_official_offline_update_after_all_turns() -> N
     method.add([_locomo_style_lightmem_conversation()])
 
     assert backend.construct_update_calls == [{}]
-    assert backend.offline_update_calls == [{"score_threshold": 0.9}]
+    assert backend.offline_update_calls == [{"score_threshold": 0.8}]
 
 
 def test_lightmem_add_uses_longmemeval_user_assistant_pair_feeding() -> None:
