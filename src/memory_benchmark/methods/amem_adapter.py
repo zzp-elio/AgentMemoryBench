@@ -74,7 +74,13 @@ AMEM_MEMORIES_FILENAME = "memories.pkl"
 AMEM_RETRIEVER_FILENAME = "retriever.pkl"
 AMEM_RETRIEVER_EMBEDDINGS_FILENAME = "retriever_embeddings.npy"
 AMEM_STATE_MANIFEST_FILENAME = "state_manifest.json"
-AMEM_GPT4O_MINI_CATEGORY_K = {
+# A-Mem paper Table 8 的 GPT-4o-mini per-category 最优检索深度（cat1/2/5=40、
+# cat3/4=50）。ws02.5 config 归一化（方案 B，2026-07-09）后**不再使用**——
+# 统一用 profile `retrieve_k`（repo 默认 10，test_advanced_robust.py:348
+# --retrieve_k default=10；底层 memory_layer_robust.py:430 签名 k=5 被覆盖
+# 不生效）。paper Table 8 值留档于 method-interface-inventory.md hyperparameters
+# 字段，作为"论文复现验证配置"，不作 5×5 矩阵默认。
+AMEM_PAPER_TABLE8_GPT4O_MINI_K = {
     "1": 40,
     "2": 40,
     "3": 50,
@@ -924,16 +930,17 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         return parsed_keywords or effective_text
 
     def _retrieve_k_for_question(self, question: Question) -> int:
-        """返回 A-Mem Table 8 的 GPT-4o-mini 类别检索深度。
+        """返回检索记忆数量。
 
-        LoCoMo category 与 Table 8 对齐；非 LoCoMo 或缺 category 的数据集回退到
-        profile 中的 `retrieve_k`，避免把 LoCoMo 特例升格为统一接口字段。
+        ws02.5 config 归一化（方案 B，2026-07-09）：统一用 profile 的
+        `retrieve_k`（repo 默认 10，test_advanced_robust.py:348 --retrieve_k
+        default=10；底层 memory_layer_robust.py:430 签名 k=5 被 retrieve_k=10
+        覆盖不生效），不再按 LoCoMo category 用 paper Table 8 的 per-category k
+        （cat1/2/5=40、cat3/4=50，已弃用并留档 method-interface-inventory.md
+        hyperparameters 字段，作论文复现验证配置）。
         """
 
-        category = _normalize_category(question.category)
-        if category is None:
-            return self.config.retrieve_k
-        return AMEM_GPT4O_MINI_CATEGORY_K.get(category, self.config.retrieve_k)
+        return self.config.retrieve_k
 
     def _is_adversarial_category(self, question: Question) -> bool:
         """判断是否为 A-Mem 官方 adversarial prompt 需要 gold 的类别。"""

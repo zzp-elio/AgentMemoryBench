@@ -353,12 +353,12 @@ def test_amem_add_and_get_answer_never_pass_private_gold_to_method(tmp_path) -> 
     assert "private-evidence-id" not in public_text
     assert "private-evidence-id" not in prompt_text
     assert "tea" not in prompt_text
-    assert runtime.queries == [{"query": "generated keywords", "k": 40}]
+    assert runtime.queries == [{"query": "generated keywords", "k": 2}]
     assert "generate several keywords separated by commas" in str(llm.prompts[0]["prompt"])
 
 
 def test_amem_retrieve_returns_query_keywords_and_context(tmp_path) -> None:
-    """retrieve 应保留官方 query keyword generation 和 Table 8 category k。"""
+    """retrieve 应保留官方 query keyword generation，统一用 profile retrieve_k。"""
 
     runtime = FakeAMemRuntime()
     llm = FakeAMemLLM()
@@ -397,9 +397,9 @@ def test_amem_retrieve_returns_query_keywords_and_context(tmp_path) -> None:
     assert retrieval.metadata["answer_context"] == "memory content from fake runtime"
     assert retrieval.metadata["method"] == "amem"
     assert retrieval.metadata["query_keywords"] == "generated keywords"
-    assert retrieval.metadata["retrieve_k"] == 40
+    assert retrieval.metadata["retrieve_k"] == 2
     assert retrieval.metadata["query_keyword_prompt_version"]
-    assert runtime.queries == [{"query": "generated keywords", "k": 40}]
+    assert runtime.queries == [{"query": "generated keywords", "k": 2}]
     assert len(llm.prompts) == 1
     assert "generate several keywords separated by commas" in str(
         llm.prompts[0]["prompt"]
@@ -603,7 +603,7 @@ def test_amem_load_existing_conversation_state_restores_runtime(tmp_path) -> Non
         str(tmp_path / "conv-1" / "retriever.pkl"),
         str(tmp_path / "conv-1" / "retriever_embeddings.npy"),
     )
-    assert restored_runtime.queries == [{"query": "generated keywords", "k": 40}]
+    assert restored_runtime.queries == [{"query": "generated keywords", "k": 2}]
 
 
 def test_amem_load_existing_state_rejects_corrupt_manifest(tmp_path) -> None:
@@ -646,8 +646,8 @@ def test_amem_load_existing_state_rejects_corrupt_manifest(tmp_path) -> None:
         restored.load_existing_conversation_state(conversation)
 
 
-def test_amem_get_answer_uses_table8_category_k_values(tmp_path) -> None:
-    """A-Mem Table 1 GPT-4o-mini profile 应按 category 使用 Table 8 的 k。"""
+def test_amem_get_answer_uses_unified_retrieve_k_across_categories(tmp_path) -> None:
+    """归一化后各 category 统一用 profile retrieve_k（不再按 Table 8 per-category k）。"""
 
     runtime = FakeAMemRuntime()
     llm = FakeAMemLLM()
@@ -666,13 +666,7 @@ def test_amem_get_answer_uses_table8_category_k_values(tmp_path) -> None:
     conversation = _conversation_with_private_gold()
     method.add([conversation])
 
-    expected_k_by_category = {
-        "1": 40,
-        "2": 40,
-        "3": 50,
-        "4": 50,
-    }
-    for category, expected_k in expected_k_by_category.items():
+    for category in ("1", "2", "3", "4"):
         question = Question(
             question_id=f"q-{category}",
             conversation_id="conv-1",
@@ -682,7 +676,7 @@ def test_amem_get_answer_uses_table8_category_k_values(tmp_path) -> None:
         method.get_answer(question)
         assert runtime.queries[-1] == {
             "query": "generated keywords",
-            "k": expected_k,
+            "k": 10,
         }
 
 
