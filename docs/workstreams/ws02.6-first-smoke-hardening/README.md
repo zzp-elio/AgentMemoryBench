@@ -153,6 +153,38 @@ runner 参与**和标准 runner 完全相同**的 scope/observation 机制，而
 `_count_answer_context_tokens` 或 adapter 上报），避免 halumem 与其它 benchmark 的
 token 口径不一致——这条并进 Phase B #10 效率完备性审计一起验。
 
+## 项目细节.md 全量映射（确保一条不落，用户 2026-07-09 强调）
+
+用户在 `项目细节.md` 列的 17 条 + 跨消息的要求，逐条归位（**不遗漏**）：
+
+| 项目细节# | 内容 | 归位 | 状态 |
+|-----------|------|------|------|
+| 1 | 效率指标 3 类（构建延迟+token/检索延迟+token/LLM 次数）+ token 必须 api_usage 非估计 | #6（halumem）+ #10（逐 adapter api_usage 审计） | S1 done，余待做 |
+| 2 | answer LLM prompt 默认 unified | #8 | 待做（决策已定：默认 unified，native 可选） |
+| 3 | smoke 裁剪：隔离空间可裁 + 内部 round(第一人称)/turn(第三人称)；**halumem 改主意：不再单独 session 级裁剪**（不裁也能跑 extraction 算指标，smoke 只看跑通）；membench 要能选跑哪几个源文件 | #11 + halumem 裁剪重审 | 待做 |
+| 4 | 网络兜底：所有 API 调用处都要有超时兜底 + 统一 | Phase A 重试常量统一（done）+ #13 框架级 ingest/retrieve 重试 | 部分 done |
+| 5 | formatted_memory 一致性（时间戳/地点等附带信息公平）+ A-Mem str(context) 不可审计 + token 双来源 + items=None | #10 | 待做（逐条证伪/证实 opencode） |
+| 6 | **max_workers 默认 1（smoke+full 都是），不设上限，CLI 可覆盖**；配置文件只放 method 可调超参 | 新增 #14a（config/CLI） | **新捕获**，待做 |
+| 7 | resume：smoke 不 resume；full 两模式（全量 / 最大隔离空间数）；failed 默认不重试除 `--retry-failed`；turn-level resume 废弃 | #12 + turn-level deprecate | 待做（落文档设计） |
+| 8 | 并行：当前隔离空间级并行，未启并发 | 现状确认 | 无需改 |
+| 9 | CLI v2（smoke/official-full 互斥等边界） | 已落地 | done |
+| 10 | **异常处理：致命异常要捕获详细信息 + 写日志便于 debug** | 新增 #14b（可观测性/异常） | **新捕获**，待做 |
+| 11 | 每个 turn 有自己时间戳，无则用 session | #7（membench 已做）+ 通用原则 | membench done |
+| 12 | sentinel 泄漏 + LLM 次数已聚合(opencode 错) + smoke_round_limit 对非 locomo 语义 | sentinel→Phase B；LLM 次数已澄清；round_limit→#11 | 部分澄清 |
+| 13 | longmemeval 异常 session（顺序倒/连续同 role/单 role）+ memoryos-pypi pair 注入 | 决策 #8（orphan/dangling 标记不丢，框架拆分） | 待做 |
+| 14 | **recall@k 等检索级指标：需 method 返回 evidence（turn/session/step id）** | 新增 #14c（需 method 侧支持，较大，可能独立 workstream） | **新捕获**，待评估 |
+| 15 | 注入粒度跟随 method 原生接口，拆分由框架做 | 决策 #8 | 待做 |
+| 16 | membench 第三人称若 method 原生不支持 turn 级注入怎么办 | 并入 #15/决策 #8 | 待评估 |
+| 17 | 其它细节实验中碰壁再补 | 持续 | — |
+
+**新捕获的 #14a/b/c（之前计划遗漏，现补入）**：
+- **#14a**：`max_workers` 默认 1（smoke+full），无上限，CLI `--workers`/`--smoke-max-workers`
+  覆盖；配置文件只放 method 可调超参。（Phase B/C，需核实现状 CLI 是否已支持覆盖。）
+- **#14b**：致命异常统一捕获详细信息（traceback + 上下文）并落 run 日志。（Phase C 可观测性。）
+- **#14c**：retrieval-level 指标（recall@k）需 method 在 retrieve 时返回 evidence
+  （turn/session/step id，各 benchmark 口径不同）。**依赖 method 侧支持**，是较大能力项，
+  可能独立 workstream；先记账，评估后再排期。
+
 ## 未来：新 method/benchmark 接入检测流程（用户提议）
 
 用户提议做一个可自动运行的"接入体检"（可用 LLM 跑）：新 method/benchmark 接入后
