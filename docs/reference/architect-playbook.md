@@ -169,6 +169,13 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
   不改 third_party、中文 docstring）和 **明确不做**（防发散清单，把相邻
   诱惑逐条挡掉）。
 - 交付物路径写死；给执行者的自由度趋近于零——"酌情""合理"是禁词。
+- **写 plan 前先第一手核实"东西在哪、怎么存"的前提，别想当然**（2026-07-09
+  固化）。判例累计三次架构师 plan 前提假设错、被 actor 逮到：① HaluMem
+  evidence 存 index（实为 memory_content）；② MemoryOS "retrieve 无写副作用"
+  （实为算法固有 heat 更新）；③ config 归一化"改 TOML 即可"（实为 3/5 对齐值
+  硬编码在 adapter）。**教训**：plan 里凡涉及"改 X 处/X 在 TOML/X 在 adapter/
+  X 怎么存"的动作，动笔前 grep 核实一遍它到底在哪、什么形态，别按印象写——否则
+  actor 要么停工返工、要么照错的做。
 - 写完通读一遍做一致性自检（原则 3）；数字实测（原则 2）。
 - **文档刷新/重写类任务卡必须钉死事实源**（2026-07-07 判例）：写明"协议
   状态以 ws02 README 断点为准、进度以 roadmap 为准"，否则 actor 会把训练
