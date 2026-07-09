@@ -75,6 +75,43 @@ LangMem/Supermemory）逐个核：
 
 ## 当前断点
 
+- 2026-07-09（actor WorkBuddy/GLM-5.2，完成 config 归一化方案 B）：架构师裁定
+  方案 B（参数进 TOML + adapter 从 config 读，src/ 改动授权，不碰 third_party）。
+  一次整批做完 4 项，逐项 commit，基线 ≥804 全程不跌破。**交架构师复跑验收 +
+  第一手核对**。
+  - **T1 mem0**（commit `4d077bd`）：mem0.toml top_k 200→20、embedding
+    text-embedding-3-small→sentence-transformers/all-MiniLM-L6-v2、dim 1536→384、
+    加 embedding_provider=huggingface（两 section）；mem0_adapter.py Mem0Config 加
+    embedding_provider 字段、smoke/official_full 默认值改 repo 默认、build_backend_config
+    按 provider 派生（huggingface 不带 api_key/openai_base_url）。**验 Qdrant**：真实验证
+    SentenceTransformer 384 维 + Qdrant 按 384 建表/检索正常（score=0.8593 命中）。
+    focused 85 passed。
+  - **T2 amem**（commit `2d80c6b`）：amem_adapter.py 停用硬编码
+    AMEM_GPT4O_MINI_CATEGORY_K（改名 AMEM_PAPER_TABLE8_GPT4O_MINI_K 转注释留档），
+    _retrieve_k_for_question 统一返回 config.retrieve_k（repo 默认 10）；amem.toml 不变
+    （retrieve_k=10 已是 repo 默认）。paper Table8 值（cat1/2/5=40、cat3/4=50）转注释 +
+    inventory 留档。focused 19 passed。
+  - **T3 lightmem**（commit `8a7dada`）：lightmem.toml 加 extract_threshold=0.5
+    （repo 默认 base.py:58）、offline_update_score_threshold=0.8（README/tutorial）两
+    section；lightmem_adapter.py LightMemConfig 加两字段 + (0,1] 校验，:432/:1016 从
+    config 读（不再硬编码 0.1/0.9）。focused 56 passed。
+  - **T4 simplemem**（commit `0728500`）：simplemem.toml embedding_model_path
+    Qwen3-0.6B→models/all-MiniLM-L6-v2、dim 1024→384（两 section）；provider 已是
+    sentence-transformers-local（adapter:153）无需改；算法参数保持 repo 默认。
+    adapter 错误提示通用化（去 Qwen3 硬编码）。**验 LanceDB**：all-MiniLM 本地加载 +
+    384 维确认；LanceDB 真实建表需 simplemem 完整环境（lancedb 未在主 venv），留 smoke，
+    但 Qdrant 384 建表已通过（同类向量库机制）。focused 40 passed。
+  - **T5 token 落盘**：上轮核实已实现（injected_memory_context_tokens 各 adapter 上报 +
+    collector + analysis + prediction.py:2610），无需新增。
+  - **全量**：`uv run pytest -q -m "not api"` = **804 passed, 3 deselected, 2 warnings,
+    4 subtests passed**；`compileall` exit 0。基线 804 全程不跌破。
+  - **第一手 repo 默认值核实**：mem0 top_k=20（main.py:1020/1130 `top_k: int=20`）、
+    amem retrieve_k=10（test_advanced_robust.py:348 default=10，底层 k=5 被覆盖不生效）、
+    lightmem extract=0.5（base.py:58）/offline=0.8（README:325+notebook）、simplemem
+    embedder all-MiniLM 384（本地 models/all-MiniLM-L6-v2）——全部属实。
+  - **下一步**：架构师复跑 804 + 第一手核对（重点 embedder 维度切换后 Qdrant/LanceDB
+    检索正常、repo 默认值属实、adapter provider 从 config 读无残留硬编码）。
+
 - 2026-07-09（actor WorkBuddy/GLM-5.2，**停工**）：config 归一化写任务开工即遇
   **系统性 plan-vs-事实冲突**——5 个子任务里 3 个的 paper 对齐值在 **adapter
   硬编码、不在 toml**，按定稿"改 toml 不改 adapter"完不成归一化。**未 commit**
