@@ -57,6 +57,10 @@ benchmark = 25 格**的极小 v3 smoke（LoCoMo 列 5 格都要重跑，旧 V2 f
 - **预算强约束**：全量实验必须先有成本估算表并经导师/用户批准；当前阶段一切
   真实 run 均为极小规模。任何真实 run 需用户确认预算、规模与 run_id。
 - smoke 使用官方 method 参数；成本控制只通过数据规模裁剪，不降 `top_k` 等参数。
+  超参数一律用 method 官方【repo/产品默认】（非 benchmark 专用调参），跨全部
+  benchmark 同一套、不 per-benchmark 调优；**paper 声明 ≠ repo 默认时优先 repo
+  默认 + 显式记录差异**（政策全文与理由见
+  `workstreams/ws02.5-method-interface-audit/README.md` "超参数政策"）。
 - 不合并不同 dataset variant 的 run；不创建 method × benchmark 专用 runner。
 - 真实费用按实际 API 服务商（ohmygpt）价格离线计算，不绑定 OpenAI 官方价。
 - `outputs/memoryos-locomo-full-20260603/` 是受保护实验资产。

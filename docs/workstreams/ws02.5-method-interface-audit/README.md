@@ -176,9 +176,31 @@ LangMem/Supermemory）逐个核：
 
 - [x] 架构师建档 + 裁决（2026-07-08）
 - [x] 逐 method 接口审计（2026-07-08，Mem0/A-Mem/LightMem/SimpleMem by workbuddy+GLM5.2；MemoryOS by 架构师）+ 架构师验收裁定（见上表）
-- [ ] 产出 method 接口文档（注入 + 检索）— 可由 4 份 audit-*.md 汇总
+- [x] 产出 method 接口文档（`docs/reference/method-interface-inventory.md`，
+  2026-07-09，WorkBuddy/GLM-5.2 汇总 5 method；架构师验收：抽查 mem0 add:573/
+  search:1126、A-Mem add_note:377、SimpleMem retrieve:58 行号全属实）。**待补**：
+  每 method 加一个 **hyperparameters 字段**（官方默认值 + paper-vs-repo 差异 +
+  用哪个，见下方"超参数政策"）。
 - [ ] 迁移/修复（写任务串行）：[x] P0 SimpleMem 补字段（2026-07-08，commit 3e177c3）/ [x] P1 MemoryOS eval→pypi（2026-07-08，commit c73d4d5）/ [x] P1 LightMem 统一 retrieve（2026-07-08，commit 63ccba2）/ [ ] P2 A-Mem 文档留痕
 - [ ] formatted_memory 全路径完整落盘核对
+
+## 超参数政策（架构师裁定，2026-07-09 用户提问后固化）
+
+- **一律用 method 官方【仓库/产品默认】超参数**（通用产品的默认配置，**不是**
+  benchmark 专用配置如 eval/ 的调参），跨全部 benchmark 同一套、不 per-benchmark
+  调优（调优 = 主场优势，同 ws02.5 接口原则）。实验声明"超参数 = method 官方默认
+  + vendored commit"即可。对齐 roadmap 全局约束"用官方 method 参数，成本只靠数据
+  规模裁剪、不降 top_k"。
+- **paper 声明 ≠ repo 默认 时：优先 repo 默认**。理由：① 代表性（repo 是真实
+  用户 `pip install` 得到的）；② 可复现（repo 默认是可钉到 commit 的具体值，
+  paper 常不全/含糊）；③ repo 常比 paper 新（作者发表后调过）。**但必须显式
+  记录差异**（inventory 的 hyperparameters 字段：repo 默认值 / paper 值 / 用哪个
+  / 为何）。例外：repo 默认明显是占位/bug 而 paper 值才是意图 → 用 paper + 留痕。
+- **借鉴资料**：① method README（第一手,常写推荐默认）；② 既有 memory benchmark
+  的配置（`third_party` 里 mem0 memory-benchmarks、LoCoMo/LongMemEval 官方 harness）
+  ——但注意它们常是 benchmark 调参，只借来"理解参数含义"，不照搬其调优值；③ 我们
+  目标不是复现各 method 论文数（那是它们自己 benchmark 上的），而是 OUR 5 benchmark
+  上的公平横比 → 代表性优先。
 
 ## MemoryOS 版本裁定（架构师第一手，2026-07-08）
 
