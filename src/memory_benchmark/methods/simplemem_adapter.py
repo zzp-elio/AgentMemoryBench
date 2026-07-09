@@ -138,8 +138,8 @@ class SimpleMemConfig:
         if model_path is not None and not model_path.is_dir():
             raise ConfigurationError(
                 "SimpleMem required local embedding model missing: "
-                f"{model_path}. Download Qwen/Qwen3-Embedding-0.6B to "
-                "models/Qwen3-Embedding-0.6B before running prediction."
+                f"{model_path}. Download the configured embedding model "
+                f"({self.embedding_model_path}) to that path before running prediction."
             )
 
     def to_manifest(self) -> dict[str, Any]:
