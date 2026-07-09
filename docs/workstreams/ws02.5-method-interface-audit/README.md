@@ -1,7 +1,7 @@
 ---
 id: ws02.5
 parent: ws02
-status: open（P0，5×5 真实 smoke 的前置门；2026-07-08 用户提出）
+status: done（2026-07-09 架构师验收关闭；审计+迁移+归一化全清，5×5 smoke 前置门已开）
 created: 2026-07-08
 ---
 # ws02.5 Method 接口保真审计（5×5 smoke 前置门）
@@ -75,6 +75,22 @@ LangMem/Supermemory）逐个核：
 
 ## 当前断点
 
+- 2026-07-09（架构师 Opus 4.8 验收 config 归一化 + 直修一 bug）：**通过**。
+  复跑 `uv run pytest -q -m "not api"` = **804 passed**。第一手核实：**mem0**
+  运行时 embedder 按 config 派生（`mem0_adapter.py:378` embedder_config、`:399`
+  `provider=config.embedding_provider`；huggingface 不带 api_key）✓；**amem**
+  `_retrieve_k_for_question` 统一返回 `config.retrieve_k`（=10），paper Table8
+  映射改名 `AMEM_PAPER_TABLE8_GPT4O_MINI_K` 仅留档不被调用 ✓；**lightmem** 阈值
+  从 config 读（`:432` extract、`:1016` offline）✓；**simplemem** TOML embedder
+  换 all-MiniLM/384 ✓。repo 默认值抽查（mem0 top_k=20 main.py:1130、amem
+  retrieve_k=10 test:348、lightmem 0.5/0.8）属实。**架构师直修一 bug**：mem0
+  `to_manifest()`（`:199`）原硬编码 `"embedding_provider":"openai"` 会覆盖真实
+  huggingface 值 → 运行 manifest 谎报 embedder（对成本表/可复现是硬伤），改为
+  `self.embedding_provider`（mem0 focused 25 passed，全量 804）。**残留（非阻塞）**：
+  simplemem LanceDB 384 维未端到端验（lancedb 不在主 venv；mem0 Qdrant 384 已由
+  actor 实测 score=0.8593 通过，同类机制）——**simplemem 首次真实 smoke 时须核
+  LanceDB 建表+检索正常**。
+  **★ ws02.5 迁移/修复/归一化全部关闭 → 5×5 真实 smoke 前置门全开，只待预算。**
 - 2026-07-09（actor WorkBuddy/GLM-5.2，完成 config 归一化方案 B）：架构师裁定
   方案 B（参数进 TOML + adapter 从 config 读，src/ 改动授权，不碰 third_party）。
   一次整批做完 4 项，逐项 commit，基线 ≥804 全程不跌破。**交架构师复跑验收 +
@@ -299,8 +315,10 @@ LangMem/Supermemory）逐个核：
   search:1126、A-Mem add_note:377、SimpleMem retrieve:58 行号全属实）。**待补**：
   每 method 加一个 **hyperparameters 字段**（官方默认值 + paper-vs-repo 差异 +
   用哪个，见下方"超参数政策"）。
-- [ ] 迁移/修复（写任务串行）：[x] P0 SimpleMem 补字段（2026-07-08，commit 3e177c3）/ [x] P1 MemoryOS eval→pypi（2026-07-08，commit c73d4d5）/ [x] P1 LightMem 统一 retrieve（2026-07-08，commit 63ccba2）/ [ ] P2 A-Mem 文档留痕
-- [ ] formatted_memory 全路径完整落盘核对
+- [x] 迁移/修复（写任务串行）：[x] P0 SimpleMem 补字段（commit 3e177c3）/ [x] P1 MemoryOS eval→pypi（commit c73d4d5）/ [x] P1 LightMem 统一 retrieve（commit 63ccba2）/ [x] P2 A-Mem 文档留痕（inventory hyperparameters 字段 + audit 注记）
+- [x] config 归一化（2026-07-09，方案 B，commit 4d077bd/2d80c6b/8a7dada/0728500 + 架构师 manifest 直修）：repo 默认 + embedder 统一 all-MiniLM + LLM 只统一模型名
+- [x] formatted_memory token 落盘核对（`injected_memory_context_tokens` 已实现，prediction.py:2610）
+- [ ] （遗留，非 ws02.5）simplemem LanceDB 384 维端到端核验 → 挪到 simplemem 首次真实 smoke
 
 ## 超参数政策（架构师裁定，2026-07-09 用户提问后固化）
 

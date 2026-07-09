@@ -196,7 +196,7 @@ class Mem0Config:
             "reader_prompt_version": MEM0_READER_PROMPT_VERSION,
             "vector_store_provider": "qdrant",
             "llm_provider": "openai",
-            "embedding_provider": "openai",
+            "embedding_provider": self.embedding_provider,
         }
 
 

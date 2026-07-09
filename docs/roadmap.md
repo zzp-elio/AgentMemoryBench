@@ -44,7 +44,7 @@ benchmark = 25 格**的极小 v3 smoke（LoCoMo 列 5 格都要重跑，旧 V2 f
 | [ws02.2](workstreams/ws02.2-halumem/README.md) | halumem-adapter | accepted | P0 | HaluMem operation-level 架构师验收通过（2026-07-08，843 passed + 口径第一手核对）；剩极小真实 smoke 待预算 |
 | [ws02.3](workstreams/ws02.3-beam/README.md) | beam-adapter | accepted | P0 | BEAM（conversation-QA + rubric judge）架构师验收通过（2026-07-08，891 passed 干净复跑 + 关键交付第一手抽查）；剩极小真实 smoke 待预算 |
 | [ws02.4](workstreams/ws02.4-simplemem/README.md) | simplemem-adapter | accepted | P0 | SimpleMem T1-T6 架构师验收通过（2026-07-07）；剩极小真实 smoke 待预算 |
-| [ws02.5](workstreams/ws02.5-method-interface-audit/README.md) | method-interface-audit | open | P0 | **5×5 smoke 前置门**：审计每个 method 用通用产品接口（非 benchmark 专用 eval）注入/检索、formatted_memory 完整落盘、产出 method 接口文档（注入+检索，5→10）|
+| [ws02.5](workstreams/ws02.5-method-interface-audit/README.md) | method-interface-audit | done | P0 | 2026-07-09 关闭：5 method 接口审计 + MemoryOS 迁移 + config 归一化（repo 默认/embedder 统一/LLM 只统一模型名）+ 接口文档全清；**5×5 smoke 前置门已开**，只待预算 |
 | [ws03](workstreams/ws03-architecture-slimming/README.md) | architecture-slimming | open | P1 | registry/capability/legacy 接口与 CLI 减重、LLMRuntimeConfig |
 | [ws04](workstreams/ws04-terminal-observability/README.md) | terminal-observability | open | P2 | isolated 进度心跳、第三方 stdout/tqdm 治理 |
 | [ws05](workstreams/ws05-experiment-reporting/README.md) | experiment-reporting | open | P1 | 全量实验申请材料：成本估算表 + 结果汇总 + 兜底验证清单（依赖 ws02） |
