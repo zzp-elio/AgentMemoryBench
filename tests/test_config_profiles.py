@@ -40,10 +40,11 @@ def test_load_typed_profile_builds_mem0_smoke_profile_from_section(tmp_path: Pat
         """
         [smoke]
         extraction_model = "gpt-4o-mini"
-        embedding_model = "text-embedding-3-small"
-        embedding_dimensions = 1536
+        embedding_provider = "huggingface"
+        embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+        embedding_dimensions = 384
         reader_model = "gpt-4o-mini"
-        top_k = 200
+        top_k = 20
         max_workers = 1
         ingestion_chunk_size = 1
         infer = true

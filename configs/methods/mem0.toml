@@ -1,9 +1,19 @@
+# Mem0 通用产品（pip install mem0）引擎的固定方法参数。
+# smoke 与 official_full 仅由 benchmark 数据规模区分；方法参数保持一致。
+# ws02.5 config 归一化（方案 B，2026-07-09）：统一通用基座——LLM=gpt-4o-mini、
+# embedder=sentence-transformers/all-MiniLM-L6-v2（dim 384，本地 huggingface
+# provider）。算法配置（top_k 等）保持 repo 默认：top_k=20 为 mem0 官方默认
+# （mem0/memory/main.py:1020/1130 `top_k: int = 20`、tests/test_main.py:114
+# "top_k default is now 20"），旧值 200 为 paper 对齐（已弃用，差异留档
+# method-interface-inventory.md hyperparameters 字段）。
+
 ["smoke"]
 extraction_model = "gpt-4o-mini"
-embedding_model = "text-embedding-3-small"
-embedding_dimensions = 1536
+embedding_provider = "huggingface"
+embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+embedding_dimensions = 384
 reader_model = "gpt-4o-mini"
-top_k = 200
+top_k = 20
 max_workers = 1
 ingestion_chunk_size = 1
 infer = true
@@ -12,10 +22,11 @@ api_max_retries = 8
 
 ["official_full"]
 extraction_model = "gpt-4o-mini"
-embedding_model = "text-embedding-3-small"
-embedding_dimensions = 1536
+embedding_provider = "huggingface"
+embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+embedding_dimensions = 384
 reader_model = "gpt-4o-mini"
-top_k = 200
+top_k = 20
 max_workers = 10
 ingestion_chunk_size = 1
 infer = true

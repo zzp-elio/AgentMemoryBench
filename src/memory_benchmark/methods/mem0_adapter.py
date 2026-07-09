@@ -86,6 +86,9 @@ class Mem0Config:
         extraction_model: Mem0 写入阶段用于事实提取和记忆更新的 LLM。
         embedding_model: Mem0 写入和检索使用的 embedding 模型。
         embedding_dimensions: 向量维度，必须与 Qdrant collection 一致。
+        embedding_provider: Mem0 embedder provider（mem0 factory 名）。
+            归一化后用 "huggingface"（本地 SentenceTransformer）；"openai" 走
+            OpenAI 兼容 API。决定 embedder config 是否带 api_key/openai_base_url。
         reader_model: 框架固定 reader 用于根据检索记忆生成最终回答的模型。
         top_k: method 内部检索记忆上限，不进入统一接口参数。
         max_workers: conversation 级建议并发数，由 runner policy 读取。
@@ -102,6 +105,7 @@ class Mem0Config:
     reader_model: str
     top_k: int
     max_workers: int
+    embedding_provider: str = "huggingface"
     ingestion_chunk_size: int = 1
     infer: bool = True
     api_timeout_seconds: float = 60.0
@@ -151,10 +155,11 @@ class Mem0Config:
 
         return cls(
             extraction_model="gpt-4o-mini",
-            embedding_model="text-embedding-3-small",
-            embedding_dimensions=1536,
+            embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+            embedding_dimensions=384,
+            embedding_provider="huggingface",
             reader_model="gpt-4o-mini",
-            top_k=200,
+            top_k=20,
             max_workers=1,
             ingestion_chunk_size=1,
             infer=True,
@@ -169,10 +174,11 @@ class Mem0Config:
 
         return cls(
             extraction_model="gpt-4o-mini",
-            embedding_model="text-embedding-3-small",
-            embedding_dimensions=1536,
+            embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+            embedding_dimensions=384,
+            embedding_provider="huggingface",
             reader_model="gpt-4o-mini",
-            top_k=200,
+            top_k=20,
             max_workers=10,
             ingestion_chunk_size=1,
             infer=True,
@@ -369,6 +375,15 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         """
 
         root = Path(storage_root).expanduser().resolve()
+        # embedder config 按 provider 派生：openai 走 OpenAI 兼容 API（需 api_key/
+        # openai_base_url）；huggingface 走本地 SentenceTransformer（不传密钥）。
+        embedder_config: dict[str, Any] = {
+            "model": config.embedding_model,
+            "embedding_dims": config.embedding_dimensions,
+        }
+        if config.embedding_provider == "openai":
+            embedder_config["api_key"] = openai_settings.api_key
+            embedder_config["openai_base_url"] = openai_settings.base_url
         return {
             "version": "v1.1",
             "llm": {
@@ -381,13 +396,8 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 },
             },
             "embedder": {
-                "provider": "openai",
-                "config": {
-                    "model": config.embedding_model,
-                    "embedding_dims": config.embedding_dimensions,
-                    "api_key": openai_settings.api_key,
-                    "openai_base_url": openai_settings.base_url,
-                },
+                "provider": config.embedding_provider,
+                "config": embedder_config,
             },
             "vector_store": {
                 "provider": "qdrant",

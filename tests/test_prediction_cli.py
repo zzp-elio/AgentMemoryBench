@@ -177,7 +177,7 @@ def test_official_full_requires_second_cost_confirmation() -> None:
         confirm_api=True,
         confirm_full=True,
     )
-    assert config.top_k == 200
+    assert config.top_k == 20
     assert config.max_workers == 10
 
 

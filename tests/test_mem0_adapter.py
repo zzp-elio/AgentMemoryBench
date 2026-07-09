@@ -421,9 +421,10 @@ def test_mem0_profiles_separate_smoke_and_official_full_parameters() -> None:
     full = Mem0Config.official_full()
 
     assert smoke.extraction_model == "gpt-4o-mini"
-    assert smoke.embedding_model == "text-embedding-3-small"
-    assert smoke.embedding_dimensions == 1536
-    assert smoke.top_k == 200
+    assert smoke.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert smoke.embedding_dimensions == 384
+    assert smoke.embedding_provider == "huggingface"
+    assert smoke.top_k == 20
     assert smoke.max_workers == 1
     assert smoke.ingestion_chunk_size == 1
     assert smoke.infer is True
@@ -431,9 +432,10 @@ def test_mem0_profiles_separate_smoke_and_official_full_parameters() -> None:
     assert smoke.api_max_retries == 8
 
     assert full.extraction_model == "gpt-4o-mini"
-    assert full.embedding_model == "text-embedding-3-small"
-    assert full.embedding_dimensions == 1536
-    assert full.top_k == 200
+    assert full.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert full.embedding_dimensions == 384
+    assert full.embedding_provider == "huggingface"
+    assert full.top_k == 20
     assert full.max_workers == 10
     assert full.ingestion_chunk_size == 1
     assert full.infer is True
@@ -973,7 +975,7 @@ def test_get_answer_searches_only_question_conversation_and_calls_reader() -> No
         {
             "query": question.text,
             "filters": {"run_id": "conv-1"},
-            "top_k": 200,
+            "top_k": 20,
         }
     ]
     assert prediction.question_id == "conv-1:q1"
@@ -982,7 +984,7 @@ def test_get_answer_searches_only_question_conversation_and_calls_reader() -> No
     assert prediction.metadata == {
         "method": "mem0",
         "retrieved_memory_count": 1,
-        "top_k": 200,
+        "top_k": 20,
         "reader_model": "gpt-4o-mini",
     }
     reader_messages = reader.calls[0]["messages"]
@@ -1343,9 +1345,15 @@ def test_production_config_injects_openai_and_local_storage_without_secrets_in_m
 
     assert backend_config["llm"]["config"]["api_key"] == "secret-test-key"
     assert backend_config["llm"]["config"]["openai_base_url"] == settings.base_url
-    assert backend_config["embedder"]["config"]["api_key"] == "secret-test-key"
-    assert backend_config["embedder"]["config"]["openai_base_url"] == settings.base_url
-    assert backend_config["vector_store"]["config"]["embedding_model_dims"] == 1536
+    # embedder 归一化为本地 huggingface provider，不带 api_key/openai_base_url。
+    assert backend_config["embedder"]["provider"] == "huggingface"
+    assert backend_config["embedder"]["config"]["model"] == (
+        "sentence-transformers/all-MiniLM-L6-v2"
+    )
+    assert backend_config["embedder"]["config"]["embedding_dims"] == 384
+    assert "api_key" not in backend_config["embedder"]["config"]
+    assert "openai_base_url" not in backend_config["embedder"]["config"]
+    assert backend_config["vector_store"]["config"]["embedding_model_dims"] == 384
     assert backend_config["vector_store"]["config"]["path"] == str(tmp_path / "qdrant")
     assert backend_config["history_db_path"] == str(tmp_path / "history.db")
     assert "secret-test-key" not in str(manifest)

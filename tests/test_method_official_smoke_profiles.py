@@ -40,7 +40,10 @@ def test_smoke_profiles_keep_official_method_parameters() -> None:
     assert lightmem.retrieve_limit == 60
 
     assert isinstance(mem0, Mem0Config)
-    assert mem0.top_k == 200
+    assert mem0.top_k == 20
+    assert mem0.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert mem0.embedding_dimensions == 384
+    assert mem0.embedding_provider == "huggingface"
 
     assert isinstance(memoryos, MemoryOSPaperConfig)
     assert memoryos.short_term_capacity == 10
