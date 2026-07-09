@@ -202,6 +202,35 @@ LangMem/Supermemory）逐个核：
   目标不是复现各 method 论文数（那是它们自己 benchmark 上的），而是 OUR 5 benchmark
   上的公平横比 → 代表性优先。
 
+### 既有 paper 对齐的处置裁定（2026-07-09，用户揭示 + 架构师裁定）
+
+**背景（用户 2026-07-09 揭示）**：4 个既有 method 的 adapter 里，Codex 曾为
+**复现各 method 论文/官方评测数据**做过超参数"对齐"（adapter 传参，**未改
+third_party 硬编码**，第一手证实 third_party git 干净、`top_k=200` 在
+`mem0_adapter.py:157/175`）。actor 审计发现的 4 处差异即此：Mem0 top_k
+20→200、A-Mem k repo 5/10→paper Table8、LightMem extract 0.5→0.1 / offline
+0.8→0.9。
+
+**裁定：5×5 矩阵改回 repo 默认（recommend，需用户确认研究框架）**：
+
+- **决定性理由**：MemoryOS 迁移（commit c73d4d5）**已经**把它改回 pypi repo
+  默认（弃 eval/ 的 7/200）。所以现在 5 个 method **不一致**了——MemoryOS=repo
+  默认，其余 3 个=paper 对齐。**不一致 = 不公平横比**。要么全 repo 默认、要么
+  全 paper 对齐；按超参数政策（代表性/可比/repo 优先）+ MemoryOS 已是 repo
+  默认 → **全部统一到 repo 默认**。
+- **paper 对齐值不删、转为"论文复现验证配置"留档**（inventory hyperparameters
+  字段已记 repo/paper 两值）——它是"我们 harness 能复现论文数"的验证证据，对
+  导师汇报有价值，只是**不作 5×5 矩阵的默认配置**。
+- **LLM/embedder 例外**：全项目统一 `gpt-4o-mini`（Mem0 repo gpt-5-mini /
+  SimpleMem gpt-4.1-mini / A-Mem backend 等差异）是**刻意的公平选择**（比的是
+  记忆质量不是 LLM 质量）+ 成本，**保持统一、不回退**，留痕即可。embedder 暂
+  保持各 method repo 默认（与算法耦合），是否统一另议。
+- **⚠ 需用户确认的研究框架点**：若你要"复现论文数"作为对导师的**主叙事**，则
+  反过来（矩阵用 paper 对齐、repo 默认作旁证）。我按 roadmap 既定目标（公平
+  5×10 smoke 矩阵 → 成本表）**推荐前者（矩阵=repo 默认）**，你拍。
+- **实现**：改回 repo 默认是 adapter 传参改值（写任务，低风险，不改 third_party），
+  待用户确认框架后派。
+
 ## MemoryOS 版本裁定（架构师第一手，2026-07-08）
 
 第一手对比 `third_party/methods/MemoryOS-main/` 各版本目录 + README：

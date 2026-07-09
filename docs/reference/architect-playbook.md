@@ -384,3 +384,25 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   契约 + 校验（挂 ws03）；A派逻辑隔离的 clean-retry（默认 scope 版本化，见
   ws05 兜底工程）；MemBench within-trajectory 裁剪 + first-person 折叠建模
   待议（ws02.1 README M1/M2）；BEAM kendall-tau 排序分（ws02.3 承诺项）。
+
+## 13. 持续维护的文档清单（2026-07-09 用户叮嘱固化，别只看不更新）
+
+每次工作后核对这些是否需要同步更新——它们是给"下一任（可能是别的模型）"的
+唯一事实源，过时就会误导：
+
+- `docs/roadmap.md`——方向、workstream 索引、状态、全局约束（含超参数政策）。
+  **接了新 benchmark/method、验收通过、状态变更都要改这里。**
+- `docs/workstreams/<ws>/README.md`——每个 workstream 的"当前断点"+ 任务清单
+  勾选。**每次 actor 交付/架构师验收后必更。**
+- `AGENTS.md`——规则、协作模式（**跨模型事实源**，GPT/别的模型也读）。
+- `CLAUDE.md`——命令速查 + 代码结构地图（Claude 自动加载；改了命令/结构要同步）。
+- `docs/reference/architect-playbook.md`（本文）+ `actor-handbook.md`——两本经验
+  手册（知错能改，每被纠正/踩坑/发现更好做法都要落回）。
+- `docs/reference/method-interface-inventory.md`——各 method 调用接口 + 超参数
+  （接新 method、迁移、改参数都要更）。
+- `~/.claude/.../memory/`——Claude 专属镜像（**只作缓存，真相在仓库内**，见
+  AGENTS.md 跨模型条）。
+- 各 spec/plan——定案/裁定变了要更（如 MemoryOS 迁移 plan 的"无写副作用"更正）。
+
+原则：**文档是给没看过你会话的下一个读者写的**；宁可多花一分钟同步，也别留
+过时断言坑后人。
