@@ -101,6 +101,58 @@ token）；③ 每次 LLM 调用一条 `LLMCallObservation`（次数可聚合）
 - [ ] resume 两模式落文档 + turn-level resume 标 deprecated（ws03 移除）
 - [ ] Mem0 `clean_failed_ingest_state`、框架级 ingest/retrieve 重试（逐条先核）
 
+## #6 halumem 效率 runner —— 第一性原理实现设计（2026-07-09 已定，待施工）
+
+**第一性原理**：效率指标是 benchmark 无关的同一套；halumem 崩+无数据的根因是它走
+独立 `operation_level.py`，整套 scope/observation 机制没接。正解 = 让 operation-level
+runner 参与**和标准 runner 完全相同**的 scope/observation 机制，而不是绕过或特殊化。
+
+**已第一手核实的两个硬约束**：
+1. **必须保留 per-session 交错**（ingest→extraction→update-probe→该 session 的 QA→下一
+   session）。官方 `eval/eval_memzero.py:168-256` 就是这个交错顺序，记忆累积、QA-after-
+   session-N 只看 1..N。**不能重构成"先全 ingest 再全 QA"**——那会改变 halumem 的
+   update/hallucination 语义（答案对错依赖 ingest 时序）。
+2. **observation_id 会撞**。`storage.py:94-120` 按 id 幂等合并、**同 id 不同内容直接
+   raise**；`_aggregate_observation_id` 用固定 `call_index=0`。per-session 开
+   conversation_scope（同 conversation_id）→ 每 session 的 memory_build observation
+   id 相同、latency 不同 → 致命冲突。LLM/embedding call 同理（每个 scope 的
+   call_index 从 0 重置）。
+
+**实现步骤**：
+
+- **S1 collector 加 scope discriminator 原语（backward-compatible）**：
+  `conversation_scope`/`question_scope`/`_scope` 加可选 `scope_discriminator: str|None=None`，
+  存入 `_ScopeState`，在 `_build_observation_id` 里**仅当非 None 时**才塞进 payload
+  （None 时 payload 不变 → 标准 runner 的 id 一字不改，无测试/resume 破坏）。
+  operation-level 传 `session_id` → 每 session 的 id 唯一。conversation_id 字段保持
+  干净（不塞 session），by-conversation 聚合仍按 conversation_id 求和（正确总量）。
+- **S2 wire collector/store 进 operation-level runner**：
+  `run_operation_level_predictions` 签名加 `efficiency_collector`、`model_inventory`、
+  `instrumentation_identity`；`run_prediction.py:645` 的 dispatch 把它们传进去（标准路
+  径 658-669 已有，照抄）。enabled 时建 `EfficiencyArtifactStore.for_prediction(paths)`
+  + `write_model_inventory`。
+- **S3 `_run_operation_conversation` 交错开 scope**（每个 provider 调用都要在某个 scope 内，
+  否则 "requires active scope" 复现）：
+  - 每 session：`with conversation_scope(conv_id, scope_discriminator=session_id)`：
+    包住该 session 的 `ingest` + `end_session` + update-probe `retrieve`（默认 stage
+    =memory_build），计时后 `record_memory_build_total_latency`。
+  - 每 question：`with question_scope(conv_id, question_id)`：
+    `operation_stage(RETRIEVAL)` 包 qa `retrieve` + `record_retrieval_result`
+    （latency + injected_memory_context_tokens）；`operation_stage(ANSWER)` 包
+    `generate_answer` + `record_answer_generation`。
+  - `end_conversation`：包一层 `conversation_scope(conv_id, scope_discriminator="end")`
+    并 record 一个 memory_build latency（捕获 flush 期可能的 LLM 调用）；`cleanup`
+    是 teardown，留在 scope 外（若某 provider 在 cleanup 里 record，视为该 adapter 的 bug）。
+  - 每个 scope 退出后把 `scope.records` 收集，`efficiency_store.merge_observations(...)`。
+- **S4 测试**：operation-level 一条 conversation 多 session，断言：①不再崩；②产出
+  per-session ConversationEfficiencyObservation（id 唯一）；③per-question
+  QuestionEfficiencyObservation 带 retrieval/answer latency；④by-conversation 聚合
+  latency = 各 session 之和。用 fake provider（可控 record）避免真实 API。
+
+**注意**：injected_memory_context_tokens 的口径要和标准 runner 一致（用同一
+`_count_answer_context_tokens` 或 adapter 上报），避免 halumem 与其它 benchmark 的
+token 口径不一致——这条并进 Phase B #10 效率完备性审计一起验。
+
 ## 未来：新 method/benchmark 接入检测流程（用户提议）
 
 用户提议做一个可自动运行的"接入体检"（可用 LLM 跑）：新 method/benchmark 接入后
@@ -115,5 +167,10 @@ workstream，作为"施工规范"的可执行版。
   804 passed。
 - **2026-07-09**：Phase B 先解剩余阻断 #7——membench adapter 内嵌时间戳解析
   （`benchmark_adapters/membench.py:_membench_turn_time` + session_time 兜底），
-  加回归测试 `test_membench_extracts_embedded_turn_time_and_session_fallback`。
-  剩阻断 #6（halumem 效率 runner）；其余 Phase B/C 待 actor spec 卡。
+  加回归测试 `test_membench_extracts_embedded_turn_time_and_session_fallback`，
+  commit `33422a6`，805 passed。
+- **2026-07-09**：#6 第一性原理调查完成（核实官方 eval 交错语义不可 2-phase、
+  storage 层 id 冲突约束），实现设计定稿写入本文档。落 **S1**（collector scope
+  discriminator 原语，backward-compatible，`observability/efficiency/collector.py`
+  + 单测）。剩 S2/S3/S4（operation-level runner 接线 + 交错 scope + 测试）下轮做，
+  作为 #6 的第二个连贯 commit。

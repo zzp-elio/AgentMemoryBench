@@ -44,6 +44,7 @@ class _ScopeState:
     conversation_id: str
     question_id: str | None
     handle: ObservationScope
+    scope_discriminator: str | None = None
     records: list[EfficiencyObservation] = field(default_factory=list)
     call_indexes: dict[str, int] = field(default_factory=dict)
     memory_build_total_latency_ms: float | None = None
@@ -83,13 +84,21 @@ class EfficiencyCollector:
     def conversation_scope(
         self,
         conversation_id: str,
+        *,
+        scope_discriminator: str | None = None,
     ) -> Iterator[ObservationScope]:
-        """建立单个 conversation 的记忆构建作用域。"""
+        """建立单个 conversation 的记忆构建作用域。
+
+        `scope_discriminator` 供 operation-level runner 在同一 conversation 内按
+        session 多次进入 conversation scope 时区分 observation id（默认 None 时
+        id 与旧行为完全一致，不影响标准 runner）。
+        """
 
         with self._scope(
             scope_type="conversation",
             conversation_id=conversation_id,
             question_id=None,
+            scope_discriminator=scope_discriminator,
         ) as scope:
             yield scope
 
@@ -98,6 +107,8 @@ class EfficiencyCollector:
         self,
         conversation_id: str,
         question_id: str,
+        *,
+        scope_discriminator: str | None = None,
     ) -> Iterator[ObservationScope]:
         """建立单个公开问题的检索与回答作用域。"""
 
@@ -105,6 +116,7 @@ class EfficiencyCollector:
             scope_type="question",
             conversation_id=conversation_id,
             question_id=question_id,
+            scope_discriminator=scope_discriminator,
         ) as scope:
             yield scope
 
@@ -330,6 +342,7 @@ class EfficiencyCollector:
         scope_type: str,
         conversation_id: str,
         question_id: str | None,
+        scope_discriminator: str | None = None,
     ) -> Iterator[ObservationScope]:
         """建立内部 scope，并在正常退出时完成聚合 observation。"""
 
@@ -344,6 +357,7 @@ class EfficiencyCollector:
             conversation_id=conversation_id,
             question_id=question_id,
             handle=handle,
+            scope_discriminator=scope_discriminator,
         )
         token = self._scope_var.set(state)
         completed = False
@@ -505,6 +519,10 @@ class EfficiencyCollector:
             "model_id": model_id,
             "call_index": call_index,
         }
+        # 仅在显式提供 discriminator 时才纳入 id 计算，保证标准 runner（None）的
+        # observation id 与历史完全一致，不破坏既有断言与 resume 兼容。
+        if state.scope_discriminator is not None:
+            payload["scope_discriminator"] = state.scope_discriminator
         serialized = json.dumps(
             payload,
             ensure_ascii=True,

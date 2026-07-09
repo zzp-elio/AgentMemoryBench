@@ -84,6 +84,37 @@ def test_conversation_scope_records_build_latency() -> None:
     assert scope.records[0].to_dict()["memory_build_total_latency_ms"] == 8.25
 
 
+def test_conversation_scope_discriminator_makes_reentrant_ids_unique() -> None:
+    """operation-level 路径按 session 多次进入同一 conversation scope 时，
+    discriminator 让每次 observation id 唯一（避免 storage 层同 id 冲突）；不传
+    discriminator 时 id 与旧行为完全一致（backward-compatible）。"""
+
+    collector = EfficiencyCollector(run_id="run-1", enabled=True)
+    with collector.conversation_scope("conv-1", scope_discriminator="s1") as first:
+        collector.record_memory_build_total_latency(latency_ms=5.0)
+    with collector.conversation_scope("conv-1", scope_discriminator="s2") as second:
+        collector.record_memory_build_total_latency(latency_ms=7.0)
+
+    first_obs = first.records[0]
+    second_obs = second.records[0]
+    assert first_obs.conversation_id == second_obs.conversation_id == "conv-1"
+    assert first_obs.observation_id != second_obs.observation_id
+
+    # discriminator=None 与不传参产生相同 id → 标准 runner 行为不变
+    plain = EfficiencyCollector(run_id="run-1", enabled=True)
+    with plain.conversation_scope("conv-1") as plain_scope:
+        plain.record_memory_build_total_latency(latency_ms=5.0)
+    explicit_none = EfficiencyCollector(run_id="run-1", enabled=True)
+    with explicit_none.conversation_scope(
+        "conv-1", scope_discriminator=None
+    ) as none_scope:
+        explicit_none.record_memory_build_total_latency(latency_ms=5.0)
+    assert (
+        plain_scope.records[0].observation_id
+        == none_scope.records[0].observation_id
+    )
+
+
 def test_llm_call_uses_current_scope_and_operation_stage() -> None:
     """内部 callback 可通过当前作用域和阶段自动关联 question。"""
 
