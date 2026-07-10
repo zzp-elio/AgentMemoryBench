@@ -77,9 +77,11 @@ Example: D
 _MEMBENCH_CHOICE_PATTERN_UPPER = re.compile(r"(?<![A-Za-z])([ABCD])(?![A-Za-z])")
 _MEMBENCH_CHOICE_PATTERN_LOWER = re.compile(r"(?<![A-Za-z])([abcd])(?![A-Za-z])")
 
-# 官方来源身份锁定值：见 notes/membench-source-lock.json
-# MIT license（README.md badge 声明，仓库内无 LICENSE 文件）
-MEMBENCH_OFFICIAL_REPO_URL = "https://github.com/ThetaReta-CN/MemBench"
+# 官方来源身份锁定值：见 docs/workstreams/ws02.6-first-smoke-hardening/
+# notes/membench-source-lock.json。repo URL 一手来源是 bundled 论文 PDF 内嵌
+# 文本（本地 README 无 repo 自引用）；MIT license 来自 README badge 声明，
+# 仓库内无 LICENSE 文件。
+MEMBENCH_OFFICIAL_REPO_URL = "https://github.com/import-myself/Membench"
 MEMBENCH_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2506.21605"
 MEMBENCH_LICENSE = "MIT"
 

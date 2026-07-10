@@ -81,6 +81,17 @@
 
 **结论：全部 8 文件中只有 2 个越界 target_step_id（0-10k 和 100k 各 1 个），均位于 comparative/events tid=4，形式一致。**
 
+### 基准与越界根源（架构师验收追加，一手）
+
+官方 `load_test_data.py` 的重映射 `reverse_relocate_dict[step_id]` 按
+enumerate 的 **0 基 index** 构建 → **target_step_id 是 0 基**（D4 的
+step→turn 映射按 0 基，勿 off-by-one）。越界=len 的 2 例疑似官方 while
+循环 `len + 3*length - 1` 边界的 off-by-one 产物；recall 对越界 id 记
+N/A + 单独计数，不崩。另：FirstHigh 0-10k 有 **1 个空 target_step_id**
+（highlevel_rec/movie tid=25，架构师与 actor 双独立确认），现行 adapter
+`_target_step_ids` 遇空列表抛 DatasetValidationError → **full load 必崩**，
+属 D1 发现的真 latent bug，修复归 D2（空列表=无 step 证据，合法保留）。
+
 ## 5. 时间戳格式分布（架构师已实锤，此节全 8 文件量化）
 
 ### 0-10k 文件
@@ -125,14 +136,28 @@
 | 100k/TAHigh | 24000 / 25049 | 24000/25049 | ✅ 完全一致 |
 | 100k/TALow | 84000 / 87779 | 84000/87779 | ✅ 完全一致 |
 
-### 时间格式在 100k 内的分布（第三人称，含无时间后缀的噪声）
+### 时间格式在 100k 内的分布（全 4 文件；架构师验收修正版）
 
-| 文件 | 总 msg | `time:` 冒号 | `time'` 无冒号 | 无时间(sans time) |
-|------|-------:|-------------:|---------------:|------------------:|
-| 100k/ThirdAgentDataHighLevel | 25049 | 1060 | 11 | 23978 |
-| 100k/ThirdAgentDataLowLevel | 87779 | 3815 | 15 | 83949 |
+【验收修正 2026-07-10：actor 初版此表（TAHigh 1060/11/23978、TALow
+3815/15/83949）与本文件 §5 首表自相矛盾（首表"有时间后缀"TAHigh=1049 与
+架构师独立复算一致），已用架构师逐消息分类复算值替换。口径：每条 message
+按 `time:\s*'` → 冒号、否则 `time'` → 无冒号、否则无后缀，elif 互斥。】
 
-100k 中也有少量无冒号 timeout（ThirdHigh 11 条、ThirdLow 15 条），占总 msg 比例极低。主要噪声是无时间后缀的消息。
+| 文件 | 总 msg | `time:` 冒号 | `time'` 无冒号 | 无时间后缀 |
+|------|-------:|-------------:|---------------:|------------:|
+| 100k/FirstAgentDataHighLevel | 45133 | 3133 | 17 | 41983 |
+| 100k/FirstAgentDataLowLevel | 149777 | 41777 | 29 | 107971 |
+| 100k/ThirdAgentDataHighLevel | 25049 | 1049 | 11 | 23989 |
+| 100k/ThirdAgentDataLowLevel | 87779 | 3779 | 15 | 83985 |
+
+### 格式不一致的官方根源（架构师验收追加，一手）
+
+无冒号格式**是官方加噪代码生成的**，不是数据损坏：
+`third_party/benchmarks/Membench-main/benchmark/load_test_data.py:57` 的
+格式串为 `'{} (place: {}; time{})'`——`time` 后无冒号，time 值自带引号，
+故所有经加噪重排的消息呈 `time'…'`；带冒号消息来自原始文本自带的
+`(place: …; time: '…')` 后缀。两种格式在同一文件混布是官方生成器行为，
+D2 的可选冒号正则（`time:?\s*'`）是正确修法。
 
 ## 6. ground_truth 分布
 

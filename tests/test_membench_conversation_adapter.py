@@ -280,7 +280,7 @@ def test_dataset_metadata_includes_source_identity() -> None:
     dataset = MemBenchAdapter(ROOT, variant="0_10k").load(limit=1)
     md = dataset.metadata
 
-    assert md["official_repo_url"] == "https://github.com/ThetaReta-CN/MemBench"
+    assert md["official_repo_url"] == "https://github.com/import-myself/Membench"
     assert md["official_paper_url"] == "https://arxiv.org/abs/2506.21605"
     assert md["license"] == "MIT"
     assert md["official_conversation_count"] == 1  # post-limit count
