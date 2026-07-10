@@ -11,7 +11,6 @@ from .llm_judge import (
     LLMJudgeEvaluator,
     _TiktokenCounter,
     _extract_usage_tokens,
-    parse_judge_response,
 )
 
 
@@ -38,33 +37,21 @@ class LongMemEvalJudgeEvaluator(LLMJudgeEvaluator):
     ) -> MetricResult:
         """调用 LongMemEval judge 并返回单题 metric。
 
-        compact 模式按 LightMem LongMemEval 脚本解析 yes/no 输出，方便和
-        LightMem 论文结果比较；detailed 模式保留项目统一 JSON parser 供调试。
+        prompt、调用参数和 label 解析均逐项对齐官方 `evaluate_qa.py`。
         """
 
         prompt = self.build_prompt(question, prediction, gold_answer)
         model_response = self._call_model_with_usage(prompt)
         self._record_judge_llm_call(model_response)
-        if self.mode.strip().lower() == "compact":
-            is_correct = _parse_lightmem_yes_no(model_response.text)
-            return MetricResult(
-                metric_name=self.metric_name,
-                score=1.0 if is_correct else 0.0,
-                is_correct=is_correct,
-                details={
-                    "reason": "",
-                    "raw_judge_response": model_response.text,
-                },
-            )
-
-        decision = parse_judge_response(model_response.text, mode=self.mode)
+        is_correct = _parse_official_yes_no(model_response.text)
         return MetricResult(
             metric_name=self.metric_name,
-            score=1.0 if decision.is_correct else 0.0,
-            is_correct=decision.is_correct,
+            score=1.0 if is_correct else 0.0,
+            is_correct=is_correct,
             details={
-                "reason": decision.reason,
+                "reason": "",
                 "raw_judge_response": model_response.text,
+                "prompt_profile": "longmemeval_official_evaluate_qa_v1",
             },
         )
 
@@ -82,7 +69,7 @@ class LongMemEvalJudgeEvaluator(LLMJudgeEvaluator):
             gold_answer: evaluator 私有标准答案对象或文本。
 
         输出:
-            str: 简洁的 LongMemEval 判分 prompt。
+            str: 与官方 `get_anscheck_prompt()` 逐字一致的判分 prompt。
         """
 
         question_text, prediction_text, gold_text = self._extract_text_fields(
@@ -91,36 +78,25 @@ class LongMemEvalJudgeEvaluator(LLMJudgeEvaluator):
             gold_answer,
         )
         task = _extract_task_type(question)
-        body = _build_official_longmemeval_judge_body(
+        return _build_official_longmemeval_judge_prompt(
             task=task,
             question=question_text,
             answer=gold_text,
             response=prediction_text,
             abstention=_is_abstention_question(question),
         )
-        if self.mode.strip().lower() == "compact":
-            return f"{body} Answer yes or no only."
-
-        return (
-            f"{body}\n\n"
-            "Follow the LongMemEval rule above, but use the framework output format below.\n"
-            "If the official yes/no decision is yes, output true. "
-            "If the official yes/no decision is no, output false.\n"
-            f"{self._output_instruction()}"
-        )
 
     def _call_model_with_usage(self, prompt: str) -> JudgeModelResponse:
-        """按 LightMem LongMemEval wrapper 使用 Chat Completions 参数。"""
+        """按官方 `evaluate_qa.py:102-110` 使用 Chat Completions 参数。"""
 
         client = self._get_client()
         model = self.model or self._get_settings().openai.model
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=2000,
-            temperature=0.0,
-            top_p=0.8,
-            stream=False,
+            n=1,
+            temperature=0,
+            max_tokens=10,
         )
         text = response.choices[0].message.content
         if not isinstance(text, str) or not text.strip():
@@ -167,33 +143,13 @@ def _is_abstention_question(question: Question | str) -> bool:
     return isinstance(question, Question) and "_abs" in question.question_id
 
 
-def _parse_lightmem_yes_no(response: str) -> bool:
-    """按 LightMem LongMemEval `true_or_false()` 逻辑解析 yes/no。
+def _parse_official_yes_no(response: str) -> bool:
+    """按官方 `evaluate_qa.py:113` 的 `'yes' in response.lower()` 解析。"""
 
-    LightMem 对无法识别的输出按错误答案处理，而不是抛异常。这里保留该行为，
-    便于论文结果对齐。
-    """
-
-    normalized = str(response).strip().lower()
-    if not normalized:
-        return False
-    first_line = normalized.splitlines()[0].strip()
-    tokens = first_line.replace(".", "").replace("!", "").replace(":", "").replace(";", "").split()
-    if not tokens:
-        return False
-    head = tokens[0]
-    if head in ("yes", "y"):
-        return True
-    if head in ("no", "n"):
-        return False
-    if "yes" in first_line:
-        return True
-    if "no" in first_line:
-        return False
-    return False
+    return "yes" in str(response).lower()
 
 
-def _build_official_longmemeval_judge_body(
+def _build_official_longmemeval_judge_prompt(
     *,
     task: str,
     question: str,
@@ -201,24 +157,18 @@ def _build_official_longmemeval_judge_body(
     response: str,
     abstention: bool,
 ) -> str:
-    """构造 LongMemEval 官方 task-specific 判分规则主体。
-
-    该函数从官方 `evaluate_qa.py:get_anscheck_prompt()` 迁移规则文本，但去掉最后
-    `Answer yes or no only` 的硬输出要求，由 `LongMemEvalJudgeEvaluator` 统一映射到
-    本项目 parser 所需的 true/false 或 JSON。
-    """
+    """逐字构造 LongMemEval 官方 task-specific judge prompt。"""
 
     if abstention:
         template = (
             "I will give you an unanswerable question, an explanation, and a response "
-            "from a model. Please answer yes if the model correctly identifies the "
-            "question as unanswerable. The model could say that the information is "
-            "incomplete, or some other information is given but the asked information "
-            "is not.\n\nQuestion: {question}\n\nExplanation: {answer}\n\n"
-            "Model Response: {response}\n\nDoes the model correctly identify the "
-            "question as unanswerable?"
+            "from a model. Please answer yes if the model correctly identifies the question "
+            "as unanswerable. The model could say that the information is incomplete, or "
+            "some other information is given but the asked information is not.\n\nQuestion: "
+            "{}\n\nExplanation: {}\n\nModel Response: {}\n\nDoes the model correctly "
+            "identify the question as unanswerable? Answer yes or no only."
         )
-        return template.format(question=question, answer=answer, response=response)
+        return template.format(question, answer, response)
 
     if task in _COMMON_QA_TASKS:
         template = (
@@ -227,9 +177,8 @@ def _build_official_longmemeval_judge_body(
             "answer no. If the response is equivalent to the correct answer or contains "
             "all the intermediate steps to get the correct answer, you should also "
             "answer yes. If the response only contains a subset of the information "
-            "required by the answer, answer no.\n\nQuestion: {question}\n\n"
-            "Correct Answer: {answer}\n\nModel Response: {response}\n\n"
-            "Is the model response correct?"
+            "required by the answer, answer no. \n\nQuestion: {}\n\nCorrect Answer: "
+            "{}\n\nModel Response: {}\n\nIs the model response correct? Answer yes or no only."
         )
     elif task == "temporal-reasoning":
         template = (
@@ -242,8 +191,8 @@ def _build_official_longmemeval_judge_body(
             "errors for the number of days. If the question asks for the number of "
             "days/weeks/months, etc., and the model makes off-by-one errors (e.g., "
             "predicting 19 days when the answer is 18), the model's response is still "
-            "correct.\n\nQuestion: {question}\n\nCorrect Answer: {answer}\n\n"
-            "Model Response: {response}\n\nIs the model response correct?"
+            "correct. \n\nQuestion: {}\n\nCorrect Answer: {}\n\nModel Response: "
+            "{}\n\nIs the model response correct? Answer yes or no only."
         )
     elif task == "knowledge-update":
         template = (
@@ -251,9 +200,8 @@ def _build_official_longmemeval_judge_body(
             "Please answer yes if the response contains the correct answer. Otherwise, "
             "answer no. If the response contains some previous information along with "
             "an updated answer, the response should be considered as correct as long "
-            "as the updated answer is the required answer.\n\nQuestion: {question}\n\n"
-            "Correct Answer: {answer}\n\nModel Response: {response}\n\n"
-            "Is the model response correct?"
+            "as the updated answer is the required answer.\n\nQuestion: {}\n\nCorrect "
+            "Answer: {}\n\nModel Response: {}\n\nIs the model response correct? Answer yes or no only."
         )
     elif task == "single-session-preference":
         template = (
@@ -262,10 +210,10 @@ def _build_official_longmemeval_judge_body(
             "the desired response. Otherwise, answer no. The model does not need to "
             "reflect all the points in the rubric. The response is correct as long as "
             "it recalls and utilizes the user's personal information correctly.\n\n"
-            "Question: {question}\n\nRubric: {answer}\n\n"
-            "Model Response: {response}\n\nIs the model response correct?"
+            "Question: {}\n\nRubric: {}\n\nModel Response: {}\n\nIs the model "
+            "response correct? Answer yes or no only."
         )
     else:
         raise ConfigurationError(f"Unsupported LongMemEval judge task: {task}")
 
-    return template.format(question=question, answer=answer, response=response)
+    return template.format(question, answer, response)

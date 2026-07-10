@@ -269,6 +269,56 @@ class LongMemEvalConversationAdapterTest(unittest.TestCase):
         self.assertEqual(conversation.sessions[1].metadata["original_session_id"], "session_a")
         self.assertEqual(conversation.metadata["deduplicated_session_id_count"], 1)
 
+    def test_gold_metadata_preserves_public_and_official_evidence_ids(self):
+        """私有 gold 应同时保存公开匹配键与官方 corpus id 对照。"""
+
+        instance = _minimal_instance()
+        instance["haystack_session_ids"] = ["session_a", "session_a"]
+        instance["haystack_dates"] = [
+            "2023/05/20 (Sat) 02:21",
+            "2023/05/21 (Sun) 02:21",
+        ]
+        instance["haystack_sessions"] = [
+            [
+                {"role": "assistant", "content": ""},
+                {"role": "user", "content": "I like tea.", "has_answer": True},
+            ],
+            [
+                {
+                    "role": "assistant",
+                    "content": "You told me you like tea.",
+                    "has_answer": True,
+                }
+            ],
+        ]
+        instance["answer_session_ids"] = ["session_a"]
+
+        conversation = LongMemEvalAdapter(ROOT)._conversation_from_instance(
+            instance,
+            raw_index=0,
+        )
+        gold = conversation.gold_answers["synthetic_q1"]
+
+        self.assertEqual(gold.evidence, ["session_a"])
+        self.assertEqual(
+            gold.metadata["evidence_turn_ids"],
+            ["session_a:t1", "session_a#occurrence_2:t0"],
+        )
+        self.assertEqual(
+            gold.metadata["evidence_turn_corpus_ids"],
+            ["session_a_2", "session_a_1"],
+        )
+        self.assertEqual(
+            gold.metadata["evidence_session_public_ids"],
+            ["session_a", "session_a#occurrence_2"],
+        )
+
+        public_keys = _collect_keys(conversation.to_public_dict())
+        self.assertNotIn("has_answer", public_keys)
+        self.assertNotIn("evidence_turn_ids", public_keys)
+        self.assertNotIn("evidence_turn_corpus_ids", public_keys)
+        self.assertNotIn("evidence_session_public_ids", public_keys)
+
     def test_public_conversation_does_not_leak_gold_answer_or_evidence(self):
         """公开结构有 questions，但不能出现答案、evidence 或 LongMemEval 私有标签。"""
 

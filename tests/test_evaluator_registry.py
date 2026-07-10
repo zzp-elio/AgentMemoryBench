@@ -5,11 +5,15 @@ from __future__ import annotations
 import pytest
 
 from memory_benchmark.core import ConfigurationError
+from memory_benchmark.evaluators.f1 import F1Evaluator
 from memory_benchmark.evaluators.beam_rubric_judge import (
     BeamRubricJudgeEvaluator,
 )
 from memory_benchmark.evaluators.longmemeval_judge import (
     LongMemEvalJudgeEvaluator,
+)
+from memory_benchmark.evaluators.longmemeval_recall import (
+    LongMemEvalRetrievalRecallEvaluator,
 )
 from memory_benchmark.evaluators.locomo_f1 import LoCoMoF1Evaluator
 from memory_benchmark.evaluators.locomo_judge import LoCoMoJudgeEvaluator
@@ -34,6 +38,7 @@ def test_registry_lists_only_currently_supported_unified_metrics() -> None:
 
     assert list_metrics() == [
         "beam-rubric-judge",
+        "f1",
         "halumem-extraction",
         "halumem-qa",
         "halumem-update",
@@ -41,6 +46,7 @@ def test_registry_lists_only_currently_supported_unified_metrics() -> None:
         "locomo-judge",
         "locomo-recall",
         "longmemeval-judge",
+        "longmemeval-recall",
         "membench-choice-accuracy",
     ]
 
@@ -62,6 +68,26 @@ def test_locomo_f1_registration_is_offline_and_locomo_only() -> None:
         create_evaluator("locomo-f1", benchmark_name="longmemeval")
 
 
+def test_generic_f1_registration_is_offline_and_excludes_membench() -> None:
+    """通用 F1 应支持 conversation-QA benchmarks，但暂不支持 MCQ MemBench。"""
+
+    registration = get_evaluator_registration("f1")
+
+    assert registration.metric_name == "f1"
+    assert registration.supported_benchmarks == frozenset(
+        {"beam", "halumem", "locomo", "longmemeval"}
+    )
+    assert registration.requires_api is False
+    for benchmark_name in registration.supported_benchmarks:
+        assert isinstance(
+            create_evaluator("f1", benchmark_name=benchmark_name),
+            F1Evaluator,
+        )
+
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator("f1", benchmark_name="membench")
+
+
 def test_locomo_recall_registration_is_offline_and_locomo_only() -> None:
     """LoCoMo retrieval recall 应标记为离线指标，且不能用于其他 benchmark。"""
 
@@ -77,6 +103,23 @@ def test_locomo_recall_registration_is_offline_and_locomo_only() -> None:
 
     with pytest.raises(ConfigurationError, match="does not support benchmark"):
         create_evaluator("locomo-recall", benchmark_name="longmemeval")
+
+
+def test_longmemeval_recall_registration_is_offline_and_longmemeval_only() -> None:
+    """LongMemEval retrieval recall 应为 benchmark 专用离线 artifact evaluator。"""
+
+    registration = get_evaluator_registration("longmemeval-recall")
+
+    assert registration.metric_name == "longmemeval_recall"
+    assert registration.supported_benchmarks == frozenset({"longmemeval"})
+    assert registration.requires_api is False
+    assert isinstance(
+        create_evaluator("longmemeval-recall", benchmark_name="longmemeval"),
+        LongMemEvalRetrievalRecallEvaluator,
+    )
+
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator("longmemeval-recall", benchmark_name="locomo")
 
 
 def test_membench_choice_accuracy_registration_is_offline_and_membench_only() -> None:

@@ -31,6 +31,7 @@ from memory_benchmark.core import (
     TaskFamily,
     Turn,
 )
+from memory_benchmark.core.provider_protocol import BRIDGE_EMPTY_MEMORY_SENTINEL
 from memory_benchmark.methods.registry import MethodBuildContext
 from memory_benchmark.benchmark_adapters import (
     BenchmarkLoadRequest,
@@ -40,6 +41,7 @@ from memory_benchmark.benchmark_adapters import (
 )
 from memory_benchmark.cli.run_prediction import PredictionBatchResult
 from memory_benchmark.evaluators import LoCoMoF1Evaluator
+from memory_benchmark.evaluators.longmemeval_judge import LongMemEvalJudgeEvaluator
 from memory_benchmark.evaluators.membench_choice_accuracy import (
     MemBenchChoiceAccuracyEvaluator,
 )
@@ -76,6 +78,27 @@ class FakeEvaluator:
                 "prediction_answer": prediction.answer,
                 "gold_answer": gold_answer.answer,
             },
+        )
+
+
+class _FakeLongMemEvalJudgeClient:
+    """返回官方 yes label 的离线 Chat Completions client。"""
+
+    def __init__(self) -> None:
+        """初始化与 OpenAI SDK 相同的最小调用树。"""
+
+        self.calls: list[dict[str, object]] = []
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(create=self._create_completion)
+        )
+
+    def _create_completion(self, **kwargs: object) -> object:
+        """记录 judge 参数并返回带 usage 的固定 yes 响应。"""
+
+        self.calls.append(dict(kwargs))
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="yes"))],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=1),
         )
 
 
@@ -934,7 +957,8 @@ def test_longmemeval_s_smoke_registered_prediction_stays_offline_and_separates_p
         def complete(self, *, prompt: str) -> str:
             """返回固定答案，证明 framework reader 可以离线装配。"""
 
-            assert "offline context" in prompt
+            assert BRIDGE_EMPTY_MEMORY_SENTINEL in prompt
+            assert "History Chats:" in prompt
             return "offline fake answer"
 
     fake_method_registration = SimpleNamespace(
@@ -1648,6 +1672,73 @@ def test_artifact_evaluation_writes_category_summary(tmp_path: Path) -> None:
     assert category_names == {"cat-A", "cat-B"}
     for entry in breakdown:
         assert entry["mean_score"] == 0.5
+
+
+def test_longmemeval_judge_uses_generic_question_type_breakdown(tmp_path: Path) -> None:
+    """LongMemEval judge 应由通用 runner 按 question_type 输出分类聚合。"""
+
+    run_dir = tmp_path / "longmemeval-run"
+    run_dir.mkdir()
+    paths = ExperimentPaths.create(run_dir)
+    _write_manifest(run_dir, benchmark_name="longmemeval")
+    questions = [
+        Question(
+            question_id="q1",
+            conversation_id="q1",
+            text="Question one?",
+            category="multi-session",
+        ),
+        Question(
+            question_id="q2",
+            conversation_id="q2",
+            text="Question two?",
+            category="temporal-reasoning",
+        ),
+    ]
+    _write_jsonl(
+        paths.public_questions_path,
+        [public_question_record(question) for question in questions],
+    )
+    _write_jsonl(
+        paths.method_predictions_path,
+        [
+            {
+                "question_id": question.question_id,
+                "conversation_id": question.conversation_id,
+                "answer": "prediction",
+                "metadata": {},
+            }
+            for question in questions
+        ],
+    )
+    _write_jsonl(
+        paths.evaluator_private_labels_path,
+        [
+            evaluator_private_label_record(
+                GoldAnswerInfo(question_id=question.question_id, answer="gold"),
+                category=question.category,
+            )
+            for question in questions
+        ],
+    )
+    client = _FakeLongMemEvalJudgeClient()
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=LongMemEvalJudgeEvaluator(
+            mode="compact",
+            model="gpt-4o-mini",
+            client=client,
+        ),
+        expected_benchmark="longmemeval",
+    )
+
+    payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+    assert summary.total_questions == 2
+    assert {entry["category"] for entry in payload["category_breakdown"]} == {
+        "multi-session",
+        "temporal-reasoning",
+    }
 
 
 def test_artifact_evaluation_no_category_summary_when_no_categories(tmp_path: Path) -> None:

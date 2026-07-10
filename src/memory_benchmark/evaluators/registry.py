@@ -16,11 +16,13 @@ from memory_benchmark.config.profiles import load_typed_profile
 from memory_benchmark.core import ConfigurationError
 
 from .beam_rubric_judge import BeamRubricJudgeEvaluator
+from .f1 import F1Evaluator
 from .halumem_extraction import HalumemExtractionEvaluator
 from .halumem_qa import HalumemQAEvaluator
 from .halumem_update import HalumemUpdateEvaluator
 from .llm_judge import LLMJudgeProfileConfig
 from .longmemeval_judge import LongMemEvalJudgeEvaluator
+from .longmemeval_recall import LongMemEvalRetrievalRecallEvaluator
 from .locomo_f1 import LoCoMoF1Evaluator
 from .locomo_judge import LoCoMoJudgeEvaluator
 from .locomo_recall import LoCoMoRetrievalRecallEvaluator
@@ -80,6 +82,12 @@ def _build_locomo_f1(**_: Any) -> LoCoMoF1Evaluator:
     return LoCoMoF1Evaluator()
 
 
+def _build_f1(**_: Any) -> F1Evaluator:
+    """构造无外部依赖的通用 token F1 evaluator。"""
+
+    return F1Evaluator()
+
+
 def _build_membench_choice_accuracy(**_: Any) -> MemBenchChoiceAccuracyEvaluator:
     """构造无外部依赖的 MemBench choice accuracy evaluator。"""
 
@@ -90,6 +98,12 @@ def _build_locomo_recall(**_: Any) -> LoCoMoRetrievalRecallEvaluator:
     """构造无外部依赖的 LoCoMo retrieval recall evaluator。"""
 
     return LoCoMoRetrievalRecallEvaluator()
+
+
+def _build_longmemeval_recall(**_: Any) -> LongMemEvalRetrievalRecallEvaluator:
+    """构造无外部依赖的 LongMemEval retrieval recall evaluator。"""
+
+    return LongMemEvalRetrievalRecallEvaluator()
 
 
 def _build_locomo_judge(
@@ -228,6 +242,18 @@ _REGISTRATIONS = {
         config_type=LLMJudgeProfileConfig,
         factory=_build_halumem_qa,
     ),
+    "f1": EvaluatorRegistration(
+        cli_name="f1",
+        metric_name="f1",
+        supported_benchmarks=frozenset(
+            {"beam", "halumem", "locomo", "longmemeval"}
+        ),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_f1,
+    ),
     "locomo-f1": EvaluatorRegistration(
         cli_name="locomo-f1",
         metric_name="locomo_f1",
@@ -257,6 +283,16 @@ _REGISTRATIONS = {
         profile_relative_path=Path("configs/evaluators/llm_judge.toml"),
         config_type=LLMJudgeProfileConfig,
         factory=_build_longmemeval_judge,
+    ),
+    "longmemeval-recall": EvaluatorRegistration(
+        cli_name="longmemeval-recall",
+        metric_name="longmemeval_recall",
+        supported_benchmarks=frozenset({"longmemeval"}),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_longmemeval_recall,
     ),
     "membench-choice-accuracy": EvaluatorRegistration(
         cli_name="membench-choice-accuracy",

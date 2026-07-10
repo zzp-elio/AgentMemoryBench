@@ -154,8 +154,8 @@ class JudgePromptBuilderTest(unittest.TestCase):
             "framework_auxiliary_lightmem_reference_v1",
         )
 
-    def test_longmemeval_compact_prompt_requests_true_false_not_json(self) -> None:
-        """LongMemEval compact 模式应按 LightMem 流程请求 yes/no 输出。"""
+    def test_longmemeval_compact_prompt_requests_official_yes_no(self) -> None:
+        """LongMemEval compact 模式应逐字保留官方 yes/no 输出要求。"""
 
         prompt = LongMemEvalJudgeEvaluator(mode="compact").build_prompt(
             self.question,
@@ -163,14 +163,14 @@ class JudgePromptBuilderTest(unittest.TestCase):
             self.gold,
         )
 
-        self.assertIn("Answer yes or no only.", prompt)
+        self.assertTrue(prompt.endswith("Answer yes or no only."))
         self.assertNotIn("Return JSON", prompt)
         self.assertNotIn("is_correct", prompt)
 
-    def test_longmemeval_compact_evaluate_parses_lightmem_yes_no(self) -> None:
-        """LongMemEval compact judge 应把 LightMem 风格 yes/no 映射为布尔分数。"""
+    def test_longmemeval_evaluate_uses_official_yes_substring_parser(self) -> None:
+        """LongMemEval judge 应严格按官方 `'yes' in response.lower()` 解析。"""
 
-        yes_client = _FakeJudgeChatClient(response_text="yes")
+        yes_client = _FakeJudgeChatClient(response_text="not yes")
         no_client = _FakeJudgeChatClient(response_text="no")
 
         yes_result = LongMemEvalJudgeEvaluator(
@@ -189,8 +189,8 @@ class JudgePromptBuilderTest(unittest.TestCase):
         self.assertFalse(no_result.is_correct)
         self.assertEqual(no_result.score, 0.0)
 
-    def test_longmemeval_judge_uses_lightmem_chat_completion_parameters(self) -> None:
-        """真实 LongMemEval judge 调用参数应对齐 LightMem LongMemEval wrapper。"""
+    def test_longmemeval_judge_uses_official_chat_completion_parameters(self) -> None:
+        """LongMemEval judge 调用参数应逐项对齐官方 evaluate_qa.py。"""
 
         client = _FakeJudgeChatClient(response_text="yes")
 
@@ -203,8 +203,10 @@ class JudgePromptBuilderTest(unittest.TestCase):
         kwargs = client.calls[0]
         self.assertEqual(kwargs["model"], "gpt-4o-mini")
         self.assertEqual(kwargs["temperature"], 0.0)
-        self.assertEqual(kwargs["top_p"], 0.8)
-        self.assertEqual(kwargs["max_tokens"], 2000)
+        self.assertEqual(kwargs["n"], 1)
+        self.assertEqual(kwargs["max_tokens"], 10)
+        self.assertNotIn("top_p", kwargs)
+        self.assertNotIn("stream", kwargs)
         self.assertEqual(len(kwargs["messages"]), 1)
         self.assertEqual(kwargs["messages"][0]["role"], "user")
         self.assertIn("Answer yes or no only.", kwargs["messages"][0]["content"])
@@ -293,6 +295,54 @@ class JudgePromptBuilderTest(unittest.TestCase):
         self.assertIn("unanswerable question", prompt)
         self.assertIn("Explanation:", prompt)
         self.assertIn("correctly identify the question as unanswerable", prompt)
+
+
+_OFFICIAL_COMMON_TEMPLATE = "I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response is equivalent to the correct answer or contains all the intermediate steps to get the correct answer, you should also answer yes. If the response only contains a subset of the information required by the answer, answer no. \n\nQuestion: {}\n\nCorrect Answer: {}\n\nModel Response: {}\n\nIs the model response correct? Answer yes or no only."
+_OFFICIAL_TEMPORAL_TEMPLATE = "I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response is equivalent to the correct answer or contains all the intermediate steps to get the correct answer, you should also answer yes. If the response only contains a subset of the information required by the answer, answer no. In addition, do not penalize off-by-one errors for the number of days. If the question asks for the number of days/weeks/months, etc., and the model makes off-by-one errors (e.g., predicting 19 days when the answer is 18), the model's response is still correct. \n\nQuestion: {}\n\nCorrect Answer: {}\n\nModel Response: {}\n\nIs the model response correct? Answer yes or no only."
+_OFFICIAL_UPDATE_TEMPLATE = "I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response contains some previous information along with an updated answer, the response should be considered as correct as long as the updated answer is the required answer.\n\nQuestion: {}\n\nCorrect Answer: {}\n\nModel Response: {}\n\nIs the model response correct? Answer yes or no only."
+_OFFICIAL_PREFERENCE_TEMPLATE = "I will give you a question, a rubric for desired personalized response, and a response from a model. Please answer yes if the response satisfies the desired response. Otherwise, answer no. The model does not need to reflect all the points in the rubric. The response is correct as long as it recalls and utilizes the user's personal information correctly.\n\nQuestion: {}\n\nRubric: {}\n\nModel Response: {}\n\nIs the model response correct? Answer yes or no only."
+_OFFICIAL_ABSTENTION_TEMPLATE = "I will give you an unanswerable question, an explanation, and a response from a model. Please answer yes if the model correctly identifies the question as unanswerable. The model could say that the information is incomplete, or some other information is given but the asked information is not.\n\nQuestion: {}\n\nExplanation: {}\n\nModel Response: {}\n\nDoes the model correctly identify the question as unanswerable? Answer yes or no only."
+
+
+@pytest.mark.parametrize(
+    ("question_id", "category", "template"),
+    [
+        ("q-common", "single-session-user", _OFFICIAL_COMMON_TEMPLATE),
+        ("q-assistant", "single-session-assistant", _OFFICIAL_COMMON_TEMPLATE),
+        ("q-multi", "multi-session", _OFFICIAL_COMMON_TEMPLATE),
+        ("q-temporal", "temporal-reasoning", _OFFICIAL_TEMPORAL_TEMPLATE),
+        ("q-update", "knowledge-update", _OFFICIAL_UPDATE_TEMPLATE),
+        ("q-preference", "single-session-preference", _OFFICIAL_PREFERENCE_TEMPLATE),
+        ("q_abs_1", "single-session-user", _OFFICIAL_ABSTENTION_TEMPLATE),
+    ],
+)
+def test_longmemeval_judge_prompt_matches_official_template_byte_for_byte(
+    question_id: str,
+    category: str,
+    template: str,
+) -> None:
+    """五套路由的 prompt 应与官方 evaluate_qa.py:24-43 逐字一致。"""
+
+    question = Question(
+        question_id=question_id,
+        conversation_id="conv1",
+        text="Question text",
+        category=category,
+    )
+    prediction = AnswerResult(
+        question_id=question_id,
+        conversation_id="conv1",
+        answer="Model response",
+    )
+    gold = GoldAnswerInfo(question_id=question_id, answer="Gold answer")
+
+    prompt = LongMemEvalJudgeEvaluator(mode="detailed").build_prompt(
+        question,
+        prediction,
+        gold,
+    )
+
+    assert prompt == template.format("Question text", "Gold answer", "Model response")
 
 
 class _FakeJudgeChatClient:
