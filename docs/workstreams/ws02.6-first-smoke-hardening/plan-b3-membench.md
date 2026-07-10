@@ -259,6 +259,13 @@ frozen-v1，才写 B4 plan。
   N/A 带理由、conditional fail-fast、越界单独计数）；parse_failed 口径
   分离注释诚实标注官方 json_schema 出处；负空间清单 10 条全真实。
   定向 55 passed 复现，**全量 999 passed**。B3 首个无需修正的批次。
+- 2026-07-11（D5 T0 停工 → 架构师裁决直修）：actor 对照真实生产 artifact
+  发现 D4 recall 读 `metadata["evidence"]` 而生产序列化把 evidence 放
+  **顶层**；D4 手写 fixture 两处都塞导致假绿。**架构师 D4 验收盲区同时
+  暴露**（未对生产序列化形状验）。裁决=选项 a 架构师执行：recall 改读
+  顶层 + fixture 改为通过真实 `evaluator_private_label_record` 构造
+  （**固化为 evaluator 契约测试通用规矩：fixture 必须经真实序列化函数**）。
+  定向 55 + 全量 999 复绿。D5 卡不变，actor 复工。
 - **D5 已开卡**：[actor-prompt-d5.md](actor-prompt-d5.md)，最后一个 actor
   批次；之后架构师做最终冻结。
 - 全量基线：923（B2 冻结门）→ D2 后 927 → D3 后 988 → D4 后 **999**。

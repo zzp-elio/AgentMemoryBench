@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from memory_benchmark.core import ConfigurationError
+from memory_benchmark.core import ConfigurationError, GoldAnswerInfo
 from memory_benchmark.evaluators.membench_recall import (
     MemBenchRetrievalRecallEvaluator,
 )
@@ -14,6 +14,7 @@ from memory_benchmark.storage import (
     ExperimentPaths,
     atomic_write_json,
     atomic_write_jsonl,
+    evaluator_private_label_record,
 )
 
 
@@ -65,18 +66,21 @@ def _private_label(
     evidence: list[str],
     target_step_ids: list[int],
 ) -> dict[str, object]:
-    """构造同时含公开 evidence 和官方 target_step_id 0 基原值的私有标签。"""
+    """通过**真实生产序列化函数**构造私有标签，杜绝 fixture 与 artifact 形状漂移。
 
-    return {
-        "question_id": question_id,
-        "gold_answer": "gold",
-        "category": "highlevel",
-        "evidence": evidence,
-        "metadata": {
-            "evidence": evidence,
-            "target_step_id": target_step_ids,
-        },
-    }
+    D5 停工教训：手写 fixture 曾把 evidence 同时塞进顶层与 metadata，测试
+    自洽但与 `evaluator_private_label_record` 真实落盘形状（evidence 只在
+    顶层）不符，evaluator 读错键位也全绿。此后 evaluator 契约测试一律用
+    真实序列化函数构造输入。
+    """
+
+    gold = GoldAnswerInfo(
+        question_id=question_id,
+        answer="gold",
+        evidence=evidence,
+        metadata={"target_step_id": target_step_ids},
+    )
+    return evaluator_private_label_record(gold, category="highlevel")
 
 
 def test_turn_provenance_matches_public_turn_ids_and_keeps_official_aliases(

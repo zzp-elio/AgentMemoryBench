@@ -84,13 +84,18 @@ class MemBenchRetrievalRecallEvaluator:
                 provenance_granularity,
             )
             source_ids = _source_turn_ids(retrieved_items, top_k)
-            private_metadata = private_by_id[question_id].get("metadata")
+            private_record = private_by_id[question_id]
+            private_metadata = private_record.get("metadata")
             if not isinstance(private_metadata, dict):
                 raise ConfigurationError(
                     f"question {question_id}: private label metadata must be an object"
                 )
+            # evidence（公开 turn-id 空间的 gold）在 private label 的**顶层**——
+            # `storage/artifacts.py:evaluator_private_label_record` 把
+            # `GoldAnswerInfo.evidence` 序列化为顶层键；metadata 只存官方
+            # 0 基原值 target_step_id 等对照记录（D5 停工裁决，勿读 metadata）。
             evidence = _required_string_list(
-                private_metadata,
+                private_record,
                 "evidence",
                 question_id,
             )

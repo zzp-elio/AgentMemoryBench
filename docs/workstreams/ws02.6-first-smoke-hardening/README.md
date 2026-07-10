@@ -6,7 +6,20 @@ created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
 
-## 当前冻结与设计断点（2026-07-10）
+## 当前冻结与设计断点（2026-07-11）
+
+- 2026-07-11（D5 停工 → **架构师已裁决并直修**）：actor（cc+MiniMax M3）
+  在 D5 T0 对照真实生产 artifact，发现 D4 `membench-recall` 读
+  `metadata["evidence"]`，但 `evaluator_private_label_record` 把
+  `GoldAnswerInfo.evidence` 序列化在**顶层**（LoCoMo recall 读法正确，
+  D4 错位模仿了 LongMemEval 的 metadata 键）；D4 的手写 fixture 把
+  evidence 同时塞两处导致单测自洽假绿。三项证据架构师逐字复核为真——
+  **同时暴露架构师 D4 验收盲区（没对生产序列化形状验）**。裁决 = 选项 a
+  的架构师执行版：① `membench_recall.py` 改读顶层（+注释钉死键位出处）；
+  ② fixture 改为**通过真实 `evaluator_private_label_record` 构造**，
+  形状漂移结构性不可能（此法固化为 evaluator 契约测试通用规矩）；
+  ③ D5 卡一字不改，actor 复工。停工质量：0 行越权代码、证据带
+  文件:行号、三选一方案——教科书级。
 
 - 2026-07-10（LongMemEval `frozen-v1`，B2 完成）：C1-C5 五批 actor 施工
   （cc+GLM-5.2 × 2、codex+GPT-5.6 × 3）+ 架构师逐批验收，一次停工裁决
