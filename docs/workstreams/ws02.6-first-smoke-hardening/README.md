@@ -1,10 +1,54 @@
 ---
 id: ws02.6
 parent: ws02
-status: in-progress（2026-07-09 起；Phase A 机械修复推进中）
+status: in-progress（LoCoMo 已于 2026-07-10 frozen-v1；下一个 benchmark 尚未开工）
 created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
+
+## 当前冻结与设计断点（2026-07-10）
+
+- 2026-07-10（LoCoMo `frozen-v1`）：A6 actor commit `6f0039f` 只新增一条离线
+  registry/probe 全链路；架构师复跑 `4 passed in 2.86s`，定向总验收
+  `326 passed in 31.80s`，compileall 通过，全量回归在修正一条 2026-06 的旧
+  MemoryOS/LoCoMo answer 参数断言后为
+  `890 passed, 3 deselected, 2 warnings, 4 subtests passed in 143.70s`。冻结记录见
+  [locomo-frozen-v1.md](notes/locomo-frozen-v1.md)。当前没有开放的 actor 卡；不得提前
+  施工 LongMemEval，下一步先由架构师写 B2 plan/prompt 再交用户确认。
+- 2026-07-10（A5 架构师验收）：actor commit `64d2651` 完成 LoCoMo artifact-level
+  retrieval recall 与 auxiliary judge 身份；架构师补齐未声明 provenance=N/A、artifact
+  question ID 对齐、空 source ids fail-fast 三个边界后，A5 定向复验
+  `133 passed in 3.60s`。A5 已关闭；下一批唯一入口为
+  [actor-prompt-a6.md](actor-prompt-a6.md)，只补一条离线注册链路并复用既有 resume 测试。
+- 2026-07-10（A4 架构师验收）：actor commit `3c68c5d` 完成最小 smoke + LoCoMo
+  unified answer；架构师修掉 evidence 派生的 public metadata 泄漏后复跑 A4 定向测试
+  `139 passed in 25.32s`，并抽查真实 URL+caption/caption-only turn。A4 已关闭；下一批
+  唯一入口为 [actor-prompt-a5.md](actor-prompt-a5.md)，只做离线 metric，不碰 A6。
+- 2026-07-10（额度纠偏）：actor 已完成 T1-T3（`1341cb1`、`edefd9a`、`7600076`）
+  后按用户要求暂停。架构师完成关键 diff 审读、两处 T3 直修与定向复验
+  （`254 passed in 31.48s`），T1-T3 已验收，不再交 actor 重跑。原 10-task 重型 plan
+  已改为额度友好 v2：剩余只分 A4/A5/A6 三批，每批一个 5h 窗口内完成；actor 只施工
+  + 一次定向自检，架构师负责验收/全量/冻结。下一批唯一入口是
+  [actor-prompt-a4.md](actor-prompt-a4.md)。
+- 2026-07-10（新任架构师 GPT-5）：完成接任第一手核查：`uv run pytest -q`
+  实测 `807 passed, 3 deselected, 2 warnings`，compileall 通过；测试被确认是
+  “现行契约 + 兼容行为 + 历史断言”的混合证据，不能单独作为黄金标准。
+- 只读核查 2026-07-09 真实实验资产：16 个带 manifest 的新 run 中 10 个有最终
+  summary、6 个没有；HaluMem 四格均无 summary，BEAM/A-Mem 未进入这批真实尝试；
+  已完成 LoCoMo/LongMemEval 仍为 native prompt。因此本文原“25 格阻断全部清零”
+  只保留“已修复已知代码阻断”的含义，不代表 25 格已经验证。
+- 用户批准“放慢脚步”：未来 method/benchmark 必须先完成官方仓库一手审计、接口
+  选择与排除理由、特殊处理、效率观测设计、真实数据离线契约验证，再允许写实现
+  plan 或申请真实 API。
+- 用户进一步批准“先稳定一边”：先把五个 benchmark 当作测量仪器，按
+  **LoCoMo → LongMemEval → MemBench → BEAM → HaluMem** 严格串行整治；每个都要
+  彻底核清官方资产、真实数据、执行流程、公私边界、prompt/metric、smoke、resume、
+  artifact 与效率口径并经架构师冻结，前一个未验收，后一个不开工。五个全部冻结
+  后 method 侧才解冻。
+- 当前冻结：不新增 method/benchmark，不运行新真实 API smoke，不启动 full，不批量
+  重写 tests。正式设计 [spec.md](spec.md) 已于 2026-07-10 获用户批准；LoCoMo B0+B1
+  已按 [plan](plan-b0-b1-locomo.md) 达到 `frozen-v1`。B2 LongMemEval 尚未写 plan，也
+  未向 actor 派工。
 
 ## 为什么有这个 workstream（第一手发现）
 
@@ -91,8 +135,8 @@ token）；③ 每次 LLM 调用一条 `LLMCallObservation`（次数可聚合）
   S3 交错 scope + S4 测试）— 架构师直接做，25 格阻断清零，807 passed
 - [x] membench adapter 解析 `(place; time)`→`turn_time`（不改 text，双写；session_time
   兜底取首个带时间戳 turn）— 架构师直接改，解掉 lightmem×membench 阻断
-- [ ] locomo/longmemeval 补 unified_prompt_builder（官方模板）+ 默认 unified
-- [ ] answer LLM 配置按 benchmark 归一（跨 method 一致）
+- [x] LoCoMo 补 unified_prompt_builder（官方模板）+ 默认 unified；LongMemEval 待 B2
+- [x] LoCoMo answer LLM 配置按 benchmark 归一（跨 method 一致）；其他 benchmark 待各卡
 - [ ] 效率完备性逐 adapter 审计（api_usage vs 估计）+ formatted_memory 一致性
 - [ ] membench 裁剪重设计（`--membench-sources` + 第三人称 `--turns`）
 - [ ] sentinel 泄漏改中性占位

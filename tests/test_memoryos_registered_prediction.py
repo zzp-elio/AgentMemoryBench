@@ -586,14 +586,15 @@ def test_memoryos_registered_prediction_uses_generic_runner_with_smoke_crop_resu
     assert [question.question_id for question in smoke_conversation.questions] == [
         "conv-1:q1"
     ]
+    # LoCoMo reader 参数由 benchmark 统一冻结，不能继续沿用 MemoryOS 旧 profile。
     assert captured["method_manifest"] == {
         "answer_reader": {
             "answer_model": "gpt-4o-mini",
             "answer_parameters": {
                 "message_role": "user",
-                "temperature": 0.7,
-                "max_tokens": 2000,
-                "top_p": None,
+                "temperature": 0.0,
+                "max_tokens": 32,
+                "top_p": 1.0,
                 "timeout_seconds": 60.0,
                 "max_retries": 8,
             },

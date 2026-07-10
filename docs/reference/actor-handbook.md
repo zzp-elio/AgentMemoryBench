@@ -11,20 +11,21 @@
 裁定一切设计问题；你**严格按 plan 施工**，不重新设计、不自行发散、不越权
 决策。你写的代码会被架构师逐项复核，plan 之外的"顺手优化"会被要求回滚。
 
-## 1. 上工流程（每个任务卡固定七步）
+## 1. 上工流程（额度友好版）
 
 1. 读 `AGENTS.md`（项目入口与硬规则原文）。
 2. 读任务卡指定的 workstream README（`docs/workstreams/ws<ID>-*/README.md`）
    的"当前断点"——那里是最新事实。
-3. 读任务卡指定的 spec 与 plan 全文。plan 是逐 task（T1、T2…）结构。
-4. 跑一次 `uv run pytest -q`，记下 passed 数——这是你的**基线**，收工时
-   不得低于它（当前基线见 roadmap 或最近 workstream 断点记录）。
-5. 按 T 序号顺序施工。每个 T：先写/改测试 → 实现 → 跑该 T 的验收命令 →
-   把命令与真实输出粘进 plan 该 T 下方 → 勾选该 T → **一个 T 一个 commit**。
-6. 全部完成：跑 `uv run pytest -q`（不得低于基线）+
-   `uv run python -m compileall -q src/memory_benchmark tests`。
-7. 更新 workstream README：勾选任务清单、"当前断点"写一条交接记录
-   （日期 + 你的身份 + 完成了什么 + 基线数字 + 下一步是什么）。
+3. 读架构师本批派工 prompt 指定的 plan 小节和必要一手源；prompt 未要求时不要重读
+   整个历史、重复扫描全部数据或重跑全量基线。
+4. 严格完成本批实现，写/改直接相关测试；不要另开 implementer/reviewer subagent 做
+   自我审查，架构师会亲自验收。
+5. 只跑 prompt 指定的一条定向自检命令。通过后，若用户已授权，按本批做一次本地
+   commit；不 push。
+6. 到 prompt 指定停点立即停止，不自动继续下一批，不自行跑全量 pytest、compileall、
+   最终隐私审计或冻结文档。
+7. 用 §4 的短格式交接；workstream README/roadmap 状态由架构师验收后更新，除非
+   prompt 明确指派 actor 修改。
 
 ## 2. 硬规则（红线，违反即返工）
 
@@ -51,7 +52,7 @@
 - plan 内部矛盾，或 plan 与 spec / 机制卡 / 现有代码事实冲突。
 - 验收命令跑不出 plan 声称的结果（数量、行为不符）。
 - 需要真实 API、需要下载大模型/数据、需要用户决策的任何事。
-- 全量回归跌破基线且 15 分钟内定位不到原因。
+- 定向自检失败且 15 分钟内定位不到原因。
 
 断点格式（写入 workstream README"当前断点"最上方）：
 `- <日期>（<你的身份>，停工）：在 T<N> 遇到 <一句话问题>；已完成 T1-T<N-1>
@@ -59,10 +60,10 @@
 
 ## 4. 完成报告格式（回复用户时）
 
-1. 完成了哪些 T（对应 commit 列表，一行一个）。
-2. 全量回归数字（`uv run pytest -q` 尾行原文粘贴）。
-3. 是否有 plan 之外的发现（只报告，不处置）。
-4. workstream README 断点已更新到什么状态。
+1. 本批 commit hash（未授权 commit 时写“未提交”）。
+2. prompt 指定的定向测试尾行原文。
+3. 实际改动文件。
+4. 是否有 plan 偏差或停工点；没有就写“无”。
 
 ## 5. 工程速查
 
@@ -104,7 +105,8 @@
   Codex 判断依据官方 wrapper + 数据即可、未误停工，同时点出该表述不精确交
   架构师修正。这种"看穿 plan 措辞不精确但按任务实质正确推进 + 上报"是理想
   actor 行为。
-- **验收命令的真实输出逐条粘回**（不概括、不编）——架构师复跑核对以此为准。
+- **本批定向自检的真实尾行必须原样报告**（不概括、不编）；全量回归和最终验收由
+  架构师负责，actor 不重复执行。
 - **发现 plan 有事实缺口就停工上报，别硬编绕过**。判例（2026-07-08，Codex
   做对了）：T4 开工前发现 extraction/update 评测是 **session 级**（官方
   `evaluation.py:54-95` 遍历每 session 的 memory_points，与有没有 question
@@ -120,3 +122,19 @@
   按算法实质验收（只锁"add_memory 未调 + 记忆**内容**不变"）+ 把差异上报请裁
   （架构师回 method 官方 eval 证实 actor 对、更正了 plan）。**plan 是架构师写的、
   也会错；你第一手看到的算法机制与 plan 冲突时，按机制做 + 上报，是理想行为。**
+
+## 8. Benchmark 整治任务的额外纪律（2026-07-10）
+
+- **一次只做一个 benchmark**。任务卡未明确包含的下一个 benchmark、任何真实 method
+  adapter、5×5 矩阵填格都不碰；前一个 benchmark 未经架构师标记 `frozen-v1`，不得
+  提前施工后一个。
+- benchmark 的事实源是官方仓库源码、论文和真实数据。先把数据加载、执行顺序、
+  prompt、parser、metric、smoke 与 resume 全部核清，再写框架映射；已有测试和调研卡
+  只能作导航，不能作为最终证据。
+- benchmark 离线验收使用 method-neutral probe。不得为了让某个现有 method 跑通而在
+  benchmark adapter 中加入 method 名判断、格子专用算法或专用 runner。
+- smoke 与 resume 必须从 benchmark 的自然原子步骤推导。必须检查 checkpoint 边界、
+  重复 ingest/retrieve/judge、状态型 retrieve、partial artifact 和失败隔离；不能把
+  另一个 benchmark 的 conversation/round/session 语义照搬过来。
+- 发现官方流程与 v3 当前能力冲突时停工，由架构师判断是 benchmark 映射错误、协议缺口
+  还是非目标；actor 不自行扩协议或改 metric。

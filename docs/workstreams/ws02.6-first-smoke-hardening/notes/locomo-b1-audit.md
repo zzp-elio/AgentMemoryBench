@@ -1,5 +1,14 @@
 # LoCoMo B1 审计笔记（Task 1）
 
+> **2026-07-10 frozen-v1 架构师更正**：本笔记是 actor 当时的施工报告，不是最终
+> 验收事实源。其中论文路径 `third_party/benchmarks/locomo-main/static/paper/locomo.pdf`
+> 在当前工作区不存在，所列 `a72c...` 也不是当前实际 bundled PDF 的哈希。最终复验
+> 使用实际文件
+> `third_party/benchmarks/locomo-main/Maharana 等 - 2024 - Evaluating Very Long-Term Conversational Memory of LLM Agents.pdf`，
+> SHA-256 为 `218188e1d66a553afe324491e3e5e5d0af107196c9ff32c65bb3640ebf638539`。
+> 现行 source identity 以 [locomo-source-lock.json](locomo-source-lock.json) 和
+> [locomo-frozen-v1.md](locomo-frozen-v1.md) 为准；保留下文只是为了忠实记录原报告。
+
 日期：2026-07-10
 执行者：Claude Sonnet 5（本次会话，见系统提示确认，非默认沿用池内其他名字）
 范围：`docs/workstreams/ws02.6-first-smoke-hardening/plan-b0-b1-locomo.md` Task 1。

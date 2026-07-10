@@ -23,7 +23,7 @@ pytestmark = pytest.mark.unit
 def _write_run(
     tmp_path: Path,
     *,
-    provenance_granularity: str,
+    provenance_granularity: str | None,
     answer_prompts: list[dict],
     private_labels: list[dict],
     public_questions: list[dict],
@@ -37,10 +37,13 @@ def _write_run(
     """
 
     paths = ExperimentPaths.create(tmp_path / "run-1")
+    method_manifest = {}
+    if provenance_granularity is not None:
+        method_manifest["provenance_granularity"] = provenance_granularity
     manifest = {
         "run_id": "run-1",
         "benchmark_name": "locomo",
-        "method": {"provenance_granularity": provenance_granularity},
+        "method": method_manifest,
     }
     atomic_write_json(paths.manifest_path, manifest)
     atomic_write_jsonl(paths.answer_prompts_path, answer_prompts)
@@ -207,6 +210,27 @@ def test_provenance_none_returns_structured_na_without_zero_score(tmp_path: Path
     assert "reason" in result["summary"]
 
 
+def test_missing_provenance_declaration_returns_structured_na(tmp_path: Path) -> None:
+    """历史 run 未声明 provenance 时应为 N/A，不能让 artifact-only evaluation 崩溃。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        provenance_granularity=None,
+        answer_prompts=[],
+        private_labels=[],
+        public_questions=[],
+    )
+
+    result = LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(
+        paths=paths,
+        manifest=manifest,
+    )
+
+    assert result["summary"]["status"] == "n/a"
+    assert result["summary"]["provenance_granularity"] == "undeclared"
+    assert result["total_questions"] == 0
+
+
 def test_declared_turn_provenance_missing_top_k_fails_fast(tmp_path: Path) -> None:
     """声明 turn provenance 却缺 retrieval_query_top_k 必须 fail-fast，不能静默降级。"""
 
@@ -275,6 +299,62 @@ def test_declared_turn_provenance_missing_source_turn_ids_fails_fast(
 
     with pytest.raises(ConfigurationError, match="source_turn_ids"):
         LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+
+
+def test_declared_turn_provenance_empty_source_turn_ids_fails_fast(
+    tmp_path: Path,
+) -> None:
+    """声明支持 provenance 的命中 item 不能用空 source_turn_ids 冒充可追溯。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        provenance_granularity="turn",
+        answer_prompts=[
+            {
+                "question_id": "q1",
+                "conversation_id": "conv-1",
+                "retrieval_query_top_k": 1,
+                "retrieved_items": [_item("i1", [])],
+            }
+        ],
+        private_labels=[{"question_id": "q1", "answer": "gold", "evidence": ["D1:1"]}],
+        public_questions=[{"question_id": "q1", "category": "4"}],
+    )
+
+    with pytest.raises(ConfigurationError, match="empty source_turn_ids"):
+        LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(
+            paths=paths,
+            manifest=manifest,
+        )
+
+
+def test_answer_prompt_and_private_label_question_ids_must_match(
+    tmp_path: Path,
+) -> None:
+    """artifact ID 不一致必须 fail-fast，不能静默缩小 recall 分母。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        provenance_granularity="turn",
+        answer_prompts=[
+            {
+                "question_id": "q-prompt",
+                "conversation_id": "conv-1",
+                "retrieval_query_top_k": 1,
+                "retrieved_items": [_item("i1", ["D1:1"])],
+            }
+        ],
+        private_labels=[
+            {"question_id": "q-private", "answer": "gold", "evidence": ["D1:1"]}
+        ],
+        public_questions=[{"question_id": "q-prompt", "category": "4"}],
+    )
+
+    with pytest.raises(ConfigurationError, match="question IDs"):
+        LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(
+            paths=paths,
+            manifest=manifest,
+        )
 
 
 def test_unknown_provenance_granularity_fails_fast(tmp_path: Path) -> None:

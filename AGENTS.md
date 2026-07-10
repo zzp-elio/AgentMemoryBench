@@ -48,13 +48,18 @@
   误标成"Claude Sonnet"，架构师又照搬未核实——身份自标也要验证，同"验证 actor
   断言"一理）。actor
   规矩全文在 `docs/reference/actor-handbook.md`（上工流程、红线、停工条件、报告
-  格式）。**每张任务卡必须自包含**：列出要读的文件清单（`AGENTS.md` → 目标
-  workstream README → spec/plan → `actor-handbook.md`）、把裁定与口径写全；
+  格式）。**每次给 actor 派工必须同时写一段可直接复制发送的 prompt**，并把工作量
+  限制在单个 5h 窗口内；prompt 列出本批要读的最少文件（`AGENTS.md` → 目标
+  workstream README → plan 当前批次 → `actor-handbook.md`）和明确停点，不能只丢一份
+  大 plan。任务卡仍须自包含、把裁定与口径写全；
   **禁用"纪律照旧""规矩同上"这类只有老搭档才懂的暗语**（新人看不懂，等于没写）。
-  严格按 plan 施工，逐 task 勾选并附验收命令的实际输出；plan 未覆盖的情况停工
-  写断点，交回架构师，不自行发散。
+  actor 严格按本批 prompt/plan 施工，只跑一次直接相关的最小自检并报告真实输出；
+  **不得默认要求 actor 再开 reviewer subagent、重复一手审计、跑全量回归或自行做最终
+  验收**。plan 未覆盖的情况停工写断点，交回架构师，不自行发散。
 - 执行者报告完成不等于任务完成；验收以架构师复跑命令的输出为准，**完成度
   以 git log 为准，不以 actor 最后一条消息为准**（额度耗尽时消息可能错乱）。
+  架构师负责关键 diff 审读、定向复跑、最终全量回归和状态冻结；“放慢”是 benchmark/
+  method 严格逐个推进，不是让 actor 与架构师重复生产同一份验收证据。
 - **两本经验手册必须持续更新，不是只读不写**（2026-07-08 用户强调）：
   `architect-playbook.md`（架构师经验，知错能改：裁定、被纠正的失误、第一手核查
   手艺）+ `actor-handbook.md`（actor 经验：好/坏行为判例）。**接任的架构师/actor

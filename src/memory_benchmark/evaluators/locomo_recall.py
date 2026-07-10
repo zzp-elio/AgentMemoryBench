@@ -53,13 +53,14 @@ class LoCoMoRetrievalRecallEvaluator:
         """
 
         provenance_granularity = _method_provenance_granularity(manifest)
-        if provenance_granularity == "none":
+        if provenance_granularity in {"none", "undeclared"}:
             return _na_payload(
                 metric_name=self.metric_name,
                 reason=(
-                    "provider declares provenance_granularity='none'; "
-                    "retrieval recall is not evaluable for this run"
+                    "provider provenance is unavailable; retrieval recall is not "
+                    "evaluable for this run"
                 ),
+                provenance_granularity=provenance_granularity,
                 official_source=self.official_source,
             )
         if provenance_granularity not in ("turn", "session"):
@@ -69,13 +70,25 @@ class LoCoMoRetrievalRecallEvaluator:
             )
 
         answer_prompt_records = read_jsonl(paths.answer_prompts_path)
-        private_by_id = {
-            record["question_id"]: record
-            for record in read_jsonl(paths.evaluator_private_labels_path)
-        }
+        private_records = read_jsonl(paths.evaluator_private_labels_path)
+        public_records = read_jsonl(paths.public_questions_path)
+        answer_ids = [record.get("question_id") for record in answer_prompt_records]
+        private_ids = [record.get("question_id") for record in private_records]
+        public_ids = [record.get("question_id") for record in public_records]
+        if (
+            len(set(answer_ids)) != len(answer_ids)
+            or len(set(private_ids)) != len(private_ids)
+            or len(set(public_ids)) != len(public_ids)
+            or set(answer_ids) != set(private_ids)
+            or set(answer_ids) != set(public_ids)
+        ):
+            raise ConfigurationError(
+                "LoCoMo recall artifact question IDs must match exactly across "
+                "answer prompts, private labels and public questions"
+            )
+        private_by_id = {record["question_id"]: record for record in private_records}
         category_by_id = {
-            record["question_id"]: record.get("category")
-            for record in read_jsonl(paths.public_questions_path)
+            record["question_id"]: record.get("category") for record in public_records
         }
 
         score_records: list[dict[str, Any]] = []
@@ -85,9 +98,7 @@ class LoCoMoRetrievalRecallEvaluator:
 
         for record in answer_prompt_records:
             question_id = record.get("question_id")
-            private = private_by_id.get(question_id)
-            if private is None:
-                continue
+            private = private_by_id[question_id]
 
             top_k = record.get("retrieval_query_top_k")
             retrieved_items = record.get("retrieved_items")
@@ -109,6 +120,12 @@ class LoCoMoRetrievalRecallEvaluator:
                         f"question {question_id}: provider declares "
                         f"provenance_granularity={provenance_granularity!r} but a "
                         "retrieved item is missing source_turn_ids"
+                    )
+                if not item["source_turn_ids"]:
+                    raise ConfigurationError(
+                        f"question {question_id}: provider declares "
+                        f"provenance_granularity={provenance_granularity!r} but a "
+                        "retrieved item has empty source_turn_ids"
                     )
 
             top_k_values.append(top_k)
@@ -155,13 +172,10 @@ def _method_provenance_granularity(manifest: dict[str, Any]) -> str:
 
     method_manifest = manifest.get("method")
     if not isinstance(method_manifest, dict):
-        raise ConfigurationError("manifest is missing a 'method' section")
+        return "undeclared"
     provenance_granularity = method_manifest.get("provenance_granularity")
     if provenance_granularity is None:
-        raise ConfigurationError(
-            "manifest['method'] is missing provenance_granularity; this run "
-            "predates the provenance_granularity manifest field"
-        )
+        return "undeclared"
     return str(provenance_granularity)
 
 
@@ -207,6 +221,7 @@ def _na_payload(
     *,
     metric_name: str,
     reason: str,
+    provenance_granularity: str,
     official_source: str,
 ) -> dict[str, Any]:
     """构造 provenance_granularity='none' 时的结构化 N/A payload。"""
@@ -220,7 +235,7 @@ def _na_payload(
         "summary": {
             "status": "n/a",
             "reason": reason,
-            "provenance_granularity": "none",
+            "provenance_granularity": provenance_granularity,
             "official_source": official_source,
         },
     }

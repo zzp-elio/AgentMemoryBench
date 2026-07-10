@@ -6,7 +6,7 @@
   "local_snapshot_path": "third_party/benchmarks/locomo-main/",
   "license": "CC BY-NC 4.0 (Creative Commons Attribution-NonCommercial 4.0 International)",
   "license_file": "third_party/benchmarks/locomo-main/LICENSE.txt",
-  "verification_method": "controller cross-checked local snapshot files byte-for-byte against a read-only temporary clone of the official commit before this task began; this task performed no network access and re-hashed only local files",
+  "verification_method": "official commit identity was previously checked against a read-only temporary clone; frozen-v1 acceptance re-hashed every currently referenced local file and corrected the bundled paper path/hash instead of trusting the earlier audit text",
   "files": [
     {
       "role": "canonical_dataset",
@@ -16,9 +16,9 @@
     },
     {
       "role": "paper",
-      "local_path": "third_party/benchmarks/locomo-main/static/paper/locomo.pdf",
-      "official_path": "third_party/benchmarks/locomo-main/static/paper/locomo.pdf",
-      "sha256": "a72c82117d01d8e304a24364a189afb91d25bf5e871b023f1e8172d6bdf64025"
+      "local_path": "third_party/benchmarks/locomo-main/Maharana 等 - 2024 - Evaluating Very Long-Term Conversational Memory of LLM Agents.pdf",
+      "official_path": "static/paper/locomo.pdf",
+      "sha256": "218188e1d66a553afe324491e3e5e5d0af107196c9ff32c65bb3640ebf638539"
     },
     {
       "role": "readme",
@@ -59,6 +59,7 @@
   ],
   "notes": [
     "third_party/benchmarks/locomo-main/ has no independent .git metadata; `git rev-parse HEAD` run inside it resolves to the parent memoryBenchmark repo's HEAD, not the LoCoMo commit. Do not use that command to identify this source.",
-    "official_source_commit above is the value already independently verified by the controller (docs/survey/benchmarks/LoCoMo.md) against a read-only temporary clone; this task re-derived only the local sha256 values, not the remote commit, to respect the offline/no-network hard rule."
+    "official_source_commit above is the value already independently verified by the controller (docs/survey/benchmarks/LoCoMo.md) against a read-only temporary clone; frozen-v1 acceptance re-derived local sha256 values without network access.",
+    "The earlier Task 1 audit named third_party/benchmarks/locomo-main/static/paper/locomo.pdf, but that path does not exist in the current local snapshot. Frozen-v1 records the actual bundled PDF path and its independently recomputed hash. The official repository path is retained separately as official_path; byte identity between this bundled PDF copy and the official-path blob is not claimed."
   ]
 }

@@ -262,7 +262,7 @@ def test_smoke_dataset_selects_first_question_regardless_of_evidence_coverage() 
         conversation.metadata["smoke_question_selection_strategy"]
         == "first_phase1_question"
     )
-    # q-outside 的 evidence（t3）不在截断历史（t1, t2）内，必须标记截断。
+    # source 有第三个 turn，但 smoke 只保留 t1/t2，因此公开 history 被截断。
     assert conversation.metadata["smoke_context_truncated"] is True
     assert "evidence" not in str(conversation.to_public_dict()).lower()
     assert smoke_dataset.metadata["smoke_history_axis"] == "rounds"
@@ -365,20 +365,19 @@ def test_smoke_concurrency_override_is_bounded_and_does_not_change_full() -> Non
         resolve_prediction_max_workers(full, smoke_max_workers=2)
 
 
-def test_smoke_dataset_marks_truncated_evidence_without_rejecting() -> None:
-    """smoke 只验证链路，截断历史不覆盖 evidence 时保留问题并记录标记。"""
+def test_smoke_context_truncated_does_not_depend_on_private_evidence() -> None:
+    """method 可见的截断标记只能来自公开 history，不能由私有 evidence 派生。"""
 
     dataset = _build_smoke_source_dataset()
-    dataset.conversations[0].gold_answers["q-inside"].evidence = ["t3"]
+    first = build_locomo_smoke_dataset(dataset, turn_limit=2)
 
-    smoke_dataset = build_locomo_smoke_dataset(dataset, turn_limit=2)
+    # 把所选题 q-outside 的私有 evidence 从被截掉的 t3 改成已保留的 t1。
+    # 公开 history 没变，method 可见 metadata 也必须完全不变。
+    dataset.conversations[0].gold_answers["q-outside"].evidence = ["t1"]
+    second = build_locomo_smoke_dataset(dataset, turn_limit=2)
 
-    conversation = smoke_dataset.conversations[0]
-    assert [question.question_id for question in conversation.questions] == [
-        "q-outside"
-    ]
-    assert conversation.metadata["smoke_context_truncated"] is True
-    assert conversation.metadata["smoke_selected_question_ids"] == ["q-outside"]
+    assert first.conversations[0].metadata == second.conversations[0].metadata
+    assert first.conversations[0].metadata["smoke_context_truncated"] is True
 
 
 def test_smoke_dataset_explicit_two_rounds_retains_first_four_turns() -> None:

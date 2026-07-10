@@ -308,8 +308,8 @@ def build_locomo_smoke_dataset(
 
     说明:
         smoke 只验证四步链路是否跑通，不要求问题在截断历史内可回答；question
-        选择不读取 evidence，只用 evidence 计算 `smoke_context_truncated`
-        诊断标记。
+        选择和 method 可见 metadata 都不读取 evidence；
+        `smoke_context_truncated` 只表示公开 history 是否被裁短。
     """
 
     if turn_limit < 1:
@@ -351,12 +351,10 @@ def _build_locomo_smoke_conversation(
 
     输出:
         Conversation: 裁剪后的历史、`source.questions` 中的第一个问题及其对应
-        私有标准答案。question 选择永远不读取 evidence，只用 evidence 计算
-        `smoke_context_truncated` 诊断标记。
+        私有标准答案。question 选择和公开 metadata 永远不读取 evidence。
     """
 
     retained_sessions: list[Session] = []
-    retained_turn_ids: set[str] = set()
     remaining = turn_limit
     for session in source.sessions:
         if remaining <= 0:
@@ -364,7 +362,6 @@ def _build_locomo_smoke_conversation(
         retained_turns = copy.deepcopy(session.turns[:remaining])
         if not retained_turns:
             continue
-        retained_turn_ids.update(turn.turn_id for turn in retained_turns)
         retained_sessions.append(
             Session(
                 session_id=session.session_id,
@@ -384,8 +381,9 @@ def _build_locomo_smoke_conversation(
         )
     selected_question = copy.deepcopy(source.questions[0])
     gold = source.gold_answers[selected_question.question_id]
-    evidence_ids = set(gold.evidence)
-    context_truncated = not evidence_ids.issubset(retained_turn_ids)
+    source_turn_count = sum(len(session.turns) for session in source.sessions)
+    retained_turn_count = sum(len(session.turns) for session in retained_sessions)
+    context_truncated = retained_turn_count < source_turn_count
     selected_gold_answers = {selected_question.question_id: copy.deepcopy(gold)}
 
     return Conversation(
