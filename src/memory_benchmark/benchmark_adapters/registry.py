@@ -53,6 +53,7 @@ from .halumem import (
     prepare_halumem_run,
 )
 from .locomo import LOCOMO_VARIANT_SPECS, prepare_locomo_run
+from .locomo_prompt import build_locomo_unified_answer_prompt
 from .longmemeval import LONGMEMEVAL_VARIANT_SPECS, LongMemEvalAdapter
 from .membench import (
     MEMBENCH_VARIANT_SPECS,
@@ -220,9 +221,10 @@ def _prepare_longmemeval_run(
 
 # LoCoMo 是本 workstream 第一个完成 smoke/resume 审计的 benchmark（见
 # docs/workstreams/ws02.6-first-smoke-hardening/plan-b0-b1-locomo.md Task 3）。
-# 具体取值：LoCoMo 官方 QA 以 (question, evidence) 为单位、session 内 user/
-# assistant 成对出现，因此历史裁剪轴天然是完整 round；smoke 只需 1 个可回答
-# round 即可验证四步链路，故 default_history_limit=1。resume 上，smoke 数据
+# 具体取值：LoCoMo session 内相邻 turn 在当前 release 中交替 speaker，smoke 的
+# round 仅定义为原始顺序的两个连续 turn，不改变 canonical turn stream；smoke
+# 无需保证问题可回答，1 round 足以验证四步链路，故 default_history_limit=1。resume
+# 上，smoke 数据
 # 量太小、状态不值得跨 run 复用（smoke_enabled=False），但 checkpoint 粒度、
 # retrieval 复用和"只跑 evaluator"仍遵循与 full 相同的 conversation/question
 # 级约定。
@@ -550,6 +552,8 @@ def _build_default_registry() -> BenchmarkRegistry:
         prediction_enabled=True,
         smoke_policy=LOCOMO_SMOKE_POLICY,
         resume_policy=LOCOMO_RESUME_POLICY,
+        prompt_track="unified",
+        unified_prompt_builder=build_locomo_unified_answer_prompt,
     )
     _try_register_adapter(
         registry,

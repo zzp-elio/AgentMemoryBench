@@ -27,6 +27,9 @@ from memory_benchmark.benchmark_adapters.locomo import (
     LoCoMoAdapter,
     build_locomo_smoke_dataset,
 )
+from memory_benchmark.benchmark_adapters.locomo_prompt import (
+    LOCOMO_UNIFIED_ANSWER_PROMPT_PROFILE,
+)
 from memory_benchmark.benchmark_adapters.beam import (
     BEAM_ANSWER_PROMPT_PROFILE,
     BeamAdapter,
@@ -844,6 +847,65 @@ def test_locomo_registration_declares_frozen_smoke_and_resume_policy() -> None:
         answer_checkpoint="question",
         reuse_saved_retrieval=True,
         evaluation_artifact_only=True,
+    )
+
+
+def test_locomo_registration_declares_unified_prompt_track() -> None:
+    """LoCoMo registration 必须默认 unified prompt_track 并声明 builder。"""
+
+    registration = get_benchmark_registration("locomo")
+
+    assert registration.prompt_track == "unified"
+    assert registration.unified_prompt_builder is not None
+
+
+def test_locomo_unified_prompt_uses_official_short_phrase_qa_prompt() -> None:
+    """普通题必须用官方 short-phrase QA prompt，且不含 method 名/gold/evidence。"""
+
+    registration = get_benchmark_registration("locomo")
+    question = Question(
+        question_id="conv-1:q1",
+        conversation_id="conv-1",
+        text="What did Alice eat?",
+        category="4",
+    )
+    retrieval_result = RetrievalResult(
+        formatted_memory="[2023-01-01] Alice: I ate pizza.",
+        metadata={"provider": "fake"},
+    )
+
+    prompt = registration.unified_prompt_builder(question, retrieval_result)
+
+    assert prompt.prompt_messages[0].role == "user"
+    assert "What did Alice eat? Short answer:" in prompt.prompt_messages[0].content
+    assert "Answer with exact words from the context" in prompt.prompt_messages[0].content
+    assert "[2023-01-01] Alice: I ate pizza." in prompt.prompt_messages[0].content
+    assert "Use DATE of CONVERSATION" not in prompt.prompt_messages[0].content
+    assert prompt.metadata["prompt_track"] == "unified"
+    assert prompt.metadata["answer_prompt_profile"] == LOCOMO_UNIFIED_ANSWER_PROMPT_PROFILE
+    assert prompt.metadata["answer_context"] == retrieval_result.formatted_memory
+    assert "gpt_utils.py" in prompt.metadata["official_source"]
+    for private_key in ("gold", "evidence", "judge_label", "mem0", "memoryos"):
+        assert private_key not in prompt.prompt_messages[0].content.lower()
+
+
+def test_locomo_unified_prompt_appends_official_date_hint_for_category_2() -> None:
+    """category 2（temporal）必须追加官方日期提示，其他 category 不追加。"""
+
+    registration = get_benchmark_registration("locomo")
+    question = Question(
+        question_id="conv-1:q2",
+        conversation_id="conv-1",
+        text="When did Alice move?",
+        category="2",
+    )
+    retrieval_result = RetrievalResult(formatted_memory="[2023-01-01] Alice moved.")
+
+    prompt = registration.unified_prompt_builder(question, retrieval_result)
+
+    assert (
+        "When did Alice move? Use DATE of CONVERSATION to answer with an "
+        "approximate date. Short answer:" in prompt.prompt_messages[0].content
     )
 
 

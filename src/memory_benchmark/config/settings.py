@@ -242,28 +242,27 @@ def resolve_answer_llm_settings(
     """
 
     key = (method_name.strip().lower(), benchmark_name.strip().lower())
-    if key in {("mem0", "locomo"), ("mem0", "longmemeval")}:
+    if key[1] == "locomo":
+        # LoCoMo 已冻结的官方 answer LLM 参数，method 无关（见
+        # docs/workstreams/ws02.6-first-smoke-hardening/plan-b0-b1-locomo.md
+        # Task 5；官方来源
+        # third_party/benchmarks/locomo-main/task_eval/gpt_utils.py:283-289、
+        # global_methods.py:92-127：role=user、temperature=0、max_tokens=32；
+        # top-p 官方代码未显式传，论文 Appendix C.2 记为 1）。同一 benchmark 下
+        # 所有 method 必须字节级一致，不再按 (method, benchmark) 分叉。
+        return AnswerLLMSettings(
+            model=model,
+            message_role="user",
+            temperature=0.0,
+            max_tokens=32,
+            top_p=1.0,
+        )
+    if key == ("mem0", "longmemeval"):
         return AnswerLLMSettings(
             model=model,
             message_role="user",
             temperature=0.0,
             max_tokens=4096,
-            top_p=None,
-        )
-    if key == ("amem", "locomo"):
-        return AnswerLLMSettings(
-            model=model,
-            message_role="user",
-            temperature=0.7,
-            max_tokens=1000,
-            top_p=None,
-        )
-    if key == ("lightmem", "locomo"):
-        return AnswerLLMSettings(
-            model=model,
-            message_role="system",
-            temperature=0.0,
-            max_tokens=None,
             top_p=None,
         )
     if key in {
@@ -277,14 +276,6 @@ def resolve_answer_llm_settings(
             temperature=0.0,
             max_tokens=2000,
             top_p=0.8,
-        )
-    if key == ("memoryos", "locomo"):
-        return AnswerLLMSettings(
-            model=model,
-            message_role="user",
-            temperature=0.7,
-            max_tokens=2000,
-            top_p=None,
         )
     return AnswerLLMSettings(model=model)
 

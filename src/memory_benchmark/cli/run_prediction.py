@@ -163,6 +163,7 @@ class _PreparedPredictionChild:
     run_context: RunContext
     policy: PredictionRunPolicy
     method_manifest: dict[str, object]
+    benchmark_policy: dict[str, object] | None
     source_paths: tuple[Path, ...]
     efficiency_collector: EfficiencyCollector | None = None
     model_inventory: tuple[ModelDescriptor, ...] = ()
@@ -471,7 +472,6 @@ def run_registered_conversation_qa_prediction(
                 if use_framework_answer_reader and prompt_track == "unified"
                 else None
             ),
-            benchmark_policy=benchmark_policy_manifest,
         )
         policy = PredictionRunPolicy(
             max_workers=max_workers,
@@ -520,6 +520,7 @@ def run_registered_conversation_qa_prediction(
                 run_context=run_context,
                 policy=policy,
                 method_manifest=method_manifest,
+                benchmark_policy=benchmark_policy_manifest,
                 source_paths=tuple(
                     path_settings.project_root / relative_path
                     for relative_path in prepared.source_relative_paths
@@ -538,6 +539,7 @@ def run_registered_conversation_qa_prediction(
                 run_context=child.run_context,
                 policy=child.policy,
                 method_manifest=child.method_manifest,
+                benchmark_policy=child.benchmark_policy,
                 benchmark_variant=child.variant,
                 run_scope=child.run_scope,
                 source_paths=child.source_paths,
@@ -666,6 +668,7 @@ def run_registered_conversation_qa_prediction(
                 run_context=child.run_context,
                 policy=child.policy,
                 method_manifest=child.method_manifest,
+                benchmark_policy=child.benchmark_policy,
                 benchmark_variant=child.variant,
                 run_scope=child.run_scope,
                 source_paths=child.source_paths,
@@ -842,7 +845,6 @@ def _run_custom_conversation_qa_prediction(
             answer_reader_manifest=answer_reader_manifest,
             allow_unsafe_custom_parallel=allow_unsafe_custom_parallel,
             prompt_track=prompt_track if prompt_track == "unified" else None,
-            benchmark_policy=benchmark_policy_manifest,
         )
         policy = PredictionRunPolicy(
             max_workers=max_workers,
@@ -884,6 +886,7 @@ def _run_custom_conversation_qa_prediction(
                 run_context=run_context,
                 policy=policy,
                 method_manifest=method_manifest,
+                benchmark_policy=benchmark_policy_manifest,
                 source_paths=tuple(
                     path_settings.project_root / relative_path
                     for relative_path in prepared.source_relative_paths
@@ -901,6 +904,7 @@ def _run_custom_conversation_qa_prediction(
             run_context=child.run_context,
             policy=child.policy,
             method_manifest=child.method_manifest,
+            benchmark_policy=child.benchmark_policy,
             benchmark_variant=child.variant,
             run_scope=child.run_scope,
             source_paths=child.source_paths,
@@ -969,6 +973,7 @@ def _run_custom_conversation_qa_prediction(
             run_context=child.run_context,
             policy=child.policy,
             method_manifest=child.method_manifest,
+            benchmark_policy=child.benchmark_policy,
             benchmark_variant=child.variant,
             run_scope=child.run_scope,
             source_paths=child.source_paths,
@@ -1032,7 +1037,6 @@ def _build_custom_method_manifest(
     answer_reader_manifest: dict[str, object],
     allow_unsafe_custom_parallel: bool,
     prompt_track: str | None = None,
-    benchmark_policy: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """构造用户自定义 method 的公开 manifest。"""
 
@@ -1051,8 +1055,6 @@ def _build_custom_method_manifest(
     }
     if prompt_track is not None:
         manifest["prompt_track"] = prompt_track
-    if benchmark_policy is not None:
-        manifest["benchmark_policy"] = benchmark_policy
     return manifest
 
 
@@ -1515,7 +1517,6 @@ def _build_method_manifest(
     workload_estimate: dict[str, object] | None,
     answer_reader_manifest: dict[str, object] | None = None,
     prompt_track: str | None = None,
-    benchmark_policy: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """构造不含 secret 的 method manifest。"""
 
@@ -1529,8 +1530,6 @@ def _build_method_manifest(
         manifest["prompt_track"] = prompt_track
     if workload_estimate is not None:
         manifest["workload_estimate"] = workload_estimate
-    if benchmark_policy is not None:
-        manifest["benchmark_policy"] = benchmark_policy
     return manifest
 
 

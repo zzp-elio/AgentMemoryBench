@@ -237,8 +237,8 @@ def test_unknown_profile_is_rejected() -> None:
         )
 
 
-def test_smoke_dataset_keeps_turns_covering_private_evidence_sets() -> None:
-    """smoke 应选择 evidence 完全落在截断历史中的问题，但不公开 evidence。"""
+def test_smoke_dataset_selects_first_question_regardless_of_evidence_coverage() -> None:
+    """smoke 只确定性选第一个 Phase-1 public question，不读取 evidence 决定选择。"""
 
     smoke_dataset = build_locomo_smoke_dataset(
         _build_smoke_source_dataset(),
@@ -251,15 +251,26 @@ def test_smoke_dataset_keeps_turns_covering_private_evidence_sets() -> None:
         for session in conversation.sessions
         for turn in session.turns
     ] == ["t1", "t2"]
+    # 首个 question 是 q-outside（fixture 中 questions=[outside, inside]），
+    # 即使 q-inside 的 evidence 完全落在截断历史内也不被选中。
     assert [question.question_id for question in conversation.questions] == [
-        "q-inside"
+        "q-outside"
     ]
-    assert set(conversation.gold_answers) == {"q-inside"}
+    assert set(conversation.gold_answers) == {"q-outside"}
+    assert conversation.metadata["smoke_selected_question_count"] == 1
+    assert (
+        conversation.metadata["smoke_question_selection_strategy"]
+        == "first_phase1_question"
+    )
+    # q-outside 的 evidence（t3）不在截断历史（t1, t2）内，必须标记截断。
+    assert conversation.metadata["smoke_context_truncated"] is True
     assert "evidence" not in str(conversation.to_public_dict()).lower()
+    assert smoke_dataset.metadata["smoke_history_axis"] == "rounds"
+    assert smoke_dataset.metadata["smoke_round_limit"] == 1
 
 
-def test_smoke_dataset_keeps_all_questions_covered_by_retained_evidence() -> None:
-    """LoCoMo smoke 应保留所有可回答问题，再由 runner 的题数预算裁剪。"""
+def test_smoke_dataset_keeps_exactly_one_question_even_when_several_are_answerable() -> None:
+    """即使多个问题的 evidence 都落在截断历史内，smoke 也只保留第一个问题。"""
 
     conversation_id = "conv-multi"
     first_question = Question("q-first", conversation_id, "First?")
@@ -305,19 +316,18 @@ def test_smoke_dataset_keeps_all_questions_covered_by_retained_evidence() -> Non
     smoke_dataset = build_locomo_smoke_dataset(source, turn_limit=2)
 
     conversation = smoke_dataset.conversations[0]
+    # q-first 和 q-second 的 evidence 也都落在截断历史内，但只有列表首位
+    # q-outside 被选中——不再回退到"保留所有可回答问题"。
     assert [question.question_id for question in conversation.questions] == [
-        "q-first",
-        "q-second",
+        "q-outside"
     ]
-    assert set(conversation.gold_answers) == {"q-first", "q-second"}
-    assert conversation.metadata["smoke_selected_question_ids"] == [
-        "q-first",
-        "q-second",
-    ]
+    assert set(conversation.gold_answers) == {"q-outside"}
+    assert conversation.metadata["smoke_selected_question_ids"] == ["q-outside"]
+    assert conversation.metadata["smoke_context_truncated"] is True
 
 
 def test_smoke_dataset_can_select_two_independent_conversations() -> None:
-    """并发 smoke 应为每个 conversation 独立裁剪历史并选择可回答问题。"""
+    """并发 smoke 应为每个 conversation 独立裁剪历史并各自选首个问题。"""
 
     smoke_dataset = build_locomo_smoke_dataset(
         _build_two_conversation_smoke_source_dataset(),
@@ -329,10 +339,12 @@ def test_smoke_dataset_can_select_two_independent_conversations() -> None:
         conversation.conversation_id
         for conversation in smoke_dataset.conversations
     ] == ["conv-1", "conv-2"]
+    # conv-1 的 questions=[outside, inside] -> 首位 q-outside；
+    # conv-2 只有 q-second。
     assert [
         conversation.questions[0].question_id
         for conversation in smoke_dataset.conversations
-    ] == ["q-inside", "q-second"]
+    ] == ["q-outside", "q-second"]
     assert smoke_dataset.metadata["smoke_conversation_limit"] == 2
 
 
@@ -367,6 +379,33 @@ def test_smoke_dataset_marks_truncated_evidence_without_rejecting() -> None:
     ]
     assert conversation.metadata["smoke_context_truncated"] is True
     assert conversation.metadata["smoke_selected_question_ids"] == ["q-outside"]
+
+
+def test_smoke_dataset_explicit_two_rounds_retains_first_four_turns() -> None:
+    """显式 2 round（调用方已换算为 4 turn）必须保留前 4 个连续 turn。"""
+
+    dataset = _build_two_conversation_smoke_source_dataset()
+    conversation_with_four_turns = dataset.conversations[0]
+    conversation_with_four_turns.sessions.append(
+        Session(session_id="s3", turns=[Turn("t4", "Bob", "fourth")])
+    )
+
+    smoke_dataset = build_locomo_smoke_dataset(dataset, turn_limit=4)
+
+    conversation = smoke_dataset.conversations[0]
+    assert [
+        turn.turn_id
+        for session in conversation.sessions
+        for turn in session.turns
+    ] == ["t1", "t2", "t3", "t4"]
+    assert smoke_dataset.metadata["smoke_round_limit"] == 2
+
+
+def test_smoke_dataset_rejects_conversation_limit_below_one() -> None:
+    """conversation_limit 小于 1 必须 fail-fast，不能静默 clamp 成空数据集。"""
+
+    with pytest.raises(ConfigurationError, match="conversation_limit"):
+        build_locomo_smoke_dataset(_build_smoke_source_dataset(), conversation_limit=0)
 
 
 def test_load_completed_conversation_ids_reads_only_completed_rows(
@@ -591,13 +630,11 @@ def test_registered_prediction_builds_system_from_registry_context(
     assert runner_calls[0]["clean_failed_ingest_conversation"] is not None
 
 
-def test_registered_prediction_writes_benchmark_policy_into_method_manifest(
+def test_registered_prediction_passes_benchmark_policy_separately_from_method_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """已注册 smoke/resume policy 的 benchmark（如 LoCoMo）必须把 policy 写入
-    method manifest，供 resume 一致性检查和审计复用，不能只存在于 CLI --help。
-    """
+    """benchmark policy 必须独立传给 runner，不能伪装成 method 身份。"""
 
     config = Mem0Config.smoke()
     fake_system = object()
@@ -731,7 +768,8 @@ def test_registered_prediction_writes_benchmark_policy_into_method_manifest(
         enable_efficiency_observability=False,
     )
 
-    assert runner_calls[0]["method_manifest"]["benchmark_policy"] == {
+    assert "benchmark_policy" not in runner_calls[0]["method_manifest"]
+    assert runner_calls[0]["benchmark_policy"] == {
         "smoke": smoke_policy.to_dict(),
         "resume": resume_policy.to_dict(),
     }
@@ -862,6 +900,7 @@ def test_registered_prediction_omits_benchmark_policy_when_unregistered(
     )
 
     assert "benchmark_policy" not in runner_calls[0]["method_manifest"]
+    assert runner_calls[0]["benchmark_policy"] is None
 
 
 def test_custom_method_class_runs_without_builtin_registry(
@@ -1310,8 +1349,10 @@ def test_registered_prediction_builds_framework_answer_reader(
         "answer_parameters": {
             "message_role": "user",
             "temperature": 0.0,
-            "max_tokens": 4096,
-            "top_p": None,
+            # LoCoMo answer LLM 参数已冻结为跨 method 一致值（plan Task 5），
+            # 不再是 mem0 专属的 4096/None。
+            "max_tokens": 32,
+            "top_p": 1.0,
             "timeout_seconds": 60.0,
             "max_retries": 8,
         },
@@ -1334,8 +1375,8 @@ def test_registered_prediction_builds_framework_answer_reader(
             model="gpt-4o-mini",
             message_role="user",
             temperature=0.0,
-            max_tokens=4096,
-            top_p=None,
+            max_tokens=32,
+            top_p=1.0,
             timeout_seconds=60.0,
             max_retries=8,
         )

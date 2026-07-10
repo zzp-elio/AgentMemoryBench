@@ -334,6 +334,7 @@ def run_predictions(
     ) = None,
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
     protocol_version: str = "",
+    benchmark_policy: dict[str, object] | None = None,
     *,
     system_factory: Callable[
         [MethodBuildContext], _PredictionSystem
@@ -382,6 +383,7 @@ def run_predictions(
         run_context=run_context,
         policy=policy,
         method_manifest=method_manifest,
+        benchmark_policy=benchmark_policy,
         benchmark_variant=benchmark_variant,
         run_scope=run_scope,
         source_paths=source_paths,
@@ -879,6 +881,7 @@ def _build_manifest(
     run_context: RunContext,
     policy: PredictionRunPolicy,
     method_manifest: dict[str, object],
+    benchmark_policy: dict[str, object] | None,
     benchmark_variant: str,
     run_scope: RunScope,
     dataset_fingerprint: dict[str, Any],
@@ -912,6 +915,8 @@ def _build_manifest(
     }
     if efficiency_observability is not None:
         manifest["efficiency_observability"] = efficiency_observability
+    if benchmark_policy is not None:
+        manifest["benchmark_policy"] = benchmark_policy
     return manifest
 
 
@@ -923,6 +928,7 @@ def _build_prediction_resume_artifacts(
     method_manifest: dict[str, object],
     benchmark_variant: str,
     run_scope: RunScope,
+    benchmark_policy: dict[str, object] | None = None,
     source_paths: tuple[str | Path, ...] = (),
     efficiency_collector: EfficiencyCollector | None = None,
     model_inventory: tuple[ModelDescriptor, ...] = (),
@@ -950,6 +956,7 @@ def _build_prediction_resume_artifacts(
         run_context=run_context,
         policy=policy,
         method_manifest=method_manifest,
+        benchmark_policy=benchmark_policy,
         benchmark_variant=validated_variant,
         run_scope=validated_run_scope,
         dataset_fingerprint=dataset_fingerprint,
@@ -966,6 +973,7 @@ def _preflight_prediction_run(
     method_manifest: dict[str, object],
     benchmark_variant: str,
     run_scope: RunScope,
+    benchmark_policy: dict[str, object] | None = None,
     source_paths: tuple[str | Path, ...] = (),
     efficiency_collector: EfficiencyCollector | None = None,
     model_inventory: tuple[ModelDescriptor, ...] = (),
@@ -979,6 +987,7 @@ def _preflight_prediction_run(
         run_context=run_context,
         policy=policy,
         method_manifest=method_manifest,
+        benchmark_policy=benchmark_policy,
         benchmark_variant=benchmark_variant,
         run_scope=run_scope,
         source_paths=source_paths,

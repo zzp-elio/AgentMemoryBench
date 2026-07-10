@@ -666,10 +666,15 @@ def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
     """按 benchmark 校验 smoke 历史裁剪轴。"""
 
     if args.benchmark == "halumem":
-        if args.rounds is not None or args.smoke_turn_limit is not None:
+        if (
+            args.rounds is not None
+            or args.smoke_turn_limit is not None
+            or args.turns is not None
+            or args.sources is not None
+        ):
             raise MemoryBenchmarkError(
-                "HaluMem smoke uses --sessions; do not pass --rounds or "
-                "--smoke-turn-limit"
+                "HaluMem smoke uses --sessions; do not pass --rounds, --turns, "
+                "--sources or --smoke-turn-limit"
             )
         return
     if args.benchmark == "locomo":
@@ -690,6 +695,10 @@ def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
     if args.sessions is not None:
         raise MemoryBenchmarkError(
             "--sessions is only supported for HaluMem smoke"
+        )
+    if args.turns is not None or args.sources is not None:
+        raise MemoryBenchmarkError(
+            f"{args.benchmark} smoke has not registered --turns or --sources"
         )
 
 

@@ -293,23 +293,29 @@ def build_locomo_smoke_dataset(
     turn_limit: int = DEFAULT_SMOKE_TURN_LIMIT,
     conversation_limit: int = 1,
 ) -> Dataset:
-    """从前若干个 LoCoMo conversation 构造低成本且可回答的 smoke 数据。
+    """从前若干个 LoCoMo conversation 构造低成本的 flow-through smoke 数据。
 
     输入:
         dataset: 至少包含一个完整 LoCoMo conversation 的统一数据集。
-        turn_limit: 按原始 session/turn 顺序最多保留的 turn 数。
+        turn_limit: 按原始 session/turn 顺序最多保留的 turn 数（LoCoMo 的
+            1 round 由调用方换算为 2 个连续 turn 后传入此参数；本函数只按
+            turn 数裁剪，不感知 round 概念）。
         conversation_limit: 选择的 conversation 数。
 
     输出:
-        Dataset: 每个 conversation 都只保留截断历史和 evidence 已覆盖的问题。
+        Dataset: 每个 conversation 都只保留截断历史和确定性选出的首个
+        Phase-1 public question。
 
     说明:
-        私有 evidence 只用于选择有意义的测试夹具。runner 仍会把公开历史/问题与
-        evaluator-only gold/evidence 分开，method 不会收到 evidence。
+        smoke 只验证四步链路是否跑通，不要求问题在截断历史内可回答；question
+        选择不读取 evidence，只用 evidence 计算 `smoke_context_truncated`
+        诊断标记。
     """
 
     if turn_limit < 1:
         raise ConfigurationError("LoCoMo smoke turn_limit must be at least 1")
+    if conversation_limit < 1:
+        raise ConfigurationError("LoCoMo smoke conversation_limit must be at least 1")
     if not dataset.conversations:
         raise ConfigurationError("LoCoMo smoke requires at least one conversation")
     selected_conversation_limit = min(conversation_limit, len(dataset.conversations))
@@ -327,6 +333,8 @@ def build_locomo_smoke_dataset(
             "smoke_turn_limit": turn_limit,
             "smoke_conversation_limit": conversation_limit,
             "smoke_selected_conversation_count": selected_conversation_limit,
+            "smoke_history_axis": "rounds",
+            "smoke_round_limit": turn_limit // 2,
         },
     )
 
@@ -335,14 +343,16 @@ def _build_locomo_smoke_conversation(
     source: Conversation,
     turn_limit: int,
 ) -> Conversation:
-    """裁剪一个 LoCoMo conversation，并选择 evidence 已覆盖的问题。
+    """裁剪一个 LoCoMo conversation，并确定性选择首个 Phase-1 public question。
 
     输入:
         source: 待裁剪的完整 LoCoMo conversation。
         turn_limit: 按 session/turn 顺序最多保留的 turn 数。
 
     输出:
-        Conversation: 裁剪后的历史、可回答问题及对应私有标准答案。
+        Conversation: 裁剪后的历史、`source.questions` 中的第一个问题及其对应
+        私有标准答案。question 选择永远不读取 evidence，只用 evidence 计算
+        `smoke_context_truncated` 诊断标记。
     """
 
     retained_sessions: list[Session] = []
@@ -367,42 +377,30 @@ def _build_locomo_smoke_conversation(
         )
         remaining -= len(retained_turns)
 
-    selected_questions: list[Question] = []
-    selected_gold_answers: dict[str, GoldAnswerInfo] = {}
-    for question in source.questions:
-        gold = source.gold_answers[question.question_id]
-        evidence_ids = set(gold.evidence)
-        if evidence_ids and evidence_ids.issubset(retained_turn_ids):
-            selected_question = copy.deepcopy(question)
-            selected_questions.append(selected_question)
-            selected_gold_answers[selected_question.question_id] = copy.deepcopy(gold)
-    context_truncated = False
-    if not selected_questions:
-        if not source.questions:
-            raise ConfigurationError(
-                f"LoCoMo smoke source conversation has no questions: "
-                f"{source.conversation_id}"
-            )
-        context_truncated = True
-        selected_question = copy.deepcopy(source.questions[0])
-        selected_questions.append(selected_question)
-        selected_gold_answers[selected_question.question_id] = copy.deepcopy(
-            source.gold_answers[selected_question.question_id]
+    if not source.questions:
+        raise ConfigurationError(
+            f"LoCoMo smoke source conversation has no questions: "
+            f"{source.conversation_id}"
         )
+    selected_question = copy.deepcopy(source.questions[0])
+    gold = source.gold_answers[selected_question.question_id]
+    evidence_ids = set(gold.evidence)
+    context_truncated = not evidence_ids.issubset(retained_turn_ids)
+    selected_gold_answers = {selected_question.question_id: copy.deepcopy(gold)}
 
     return Conversation(
         conversation_id=source.conversation_id,
         sessions=retained_sessions,
-        questions=selected_questions,
+        questions=[selected_question],
         gold_answers=selected_gold_answers,
         metadata={
             **copy.deepcopy(source.metadata),
             "smoke_turn_limit": turn_limit,
             "smoke_context_truncated": context_truncated,
-            "smoke_selected_question_id": selected_questions[0].question_id,
-            "smoke_selected_question_ids": [
-                question.question_id for question in selected_questions
-            ],
+            "smoke_selected_question_id": selected_question.question_id,
+            "smoke_selected_question_ids": [selected_question.question_id],
+            "smoke_selected_question_count": 1,
+            "smoke_question_selection_strategy": "first_phase1_question",
         },
     )
 

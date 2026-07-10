@@ -634,6 +634,39 @@ def test_preflight_prediction_run_accepts_matching_resume_without_writes(
     assert manifest["run_scope"] == "full"
 
 
+def test_prediction_manifest_keeps_benchmark_policy_outside_method_identity(
+    tmp_path: Path,
+) -> None:
+    """benchmark policy 属于 run/benchmark 身份，不得嵌进 method manifest。"""
+
+    from memory_benchmark.runners import prediction as prediction_module
+
+    run_context = RunContext.create(
+        run_id="prediction-run",
+        benchmark_name="locomo",
+        method_name="recording",
+        model_name="fake-reader",
+        output_root=tmp_path,
+        ensure_directories=False,
+    )
+    benchmark_policy = {
+        "smoke": {"history_axis": "rounds", "default_history_limit": 1},
+        "resume": {"ingest_checkpoint": "conversation"},
+    }
+    _, manifest = prediction_module._build_prediction_resume_artifacts(
+        dataset=_build_two_question_dataset(),
+        run_context=run_context,
+        policy=PredictionRunPolicy(max_workers=1),
+        method_manifest={"adapter": "recording-v1"},
+        benchmark_variant="locomo10",
+        run_scope=RunScope.SMOKE,
+        benchmark_policy=benchmark_policy,
+    )
+
+    assert manifest["benchmark_policy"] == benchmark_policy
+    assert "benchmark_policy" not in manifest["method"]
+
+
 def test_preflight_prediction_run_rejects_changed_source_file_on_resume(
     tmp_path: Path,
 ) -> None:

@@ -965,6 +965,42 @@ def test_main_rejects_sources_for_locomo_smoke(tmp_path: Path) -> None:
     assert exit_code == 2
 
 
+@pytest.mark.parametrize("axis", ["--turns", "--sources"])
+def test_main_rejects_unwired_smoke_axes_for_other_benchmarks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    axis: str,
+) -> None:
+    """尚未声明对应 policy 的 benchmark 不能静默吞掉未接线的裁剪轴。"""
+
+    dispatched: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: dispatched.append(command)
+        or SimpleNamespace(run_id="should-not-run"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "longmemeval",
+            "--allow-api",
+            axis,
+            "3",
+        ]
+    )
+
+    assert exit_code == 2
+    assert dispatched == []
+
+
 def test_main_maps_halumem_smoke_sessions_to_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

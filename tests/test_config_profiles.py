@@ -269,3 +269,32 @@ def test_longmemeval_answer_llm_settings_follow_lightmem_profile(
     assert settings.temperature == 0.0
     assert settings.top_p == 0.8
     assert settings.max_tokens == 2000
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ["mem0", "memoryos", "amem", "lightmem", "simplemem", "custom"],
+)
+def test_locomo_answer_llm_settings_are_method_independent(
+    method_name: str,
+) -> None:
+    """LoCoMo answer LLM 参数必须跨 method 字节级一致（公平性冻结，见 plan Task 5）。
+
+    官方来源：`third_party/benchmarks/locomo-main/task_eval/gpt_utils.py:283-289`、
+    `global_methods.py:92-127`（role=user、temperature=0、max_tokens=32）；
+    top-p 官方代码未显式传，论文 Appendix C.2 记为 1。
+    """
+
+    settings = resolve_answer_llm_settings(
+        method_name=method_name,
+        benchmark_name="locomo",
+        model="gpt-4o-mini",
+    )
+
+    assert settings.model == "gpt-4o-mini"
+    assert settings.message_role == "user"
+    assert settings.temperature == 0.0
+    assert settings.max_tokens == 32
+    assert settings.top_p == 1.0
+    assert settings.timeout_seconds == 60
+    assert settings.max_retries == 8
