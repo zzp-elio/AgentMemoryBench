@@ -653,6 +653,9 @@ def run_registered_conversation_qa_prediction(
                 source_paths=child.source_paths,
                 answer_reader=answer_reader,
                 unified_prompt_builder=unified_prompt_builder,
+                efficiency_collector=child.efficiency_collector,
+                model_inventory=child.model_inventory,
+                instrumentation_identity=child.instrumentation_identity,
             )
         else:
             summary = run_predictions(

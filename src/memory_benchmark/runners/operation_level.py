@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import json
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, perf_counter_ns
 from typing import Any, Callable
 
 from memory_benchmark.benchmark_adapters.contracts import RunScope
@@ -27,6 +27,13 @@ from memory_benchmark.core.provider_protocol import (
 )
 from memory_benchmark.core.validators import validate_dataset, validate_no_private_keys
 from memory_benchmark.observability import RunContext
+from memory_benchmark.observability.efficiency import (
+    EfficiencyArtifactStore,
+    EfficiencyCollector,
+    EfficiencyObservation,
+    EfficiencyStage,
+    ModelDescriptor,
+)
 from memory_benchmark.readers.answer import FrameworkAnswerReader
 from memory_benchmark.runners.conversation_qa import _make_public_question
 from memory_benchmark.runners.event_stream import (
@@ -34,7 +41,13 @@ from memory_benchmark.runners.event_stream import (
     build_turn_events,
     default_isolation_key,
 )
-from memory_benchmark.runners.prediction import PredictionRunPolicy, PredictionRunSummary
+from memory_benchmark.runners.prediction import (
+    PredictionRunPolicy,
+    PredictionRunSummary,
+    _count_answer_context_tokens,
+    _elapsed_ms,
+    _record_framework_answer_llm_call,
+)
 from memory_benchmark.storage import (
     ExperimentPaths,
     atomic_write_json,
@@ -58,6 +71,9 @@ def run_operation_level_predictions(
     answer_reader: FrameworkAnswerReader,
     unified_prompt_builder: Callable[[Question, RetrievalResult], AnswerPromptResult],
     source_paths: tuple[str | Path, ...] = (),
+    efficiency_collector: EfficiencyCollector | None = None,
+    model_inventory: tuple[ModelDescriptor, ...] = (),
+    instrumentation_identity: dict[str, object] | None = None,
 ) -> PredictionRunSummary:
     """运行 HaluMem operation-level prediction。
 
@@ -94,8 +110,19 @@ def run_operation_level_predictions(
         run_scope=run_scope,
         source_paths=tuple(Path(path) for path in source_paths),
     )
+    if instrumentation_identity is not None:
+        manifest["instrumentation_identity"] = instrumentation_identity
     _prepare_operation_run(paths=paths, manifest=manifest, resume=policy.resume)
     _write_operation_input_artifacts(paths, selected_conversations)
+
+    efficiency_store: EfficiencyArtifactStore | None = None
+    if efficiency_collector is not None and efficiency_collector.enabled:
+        if efficiency_collector.run_id != run_context.run_id:
+            raise ConfigurationError(
+                "EfficiencyCollector run_id must match RunContext run_id"
+            )
+        efficiency_store = EfficiencyArtifactStore.for_prediction(paths)
+        efficiency_store.write_model_inventory(model_inventory)
 
     conversation_status = _read_json_object(paths.conversation_status_path)
     prediction_records = {
@@ -123,7 +150,7 @@ def run_operation_level_predictions(
         state = conversation_status.get(conversation.conversation_id, {})
         if policy.resume and state.get("status") == "completed":
             continue
-        _run_operation_conversation(
+        conversation_observations = _run_operation_conversation(
             conversation=conversation,
             provider=provider,
             run_id=run_context.run_id,
@@ -134,7 +161,10 @@ def run_operation_level_predictions(
             update_probe_records=update_probe_records,
             prediction_records=prediction_records,
             answer_prompt_records=answer_prompt_records,
+            efficiency_collector=efficiency_collector,
         )
+        if efficiency_store is not None:
+            efficiency_store.merge_observations(conversation_observations)
         conversation_status[conversation.conversation_id] = {
             "status": "completed",
             "ingested": True,
@@ -186,100 +216,253 @@ def _run_operation_conversation(
     update_probe_records: list[dict[str, Any]],
     prediction_records: dict[str, dict[str, Any]],
     answer_prompt_records: list[dict[str, Any]],
-) -> None:
-    """按 spec S4.2 驱动单个 HaluMem user。"""
+    efficiency_collector: EfficiencyCollector | None = None,
+) -> list[EfficiencyObservation]:
+    """按 spec S4.2 驱动单个 HaluMem user，并采集效率 observation。
 
+    效率 scope 贴合官方 eval 的 per-session 交错语义（ingest→extraction→
+    update-probe→该 session 的 QA），**不改变** ingest/QA 顺序：每个 session 的记忆
+    构建包一层 conversation_scope（scope_discriminator=session_id 保证同一 conversation
+    多 session 的 observation id 唯一），每个问题包一层 question_scope。返回本
+    conversation 采集到的全部 observation，由调用方合并进 EfficiencyArtifactStore。
+    """
+
+    observations: list[EfficiencyObservation] = []
+    enabled = efficiency_collector is not None and efficiency_collector.enabled
     isolation_key = default_isolation_key(run_id, conversation.conversation_id)
     questions_by_session = _questions_by_session(conversation)
     aggregator = GranularityAggregator(provider.consume_granularity)
     for session in conversation.sessions:
-        events = [
-            event
-            for event in build_turn_events(conversation, isolation_key)
-            if event.session_id == session.session_id
-        ]
-        for signal in aggregator.aggregate(events, isolation_key=isolation_key):
-            if isinstance(signal, UnitRef):
-                continue
-            if isinstance(signal, SessionRef):
-                continue
-            provider.ingest(signal)
-
-        session_ref = SessionRef(
-            isolation_key=isolation_key,
-            session_id=session.session_id,
-        )
-        report = provider.end_session(session_ref) if supports_extraction else None
-        generated = bool(session.private_metadata.get("is_generated_qa_session"))
-        if not generated:
-            session_report_records.append(
-                _session_report_record(
-                    session_ref=session_ref,
-                    report=report,
+        if enabled:
+            with efficiency_collector.conversation_scope(
+                conversation.conversation_id,
+                scope_discriminator=session.session_id,
+            ) as memory_scope:
+                started_ns = perf_counter_ns()
+                generated = _ingest_and_probe_session(
+                    session=session,
+                    conversation=conversation,
+                    isolation_key=isolation_key,
+                    aggregator=aggregator,
+                    provider=provider,
                     supports_extraction=supports_extraction,
+                    session_report_records=session_report_records,
+                    update_probe_records=update_probe_records,
                 )
+                efficiency_collector.record_memory_build_total_latency(
+                    latency_ms=_elapsed_ms(started_ns)
+                )
+            observations.extend(memory_scope.records)
+        else:
+            generated = _ingest_and_probe_session(
+                session=session,
+                conversation=conversation,
+                isolation_key=isolation_key,
+                aggregator=aggregator,
+                provider=provider,
+                supports_extraction=supports_extraction,
+                session_report_records=session_report_records,
+                update_probe_records=update_probe_records,
             )
         if generated:
             continue
 
-        for memory_point in _update_memory_points(session.private_metadata):
-            started = perf_counter()
-            retrieval = provider.retrieve(
-                RetrievalQuery(
-                    query_text=str(memory_point["memory_content"]),
-                    isolation_key=isolation_key,
-                    question_time=None,
-                    top_k=10,
-                    purpose="memory_update_probe",
-                )
-            )
-            update_probe_records.append(
-                _update_probe_record(
-                    session_ref=session_ref,
-                    memory_point=memory_point,
-                    retrieval=retrieval,
-                    duration_ms=(perf_counter() - started) * 1000,
-                )
-            )
-
         for source_question in questions_by_session.get(session.session_id, []):
             question = _make_public_question(source_question)
             validate_no_private_keys(question.to_dict())
-            started = perf_counter()
-            retrieval_result = provider.retrieve(
-                RetrievalQuery(
-                    query_text=question.text,
+            if enabled:
+                with efficiency_collector.question_scope(
+                    conversation.conversation_id,
+                    question.question_id,
+                ) as question_scope:
+                    _answer_operation_question(
+                        question=question,
+                        isolation_key=isolation_key,
+                        provider=provider,
+                        answer_reader=answer_reader,
+                        unified_prompt_builder=unified_prompt_builder,
+                        efficiency_collector=efficiency_collector,
+                        prediction_records=prediction_records,
+                        answer_prompt_records=answer_prompt_records,
+                    )
+                observations.extend(question_scope.records)
+            else:
+                _answer_operation_question(
+                    question=question,
                     isolation_key=isolation_key,
-                    question_time=question.question_time,
-                    top_k=20,
-                    purpose="qa",
-                    source_question=question,
+                    provider=provider,
+                    answer_reader=answer_reader,
+                    unified_prompt_builder=unified_prompt_builder,
+                    efficiency_collector=None,
+                    prediction_records=prediction_records,
+                    answer_prompt_records=answer_prompt_records,
                 )
+
+    if enabled:
+        with efficiency_collector.conversation_scope(
+            conversation.conversation_id,
+            scope_discriminator="__end_conversation__",
+        ) as end_scope:
+            started_ns = perf_counter_ns()
+            provider.end_conversation(UnitRef(isolation_key=isolation_key))
+            efficiency_collector.record_memory_build_total_latency(
+                latency_ms=_elapsed_ms(started_ns)
             )
-            retrieval = unified_prompt_builder(question, retrieval_result)
-            prediction, _, _ = answer_reader.generate_answer_with_trace(
-                question=question,
-                retrieval=retrieval,
-            )
-            _validate_prediction(prediction, question)
-            answer_prompt_records.append(
-                _answer_prompt_record(
-                    retrieval=retrieval,
-                    retrieval_result=retrieval_result,
-                )
-            )
-            prediction_records[question.question_id] = {
-                "question_id": question.question_id,
-                "conversation_id": question.conversation_id,
-                "question_text": question.text,
-                "answer": prediction.answer,
-                "metadata": {
-                    **prediction.metadata,
-                    "operation_level_duration_ms": (perf_counter() - started) * 1000,
-                },
-            }
-    provider.end_conversation(UnitRef(isolation_key=isolation_key))
+        observations.extend(end_scope.records)
+    else:
+        provider.end_conversation(UnitRef(isolation_key=isolation_key))
     provider.cleanup()
+    return observations
+
+
+def _ingest_and_probe_session(
+    *,
+    session: Session,
+    conversation: Conversation,
+    isolation_key: str,
+    aggregator: GranularityAggregator,
+    provider: MemoryProvider,
+    supports_extraction: bool,
+    session_report_records: list[dict[str, Any]],
+    update_probe_records: list[dict[str, Any]],
+) -> bool:
+    """ingest 单个 session + extraction + update probe，返回是否为 generated QA session。
+
+    generated session 只 ingest + end_session（不记 session report、不跑 update
+    probe、不 QA），与官方 eval 一致。全部 provider 调用发生在调用方开启的
+    conversation scope 内，默认归 memory_build 阶段。
+    """
+
+    events = [
+        event
+        for event in build_turn_events(conversation, isolation_key)
+        if event.session_id == session.session_id
+    ]
+    for signal in aggregator.aggregate(events, isolation_key=isolation_key):
+        if isinstance(signal, UnitRef):
+            continue
+        if isinstance(signal, SessionRef):
+            continue
+        provider.ingest(signal)
+
+    session_ref = SessionRef(
+        isolation_key=isolation_key,
+        session_id=session.session_id,
+    )
+    report = provider.end_session(session_ref) if supports_extraction else None
+    generated = bool(session.private_metadata.get("is_generated_qa_session"))
+    if generated:
+        return True
+    session_report_records.append(
+        _session_report_record(
+            session_ref=session_ref,
+            report=report,
+            supports_extraction=supports_extraction,
+        )
+    )
+    for memory_point in _update_memory_points(session.private_metadata):
+        started = perf_counter()
+        retrieval = provider.retrieve(
+            RetrievalQuery(
+                query_text=str(memory_point["memory_content"]),
+                isolation_key=isolation_key,
+                question_time=None,
+                top_k=10,
+                purpose="memory_update_probe",
+            )
+        )
+        update_probe_records.append(
+            _update_probe_record(
+                session_ref=session_ref,
+                memory_point=memory_point,
+                retrieval=retrieval,
+                duration_ms=(perf_counter() - started) * 1000,
+            )
+        )
+    return False
+
+
+def _answer_operation_question(
+    *,
+    question: Question,
+    isolation_key: str,
+    provider: MemoryProvider,
+    answer_reader: FrameworkAnswerReader,
+    unified_prompt_builder: Callable[[Question, RetrievalResult], AnswerPromptResult],
+    efficiency_collector: EfficiencyCollector | None,
+    prediction_records: dict[str, dict[str, Any]],
+    answer_prompt_records: list[dict[str, Any]],
+) -> None:
+    """检索 + 回答单个 QA 问题，并在启用时采集 retrieval/answer 效率 observation。
+
+    效率口径与标准 runner 的 `_answer_question_retrieve_first` 完全对齐：retrieve
+    包 RETRIEVAL 阶段并记 injected_memory_context_tokens；answer LLM 调用优先取
+    api_usage token（`_record_framework_answer_llm_call`），再记 answer 生成延迟。
+    """
+
+    enabled = efficiency_collector is not None and efficiency_collector.enabled
+    started_ns = perf_counter_ns()
+    query = RetrievalQuery(
+        query_text=question.text,
+        isolation_key=isolation_key,
+        question_time=question.question_time,
+        top_k=20,
+        purpose="qa",
+        source_question=question,
+    )
+    if enabled:
+        with efficiency_collector.operation_stage(EfficiencyStage.RETRIEVAL):
+            retrieval_result = provider.retrieve(query)
+    else:
+        retrieval_result = provider.retrieve(query)
+    retrieval = unified_prompt_builder(question, retrieval_result)
+    if enabled:
+        efficiency_collector.record_retrieval_result_if_missing(
+            latency_ms=_elapsed_ms(started_ns),
+            injected_memory_context_tokens=_count_answer_context_tokens(
+                retrieval.metadata,
+                answer_reader.client.model_name,
+            ),
+        )
+
+    answer_started_ns = perf_counter_ns()
+    prediction, answer_prompt, answer_response = (
+        answer_reader.generate_answer_with_trace(
+            question=question,
+            retrieval=retrieval,
+        )
+    )
+    if enabled:
+        with efficiency_collector.operation_stage(EfficiencyStage.ANSWER):
+            _record_framework_answer_llm_call(
+                efficiency_collector=efficiency_collector,
+                model_id=answer_reader.client.model_name,
+                model_name=answer_reader.client.model_name,
+                prompt_text=answer_prompt,
+                answer_text=prediction.answer,
+                response=answer_response,
+            )
+        efficiency_collector.record_answer_generation(
+            latency_ms=_elapsed_ms(answer_started_ns)
+        )
+
+    _validate_prediction(prediction, question)
+    answer_prompt_records.append(
+        _answer_prompt_record(
+            retrieval=retrieval,
+            retrieval_result=retrieval_result,
+        )
+    )
+    prediction_records[question.question_id] = {
+        "question_id": question.question_id,
+        "conversation_id": question.conversation_id,
+        "question_text": question.text,
+        "answer": prediction.answer,
+        "metadata": {
+            **prediction.metadata,
+            "operation_level_duration_ms": _elapsed_ms(started_ns),
+        },
+    }
 
 
 def _select_conversations(

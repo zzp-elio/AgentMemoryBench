@@ -31,6 +31,11 @@ from memory_benchmark.evaluators.halumem_extraction import HalumemExtractionEval
 from memory_benchmark.evaluators.halumem_qa import HalumemQAEvaluator
 from memory_benchmark.evaluators.halumem_update import HalumemUpdateEvaluator
 from memory_benchmark.observability import RunContext
+from memory_benchmark.observability.efficiency import (
+    EfficiencyArtifactStore,
+    EfficiencyCollector,
+    ModelDescriptor,
+)
 from memory_benchmark.readers.answer import FakeAnswerLLMClient, FrameworkAnswerReader
 from memory_benchmark.runners.evaluation import run_artifact_evaluation
 from memory_benchmark.runners.operation_level import run_operation_level_predictions
@@ -265,6 +270,66 @@ def test_halumem_operation_resume_skips_completed_and_runs_pending_user(
     assert summary.completed_conversations == 2
     assert ("ingest", "s-halu-user-1") not in second_provider.calls
     assert ("ingest", "s-halu-user-2") in second_provider.calls
+
+
+def test_halumem_operation_level_records_efficiency_observations(
+    tmp_path: Path,
+) -> None:
+    """operation-level runner 启用效率观测：不再崩（#6 的根因），并产出 per-session
+    记忆构建 observation（id 唯一）+ per-question 检索/回答 observation + answer LLM 调用。"""
+
+    provider = FakeHalumemProvider()
+    run_context = _context(tmp_path)
+    collector = EfficiencyCollector(run_id=run_context.run_id, enabled=True)
+    inventory = (
+        ModelDescriptor(
+            model_id="fake-answer-llm",
+            model_name="fake-answer-llm",
+            model_role="answer_llm",
+            execution_mode="local",
+        ),
+    )
+
+    run_operation_level_predictions(
+        dataset=_dataset("halu-user-1"),
+        provider=provider,
+        run_context=run_context,
+        policy=PredictionRunPolicy(max_workers=1, progress_enabled=False),
+        method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+        benchmark_variant="medium",
+        run_scope=RunScope.SMOKE,
+        answer_reader=_reader(),
+        unified_prompt_builder=build_halumem_unified_answer_prompt,
+        efficiency_collector=collector,
+        model_inventory=inventory,
+    )
+
+    paths = ExperimentPaths.create(run_context.run_dir)
+    observations = EfficiencyArtifactStore.for_prediction(paths).read_observations()
+    by_type: dict[str, list] = {}
+    for observation in observations:
+        by_type.setdefault(
+            observation.to_dict()["observation_type"], []
+        ).append(observation)
+
+    # per-session 记忆构建 + end_conversation 收尾 → ≥2 条，且 observation_id 唯一
+    conversation_obs = by_type.get("conversation_efficiency", [])
+    assert len(conversation_obs) >= 2
+    assert len({obs.observation_id for obs in conversation_obs}) == len(
+        conversation_obs
+    )
+    assert all(obs.conversation_id == "halu-user-1" for obs in conversation_obs)
+
+    # per-question 检索 + 回答
+    question_obs = by_type.get("question_efficiency", [])
+    assert len(question_obs) == 1
+    assert question_obs[0].retrieval_latency_ms is not None
+    assert question_obs[0].answer_generation_latency_ms >= 0.0
+
+    # answer LLM 调用被记录（stage=answer）
+    assert any(
+        obs.stage.value == "answer" for obs in by_type.get("llm_call", [])
+    )
 
 
 def _dataset(*conversation_ids: str) -> Dataset:

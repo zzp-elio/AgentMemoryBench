@@ -87,7 +87,8 @@ token）；③ 每次 LLM 调用一条 `LLMCallObservation`（次数可聚合）
 - [ ] `--profile` 旗标彻底删除（actor 卡：删/改 legacy-only 测试）
 
 **Phase B — 可信度门（actor 卡，架构师写 spec + 验收）**
-- [ ] halumem operation-level runner 接效率观测（补 halumem 效率数据）
+- [x] halumem operation-level runner 接效率观测（S1 discriminator 原语 + S2 wiring +
+  S3 交错 scope + S4 测试）— 架构师直接做，25 格阻断清零，807 passed
 - [x] membench adapter 解析 `(place; time)`→`turn_time`（不改 text，双写；session_time
   兜底取首个带时间戳 turn）— 架构师直接改，解掉 lightmem×membench 阻断
 - [ ] locomo/longmemeval 补 unified_prompt_builder（官方模板）+ 默认 unified
@@ -204,5 +205,14 @@ workstream，作为"施工规范"的可执行版。
 - **2026-07-09**：#6 第一性原理调查完成（核实官方 eval 交错语义不可 2-phase、
   storage 层 id 冲突约束），实现设计定稿写入本文档。落 **S1**（collector scope
   discriminator 原语，backward-compatible，`observability/efficiency/collector.py`
-  + 单测）。剩 S2/S3/S4（operation-level runner 接线 + 交错 scope + 测试）下轮做，
-  作为 #6 的第二个连贯 commit。
+  + 单测）。
+- **2026-07-09**：#6 **S2–S4 完成**——`operation_level.py` 接 efficiency_collector/
+  model_inventory/instrumentation_identity + 建 EfficiencyArtifactStore；
+  `_run_operation_conversation` 拆出 `_ingest_and_probe_session`/
+  `_answer_operation_question`，per-session conversation_scope（discriminator=session_id）
+  + per-question question_scope，效率口径对齐标准 runner 的
+  `_answer_question_retrieve_first`（api_usage 优先）；`run_prediction.py` dispatch 传参；
+  加 `test_halumem_operation_level_records_efficiency_observations`。**807 passed，
+  25 格 smoke 阻断全部清零**。
+- **2026-07-09**：架构师角色交接 Claude→GPT-5.6，写
+  `docs/reference/architect-onboarding.md`（跨模型冷启动上岗手册）。
