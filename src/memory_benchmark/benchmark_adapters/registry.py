@@ -55,6 +55,7 @@ from .halumem import (
 from .locomo import LOCOMO_VARIANT_SPECS, prepare_locomo_run
 from .locomo_prompt import build_locomo_unified_answer_prompt
 from .longmemeval import LONGMEMEVAL_VARIANT_SPECS, LongMemEvalAdapter
+from .longmemeval_prompt import build_longmemeval_unified_answer_prompt
 from .membench import (
     MEMBENCH_VARIANT_SPECS,
     build_membench_unified_answer_prompt,
@@ -619,6 +620,8 @@ def _build_default_registry() -> BenchmarkRegistry:
         prediction_enabled=True,
         smoke_policy=LONGMEMEVAL_SMOKE_POLICY,
         resume_policy=LONGMEMEVAL_RESUME_POLICY,
+        prompt_track="unified",
+        unified_prompt_builder=build_longmemeval_unified_answer_prompt,
     )
     _try_register_adapter(
         registry,

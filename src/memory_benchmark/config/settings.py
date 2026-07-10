@@ -230,7 +230,7 @@ def resolve_answer_llm_settings(
     benchmark_name: str,
     model: str = DEFAULT_OPENAI_MODEL,
 ) -> AnswerLLMSettings:
-    """解析内置 method × benchmark 的官方 answer LLM 参数。
+    """解析内置 benchmark 的官方 answer LLM 参数。
 
     输入:
         method_name: registry 中的 method 稳定名称。
@@ -257,25 +257,17 @@ def resolve_answer_llm_settings(
             max_tokens=32,
             top_p=1.0,
         )
-    if key == ("mem0", "longmemeval"):
+    if key[1] == "longmemeval":
+        # LongMemEval 官方非 CoT generation 参数，method 无关。来源：
+        # third_party/benchmarks/LongMemEval-main/src/generation/
+        # run_generation.py:360-368（role=user、n=1、temperature=0、
+        # max_tokens=500；top_p 未显式传）。
         return AnswerLLMSettings(
             model=model,
             message_role="user",
             temperature=0.0,
-            max_tokens=4096,
+            max_tokens=500,
             top_p=None,
-        )
-    if key in {
-        ("amem", "longmemeval"),
-        ("lightmem", "longmemeval"),
-        ("memoryos", "longmemeval"),
-    }:
-        return AnswerLLMSettings(
-            model=model,
-            message_role="user",
-            temperature=0.0,
-            max_tokens=2000,
-            top_p=0.8,
         )
     return AnswerLLMSettings(model=model)
 

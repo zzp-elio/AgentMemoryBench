@@ -248,15 +248,14 @@ def test_load_path_settings_exposes_phase_e_project_roots() -> None:
     assert paths.third_party_methods_root == PROJECT_ROOT / "third_party" / "methods"
 
 
-@pytest.mark.parametrize("method_name", ["amem", "lightmem", "memoryos"])
-def test_longmemeval_answer_llm_settings_follow_lightmem_profile(
+@pytest.mark.parametrize(
+    "method_name",
+    ["mem0", "memoryos", "amem", "lightmem", "simplemem", "custom"],
+)
+def test_longmemeval_answer_llm_settings_are_method_independent(
     method_name: str,
 ) -> None:
-    """LongMemEval reader LLM 参数应复用 LightMem 表格实验配置。
-
-    A-Mem 和 MemoryOS 没有官方 LongMemEval reader 脚本；当前框架按用户决策复用
-    LightMem LongMemEval 的 reader profile，因此 answer LLM 参数也必须保持一致。
-    """
+    """LongMemEval answer LLM 参数应按 benchmark 归一到官方非 CoT 配置。"""
 
     settings = resolve_answer_llm_settings(
         method_name=method_name,
@@ -267,8 +266,10 @@ def test_longmemeval_answer_llm_settings_follow_lightmem_profile(
     assert settings.model == "gpt-4o-mini"
     assert settings.message_role == "user"
     assert settings.temperature == 0.0
-    assert settings.top_p == 0.8
-    assert settings.max_tokens == 2000
+    assert settings.max_tokens == 500
+    assert settings.top_p is None
+    assert settings.timeout_seconds == 60
+    assert settings.max_retries == 8
 
 
 @pytest.mark.parametrize(

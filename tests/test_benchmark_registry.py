@@ -39,6 +39,9 @@ from memory_benchmark.benchmark_adapters.halumem import (
     HaluMemAdapter,
 )
 from memory_benchmark.benchmark_adapters.longmemeval import LongMemEvalAdapter
+from memory_benchmark.benchmark_adapters.longmemeval_prompt import (
+    build_longmemeval_unified_answer_prompt,
+)
 from memory_benchmark.benchmark_adapters.membench import (
     MEMBENCH_INSTRUCTION_FIRST_PROFILE,
     MemBenchAdapter,
@@ -485,6 +488,11 @@ def test_longmemeval_registration_declares_both_variants_and_prediction_enabled(
     )
     assert registration.prediction_enabled is True
     assert registration.operation_level is False
+    assert registration.prompt_track == "unified"
+    assert (
+        registration.unified_prompt_builder
+        is build_longmemeval_unified_answer_prompt
+    )
     assert registration.default_variant == "s_cleaned"
     assert registration.variants == (
         BenchmarkVariantSpec(
