@@ -219,15 +219,67 @@ def _prepare_longmemeval_run(
     )
 
 
+def _prepare_longmemeval_run_with_policy_metadata(
+    project_root: Path,
+    request: BenchmarkLoadRequest,
+) -> PreparedBenchmarkRun:
+    """在 LongMemEval 既有 prepare_run 之上补齐已注册的 smoke/resume policy metadata。
+
+    只追加 dataset metadata 字段，不改变 `longmemeval.py` 的转换算法，也不
+    修改 `_build_longmemeval_smoke_dataset` 的 round 裁剪（round 预算与 original/
+    retained 规模已由该函数记录，本函数只把声明的 policy 进 dataset metadata，
+    供 manifest/dataset metadata 审计使用，避免 policy 只存在于 CLI `--help`
+    文本里）。
+    """
+
+    prepared = _prepare_longmemeval_run(project_root, request)
+    metadata = copy.deepcopy(prepared.dataset.metadata)
+    metadata["smoke_policy"] = LONGMEMEVAL_SMOKE_POLICY.to_dict()
+    metadata["resume_policy"] = LONGMEMEVAL_RESUME_POLICY.to_dict()
+    return PreparedBenchmarkRun(
+        variant=prepared.variant,
+        run_scope=prepared.run_scope,
+        dataset=Dataset(
+            dataset_name=prepared.dataset.dataset_name,
+            conversations=list(prepared.dataset.conversations),
+            metadata=metadata,
+        ),
+        source_relative_paths=prepared.source_relative_paths,
+    )
+
+
+# LongMemEval 是本 workstream 第二个完成 smoke/resume 审计的 benchmark（见
+# docs/workstreams/ws02.6-first-smoke-hardening/plan-b2-longmemeval.md C2）。
+# 自然裁剪单位 = round（双 turn），与 LoCoMo 同属第一人称对话流；默认 smoke 取
+# 第 1 个 instance 的前 1 个 round（2 turn），1 round 足以验证四步链路，无需
+# 保证问题可答。选择不读 answer/answer_session_ids/has_answer。LongMemEval 真实
+# 数据约 8% session 非严格 user-first 交替（见 notes/longmemeval-b2-audit.md），
+# round 裁剪按"前 2 个 turn"预算截断即可，不强配对，orphan/dangling 标记由
+# 框架聚合层负责（本 policy 不实现新标记逻辑）。resume 与 LoCoMo 同：smoke 禁
+# resume（smoke_enabled=False），formal 为 conversation(=instance) 级 resume，
+# 不引入任何 turn/session 级 resume。
+LONGMEMEVAL_SMOKE_POLICY = BenchmarkSmokePolicy(
+    history_axis="rounds",
+    default_history_limit=1,
+    default_isolation_limit=1,
+    default_question_limit=1,
+)
+LONGMEMEVAL_RESUME_POLICY = BenchmarkResumePolicy(
+    smoke_enabled=False,
+    ingest_checkpoint="conversation",
+    answer_checkpoint="question",
+    reuse_saved_retrieval=True,
+    evaluation_artifact_only=True,
+)
+
 # LoCoMo 是本 workstream 第一个完成 smoke/resume 审计的 benchmark（见
 # docs/workstreams/ws02.6-first-smoke-hardening/plan-b0-b1-locomo.md Task 3）。
 # 具体取值：LoCoMo session 内相邻 turn 在当前 release 中交替 speaker，smoke 的
 # round 仅定义为原始顺序的两个连续 turn，不改变 canonical turn stream；smoke
 # 无需保证问题可回答，1 round 足以验证四步链路，故 default_history_limit=1。resume
-# 上，smoke 数据
-# 量太小、状态不值得跨 run 复用（smoke_enabled=False），但 checkpoint 粒度、
-# retrieval 复用和"只跑 evaluator"仍遵循与 full 相同的 conversation/question
-# 级约定。
+# 上，smoke 数据量太小、状态不值得跨 run 复用（smoke_enabled=False），但
+# checkpoint 粒度、retrieval 复用和"只跑 evaluator"仍遵循与 full 相同的
+# conversation/question 级约定。
 LOCOMO_SMOKE_POLICY = BenchmarkSmokePolicy(
     history_axis="rounds",
     default_history_limit=1,
@@ -563,8 +615,10 @@ def _build_default_registry() -> BenchmarkRegistry:
         required_capabilities=conversation_qa_capabilities,
         variants=LONGMEMEVAL_VARIANT_SPECS,
         default_variant="s_cleaned",
-        prepare_run=_prepare_longmemeval_run,
+        prepare_run=_prepare_longmemeval_run_with_policy_metadata,
         prediction_enabled=True,
+        smoke_policy=LONGMEMEVAL_SMOKE_POLICY,
+        resume_policy=LONGMEMEVAL_RESUME_POLICY,
     )
     _try_register_adapter(
         registry,

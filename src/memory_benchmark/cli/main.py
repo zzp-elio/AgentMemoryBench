@@ -692,6 +692,21 @@ def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
                 "or --sources"
             )
         return
+    if args.benchmark == "longmemeval":
+        # LongMemEval registered history_axis is "rounds" (LONGMEMEVAL_SMOKE_POLICY);
+        # only --rounds is the audited smoke axis. --turns/--sessions/--sources are
+        # unsupported (membench sources / halumem sessions / unregistered turns) and
+        # must fail-fast rather than be silently ignored.
+        if (
+            args.turns is not None
+            or args.sessions is not None
+            or args.sources is not None
+        ):
+            raise MemoryBenchmarkError(
+                "LongMemEval smoke uses --rounds; do not pass --turns, --sessions "
+                "or --sources"
+            )
+        return
     if args.sessions is not None:
         raise MemoryBenchmarkError(
             "--sessions is only supported for HaluMem smoke"

@@ -875,11 +875,11 @@ def test_main_legacy_predict_smoke_locomo_defaults_round_limit_from_policy(
     ]
 
 
-def test_main_legacy_predict_smoke_other_benchmark_keeps_global_default(
+def test_main_legacy_predict_smoke_longmemeval_uses_registered_policy_default(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """尚无 policy 的 benchmark（如 LongMemEval）继续沿用 legacy 默认值 20。"""
+    """已注册 smoke policy 的 LongMemEval 在 legacy --profile 路径下用 policy 默认 1 round。"""
 
     received: list[PredictCommand] = []
     monkeypatch.setattr(
@@ -915,7 +915,7 @@ def test_main_legacy_predict_smoke_other_benchmark_keeps_global_default(
             profile="smoke",
             run_id="run-1",
             confirm_api=True,
-            smoke_turn_limit=20,
+            smoke_turn_limit=1,
             output_layout="hierarchical",
         )
     ]
@@ -1471,6 +1471,7 @@ def test_main_accepts_longmemeval_benchmark_and_free_string_variant(
             profile="smoke",
             variant="unknown-yet-allowed-by-parser",
             confirm_api=True,
+            smoke_turn_limit=1,
             output_layout="hierarchical",
         )
     ]

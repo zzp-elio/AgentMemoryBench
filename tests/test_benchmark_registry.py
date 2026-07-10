@@ -850,6 +850,50 @@ def test_locomo_registration_declares_frozen_smoke_and_resume_policy() -> None:
     )
 
 
+def test_longmemeval_registration_declares_frozen_smoke_and_resume_policy() -> None:
+    """LongMemEval registration 必须声明 C2 冻结的 smoke/resume policy 精确取值。"""
+
+    registration = get_benchmark_registration("longmemeval")
+
+    # smoke 轴 = rounds（双 turn round），默认 1 instance × 1 round；选择不读私有
+    # answer/answer_session_ids/has_answer，答对不属于 smoke 成功条件（见
+    # plan-b2-longmemeval.md C2）。
+    assert registration.smoke_policy == BenchmarkSmokePolicy(
+        history_axis="rounds",
+        default_history_limit=1,
+        default_isolation_limit=1,
+        default_question_limit=1,
+    )
+    # resume：smoke 禁 resume；formal 为 conversation(=instance) 级，不引入
+    # turn/session 级 resume。
+    assert registration.resume_policy == BenchmarkResumePolicy(
+        smoke_enabled=False,
+        ingest_checkpoint="conversation",
+        answer_checkpoint="question",
+        reuse_saved_retrieval=True,
+        evaluation_artifact_only=True,
+    )
+
+
+def test_longmemeval_prepared_run_carries_policy_metadata() -> None:
+    """prepared run 的 dataset metadata 必须写入 smoke/resume policy 字典。"""
+
+    registration = get_benchmark_registration("longmemeval")
+    full_run = registration.prepare(
+        Path("."),
+        BenchmarkLoadRequest(
+            variant="s_cleaned",
+            run_scope=RunScope.FULL,
+        ),
+    )
+    assert full_run.dataset.metadata["smoke_policy"] == (
+        registration.smoke_policy.to_dict()
+    )
+    assert full_run.dataset.metadata["resume_policy"] == (
+        registration.resume_policy.to_dict()
+    )
+
+
 def test_locomo_registration_declares_unified_prompt_track() -> None:
     """LoCoMo registration 必须默认 unified prompt_track 并声明 builder。"""
 
