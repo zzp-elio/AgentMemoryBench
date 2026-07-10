@@ -63,6 +63,9 @@ class PredictCommand:
     # 默认 flat 是自定义 --method-class 的安全兜底（无 registry method 名，拼不出
     # 分层目录）。注册 method 走 CLI 时由 normalizer 显式升级为 hierarchical。
     output_layout: str = "flat"
+    # --membench-sources 调试旋钮：逗号分隔的源名称（first_high/first_low/
+    # third_high/third_low），仅 debug smoke 下对 membench 生效。
+    membench_sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -147,6 +150,7 @@ def execute_predict(command: PredictCommand) -> PredictionBatchResult:
         answer_prompt_file=command.answer_prompt_file,
         answer_prompt_profile=command.answer_prompt_profile,
         output_layout=command.output_layout,
+        membench_sources=command.membench_sources,
     )
 
 

@@ -198,6 +198,12 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--turns", type=int, default=None)
     parser.add_argument("--sessions", type=int, default=None)
     parser.add_argument("--sources", type=int, default=None)
+    parser.add_argument(
+        "--membench-sources",
+        type=str,
+        default=None,
+        help="Comma-separated MemBench source filters: first_high,first_low,third_high,third_low (debug knob, default=all 4)",
+    )
     parser.add_argument("--smoke-turn-limit", type=int, default=None)
     parser.add_argument("--conversations", type=int, default=None)
     parser.add_argument(
@@ -415,6 +421,7 @@ def _prediction_command_from_args(args: argparse.Namespace) -> PredictCommand:
         ),
         answer_prompt_profile=args.answer_prompt_profile,
         output_layout=normalized["output_layout"],
+        membench_sources=tuple(normalized["membench_sources"]),
     )
 
 
@@ -452,6 +459,32 @@ def _normalize_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
 
 
 _LEGACY_SMOKE_HISTORY_DEFAULT = 20
+
+
+_MEMBENCH_SOURCE_NAMES = frozenset(
+    {"first_high", "first_low", "third_high", "third_low"}
+)
+
+
+def _validate_membench_sources(raw: str | None, *, is_membench: bool = False) -> tuple[str, ...]:
+    """校验 --membench-sources 值域；非 membench 时返回空元组。"""
+    if not is_membench:
+        return ()
+    if raw is None:
+        return tuple(sorted(_MEMBENCH_SOURCE_NAMES))
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    if not names:
+        raise MemoryBenchmarkError(
+            "--membench-sources must be a comma-separated list of: "
+            + ", ".join(sorted(_MEMBENCH_SOURCE_NAMES))
+        )
+    for name in names:
+        if name not in _MEMBENCH_SOURCE_NAMES:
+            raise MemoryBenchmarkError(
+                f"Unknown --membench-sources value '{name}'. Allowed: "
+                + ", ".join(sorted(_MEMBENCH_SOURCE_NAMES))
+            )
+    return tuple(names)
 
 
 def _default_smoke_history_limit(benchmark_name: str) -> int:
@@ -519,6 +552,9 @@ def _normalize_legacy_prediction_args(args: argparse.Namespace) -> dict[str, Any
         # ws02.6: legacy `--profile` 也走分层布局，杜绝结果扁平散落 outputs/ 根。
         # `--profile` 的彻底废弃另起 actor 卡（涉及 legacy-only 组合的测试删改）。
         "output_layout": "hierarchical",
+        "membench_sources": _validate_membench_sources(
+            args.membench_sources, is_membench=(args.benchmark == "membench")
+        ),
     }
 
 
@@ -587,6 +623,9 @@ def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]
             field_name="questions per conversation",
         ),
         "output_layout": "hierarchical",
+        "membench_sources": _validate_membench_sources(
+            args.membench_sources, is_membench=(args.benchmark == "membench")
+        ),
     }
 
 
@@ -634,6 +673,7 @@ def _normalize_formal_prediction_args(args: argparse.Namespace) -> dict[str, Any
         ),
         "question_limit_per_conversation": None,
         "output_layout": "hierarchical",
+        "membench_sources": (),
     }
 
 
@@ -706,6 +746,17 @@ def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
                 "LongMemEval smoke uses --rounds; do not pass --turns, --sessions "
                 "or --sources"
             )
+        return
+    if args.benchmark == "membench":
+        # MemBench registered history_axis is "rounds" (MEMBENCH_SMOKE_POLICY);
+        # --membench-sources is a debug knob for selecting source files, not the
+        # generic --sources axis. Unregistered axes must fail-fast.
+        if args.turns is not None or args.sessions is not None or args.sources is not None:
+            raise MemoryBenchmarkError(
+                "MemBench smoke uses --rounds; do not pass --turns, --sessions "
+                "or --sources"
+            )
+        _validate_membench_sources(args.membench_sources)
         return
     if args.sessions is not None:
         raise MemoryBenchmarkError(

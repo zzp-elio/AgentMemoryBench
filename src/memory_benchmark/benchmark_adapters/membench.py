@@ -8,6 +8,7 @@ trajectory 转换为统一 `Dataset -> Conversation -> Session -> Turn -> Questi
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -31,6 +32,8 @@ from memory_benchmark.core.provider_protocol import RetrievalResult
 from .base import BenchmarkAdapter, reached_limit
 from .contracts import (
     BenchmarkLoadRequest,
+    BenchmarkResumePolicy,
+    BenchmarkSmokePolicy,
     BenchmarkVariantSpec,
     PreparedBenchmarkRun,
     RunScope,
@@ -84,6 +87,45 @@ _MEMBENCH_CHOICE_PATTERN_LOWER = re.compile(r"(?<![A-Za-z])([abcd])(?![A-Za-z])"
 MEMBENCH_OFFICIAL_REPO_URL = "https://github.com/import-myself/Membench"
 MEMBENCH_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2506.21605"
 MEMBENCH_LICENSE = "MIT"
+
+# MemBench 的 smoke 历史裁剪轴。history_axis 声明为 "rounds"（按人称）：第一人称
+# 1 round = 1 个 {user, agent} dict；第三人称按 2 turns 预算截断（约等于 1 轮
+# 观察信息）。默认 limit=1（1 个 round 值的内容），per-source isolation=1（每源
+# 文件 1 条 trajectory，共 4 条），question=1。
+# 见 docs/workstreams/ws02.6-first-smoke-hardening/plan-b3-membench.md §2.5。
+MEMBENCH_SMOKE_POLICY = BenchmarkSmokePolicy(
+    history_axis="rounds",
+    default_history_limit=1,
+    default_isolation_limit=1,
+    default_question_limit=1,
+)
+MEMBENCH_RESUME_POLICY = BenchmarkResumePolicy(
+    smoke_enabled=False,
+    ingest_checkpoint="conversation",
+    answer_checkpoint="question",
+    reuse_saved_retrieval=True,
+    evaluation_artifact_only=True,
+)
+
+# --membench-sources 调试旋钮的源名称到实际文件名的映射（值域由 CLI
+# _validate_membench_sources 确保）。默认认证口径为全部 4 源。
+_MEMBENCH_SOURCE_NAME_TO_PATTERN: dict[str, str] = {
+    "first_high": "FirstAgentDataHighLevel",
+    "first_low": "FirstAgentDataLowLevel",
+    "third_high": "ThirdAgentDataHighLevel",
+    "third_low": "ThirdAgentDataLowLevel",
+}
+
+
+def _filter_source_paths(
+    paths: tuple[Path, ...],
+    source_names: tuple[str, ...],
+) -> tuple[Path, ...]:
+    """按 --membench-sources 名称过滤源文件路径；空名称列表返回全量。"""
+    if not source_names:
+        return paths
+    patterns = [_MEMBENCH_SOURCE_NAME_TO_PATTERN[n] for n in source_names]
+    return tuple(p for p in paths if any(pat in p.name for pat in patterns))
 
 
 def _combined_source_sha256(
@@ -270,14 +312,25 @@ def prepare_membench_run(
             f"Unknown membench variant '{request.variant}'. Allowed: {allowed}"
         )
 
+    source_paths = _filter_source_paths(
+        variant_spec.source_relative_paths, request.membench_sources
+    )
+    if not source_paths:
+        allowed = ", ".join(sorted(_MEMBENCH_SOURCE_NAME_TO_PATTERN))
+        raise ConfigurationError(
+            f"--membench-sources filter produced empty source set for variant "
+            f"'{request.variant}'. Allowed names: {allowed}"
+        )
+
     if request.run_scope is RunScope.FULL:
         dataset = MemBenchAdapter(project_root, variant=request.variant).load()
     elif request.run_scope is RunScope.SMOKE:
         dataset = _build_membench_smoke_dataset(
             project_root,
             variant=request.variant,
-            source_relative_paths=variant_spec.source_relative_paths,
+            source_relative_paths=source_paths,
             per_source_limit=request.smoke_conversation_limit,
+            history_limit=request.smoke_turn_limit,
         )
     else:  # pragma: no cover - RunScope 只有 smoke / full
         raise ConfigurationError(f"unsupported MemBench run scope: {request.run_scope}")
@@ -293,7 +346,34 @@ def prepare_membench_run(
             conversations=list(dataset.conversations),
             metadata=metadata,
         ),
-        source_relative_paths=variant_spec.source_relative_paths,
+        source_relative_paths=source_paths,
+    )
+
+
+def prepare_membench_run_with_policy_metadata(
+    project_root: Path,
+    request: BenchmarkLoadRequest,
+) -> PreparedBenchmarkRun:
+    """在 MemBench 既有 prepare_run 之上补齐已注册的 smoke/resume policy metadata。
+
+    只追加 dataset metadata 字段，不改变转换算法，也不修改裁剪逻辑（original/
+    retained 规模已由 _build_membench_smoke_dataset 记录）。只把声明的 policy
+    写入 dataset metadata，供 manifest/dataset metadata 审计使用。
+    """
+
+    prepared = prepare_membench_run(project_root, request)
+    metadata = copy.deepcopy(prepared.dataset.metadata)
+    metadata["smoke_policy"] = MEMBENCH_SMOKE_POLICY.to_dict()
+    metadata["resume_policy"] = MEMBENCH_RESUME_POLICY.to_dict()
+    return PreparedBenchmarkRun(
+        variant=prepared.variant,
+        run_scope=prepared.run_scope,
+        dataset=Dataset(
+            dataset_name=prepared.dataset.dataset_name,
+            conversations=list(prepared.dataset.conversations),
+            metadata=metadata,
+        ),
+        source_relative_paths=prepared.source_relative_paths,
     )
 
 
@@ -406,21 +486,66 @@ def _build_membench_smoke_dataset(
     variant: str,
     source_relative_paths: tuple[Path, ...],
     per_source_limit: int,
+    history_limit: int = 1,
 ) -> Dataset:
-    """按每个 MemBench 主文件前 N 条 trajectory 构造 smoke Dataset。"""
+    """按每个 MemBench 主文件前 N 条 trajectory + 人称内部裁剪构造 smoke Dataset。
+
+    第一人称（FirstAgent）：history_limit 视为 round（1 round = 1 个 {user,agent}
+      dict → 1 Turn），保留前 N_round 个 Turn。
+    第三人称（ThirdAgent）：history_limit 视为 turn（纯字符串消息），保留前
+      history_limit 个 Turn。
+    选择只按公开顺序，不读 answer/ground_truth/target_step_id。
+    metadata 记录原始和保留的 turn 规模（沿用现有字段命名风格）。
+    """
 
     if per_source_limit < 1:
         raise ConfigurationError("MemBench smoke per-source limit must be positive")
+    if history_limit < 1:
+        raise ConfigurationError("MemBench smoke history_limit must be positive")
 
     conversations: list[Conversation] = []
     source_counts: dict[str, int] = {}
+    total_original_turn_count = 0
+    total_retained_turn_count = 0
     for source_relative_path in source_relative_paths:
         source_dataset = MemBenchAdapter(
             project_root,
             variant=variant,
             source_relative_paths=(source_relative_path,),
         ).load(limit=per_source_limit)
-        conversations.extend(source_dataset.conversations)
+        source_profile = _source_profile_from_path(source_relative_path)
+        # 第一人称 1 round=1 Turn；第三人称 history_limit=turns
+        is_first = source_profile["source_stream"] == "first"
+        turn_budget = history_limit if is_first else history_limit * 2
+        for conv in source_dataset.conversations:
+            original_sessions = list(conv.sessions)
+            total_original = sum(len(s.turns) for s in original_sessions)
+            total_original_turn_count += total_original
+            retained = min(turn_budget, total_original)
+            total_retained_turn_count += retained
+            cropped_sessions = copy.deepcopy(original_sessions)
+            if cropped_sessions:
+                cropped_sessions[0] = Session(
+                    session_id=cropped_sessions[0].session_id,
+                    turns=cropped_sessions[0].turns[:retained],
+                    session_time=cropped_sessions[0].session_time,
+                    start_time=cropped_sessions[0].start_time,
+                    end_time=cropped_sessions[0].end_time,
+                    metadata=cropped_sessions[0].metadata,
+                )
+            conv_metadata = dict(conv.metadata)
+            conv_metadata["smoke_history_limit"] = history_limit
+            conv_metadata["smoke_original_turn_count"] = total_original
+            conv_metadata["smoke_retained_turn_count"] = retained
+            conversations.append(
+                Conversation(
+                    conversation_id=conv.conversation_id,
+                    sessions=cropped_sessions,
+                    questions=copy.deepcopy(conv.questions),
+                    gold_answers=copy.deepcopy(conv.gold_answers),
+                    metadata=conv_metadata,
+                )
+            )
         source_counts[source_relative_path.as_posix()] = len(source_dataset.conversations)
 
     return Dataset(
@@ -432,8 +557,11 @@ def _build_membench_smoke_dataset(
             "source_format": "membench_data2test",
             "run_scope": RunScope.SMOKE.value,
             "smoke_per_source_conversation_limit": per_source_limit,
+            "smoke_history_limit": history_limit,
             "smoke_source_counts": source_counts,
             "smoke_selected_conversation_count": len(conversations),
+            "smoke_original_turn_count": total_original_turn_count,
+            "smoke_retained_turn_count": total_retained_turn_count,
         },
     )
 
@@ -537,9 +665,14 @@ def _conversation_from_trajectory(
     )
 
 
-# MemBench 每个 step 文本尾部带 `(place: …; time: '2024-10-01 08:00' Tuesday)`。
-# 只匹配具体时间戳，忽略模板占位 `'YYYY-MM-DD HH:MM'`（非数字，不会命中）。
-_MEMBENCH_TURN_TIME_RE = re.compile(r"time:\s*'(\d{4}-\d{2}-\d{2} \d{2}:\d{2})'")
+# MemBench 每个 step 文本尾部带 `(place: …; time: '2024-10-01 08:00' Tuesday)` 或
+# `(place: …; time'2024-10-01 08:00' Tuesday)`（无冒号，SecondPerson LowLevel 全量
+# 19285 条均为此形态）。官方根源：load_test_data.py:29,57,113,139 的格式串为
+# `'{{}} (place: {{}}; time{{}})'.format(message, place, time_value)`，time 后无冒号
+# 和空格；time_value 本身带引号。后续版本部分改为 `time:'…'`（可能人工修正或不同生成
+# 时间线的产物）。两者都是合法数据，都匹配。只匹配具体数字时间戳，忽略模板占位
+# `'YYYY-MM-DD HH:MM'`（非数字，不会命中）。
+_MEMBENCH_TURN_TIME_RE = re.compile(r"time:?\s*'(\d{4}-\d{2}-\d{2} \d{2}:\d{2})'")
 
 
 def _membench_turn_time(text: str) -> str | None:
@@ -745,10 +878,10 @@ def _choices_dict(value: object, context: str) -> dict[str, str]:
 
 
 def _target_step_ids(value: object, context: str) -> list[int]:
-    """读取 MemBench 私有 target_step_id 列表。"""
+    """读取 MemBench 私有 target_step_id 列表；空列表返回空（高层的 highlevel_rec 全为空）。"""
 
-    if not isinstance(value, list) or not value:
-        raise DatasetValidationError(f"{context}: target_step_id must be a non-empty list")
+    if not isinstance(value, list):
+        raise DatasetValidationError(f"{context}: target_step_id must be a list")
     step_ids: list[int] = []
     for index, item in enumerate(value):
         if isinstance(item, bool):
@@ -777,10 +910,14 @@ __all__ = [
     "MEMBENCH_LICENSE",
     "MEMBENCH_OFFICIAL_PAPER_URL",
     "MEMBENCH_OFFICIAL_REPO_URL",
+    "MEMBENCH_RESUME_POLICY",
+    "MEMBENCH_SMOKE_POLICY",
     "MEMBENCH_VARIANT_SPECS",
     "MemBenchAdapter",
+    "_build_membench_smoke_dataset",
     "build_membench_unified_answer_prompt",
     "normalize_membench_choice_prediction",
     "parse_membench_choice",
     "prepare_membench_run",
+    "prepare_membench_run_with_policy_metadata",
 ]

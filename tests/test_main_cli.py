@@ -191,14 +191,15 @@ def test_execute_predict_delegates_to_registered_prediction(
             "smoke_session_limit": None,
             "smoke_max_workers": 1,
             "max_new_conversations": None,
-                "retry_failed_conversations": False,
-                "question_limit_per_conversation": None,
-                "enable_efficiency_observability": True,
-                "answer_prompt_file": None,
-                "answer_prompt_profile": "default",
-                "output_layout": "flat",
-            }
-        ]
+            "retry_failed_conversations": False,
+            "question_limit_per_conversation": None,
+            "enable_efficiency_observability": True,
+            "answer_prompt_file": None,
+            "answer_prompt_profile": "default",
+            "output_layout": "flat",
+            "membench_sources": (),
+        }
+    ]
 
 
 def test_execute_predict_can_enable_efficiency_observability(
@@ -1525,11 +1526,12 @@ def test_main_accepts_membench_benchmark_choice(
             variant="100k",
             run_id="mem0-membench-smoke",
             confirm_api=True,
-            smoke_turn_limit=20,
-            smoke_round_limit=20,
+            smoke_turn_limit=1,
+            smoke_round_limit=1,
             smoke_conversation_limit=2,
             question_limit_per_conversation=1,
             output_layout="hierarchical",
+            membench_sources=("first_high", "first_low", "third_high", "third_low"),
         )
     ]
 

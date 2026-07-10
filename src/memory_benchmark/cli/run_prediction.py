@@ -261,6 +261,7 @@ def run_registered_conversation_qa_prediction(
     answer_prompt_profile: str = "default",
     progress_enabled: bool = True,
     output_layout: str = "flat",
+    membench_sources: tuple[str, ...] = (),
 ) -> PredictionBatchResult:
     """通过 benchmark/method registration 运行 conversation-QA prediction。
 
@@ -455,6 +456,7 @@ def run_registered_conversation_qa_prediction(
                     smoke_session_limit=smoke_session_limit,
                     smoke_round_limit=smoke_round_limit,
                 ),
+                membench_sources=membench_sources,
             ),
         )
         workload_estimate = _estimate_method_workload(
@@ -838,6 +840,7 @@ def _run_custom_conversation_qa_prediction(
                     smoke_session_limit=smoke_session_limit,
                     smoke_round_limit=smoke_round_limit,
                 ),
+                membench_sources=(),
             ),
         )
         method_manifest = _build_custom_method_manifest(

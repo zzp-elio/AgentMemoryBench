@@ -57,10 +57,12 @@ from .locomo_prompt import build_locomo_unified_answer_prompt
 from .longmemeval import LONGMEMEVAL_VARIANT_SPECS, LongMemEvalAdapter
 from .longmemeval_prompt import build_longmemeval_unified_answer_prompt
 from .membench import (
+    MEMBENCH_RESUME_POLICY,
+    MEMBENCH_SMOKE_POLICY,
     MEMBENCH_VARIANT_SPECS,
     build_membench_unified_answer_prompt,
     normalize_membench_choice_prediction,
-    prepare_membench_run,
+    prepare_membench_run_with_policy_metadata,
 )
 
 
@@ -631,8 +633,10 @@ def _build_default_registry() -> BenchmarkRegistry:
         required_capabilities=conversation_qa_capabilities,
         variants=MEMBENCH_VARIANT_SPECS,
         default_variant="0_10k",
-        prepare_run=prepare_membench_run,
+        prepare_run=prepare_membench_run_with_policy_metadata,
         prediction_enabled=True,
+        smoke_policy=MEMBENCH_SMOKE_POLICY,
+        resume_policy=MEMBENCH_RESUME_POLICY,
         prompt_track="unified",
         unified_prompt_builder=build_membench_unified_answer_prompt,
         prediction_transform=normalize_membench_choice_prediction,

@@ -182,6 +182,8 @@ class BenchmarkLoadRequest:
     smoke_turn_limit: int = 20
     smoke_conversation_limit: int = 1
     smoke_session_limit: int | None = None
+    # MemBench 调试旋钮：指定加载哪些源文件；空元组表示加载全量（默认认证口径）。
+    membench_sources: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """校验 smoke 裁剪参数是正整数。"""
