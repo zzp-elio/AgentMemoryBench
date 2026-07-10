@@ -252,6 +252,13 @@ frozen-v1，才写 B4 plan。
     1 基（`membench.py:706`）vs gold evidence 存官方 0 基原值（`:779`），
     不在同一 id 空间——recall 若直接匹配将系统性偏一位。裁决沿用
     LongMemEval C4 先例：evidence 改公开空间（+1），官方原值留 metadata。
-- **D4 已开卡**：[actor-prompt-d4.md](actor-prompt-d4.md)（含 off-by-one
-  预裁决全文）。D5 等 D4 验收。
-- 全量基线：923（B2 冻结门）→ D2 后 927 → D3 后以验收记录为准。
+- 2026-07-11（**D4 验收通过，零架构师修正**，actor=cc+MiniMax M3，commit
+  `8fcec2e`）：预裁决被精确执行——真实数据三态复核（raw [119]→evidence
+  ["120"] 且 ⊆ 公开 turn ids；越界样本实为"[98,111] 混合 case"，"99" 有效
+  "112" 越界，处理正确；空样本保持空）；recall 契约结构对位（session→
+  N/A 带理由、conditional fail-fast、越界单独计数）；parse_failed 口径
+  分离注释诚实标注官方 json_schema 出处；负空间清单 10 条全真实。
+  定向 55 passed 复现，**全量 999 passed**。B3 首个无需修正的批次。
+- **D5 已开卡**：[actor-prompt-d5.md](actor-prompt-d5.md)，最后一个 actor
+  批次；之后架构师做最终冻结。
+- 全量基线：923（B2 冻结门）→ D2 后 927 → D3 后 988 → D4 后 **999**。
