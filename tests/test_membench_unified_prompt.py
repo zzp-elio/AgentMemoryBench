@@ -121,6 +121,8 @@ class TestPromptBuilder:
         question_time: str | None = "2026-01-02",
         options: dict[str, str] | None = None,
     ) -> Question:
+        """构造带四个 MCQ 选项的最小公开 Question fixture。"""
+
         return Question(
             question_id="conv-1:q1",
             conversation_id="conv-1",

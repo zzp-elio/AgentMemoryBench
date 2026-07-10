@@ -266,7 +266,9 @@ def test_membench_answer_llm_settings_are_method_independent(
     assert settings.model == "gpt-4o-mini"
     assert settings.message_role == "user"
     assert settings.temperature == 0.0
-    assert settings.max_tokens == 16
+    # 官方 answer LLM 参数不可考（benchutils 外部依赖）→ 按 ws02.6 规则用
+    # API 默认；小上限会截断非顺从模型的回答导致字母无机会出现（公平性）。
+    assert settings.max_tokens is None
     assert settings.top_p is None
     assert settings.timeout_seconds == 60
     assert settings.max_retries == 8

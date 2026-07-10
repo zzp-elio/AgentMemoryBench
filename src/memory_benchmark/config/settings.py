@@ -270,19 +270,21 @@ def resolve_answer_llm_settings(
             top_p=None,
         )
     if key[1] == "membench":
-        # MemBench MCQ answer LLM 参数，method 无关。官方来源：
-        # third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:
-        # - :93-112 response_format=json_schema 强制结构化输出（enum A/B/C/D）；
-        #   self.llm = create_LLM(config['LLM_config'])（:37），
-        #   memutils.py:31 显示 temperature 从 config 读入
-        # - temperature=0.0：官方 agent 层未显式设值，MCQ 评测标准为 0
-        # - max_tokens=16：官方未显式设置，单字母 + JSON 包装已够
+        # MemBench MCQ answer LLM 参数，method 无关。官方 answer LLM 封装在
+        # 外部依赖 benchutils（不在官方仓库内），参数不可考；官方 agent 用
+        # response_format=json_schema 强制单字母结构化输出
+        # （MembenchAgent.py:93-112），本框架用自由文本 + 健壮解析替代（该
+        # 偏差记入 frozen 记录）。因此以下取值均为框架决定并如实标注：
+        # - temperature=0.0：框架确定性评测约定（与 locomo/longmemeval 的
+        #   官方 temp=0 一致），非 MemBench 官方值
+        # - max_tokens=None：官方未显式设置 → 按 ws02.6 规则用 API 默认；
+        #   不设小上限，避免截断非顺从模型的回答使字母无机会出现（公平性）
         # - top_p=None：官方未显式设置，用 API 默认
         return AnswerLLMSettings(
             model=model,
             message_role="user",
             temperature=0.0,
-            max_tokens=16,
+            max_tokens=None,
             top_p=None,
         )
     return AnswerLLMSettings(model=model)

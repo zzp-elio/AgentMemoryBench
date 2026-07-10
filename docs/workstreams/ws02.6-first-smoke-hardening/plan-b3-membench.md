@@ -233,5 +233,25 @@ frozen-v1，才写 B4 plan。
   - FULL 分支确认**不受** sources 过滤影响（full 数据完整性无险）。
   - actor 画像补充：机械实现与数值劳动可靠，但**负空间需求（"不该发生
     的事必须报错"）会漏做**——后续卡对拒绝路径要求附带测试名清单。
-- **D3 已开卡**：[actor-prompt-d3.md](actor-prompt-d3.md)。D4 等 D3 验收。
-- 全量基线：923 passed（B2 冻结门）；D2 验收后 925+2（架构师修复测试）。
+- 2026-07-11（**D3 强验收通过**，actor=混合路由，commit `b33544d` +
+  架构师直修 ×1）：
+  - **实质全过**：模板与官方 `INSTRUCTION_FIRST` 程序化逐字一致（含
+    `your'conversation` 官方 typo 的 parity 保留）；官方活跃路径**无条件用
+    INSTRUCTION_FIRST**（THIRD 只在注释代码中），actor 的模板选择即官方
+    parity；`benchutils.py 缺失`声明核实为真（外部依赖，不在官方仓库）；
+    parity 测试运行时现场读官方文件（最强形式）；负空间测试清单 10 条全
+    真实存在；定向 170 passed 复现。
+  - **架构师直修一处**：`max_tokens=16` 违反"官方未设→API 默认"规则
+    （"MCQ 评测标准"是发明的权威），且有实质公平性危害——小上限截断非
+    顺从模型的回答使字母无机会出现被判错。改 `max_tokens=None` + 注释
+    重写为如实标注（官方参数不可考的三项均为框架决定）。
+  - **官方结构化输出偏差（记入冻结 known limitations）**：官方 agent 用
+    `response_format=json_schema`（enum A-D, strict）强制单字母
+    （MembenchAgent.py:93-112），本框架用自由文本 + 健壮解析替代。
+  - **新 latent bug 实锤（架构师验收时发现，D4 预裁决）**：公开 turn id
+    1 基（`membench.py:706`）vs gold evidence 存官方 0 基原值（`:779`），
+    不在同一 id 空间——recall 若直接匹配将系统性偏一位。裁决沿用
+    LongMemEval C4 先例：evidence 改公开空间（+1），官方原值留 metadata。
+- **D4 已开卡**：[actor-prompt-d4.md](actor-prompt-d4.md)（含 off-by-one
+  预裁决全文）。D5 等 D4 验收。
+- 全量基线：923（B2 冻结门）→ D2 后 927 → D3 后以验收记录为准。
