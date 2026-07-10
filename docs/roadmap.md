@@ -45,7 +45,7 @@ benchmark = 25 格**的极小 v3 smoke（LoCoMo 列 5 格都要重跑，旧 V2 f
 | [ws02.3](workstreams/ws02.3-beam/README.md) | beam-adapter | accepted | P0 | BEAM（conversation-QA + rubric judge）架构师验收通过（2026-07-08，891 passed 干净复跑 + 关键交付第一手抽查）；剩极小真实 smoke 待预算 |
 | [ws02.4](workstreams/ws02.4-simplemem/README.md) | simplemem-adapter | accepted | P0 | SimpleMem T1-T6 架构师验收通过（2026-07-07）；剩极小真实 smoke 待预算 |
 | [ws02.5](workstreams/ws02.5-method-interface-audit/README.md) | method-interface-audit | done | P0 | 2026-07-09 关闭：5 method 接口审计 + MemoryOS 迁移 + config 归一化（repo 默认/embedder 统一/LLM 只统一模型名）+ 接口文档全清；**5×5 smoke 前置门已开**，只待预算 |
-| [ws02.6](workstreams/ws02.6-first-smoke-hardening/README.md) | first-smoke-hardening | in-progress | P0 | 首次真实 smoke 暴露的 bug 加固（跑通+可信双门）：BEAM/halumem/lightmem×membench 阻断、unified prompt 默认化、answer LLM 跨 method 一致、效率完备性；Phase A 机械修复已落 |
+| [ws02.6](workstreams/ws02.6-first-smoke-hardening/README.md) | first-smoke-hardening | in-progress | P0 | 实验可信度门：五 benchmark 串行整治冻结（LoCoMo ✅frozen-v1、LongMemEval ✅frozen-v1、B3 MemBench 待开）→ method 侧解冻；基线 923 passed |
 | [ws03](workstreams/ws03-architecture-slimming/README.md) | architecture-slimming | open | P1 | registry/capability/legacy 接口与 CLI 减重、LLMRuntimeConfig |
 | [ws04](workstreams/ws04-terminal-observability/README.md) | terminal-observability | open | P2 | isolated 进度心跳、第三方 stdout/tqdm 治理 |
 | [ws05](workstreams/ws05-experiment-reporting/README.md) | experiment-reporting | open | P1 | 全量实验申请材料：成本估算表 + 结果汇总 + 兜底验证清单（依赖 ws02） |

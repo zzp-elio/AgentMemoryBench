@@ -1,6 +1,8 @@
 # LongMemEval Benchmark 调研卡片
 
-更新日期：2026-07-05
+更新日期：2026-07-10（B2 `frozen-v1` 现行契约版；冻结记录见
+`docs/workstreams/ws02.6-first-smoke-hardening/notes/longmemeval-frozen-v1.md`，
+逐文件来源锁见同目录 `longmemeval-source-lock.json`）
 
 ## 1. 定位与适用边界
 
@@ -40,7 +42,20 @@ QA 主指标是 LLM judge accuracy：judge model 对每条 hypothesis 生成 yes
 
 Retrieval 不是 Phase 1 当前主指标，但官方 retrieval 评测会跳过 abstention instance 与没有 user-side target label 的 instance，并报告 session / turn 粒度 recall_any、recall_all、ndcg_any。证据：`third_party/benchmarks/LongMemEval-main/README.md:206`、`third_party/benchmarks/LongMemEval-main/src/retrieval/run_retrieval.py:395`、`third_party/benchmarks/LongMemEval-main/src/retrieval/eval_utils.py:24`。
 
-本项目当前已实现 `longmemeval_judge_accuracy`，其 prompt body 从官方 `get_anscheck_prompt()` 迁移，compact 模式解析 yes/no。证据：`src/memory_benchmark/evaluators/longmemeval_judge.py:23`、`src/memory_benchmark/evaluators/longmemeval_judge.py:94`、`src/memory_benchmark/evaluators/longmemeval_judge.py:170`。
+本项目现行 metric 注册（B2 C4 冻结，`evaluators/registry.py`）：
+
+- `longmemeval-judge`（主指标）：5 套 task 模板 + `_abs` abstention 路由与官方
+  `get_anscheck_prompt()` **7/7 逐字 parity**（验收方式：直接 import 官方函数
+  对比输出）；调用参数 temperature=0/max_tokens=10/role=user，解析
+  `'yes' in lower()`。judge 模型按项目统一基座用 `gpt-4o-mini`，**与论文
+  gpt-4o 有已声明偏差**（见 frozen-v1 known limitations）。
+- `f1`（framework 补充指标，非官方口径）：跨 benchmark 标准 token F1，零
+  特判，details 标 `framework_supplementary`；报告中不得冒充官方指标。
+- `longmemeval-recall`（artifact-level conditional）：双粒度 gold 由 benchmark
+  全量提供，method 声明什么 provenance 粒度就测什么，均无 → N/A；abstention
+  题记 N/A。匹配键 = 公开 id 空间（session 公开 id / `{session_id}:t{raw_index}`），
+  官方 `answer_session_ids` 与 corpus_id 别名只作对照记录
+  （`GoldAnswerInfo.evidence` + `metadata`，通路 `storage/artifacts.py:74`）。
 
 ## 5. Answer / Judge Prompt 与运行参数
 
@@ -50,7 +65,14 @@ Retrieval 不是 Phase 1 当前主指标，但官方 retrieval 评测会跳过 a
 
 官方 generation prompt 把 history、`Current Date: {question_date}` 和 `Question: {question}` 放入 prompt；`run_generation.py` 的 reader 调用使用 `temperature=0`，默认 completion 长度为 direct 500 tokens 或 CoT 800 tokens。证据：`third_party/benchmarks/LongMemEval-main/src/generation/run_generation.py:55`、`third_party/benchmarks/LongMemEval-main/src/generation/run_generation.py:341`、`third_party/benchmarks/LongMemEval-main/src/generation/run_generation.py:366`。
 
-本项目内置 method 的 LongMemEval reader 目前分两类：Mem0 调用其 memory-benchmarks LongMemEval answer prompt；A-Mem、LightMem、MemoryOS 默认沿用 LightMem-style reader prompt，把 `Question time:{question_date}` 注入 reader。证据：`third_party/methods/mem0-main/memory-benchmarks/benchmarks/longmemeval/prompts.py:37`、`third_party/methods/LightMem/experiments/longmemeval/run_lightmem_gpt.py:181`、`src/memory_benchmark/methods/lightmem_adapter.py:1009`、`src/memory_benchmark/methods/amem_adapter.py:699`。
+【B2 C3 起已统一，上一段"method reader 分两类"的描述作废】现行契约：
+LongMemEval 默认 `prompt_track="unified"`，所有 method 走同一 benchmark-owned
+prompt（官方非-CoT 模板逐字，`benchmark_adapters/longmemeval_prompt.py`，来源
+`run_generation.py:57`）；`formatted_memory` 原样代入 History Chats 槽位（框架
+不重排、不截断、不拼 `### Session` 头）；`Current Date` = 公开 `question_date`。
+answer LLM 跨 method 固定 `gpt-4o-mini`、role=user、temperature=0、
+`max_tokens=500`（`config/settings.py`，来源 `run_generation.py:360-368`）。
+native prompt 仅作 `--prompt-track native` 对照。
 
 ## 6. Method Adapter 接口需求
 
@@ -68,6 +90,12 @@ Retrieval 不是 Phase 1 当前主指标，但官方 retrieval 评测会跳过 a
 
 LongMemEval README 在 2025/09 标注 cleaned history sessions 更新，本地文件名已经是 cleaned，但 README 的格式说明仍混用 `longmemeval_s.json` / `longmemeval_m.json` 名称；Phase 1 文档应统一称 `s_cleaned` / `m_cleaned`，并保留“官方原名”映射。证据：`third_party/benchmarks/LongMemEval-main/README.md:15`、`third_party/benchmarks/LongMemEval-main/README.md:75`、`src/memory_benchmark/benchmark_adapters/longmemeval.py:34`。
 
-官方 retrieval 指标依赖 turn 级 `has_answer` 和 session 级 `answer_session_ids`；当前 Phase 1 主路径是 retrieve-first 下游 QA + judge accuracy，未把 official retrieval recall 纳入正式 metric。若后续要报告 retrieval recall，需要设计 method 返回 context id / session id 的统一协议。证据：`third_party/benchmarks/LongMemEval-main/README.md:87`、`third_party/benchmarks/LongMemEval-main/src/retrieval/run_retrieval.py:316`。
+【B2 C4 起已解决，改为已确认项】retrieval recall 已以 conditional 契约纳入
+（`longmemeval-recall`，见 §4）：benchmark 侧双粒度 gold 全量提供
+（turn 级 `has_answer` → `evidence_turn_ids`，session 级 `answer_session_ids`
+→ `evidence_session_public_ids`），method 声明 provenance 粒度即测、未声明记
+N/A——无需强制所有 method 支持。官方 recall_all/ndcg_any 等扩展口径未纳入，
+留待 method 侧能力明确后再议。证据：`src/memory_benchmark/evaluators/longmemeval_recall.py`、
+`third_party/benchmarks/LongMemEval-main/README.md:87`。
 
 M variant 对全量运行成本影响极高：官方称约 500 sessions / 1.5M tokens，本地实测每条 460-490 sessions；现有 1-conv cost pilot 只覆盖 S variant，不能直接外推 M 的成本。证据：`third_party/benchmarks/LongMemEval-main/README.md:76`、本卡验收命令、`docs/archive/status/2026-07-04-task-ledger.md:52`。

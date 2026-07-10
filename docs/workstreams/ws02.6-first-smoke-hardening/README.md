@@ -1,12 +1,22 @@
 ---
 id: ws02.6
 parent: ws02
-status: in-progress（LoCoMo 已于 2026-07-10 frozen-v1；下一个 benchmark 尚未开工）
+status: in-progress（LoCoMo、LongMemEval 均已 frozen-v1；B3 MemBench 未开工）
 created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
 
 ## 当前冻结与设计断点（2026-07-10）
+
+- 2026-07-10（LongMemEval `frozen-v1`，B2 完成）：C1-C5 五批 actor 施工
+  （cc+GLM-5.2 × 2、codex+GPT-5.6 × 3）+ 架构师逐批验收，一次停工裁决
+  （turn gold 通路）、两次架构师勘误（role 计数算术错、匹配键 id 空间）。
+  冻结门：**923 passed** 全量 + compileall + 真实数据抽查（abstention/
+  异常 role/`_m` 流式）+ 公开泄漏扫描 CLEAN + 零真实 API。冻结记录见
+  [longmemeval-frozen-v1.md](notes/longmemeval-frozen-v1.md)，批次过程见
+  [plan-b2-longmemeval.md](plan-b2-longmemeval.md)。**已知偏差：judge 用
+  gpt-4o-mini（论文 gpt-4o）**。当前没有开放 actor 卡；下一步 B3 MemBench
+  由架构师先写 plan 再经用户确认派工。
 
 - 2026-07-10（架构师回任 Fable 5 + B2 plan 就绪）：接任第一手核查复现
   890 passed；GPT-5.6 验收修正经用户批准落盘（`2965037`）。用户拍板三项：

@@ -298,6 +298,13 @@ C1-C5 全部验收后，架构师一次性完成：
   `_5/_6` 1 基别名 ↔ raw has_answer 手工对照一致）；公开对象泄漏扫描
   CLEAN；复跑定向 91 passed。因 C4 波及全局 evaluator registry，额外跑
   全量回归把关。
-- **C5 已开卡**：[actor-prompt-c5.md](actor-prompt-c5.md)，最后一个 actor
-  批次；之后架构师做最终冻结（plan §4）。
-- 全量基线：891 passed（commit `b7599a9` 后）；C4 后全量数字以验收记录为准。
+- 2026-07-10（C5 已验收，actor=codex+GPT-5.6，commit `75115f2`）：单文件
+  229 行离线全链路，probe 生命周期顺序/unified profile/formatted_memory
+  透传/f1+recall(provenance=turn, status=ok)/私有键扫描全断言；架构师精确
+  复验 4 passed in 3.15s。
+- 2026-07-10（**B2 完成，LongMemEval `frozen-v1`**）：架构师冻结包全过——
+  survey 三卡更新为现行契约、[longmemeval-frozen-v1.md](notes/longmemeval-frozen-v1.md)
+  落盘、真实数据抽查（abstention/asst-first/纯 asst/奇数 session/`_m` 流式
+  1 instance）、公开泄漏扫描 CLEAN、**全量 923 passed + compileall 通过**、
+  零真实 API。本 plan 关闭。
+- 全量基线：**923 passed**（B2 冻结门）。
