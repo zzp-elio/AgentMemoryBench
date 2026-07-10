@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,20 @@ PRIVATE_MESSAGE_KEYS = {
     "label",
 }
 MESSAGE_CORE_KEYS = {"role", "speaker", "content", "text"}
+
+# 官方来源身份锁定值：见
+# docs/workstreams/ws02.6-first-smoke-hardening/notes/longmemeval-source-lock.json。
+# 仓库 URL / 论文 / license / dataset 来源是外部事实，无法从本地数据文件计算，
+# 保持常量；数据集哈希改为 load_dataset() 中对实际读取字节现算，不在此硬编码。
+LONGMEMEVAL_OFFICIAL_REPO_URL = "https://github.com/xiaowu0162/LongMemEval"
+LONGMEMEVAL_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2410.10813"
+LONGMEMEVAL_OFFICIAL_DATASET_URL = (
+    "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned"
+)
+LONGMEMEVAL_LICENSE = "MIT"
+# LongMemEval 论文另外包含 retrieval 与 index expansion 任务，本 adapter 只冻结
+# chat-assistant QA 这一个 task（与官方 evaluate_qa.py 答 correctness 对齐）。
+LONGMEMEVAL_TASK = "question_answering"
 
 
 class LongMemEvalAdapter(BenchmarkAdapter):
@@ -131,6 +146,12 @@ class LongMemEvalAdapter(BenchmarkAdapter):
             else:
                 source_fully_scanned = True
 
+        # source_sha256 对整文件字节现算（对齐 locomo T1：无论是否 limit 都报全文件
+        # 哈希，与 source-lock.json 锁定值可比），不硬编码；official_* 身份常量来自
+        # source-lock.json，无法从本地数据反推。_m（2.7GB）该步会再整读一次文件，
+        # 在 full 加载路径可接受；smoke/测试只用 _s。
+        source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+
         return Dataset(
             dataset_name=self.name,
             conversations=conversations,
@@ -139,8 +160,23 @@ class LongMemEvalAdapter(BenchmarkAdapter):
                 "split": self.split,
                 "variant": self.variant,
                 "source_format": "longmemeval",
+                "task": LONGMEMEVAL_TASK,
+                "official_repo_url": LONGMEMEVAL_OFFICIAL_REPO_URL,
+                "official_paper_url": LONGMEMEVAL_OFFICIAL_PAPER_URL,
+                "official_dataset_url": LONGMEMEVAL_OFFICIAL_DATASET_URL,
+                "license": LONGMEMEVAL_LICENSE,
+                "source_sha256": source_sha256,
                 "total_raw_instances": len(conversations),
                 "source_fully_scanned": source_fully_scanned,
+                "official_question_count": len(conversations),
+                # abstention 题数：question_id 带 `_abs` 后缀者（私有边界不受影响，
+                # 此处只计公开 question 的来源分布标记，answer/answer_session_ids
+                # 仍只在 gold_answers 内）。
+                "abstention_question_count": sum(
+                    1
+                    for conversation in conversations
+                    if "_abs" in conversation.metadata.get("source_question_id", "")
+                ),
                 "skipped_blank_turn_count": sum(
                     int(conversation.metadata.get("skipped_blank_turn_count", 0))
                     for conversation in conversations

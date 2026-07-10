@@ -1,0 +1,65 @@
+{
+  "benchmark": "longmemeval",
+  "official_repo_url": "https://github.com/xiaowu0162/LongMemEval",
+  "official_paper_url": "https://arxiv.org/abs/2410.10813",
+  "official_paper_citation": {
+    "title": "LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory",
+    "authors": ["Di Wu", "Hongwei Wang", "Wenhao Yu", "Yuwei Zhang", "Kai-Wei Chang", "Dong Yu"],
+    "year": 2024,
+    "eprint": "2410.10813",
+    "venue": "ICLR 2025"
+  },
+  "official_dataset_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned",
+  "local_snapshot_path": "third_party/benchmarks/LongMemEval-main/",
+  "license": "MIT License (Copyright (c) 2024 Di Wu)",
+  "license_file": "third_party/benchmarks/LongMemEval-main/LICENSE",
+  "verification_method": "repo URL, paper link, citation block, license and HF dataset provenance copied verbatim from third_party/benchmarks/LongMemEval-main/README.md and LICENSE (first-hand, not memory); SHA-256 and byte sizes recomputed live from data/longmemeval/* and the bundled paper PDF this session; byte-identity against the official release blob is NOT claimed (no network access this session). The _cleaned -> official correspondence is established offline from README text only (see provenance notes); where README gives no first-hand mapping it is recorded honestly as '来源待溯' rather than fabricated.",
+  "files": [
+    {
+      "role": "canonical_dataset_s",
+      "local_path": "data/longmemeval/longmemeval_s_cleaned.json",
+      "official_source": "HuggingFace xiaowu0162/longmemeval-cleaned split longmemeval_s_cleaned (resolve/main/longmemeval_s_cleaned.json)",
+      "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+      "bytes": 277383467
+    },
+    {
+      "role": "canonical_dataset_m",
+      "local_path": "data/longmemeval/longmemeval_m_cleaned.json",
+      "official_source": "HuggingFace xiaowu0162/longmemeval-cleaned split longmemeval_m_cleaned (resolve/main/longmemeval_m_cleaned.json)",
+      "sha256": "9d79e5524794a2e6900a3aa9cb7d9152c5a3e8319c9a87c25494ba1eacee495f",
+      "bytes": 2737100077
+    },
+    {
+      "role": "paper",
+      "local_path": "third_party/benchmarks/LongMemEval-main/Wu 等 - 2025 - LongMemEval Benchmarking Chat Assistants on Long-Term Interactive Memory.pdf",
+      "official_source": "arXiv 2410.10813 (https://arxiv.org/pdf/2410.10813.pdf)",
+      "sha256": "05c5d055201466a241a56e082cdd02d39ad566fa04b3804891983e4e069a3fda",
+      "bytes": 749169
+    },
+    {
+      "role": "readme",
+      "local_path": "third_party/benchmarks/LongMemEval-main/README.md",
+      "official_source": "https://github.com/xiaowu0162/LongMemEval (README.md)",
+      "sha256": "c4ff45676683d9e2f7cf7d9099d26426f14635ec110dbb1da818d1019a142573"
+    },
+    {
+      "role": "license",
+      "local_path": "third_party/benchmarks/LongMemEval-main/LICENSE",
+      "official_source": "https://github.com/xiaowu0162/LongMemEval (LICENSE)",
+      "sha256": "d3c4b9aa54759df6ded337978a6f3b55b75615e5e4525c3b82d7e2627d4b9732"
+    }
+  ],
+  "provenance": {
+    "_cleaned_variant_origin": "third_party/benchmarks/LongMemEval-main/README.md (2025/09 news entry, first-hand): 'We have further cleaned up the history sessions to prevent interference on answer correctness. The updated benchmark can be found at https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/'. The same README '## 🛠️ Setup / Data' lists wget targets resolve/main/longmemeval_s_cleaned.json and resolve/main/longmemeval_m_cleaned.json, matching the local data/longmemeval/longmemeval_{s,m}_cleaned.json filenames byte-for-byte by name.",
+    "_cleaned_vs_paper_release": "The paper (arXiv 2410.10813, 2024/10 release) introduced longmemeval_s.json / longmemeval_m.json / longmemeval_oracle.json. The README dataset-format section still documents these base names. The _cleaned suffix is the 2025/09 re-cleanup that 'replaces the original LongMemEval dataset' (data/README.md first-hand: 'This dataset replaces the original LongMemEval dataset. The main difference is that this version removes noisy history sessions that interfere with answer correctness.'). No raw non-cleaned longmemeval_s.json/longmemeval_m.json is present locally, so the base-vs-cleaned diff itself cannot be verified offline; the relationship is established from README text only.",
+    "change_log_source": "README points to a Google Sheets change log (https://docs.google.com/spreadsheets/d/16cHPu2B4XhgC-VvolIoWNs8wwm0Zkbpgu8H9x-qhxWg/edit?usp=sharing) and a Google Drive mirror (https://drive.google.com/file/d/1zo5C2sKsN3-2TUZt7kiRd2wsZLmyd-4y/view?usp=sharing) for the _cleaned release. Not fetched this session (no network); recorded as documented official sources, not independently verified.",
+    "oracle_variant": "README documents a third file longmemeval_oracle.json (oracle-retrieval, evidence sessions only). It is NOT consumed by this adapter (LONGMEMEVAL_VARIANT_SPECS only registers s_cleaned and m_cleaned), so it is not hashed/locked here. Its official HF split name is longmemeval_oracle.",
+    "huggingface_lfs_note": "third_party/benchmarks/LongMemEval-main/data/gitattributes marks *.7z/etc. as LFS; the local data/longmemeval/*.json copies are plain JSON (verified by successful ijson streaming + json parsing), not LFS pointers.",
+    "local_commit_note": "来源待溯 (offline-open item): the exact GitHub commit of the local snapshot third_party/benchmarks/LongMemEval-main/ is NOT recorded here. Unlike locomo-main, no .git marker or pinned commit was available to verify offline this session; the snapshot carries HF-style data/README.md with config splits but no independent git provenance. The official_repo_url is copied from the README badge text (first-hand) and is the authoritative source identifier. Resolving the precise local-snapshot commit is deferred to the architect (requires a read-only network clone, which the no-network rule forbids this batch)."
+  },
+  "notes": [
+    "third_party/benchmarks/LongMemEval-main/ has no independent verified .git provenance this session; official_repo_url and official_dataset_url are first-hand from README.md badge/link text. Do not trust git commands run inside that dir to identify the LongMemEval commit (parent-repo HEAD trap, same as locomo).",
+    "The bundled paper PDF path 'Wu 等 - 2025 - LongMemEval Benchmarking Chat Assistants on Long-Term Interactive Memory.pdf' is the actual local file; byte-identity with the arXiv release blob is NOT claimed (no network this session). The official_source field records arXiv 2410.10813 as the paper origin.",
+    "treatment of the _cleaned variant: this is the 2025/09 re-cleanup that replaces the original release. B2 (and all smoke/frozen artifacts) target the _cleaned variant only, matching the adapter's registered variants. Any comparison to paper numbers that used the pre-cleaning release must account for this."
+  ]
+}
