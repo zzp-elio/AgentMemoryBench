@@ -189,10 +189,14 @@ uv run pytest -q tests/test_prediction_cli.py tests/test_benchmark_registry.py \
   supported_benchmarks = 全部 conversation-QA 减 membench（MCQ，B3 再议）；
   结果 details 标注 `framework_supplementary`（非官方口径）；
 - **新增 artifact-level `longmemeval-recall`**：复用 LoCoMo A5 的 conditional
-  契约（provenance=none/未声明 → N/A；声明却缺来源 → fail-fast）；evidence
-  基准 = 私有 `answer_session_ids`，session 粒度对 `haystack_session_ids`；
-  turn 级 `has_answer` 本批不接（记入 known limitations，等 method 侧
-  provenance 能力明确后再议）；
+  契约（provenance=none/未声明 → N/A；声明却缺来源 → fail-fast）。
+  **benchmark 侧 session/turn 双粒度 gold evidence 都提供，测不测由 method
+  的 provenance 声明决定**（用户 2026-07-10 拍板：benchmark 必须提供全，
+  method 可以不测）：session 粒度 gold = 私有 `answer_session_ids`；turn
+  粒度 gold = evidence session 内 `has_answer=True` 的 turn，turn id 采用
+  官方 corpus_id 约定 `{session_id}_{turn_index+1}`（`run_generation.py:79`）；
+  method 声明 turn provenance 按 turn 评，声明 session 按 session 评，
+  均无 → N/A（与 LoCoMo 的 dia_id/D<n> 双粒度对称）；
 - 不运行真实 judge API（judge evaluator 测试全用 fake client）。
 
 Actor 自检：
@@ -234,8 +238,7 @@ C1-C5 全部验收后，架构师一次性完成：
 1. 更新 LongMemEval benchmark/dataset/workflow 三张 survey 卡为现行契约；
 2. 写 `notes/longmemeval-frozen-v1.md`（source、mapping、prompt、metric、
    smoke、resume、artifact、known limitations——至少含：judge 模型
-   gpt-4o-mini vs 论文 gpt-4o 的差异、turn 级 has_answer recall 未接、
-   `_m` 变体未做全链路只做数据剖面）；
+   gpt-4o-mini vs 论文 gpt-4o 的差异、`_m` 变体未做全链路只做数据剖面）；
 3. 定向总验收 + compileall + 一次全量 pytest；
 4. 真实数据抽查：abstention 题、assistant-first session、纯 assistant
    session、奇数 session、`_m` 流式加载一条；
@@ -245,5 +248,8 @@ C1-C5 全部验收后，架构师一次性完成：
 ## 5. 当前断点
 
 - 2026-07-10：plan 起草完成，基于架构师当日一手取证（§2 全部现场核实）。
-- **尚未派工**：等用户确认后发 C1 的 actor prompt。
+- 2026-07-10 用户裁决：recall evidence **benchmark 侧 session/turn 双粒度
+  都提供**，method 声明什么粒度就测什么，均无则 N/A（C4 已更新）。
+- **C1 已开卡**：[actor-prompt-c1.md](actor-prompt-c1.md)，可直接复制派工。
+  C2 等 C1 验收后再开。
 - 全量基线：891 passed（commit `b7599a9` 后）。
