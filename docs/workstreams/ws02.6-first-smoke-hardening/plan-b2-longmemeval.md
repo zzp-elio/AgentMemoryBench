@@ -286,5 +286,18 @@ C1-C5 全部验收后，架构师一次性完成：
   的 plan/卡口径冲突（clamp vs 不截断）裁决：**卡对，不截断**——框架静默
   截断会不可见地改变 method 输出，官方截断属 raw-history baseline 语义；
   plan §3 C3 已勘误并注明架构师撰写失误。
-- **C4 已开卡**：[actor-prompt-c4.md](actor-prompt-c4.md)。C5 等 C4 验收。
-- 全量基线：891 passed（commit `b7599a9` 后）。
+- 2026-07-10（C4 停工裁决）：actor 上报 turn gold 无私有通路，停工正确。
+  裁决全文见 [actor-prompt-c4.md](actor-prompt-c4.md) 末尾：通路 =
+  `GoldAnswerInfo.metadata`（不新增 artifact 通路）；匹配键 = 公开 id 空间
+  （官方 corpus_id 只作对照记录）；定向解冻 adapter 一处。
+- 2026-07-10（C4 已验收，actor=codex+GPT-5.6，commit `75eecda`）：架构师
+  一手复核——judge 5 模板 + abstention 路由**直接 import 官方
+  `get_anscheck_prompt` 对比输出，7/7 逐字 MATCH**；judge 参数
+  0/10/`'yes' in lower()` 对官方；f1 零特判、标 framework_supplementary、
+  排除 membench；真实数据验证 gold 三字段（`:t4/:t5` 公开空间 ↔ 官方
+  `_5/_6` 1 基别名 ↔ raw has_answer 手工对照一致）；公开对象泄漏扫描
+  CLEAN；复跑定向 91 passed。因 C4 波及全局 evaluator registry，额外跑
+  全量回归把关。
+- **C5 已开卡**：[actor-prompt-c5.md](actor-prompt-c5.md)，最后一个 actor
+  批次；之后架构师做最终冻结（plan §4）。
+- 全量基线：891 passed（commit `b7599a9` 后）；C4 后全量数字以验收记录为准。
