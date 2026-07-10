@@ -157,8 +157,11 @@ uv run pytest -q tests/test_longmemeval_conversation_adapter.py \
 - 新建 `benchmark_adapters/longmemeval_prompt.py`：
   `build_longmemeval_unified_answer_prompt(formatted_memory, question, ...)`
   使用 §2.2 官方非-CoT 模板；**History Chats 槽位 = provider 的
-  `formatted_memory` 原样代入**（框架不重排、不截断、不二次拼 session 头；
-  超长按既定规则 clamp + warning，不崩）；`Current Date` = 公开
+  `formatted_memory` 原样代入**（框架不重排、**不截断**、不二次拼 session 头；
+  【勘误 2026-07-10：本行初稿写"超长 clamp + warning"，C3 任务卡修订为
+  不截断——记忆长度控制是 method 的责任，框架静默截断会不可见地改变
+  method 输出；官方的截断逻辑属于 raw-history baseline，不适用于记忆框架。
+  初稿与卡不一致是架构师撰写失误，actor 按卡执行正确】）；`Current Date` = 公开
   `question_date`（C1 需确认它在公开 Question metadata 中，缺则补入——它是
   官方 prompt 的一部分，不是 evidence）；
 - registry 注册 `prompt_track="unified"` + builder；native 保留可选对照；
@@ -269,5 +272,13 @@ C1-C5 全部验收后，架构师一次性完成：
   benchmark 无关逻辑；legacy 断言 20→1 是 policy 登记的必然产物）。
   非阻塞小项：新 registry 测试用 FULL scope 整读 277MB 验证 metadata，
   拖慢套件，记 ws06 测试重组时处理，不返工。
-- **C3 已开卡**：[actor-prompt-c3.md](actor-prompt-c3.md)。C4 等 C3 验收。
+- 2026-07-10（C3 已验收，actor=codex+GPT-5.6，commit `7a34087`）：架构师
+  程序化逐字校验模板与官方 `run_generation.py:57` 一致（第一次比对 False
+  是架构师校验脚本抓到 55 行 CoT 版，非 actor 错误——校验工具本身也要
+  校验）；answer 配置收敛为 longmemeval 单键 0/500/user（旧 mem0=4096、
+  其他=2000+top_p=0.8 的公平性分叉消灭）；复跑定向 132 passed。actor 上报
+  的 plan/卡口径冲突（clamp vs 不截断）裁决：**卡对，不截断**——框架静默
+  截断会不可见地改变 method 输出，官方截断属 raw-history baseline 语义；
+  plan §3 C3 已勘误并注明架构师撰写失误。
+- **C4 已开卡**：[actor-prompt-c4.md](actor-prompt-c4.md)。C5 等 C4 验收。
 - 全量基线：891 passed（commit `b7599a9` 后）。
