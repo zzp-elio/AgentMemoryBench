@@ -80,3 +80,41 @@ uv run pytest -q tests/test_llm_judge_parsing.py tests/test_answer_f1.py \
 
 最后只回复：commit hash、测试尾行、实际改动文件、是否存在 plan 偏差/停工点。
 遇到 plan 未覆盖的情况立即停工写断点，交回架构师裁决，不要自行发挥。
+
+---
+
+## 架构师裁决（2026-07-10，回应 Codex 停工断点：turn-level gold 无通路）
+
+停工正确，断点属实。裁决如下，按此恢复施工：
+
+1. **不新增独立 artifact 通路**。`GoldAnswerInfo.metadata` 已随 private label
+   序列化（`storage/artifacts.py:74` `"metadata": gold.metadata`），私有通路
+   现成——缺的只是 adapter 没把 turn evidence 算进去。新通路挡不住任何
+   现有通路挡不住的事故，不加。
+2. **授权修改 adapter**（C1 冻结面的定向解冻，仅此一处）：
+   `_convert_instance`/`_session_from_raw` 解析时、**在丢弃 `has_answer`
+   之前**，从原始 turn 数据计算 evidence turn 并写入
+   `GoldAnswerInfo.metadata`：
+   - `metadata["evidence_turn_ids"]`：**公开 turn-id 空间**
+     `{session_id}:t{raw_index}`（与 `longmemeval.py:336` 的公开 id 逐字
+     同构；session_id 用去重后的公开 id；raw_index 是原始 0 基序号，与
+     跳过空 turn 无关）。**这是 recall 的匹配键**——匹配必须发生在
+     method 能看到、能返回的 id 空间（LoCoMo 先例：dia_id 既是公开 id
+     也是 gold）。
+   - `metadata["evidence_turn_corpus_ids"]`：官方别名
+     `{original_session_id}_{raw_index+1}`（`run_generation.py:79` 约定，
+     1 基），**只作官方对照记录，不作匹配键**。
+   - `metadata["evidence_session_public_ids"]`：`answer_session_ids` 映射到
+     去重后公开 session id 的列表（session 级匹配键；evidence 字段保持
+     原始官方 `answer_session_ids` 不动，作官方记录）。
+   - 公开对象（Question/Session/Turn）不得新增任何 evidence 派生字段；
+     `has_answer` 依旧不进公开 Turn。
+3. **recall 匹配键取向**：session 级匹配用 `evidence_session_public_ids`，
+   turn 级匹配用 `evidence_turn_ids`；官方 id 只进 details 供审计。
+4. 相应把 `tests/test_longmemeval_conversation_adapter.py` 补上 gold
+   metadata 三字段的断言（含"公开对象无泄漏"的反例断言），并入本批
+   定向测试命令一起跑。
+
+其余口径不变。此裁决同步勘误 plan §3 C4（原文"turn id 采用官方 corpus_id
+约定"改为"匹配键=公开 id 空间，官方 corpus id 作对照记录"——原文是架构师
+在未核公开 turn_id 格式时写下的，属撰写失误）。

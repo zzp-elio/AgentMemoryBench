@@ -198,8 +198,14 @@ uv run pytest -q tests/test_prediction_cli.py tests/test_benchmark_registry.py \
   **benchmark 侧 session/turn 双粒度 gold evidence 都提供，测不测由 method
   的 provenance 声明决定**（用户 2026-07-10 拍板：benchmark 必须提供全，
   method 可以不测）：session 粒度 gold = 私有 `answer_session_ids`；turn
-  粒度 gold = evidence session 内 `has_answer=True` 的 turn，turn id 采用
-  官方 corpus_id 约定 `{session_id}_{turn_index+1}`（`run_generation.py:79`）；
+  粒度 gold = evidence session 内 `has_answer=True` 的 turn。
+  【勘误 2026-07-10（C4 停工裁决）：匹配键 = **公开 turn-id 空间**
+  `{session_id}:t{raw_index}`（`longmemeval.py:336`），因为匹配必须发生在
+  method 能返回的 id 空间（LoCoMo 先例 dia_id 既公开又是 gold）；官方
+  corpus_id `{original_session_id}_{raw_index+1}` 只作对照记录不作匹配键。
+  原文直接写官方 corpus_id 是架构师未核公开 id 格式的撰写失误。通路 =
+  `GoldAnswerInfo.metadata`（已随 private label 序列化，artifacts.py:74），
+  不新增 artifact 通路。】
   method 声明 turn provenance 按 turn 评，声明 session 按 session 评，
   均无 → N/A（与 LoCoMo 的 dia_id/D<n> 双粒度对称）；
 - 不运行真实 judge API（judge evaluator 测试全用 fake client）。
