@@ -8,6 +8,13 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-10）
 
+- 2026-07-10（架构师回任 Fable 5 + B2 plan 就绪）：接任第一手核查复现
+  890 passed；GPT-5.6 验收修正经用户批准落盘（`2965037`）。用户拍板三项：
+  ① 新增通用 `f1` evaluator、`locomo-f1` 保持官方 parity 原名；② 可复现性
+  身份=内容，路径只作记录（已修，`b7599a9`，891 passed，playbook 原则 #12）；
+  ③ 真实校准不急，smoke 跑通即可拿预算。B2 LongMemEval plan 已基于当日
+  一手取证起草：[plan-b2-longmemeval.md](plan-b2-longmemeval.md)（数据形态/
+  官方 answer+judge 契约/框架缺口全部现场核实），**未派工，等用户确认**。
 - 2026-07-10（LoCoMo `frozen-v1`）：A6 actor commit `6f0039f` 只新增一条离线
   registry/probe 全链路；架构师复跑 `4 passed in 2.86s`，定向总验收
   `326 passed in 31.80s`，compileall 通过，全量回归在修正一条 2026-06 的旧
