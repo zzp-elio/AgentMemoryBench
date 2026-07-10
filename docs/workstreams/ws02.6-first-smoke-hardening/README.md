@@ -1,12 +1,25 @@
 ---
 id: ws02.6
 parent: ws02
-status: in-progress（LoCoMo、LongMemEval 均已 frozen-v1；B3 MemBench 未开工）
+status: in-progress（LoCoMo、LongMemEval、MemBench 已 frozen-v1；B4 BEAM 未开工）
 created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
 
 ## 当前冻结与设计断点（2026-07-11）
+
+- 2026-07-11（**MemBench `frozen-v1`，B3 完成**）：D1-D5 五批 actor 施工
+  （DeepSeek V4 Flash ×2、混合路由 ×1、MiniMax M3 ×2）+ 架构师逐批强
+  验收。B3 战果：**3 个 latent bug 实锤修复**（第三人称无冒号时间戳
+  19,285 条全漏配、空 target_step_id 令 full load 必崩、evidence 0/1 基
+  off-by-one）+ 1 次编造纠正（repo URL）+ 1 次教科书级停工（recall 读
+  键位 vs 生产序列化）。冻结门：**1000 passed** 全量 + compileall +
+  真实数据抽查（+1 平移三态/str-list 两态/100k 加载/无冒号 turn_time
+  e2e 非空）+ 公开泄漏扫描 CLEAN + 零真实 API。冻结记录
+  [membench-frozen-v1.md](notes/membench-frozen-v1.md)，批次过程
+  [plan-b3-membench.md](plan-b3-membench.md)。已知偏差两条（官方
+  json_schema 结构化输出、answer 参数不可考）见冻结记录 §7。当前没有
+  开放 actor 卡；下一步 B4 BEAM 由架构师先写 plan 再经用户确认派工。
 
 - 2026-07-11（D5 停工 → **架构师已裁决并直修**）：actor（cc+MiniMax M3）
   在 D5 T0 对照真实生产 artifact，发现 D4 `membench-recall` 读

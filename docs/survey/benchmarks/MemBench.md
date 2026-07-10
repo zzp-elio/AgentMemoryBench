@@ -1,6 +1,14 @@
 # MemBench Benchmark 调研卡片
 
-更新日期：2026-06-29
+更新日期：2026-07-11（B3 `frozen-v1`；**现行契约以
+`docs/survey/datasets/membench.md` + `docs/survey/workflows/membench.md`
+两张契约卡与冻结记录
+`docs/workstreams/ws02.6-first-smoke-hardening/notes/membench-frozen-v1.md`
+为准**；本卡正文为 2026-06-29 调研期材料，官方资产/机制描述仍有效，涉及
+框架接入方式的段落以契约卡为准。要点更正：① repo URL 一手来源是 bundled
+论文 PDF（`github.com/import-myself/Membench`），本地 README 无 repo 自
+引用；② 官方活跃路径无条件用 INSTRUCTION_FIRST；③ target_step_id 为 0 基，
+公开 turn id 为 1 基，gold evidence 已平移到公开空间。）
 
 ## 1. 一句话结论
 

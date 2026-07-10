@@ -266,6 +266,16 @@ frozen-v1，才写 B4 plan。
   顶层 + fixture 改为通过真实 `evaluator_private_label_record` 构造
   （**固化为 evaluator 契约测试通用规矩：fixture 必须经真实序列化函数**）。
   定向 55 + 全量 999 复绿。D5 卡不变，actor 复工。
-- **D5 已开卡**：[actor-prompt-d5.md](actor-prompt-d5.md)，最后一个 actor
-  批次；之后架构师做最终冻结。
-- 全量基线：923（B2 冻结门）→ D2 后 927 → D3 后 988 → D4 后 **999**。
+- 2026-07-11（**D5 已验收**，actor=cc+MiniMax M3，commit `13d0cd8`）：
+  单文件 309 行离线全链路，双人称路径覆盖（4 源 2+2、第一人称 1 turn/
+  第三人称 2 turns、6 ingested turns）、**third_low turn_time 全非空**
+  （D2 无冒号修复的 e2e 终证）、生命周期顺序、unified track、transform、
+  choice-accuracy + recall(status=ok)、category_breakdown 按 task_type、
+  三层 privacy 扫描全断言；负空间清单 10 条全真实；架构师精确复验
+  4 passed。
+- 2026-07-11（**B3 完成，MemBench `frozen-v1`**）：架构师冻结包全过——
+  survey 三卡现行契约化、[membench-frozen-v1.md](notes/membench-frozen-v1.md)
+  落盘、真实数据抽查（+1 平移三态/str-list 两态/100k limit=1 加载 1.4s）、
+  公开泄漏扫描 CLEAN、**全量 1000 passed + compileall**、零真实 API。
+  本 plan 关闭。
+- 全量基线：923（B2 冻结门）→ 927 → 988 → 999 → **1000（B3 冻结门）**。
