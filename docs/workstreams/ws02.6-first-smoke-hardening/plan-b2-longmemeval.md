@@ -260,5 +260,14 @@ C1-C5 全部验收后，架构师一次性完成：
   复核：500 题/30 abstention/source_sha256 与 lock 一致/定向测试 20 passed。
   异常 role 总数勘误为 **1,947**（架构师初稿算术错，actor 实测正确）；
   子分类口径不统一裁定为非阻塞，以 audit 文档为准。
-- **C2 已开卡**：[actor-prompt-c2.md](actor-prompt-c2.md)。C3 等 C2 验收。
+- 2026-07-10（C2 已验收，actor=cc+GLM-5.2，commit `c3c5264`）：架构师一手
+  复核——policy→manifest 链路成立（`_build_benchmark_policy_manifest` 从
+  registration 取值）；CLI 轴 fail-fast 分支对齐 locomo；smoke 形态实测
+  1 instance × 1 session × 2 turns(user,assistant) × 1 question、原始 550
+  turns、双 policy 进 dataset metadata，与 actor 报告逐字一致；架构师复跑
+  定向 157 passed。actor 报告的两条补充事实均核实为真（smoke 拒 resume 是
+  benchmark 无关逻辑；legacy 断言 20→1 是 policy 登记的必然产物）。
+  非阻塞小项：新 registry 测试用 FULL scope 整读 277MB 验证 metadata，
+  拖慢套件，记 ws06 测试重组时处理，不返工。
+- **C3 已开卡**：[actor-prompt-c3.md](actor-prompt-c3.md)。C4 等 C3 验收。
 - 全量基线：891 passed（commit `b7599a9` 后）。
