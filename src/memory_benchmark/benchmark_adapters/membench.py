@@ -65,6 +65,14 @@ MEMBENCH_VARIANT_SPECS = (
 )
 MEMBENCH_VARIANT_BY_NAME = {spec.name: spec for spec in MEMBENCH_VARIANT_SPECS}
 MEMBENCH_INSTRUCTION_FIRST_PROFILE = "membench_instruction_first_v1"
+# 官方来源：third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:21-31。
+# 官方有 INSTRUCTION_THIRD（:9-19，描述为 "the user's messages"）和
+# INSTRUCTION_FIRST（:21-31，描述为 "your'conversation with the user"）
+# 两套模板，均含 {memory} 槽位，框架始终有 formatted_memory，两套均可填充。
+# 官方 response() 方法（:89-92）统一使用 INSTRUCTION_FIRST 不区分子/第三人称，
+# 故框架也统一使用 INSTRUCTION_FIRST。
+# 官方文本 "your'conversation" 含 typo（your 与 ' 间无空格），parity 优先，
+# 原样保留。
 MEMBENCH_INSTRUCTION_FIRST = """Please answer the following question based on past memories of your'conversation with the user.
 Past memory: {memory}
 Question: (current time is {time}) {question}
@@ -409,7 +417,7 @@ def build_membench_unified_answer_prompt(
             "answer_context": retrieval_result.formatted_memory,
             "official_source": (
                 "third_party/benchmarks/Membench-main/benchmark/"
-                "MembenchAgent.py:21-31,89-92"
+                "MembenchAgent.py:21-31,89-92,93-112"
             ),
         }
     )

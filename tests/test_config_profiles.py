@@ -252,6 +252,30 @@ def test_load_path_settings_exposes_phase_e_project_roots() -> None:
     "method_name",
     ["mem0", "memoryos", "amem", "lightmem", "simplemem", "custom"],
 )
+def test_membench_answer_llm_settings_are_method_independent(
+    method_name: str,
+) -> None:
+    """MemBench answer LLM 参数应按 benchmark 归一，跨 method 一致。"""
+
+    settings = resolve_answer_llm_settings(
+        method_name=method_name,
+        benchmark_name="membench",
+        model="gpt-4o-mini",
+    )
+
+    assert settings.model == "gpt-4o-mini"
+    assert settings.message_role == "user"
+    assert settings.temperature == 0.0
+    assert settings.max_tokens == 16
+    assert settings.top_p is None
+    assert settings.timeout_seconds == 60
+    assert settings.max_retries == 8
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ["mem0", "memoryos", "amem", "lightmem", "simplemem", "custom"],
+)
 def test_longmemeval_answer_llm_settings_are_method_independent(
     method_name: str,
 ) -> None:

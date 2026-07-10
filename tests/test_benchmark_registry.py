@@ -649,7 +649,7 @@ def test_membench_unified_prompt_builder_uses_official_instruction_first() -> No
     assert prompt.metadata["answer_prompt_profile"] == MEMBENCH_INSTRUCTION_FIRST_PROFILE
     assert prompt.metadata["prompt_track"] == "unified"
     assert prompt.metadata["official_source"].endswith(
-        "MembenchAgent.py:21-31,89-92"
+        "MembenchAgent.py:21-31,89-92,93-112"
     )
     assert prompt.prompt_messages == [
         PromptMessage(role="user", content=prompt.answer_prompt)

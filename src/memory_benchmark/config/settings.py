@@ -269,6 +269,22 @@ def resolve_answer_llm_settings(
             max_tokens=500,
             top_p=None,
         )
+    if key[1] == "membench":
+        # MemBench MCQ answer LLM 参数，method 无关。官方来源：
+        # third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:
+        # - :93-112 response_format=json_schema 强制结构化输出（enum A/B/C/D）；
+        #   self.llm = create_LLM(config['LLM_config'])（:37），
+        #   memutils.py:31 显示 temperature 从 config 读入
+        # - temperature=0.0：官方 agent 层未显式设值，MCQ 评测标准为 0
+        # - max_tokens=16：官方未显式设置，单字母 + JSON 包装已够
+        # - top_p=None：官方未显式设置，用 API 默认
+        return AnswerLLMSettings(
+            model=model,
+            message_role="user",
+            temperature=0.0,
+            max_tokens=16,
+            top_p=None,
+        )
     return AnswerLLMSettings(model=model)
 
 
