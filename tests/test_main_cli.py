@@ -1180,6 +1180,62 @@ def test_predict_smoke_rejects_resume_and_retry_failed(
     assert "predict smoke does not support --resume" in capsys.readouterr().err
 
 
+def test_predict_smoke_rejects_membench_sources_on_other_benchmark(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--membench-sources 传给非 membench 必须 fail-fast，不许静默吞掉。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--allow-api",
+            "--membench-sources",
+            "first_high",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "--membench-sources is only supported for MemBench smoke" in (
+        capsys.readouterr().err
+    )
+
+
+def test_predict_formal_rejects_membench_sources(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--membench-sources 是 smoke 调试旋钮；formal 静默忽略会误导为部分源运行。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "formal",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "membench",
+            "--allow-api",
+            "--membench-sources",
+            "first_high",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "predict formal does not support --membench-sources" in (
+        capsys.readouterr().err
+    )
+
+
 def test_predict_formal_rejects_question_limit(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

@@ -216,5 +216,22 @@ frozen-v1，才写 B4 plan。
   - 教训（弱 actor 校准）：DeepSeek V4 Flash 的数值劳动可靠（大表全对），
     但**外部事实字段（URL/出处）不可信，必须逐个一手复核**；后续给弱
     actor 的卡要求外部事实字段必须附"出处文件:行号"。
-- **D2 已开卡**：[actor-prompt-d2.md](actor-prompt-d2.md)。D3 等 D2 验收。
-- 全量基线：923 passed（B2 冻结门）。
+- 2026-07-10（**D2 强验收通过**，actor=cc+DeepSeek V4 Flash，commit
+  `46f21bb` + 架构师直修 ×2）：
+  - **五件套实质全过（架构师端到端实测）**：正则三形态 + 假阳性防御；
+    full load 3400 条（=700+900+400+1400 与 audit 精确吻合）、空 evidence
+    恰 1 条且位置正确；smoke 形态 = 4 源各 1 条、第一人称 1 turn（=1
+    round，dict 合并单 Turn）/第三人称 2 turns、policy 进 metadata；
+    `--membench-sources` 命名过滤生效；坏名字 fail-fast 报错清晰；
+    定向 145 passed 复现，全量 925 passed。
+  - **架构师直修两处 fail-fast 缺口**（卡明确要求但 actor 只做了 happy
+    path）：① `_validate_membench_sources` 对非 membench **静默吞旗标**
+    而非报错（脚枪：换 benchmark 复制命令时过滤条件无声消失）；
+    ② formal 路径接受该旗标但 FULL 分支静默忽略（会误导为部分源运行）。
+    两处均已改为显式报错 + 新增 2 条 CLI 回归测试。顺修 stale docstring
+    （"当前只有 LoCoMo"→ 三 benchmark）。
+  - FULL 分支确认**不受** sources 过滤影响（full 数据完整性无险）。
+  - actor 画像补充：机械实现与数值劳动可靠，但**负空间需求（"不该发生
+    的事必须报错"）会漏做**——后续卡对拒绝路径要求附带测试名清单。
+- **D3 已开卡**：[actor-prompt-d3.md](actor-prompt-d3.md)。D4 等 D3 验收。
+- 全量基线：923 passed（B2 冻结门）；D2 验收后 925+2（架构师修复测试）。

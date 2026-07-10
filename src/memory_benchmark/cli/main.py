@@ -467,8 +467,12 @@ _MEMBENCH_SOURCE_NAMES = frozenset(
 
 
 def _validate_membench_sources(raw: str | None, *, is_membench: bool = False) -> tuple[str, ...]:
-    """校验 --membench-sources 值域；非 membench 时返回空元组。"""
+    """校验 --membench-sources 值域；非 membench 传入该旗标必须 fail-fast。"""
     if not is_membench:
+        if raw is not None:
+            raise MemoryBenchmarkError(
+                "--membench-sources is only supported for MemBench smoke"
+            )
         return ()
     if raw is None:
         return tuple(sorted(_MEMBENCH_SOURCE_NAMES))
@@ -490,9 +494,9 @@ def _validate_membench_sources(raw: str | None, *, is_membench: bool = False) ->
 def _default_smoke_history_limit(benchmark_name: str) -> int:
     """返回某 benchmark smoke 历史轴的默认预算。
 
-    只有完成 B2-B5 审计并注册了 `BenchmarkSmokePolicy` 的 benchmark（当前只有
-    LoCoMo）才使用其声明的 `default_history_limit`；尚无 policy 的 benchmark
-    继续沿用 legacy 全局默认值 20，保持现状兼容路径不被提前冻结。
+    只有完成审计并注册了 `BenchmarkSmokePolicy` 的 benchmark（当前
+    LoCoMo/LongMemEval/MemBench）才使用其声明的 `default_history_limit`；
+    尚无 policy 的 benchmark 继续沿用 legacy 全局默认值 20。
     """
 
     smoke_policy = getattr(get_benchmark_registration(benchmark_name), "smoke_policy", None)
@@ -639,6 +643,9 @@ def _normalize_formal_prediction_args(args: argparse.Namespace) -> dict[str, Any
         raise MemoryBenchmarkError("predict formal does not support --rounds")
     if args.turns is not None:
         raise MemoryBenchmarkError("predict formal does not support --turns")
+    if getattr(args, "membench_sources", None) is not None:
+        # smoke 调试旋钮；formal 静默忽略会让人误以为跑了部分源。
+        raise MemoryBenchmarkError("predict formal does not support --membench-sources")
     if args.conversations is not None or args.smoke_conversation_limit is not None:
         raise MemoryBenchmarkError("predict formal does not support --conversations")
     if args.sessions is not None:
