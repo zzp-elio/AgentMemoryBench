@@ -34,9 +34,15 @@
 - **双人称 message 形态（现场抽验）**：第一人称 message 是
   `{user, agent}` dict（天然一个 round）；第三人称 message 是**纯字符串**
   （一条 = 一个 turn）。→ 用户既定决策：第一人称裁 round、第三人称裁 turn。
-- QA = `{qid, question, answer, target_step_id: list, choices: {A,B,C,D}}`
-  ——**MCQ**；`question`+`choices` 公开，`answer`+`target_step_id` 私有
-  （target_step_id 即 step 级 evidence，是 recall 的天然 gold）。
+- QA = `{qid, question, time, answer, ground_truth, target_step_id: list,
+  choices: {A,B,C,D}}`。**全部 task type 都是单字母 MCQ**（2026-07-10 追加
+  现场核实：`ground_truth` 恒为 A/B/D/C 单字母；`answer` 是选项内容，str/
+  list 只是内容形态差异，lowlevel_rec 的 choices 本身是 list-of-items，
+  仍选一个字母）→ **运行时 answer 路径跨 task type 完全统一**。
+  公私边界：`question`/`choices`/`time` 公开；`answer`/`ground_truth`/
+  `target_step_id` 私有——adapter 已正确处理（`membench.py:5` 模块声明 +
+  `:565` 校验），D1 只需断言加固。`category=question_type`（task type）
+  已填（`membench.py:581`），分类别统计由通用 category_breakdown 承接。
 - `data2test/数据集结构说明.md` 是较完整的二手剖面（声称全量遍历：8 文件、
   700/900/400/1400 + 140/360/80/280 条 trajectory、answer 有 str/list 两态、
   1 个越界 target_step_id、100k noise message 无时间后缀、根目录 1 个游离
@@ -78,18 +84,28 @@ turn_time" 崩溃或静默丢全部时间。D2 修正则为 `time:?\s*'…'` 并
 | answer LLM 按 benchmark 归一 | ❌ 待查 settings.py 现状后归一 |
 | recall（target_step_id evidence） | ❌ 无；conditional 契约可从 locomo/longmemeval 平移 |
 
-### 2.5 本 benchmark 的运行时路径清单（smoke 必须全覆盖）
+### 2.5 运行时路径清单与 smoke 口径（含"为什么 4 个源文件"的裁决依据）
+
+**代码分支意义上的运行时路径只有 3 条**：
 
 1. 第一人称 ingest（dict message → user/agent round 拆分）；
-2. 第三人称 ingest（str message → 单 turn，含**无冒号时间格式**）；
-3. HighLevel 与 LowLevel 源文件加载（两种任务结构）；
-4. MCQ unified answer + prediction_transform（一次真实形态的选项解析）；
-5. （100k variant 的 noise-heavy 形态属规模差异，非路径分叉，smoke 不覆盖，
-   D1 剖面记录即可。）
+2. 第三人称 ingest（str message → 单 turn）；
+3. MCQ unified answer + prediction_transform（已核实跨 task type 统一，
+   单字母；HighLevel/LowLevel 走同一 parser、同一 answer 路径）。
 
-→ 标准 smoke = **每个源文件各 1 条 trajectory**（4 条）：第一人称裁 1
-round、第三人称裁前 2 turn，各 1 题。现有 per-source 遍历天然满足，需补
-人称内部裁剪与声明式化。
+纯按代码分支，2 个文件（每人称 1 个）就够。**但 smoke 仍取 4 个文件，
+依据是经验事实而非理论**：时间戳冒号 bug（§2.2）证明**数据形态差异按
+"文件"分布，不按"人称"分布**——ThirdHigh 与 ThirdLow 同人称、同 parser，
+格式却相反；若 smoke 只抽 ThirdHigh，ThirdLow 的崩溃会活到 full run。
+full run 会加载全部 4 个文件，认证性 smoke 就应让**每个 full 会加载的
+源文件至少过一次 parser**。边际成本 ≈ 2 条额外 trajectory（2 次 answer
+调用，几分钱），期望收益是拦下已被实证存在的文件级形态炸弹——这笔账
+一边倒。（若要省，该省的是 100k variant：规模差异非路径分叉，认证 smoke
+默认只跑 `0_10k`。）
+
+→ **标准 smoke（认证口径）= 0_10k 的 4 个源文件各 1 条 trajectory**：
+第一人称裁 1 round、第三人称裁前 2 turn，各 1 题。现有 per-source 遍历
+天然满足，需补人称内部裁剪与声明式化。
 
 ## 3. 施工批次
 
