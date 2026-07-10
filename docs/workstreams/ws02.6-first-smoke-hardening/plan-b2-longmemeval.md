@@ -42,8 +42,10 @@
 - **30 道 abstention 题**：`question_id` 带 `_abs` 后缀，官方 judge 用专门
   模板判"是否正确识别为不可回答"。
 - **异常 role 序列真实存在（约 8% session）**：23,867 个 session 中
-  1,946 个非严格 user-first 交替（1,280+346+242 个 assistant 先说、65 个纯
-  assistant、4 个连续 assistant、个别连续 user）；1,940 个奇数长度 session。
+  **1,947** 个非严格 user-first 交替（C1 验收更正：架构师初稿写 1,946 是
+  算术错，23,867−21,920=1,947，actor 实测正确；子分类边界依定义而异，以
+  [longmemeval-b2-audit.md](notes/longmemeval-b2-audit.md) 为准）；1,940 个
+  奇数长度 session。
   → 走既定 orphan/dangling 标记决策，**不丢弃**（haystack 干扰是任务语义）。
 - **私有字段**：`answer`、`answer_session_ids`（session 级 evidence）、turn 级
   `has_answer`（10,960 turns 带此键，896 True）。官方 generation 代码自己也在
@@ -250,6 +252,13 @@ C1-C5 全部验收后，架构师一次性完成：
 - 2026-07-10：plan 起草完成，基于架构师当日一手取证（§2 全部现场核实）。
 - 2026-07-10 用户裁决：recall evidence **benchmark 侧 session/turn 双粒度
   都提供**，method 声明什么粒度就测什么，均无则 N/A（C4 已更新）。
-- **C1 已开卡**：[actor-prompt-c1.md](actor-prompt-c1.md)，可直接复制派工。
-  C2 等 C1 验收后再开。
+- 2026-07-10（C1 已验收，actor=cc+GLM-5.2，commit `dda4487`）：source-lock
+  哈希/README 引文/私有边界架构师逐项一手复核为真；"来源待溯"（本地快照
+  无 git 身份）处理诚实，留给架构师联网时补。架构师直修一处：`_m` 2.7GB
+  的 `read_bytes()` 整读改分块流式哈希（口径不变仍是全文件，与 lock 可比；
+  裁决：**不做前缀哈希模式**——部分哈希对身份无意义）。真实数据端到端
+  复核：500 题/30 abstention/source_sha256 与 lock 一致/定向测试 20 passed。
+  异常 role 总数勘误为 **1,947**（架构师初稿算术错，actor 实测正确）；
+  子分类口径不统一裁定为非阻塞，以 audit 文档为准。
+- **C2 已开卡**：[actor-prompt-c2.md](actor-prompt-c2.md)。C3 等 C2 验收。
 - 全量基线：891 passed（commit `b7599a9` 后）。

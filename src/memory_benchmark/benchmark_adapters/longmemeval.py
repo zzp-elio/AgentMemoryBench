@@ -148,9 +148,13 @@ class LongMemEvalAdapter(BenchmarkAdapter):
 
         # source_sha256 对整文件字节现算（对齐 locomo T1：无论是否 limit 都报全文件
         # 哈希，与 source-lock.json 锁定值可比），不硬编码；official_* 身份常量来自
-        # source-lock.json，无法从本地数据反推。_m（2.7GB）该步会再整读一次文件，
-        # 在 full 加载路径可接受；smoke/测试只用 _s。
-        source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        # source-lock.json，无法从本地数据反推。_m 有 2.7GB，必须分块流式哈希，
+        # 禁止 read_bytes() 一次性载入内存。
+        source_digest = hashlib.sha256()
+        with source_path.open("rb") as source_file:
+            while chunk := source_file.read(1024 * 1024):
+                source_digest.update(chunk)
+        source_sha256 = source_digest.hexdigest()
 
         return Dataset(
             dataset_name=self.name,
