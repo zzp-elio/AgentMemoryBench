@@ -1159,7 +1159,12 @@ def _manifests_match_for_resume(
     existing_method = existing_normalized.get("method")
     current_method = current_normalized.get("method")
     if isinstance(existing_method, dict) and isinstance(current_method, dict):
-        for key in ("protocol_version", "prompt_track", "profile"):
+        for key in (
+            "protocol_version",
+            "prompt_track",
+            "profile",
+            "provenance_granularity",
+        ):
             if key not in existing_method or key not in current_method:
                 existing_method.pop(key, None)
                 current_method.pop(key, None)
@@ -1223,6 +1228,15 @@ def _method_manifest_with_protocol(
     normalized.setdefault("protocol_version", protocol_version)
     normalized.setdefault("prompt_track", prompt_track)
     normalized.setdefault("profile", {})
+    if isinstance(system, MemoryProvider):
+        provenance_granularity = system.provenance_granularity
+        if provenance_granularity not in ("none", "session", "turn"):
+            raise ConfigurationError(
+                f"Provider declares unknown provenance_granularity="
+                f"{provenance_granularity!r} (expected 'none', 'session' or "
+                "'turn')."
+            )
+        normalized.setdefault("provenance_granularity", provenance_granularity)
     return normalized
 
 
@@ -2603,16 +2617,13 @@ def _answer_question_retrieve_first(
     if answer_reader is None:
         raise ConfigurationError("Retrieve-first prediction requires answer_reader")
 
+    query = _retrieval_query_from_question(question=question, run_id=run_id)
     started_ns = perf_counter_ns()
     if efficiency_collector is not None and efficiency_collector.enabled:
         with efficiency_collector.operation_stage(EfficiencyStage.RETRIEVAL):
-            retrieval_result = provider.retrieve(
-                _retrieval_query_from_question(question=question, run_id=run_id)
-            )
+            retrieval_result = provider.retrieve(query)
     else:
-        retrieval_result = provider.retrieve(
-            _retrieval_query_from_question(question=question, run_id=run_id)
-        )
+        retrieval_result = provider.retrieve(query)
     retrieval = _answer_prompt_from_retrieval_result(
         question=question,
         retrieval_result=retrieval_result,
@@ -2638,6 +2649,7 @@ def _answer_question_retrieve_first(
         "metadata": retrieval.metadata,
         "formatted_memory": retrieval_result.formatted_memory,
         "retrieved_items": _retrieved_items_payload(retrieval_result),
+        "retrieval_query_top_k": query.top_k,
     }
     validate_no_private_keys(answer_prompt_record)
 

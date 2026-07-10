@@ -13,6 +13,7 @@ from memory_benchmark.evaluators.longmemeval_judge import (
 )
 from memory_benchmark.evaluators.locomo_f1 import LoCoMoF1Evaluator
 from memory_benchmark.evaluators.locomo_judge import LoCoMoJudgeEvaluator
+from memory_benchmark.evaluators.locomo_recall import LoCoMoRetrievalRecallEvaluator
 from memory_benchmark.evaluators.llm_judge import LLMJudgeProfileConfig
 from memory_benchmark.evaluators.membench_choice_accuracy import (
     MemBenchChoiceAccuracyEvaluator,
@@ -38,6 +39,7 @@ def test_registry_lists_only_currently_supported_unified_metrics() -> None:
         "halumem-update",
         "locomo-f1",
         "locomo-judge",
+        "locomo-recall",
         "longmemeval-judge",
         "membench-choice-accuracy",
     ]
@@ -58,6 +60,23 @@ def test_locomo_f1_registration_is_offline_and_locomo_only() -> None:
 
     with pytest.raises(ConfigurationError, match="does not support benchmark"):
         create_evaluator("locomo-f1", benchmark_name="longmemeval")
+
+
+def test_locomo_recall_registration_is_offline_and_locomo_only() -> None:
+    """LoCoMo retrieval recall 应标记为离线指标，且不能用于其他 benchmark。"""
+
+    registration = get_evaluator_registration("locomo-recall")
+
+    assert registration.metric_name == "locomo_recall"
+    assert registration.supported_benchmarks == frozenset({"locomo"})
+    assert registration.requires_api is False
+    assert isinstance(
+        create_evaluator("locomo-recall", benchmark_name="locomo"),
+        LoCoMoRetrievalRecallEvaluator,
+    )
+
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator("locomo-recall", benchmark_name="longmemeval")
 
 
 def test_membench_choice_accuracy_registration_is_offline_and_membench_only() -> None:

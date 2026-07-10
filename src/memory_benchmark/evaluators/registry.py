@@ -23,6 +23,7 @@ from .llm_judge import LLMJudgeProfileConfig
 from .longmemeval_judge import LongMemEvalJudgeEvaluator
 from .locomo_f1 import LoCoMoF1Evaluator
 from .locomo_judge import LoCoMoJudgeEvaluator
+from .locomo_recall import LoCoMoRetrievalRecallEvaluator
 from .membench_choice_accuracy import MemBenchChoiceAccuracyEvaluator
 
 
@@ -83,6 +84,12 @@ def _build_membench_choice_accuracy(**_: Any) -> MemBenchChoiceAccuracyEvaluator
     """构造无外部依赖的 MemBench choice accuracy evaluator。"""
 
     return MemBenchChoiceAccuracyEvaluator()
+
+
+def _build_locomo_recall(**_: Any) -> LoCoMoRetrievalRecallEvaluator:
+    """构造无外部依赖的 LoCoMo retrieval recall evaluator。"""
+
+    return LoCoMoRetrievalRecallEvaluator()
 
 
 def _build_locomo_judge(
@@ -260,6 +267,16 @@ _REGISTRATIONS = {
         profile_relative_path=None,
         config_type=None,
         factory=_build_membench_choice_accuracy,
+    ),
+    "locomo-recall": EvaluatorRegistration(
+        cli_name="locomo-recall",
+        metric_name="locomo_recall",
+        supported_benchmarks=frozenset({"locomo"}),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_locomo_recall,
     ),
 }
 

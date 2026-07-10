@@ -57,6 +57,10 @@ class LoCoMoJudgeEvaluator(LLMJudgeEvaluator):
 
     metric_name = "locomo_judge_accuracy"
     benchmark_name = "LoCoMo"
+    # LoCoMo 官方 QA 仓库没有 LLM-as-judge；本 judge 只是参考 LightMem 官方
+    # LoCoMo 评测 prompt 的框架辅助指标，不是官方主指标（见 plan Task 6.4）。
+    metric_tier = "framework_auxiliary"
+    prompt_profile = "framework_auxiliary_lightmem_reference_v1"
 
     def build_prompt(
         self,
@@ -125,7 +129,11 @@ class LoCoMoJudgeEvaluator(LLMJudgeEvaluator):
                 metric_name=self.metric_name,
                 score=1.0 if is_correct else 0.0,
                 is_correct=is_correct,
-                details={"raw_judge_response": model_response.text},
+                details={
+                    "raw_judge_response": model_response.text,
+                    "metric_tier": self.metric_tier,
+                    "prompt_profile": self.prompt_profile,
+                },
             )
 
         decision = parse_judge_response(model_response.text, mode=self.mode)
@@ -136,6 +144,8 @@ class LoCoMoJudgeEvaluator(LLMJudgeEvaluator):
             details={
                 "reason": decision.reason,
                 "raw_judge_response": model_response.text,
+                "metric_tier": self.metric_tier,
+                "prompt_profile": self.prompt_profile,
             },
         )
 

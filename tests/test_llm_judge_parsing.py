@@ -137,6 +137,23 @@ class JudgePromptBuilderTest(unittest.TestCase):
         self.assertNotIn("Return JSON", prompt)
         self.assertNotIn("is_correct", prompt)
 
+    def test_locomo_judge_evaluate_tags_framework_auxiliary_identity(self) -> None:
+        """locomo-judge 结果必须标注 framework_auxiliary 身份，不能冒充官方指标。"""
+
+        client = _FakeJudgeChatClient(response_text='{"label": "CORRECT"}')
+
+        result = LoCoMoJudgeEvaluator(
+            mode="compact",
+            model="gpt-4o-mini",
+            client=client,
+        ).evaluate(self.question, self.prediction, self.gold)
+
+        self.assertEqual(result.details["metric_tier"], "framework_auxiliary")
+        self.assertEqual(
+            result.details["prompt_profile"],
+            "framework_auxiliary_lightmem_reference_v1",
+        )
+
     def test_longmemeval_compact_prompt_requests_true_false_not_json(self) -> None:
         """LongMemEval compact 模式应按 LightMem 流程请求 yes/no 输出。"""
 
