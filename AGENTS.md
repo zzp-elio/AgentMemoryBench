@@ -36,9 +36,11 @@
 
 ## 协作模式
 
-- **Claude Code = 架构师**：写 spec/plan、裁定断点冲突、审查验收、把控方向与结构。
-  角色完整交接文档：`docs/reference/architect-playbook.md`（任何 agent 可按其
-  "上任自检"接任架构师，作为不可用时的备份机制）。
+- **架构师 = 写 spec/plan、裁定断点冲突、审查验收、把控方向与结构**（跨模型轮换：
+  Claude → GPT-5.6 → …）。**新架构师冷启动第一入口：
+  `docs/reference/architect-onboarding.md`**（上岗手册：你是谁、怎么工作、当前
+  状态、下一步、陷阱与硬规则），再配 `docs/reference/architect-playbook.md`
+  （历任踩坑与纪律，供"上任自检"，也是不可用时的备份机制）。
 - **执行者（actor）= 轮换池**（2026-07-07 起）：Codex / OpenCode+DeepSeek /
   WorkBuddy(GLM-5.2) / Claude Sonnet 等，可能随时换人、新开会话，**一律视为
   "刚进公司的新人"**。**actor 写交接记录时须核实自己会话的实际模型（看系统提示），
@@ -94,5 +96,6 @@
 1. `docs/README.md` — 文档地图与本地目录说明。
 2. `docs/roadmap.md` — Phase 1 目标、workstream 索引、全局约束、恢复流程。
 3. `docs/workstreams/<ws>/README.md` — 各任务线的状态页与当前断点。
-4. 常用参考：`docs/reference/`（架构、数据模型、method 接口清单、接入指南）、
-   `docs/survey/`（benchmark 调研卡片）、`CLAUDE.md`（命令与代码结构速查）。
+4. 常用参考：`docs/reference/`——**新架构师上岗先读 `architect-onboarding.md`**；
+   另有架构、数据模型、method 接口清单、接入指南；`docs/survey/`（benchmark 调研
+   卡片）、`CLAUDE.md`（命令与代码结构速查）。
