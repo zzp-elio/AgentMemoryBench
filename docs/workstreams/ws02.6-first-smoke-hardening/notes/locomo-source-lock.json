@@ -1,0 +1,64 @@
+{
+  "benchmark": "locomo",
+  "official_repo_url": "https://github.com/snap-research/locomo",
+  "official_source_commit": "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376",
+  "official_source_commit_date": "2024-08-12",
+  "local_snapshot_path": "third_party/benchmarks/locomo-main/",
+  "license": "CC BY-NC 4.0 (Creative Commons Attribution-NonCommercial 4.0 International)",
+  "license_file": "third_party/benchmarks/locomo-main/LICENSE.txt",
+  "verification_method": "controller cross-checked local snapshot files byte-for-byte against a read-only temporary clone of the official commit before this task began; this task performed no network access and re-hashed only local files",
+  "files": [
+    {
+      "role": "canonical_dataset",
+      "local_path": "data/locomo/locomo10.json",
+      "official_path": "third_party/benchmarks/locomo-main/data/locomo10.json",
+      "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    },
+    {
+      "role": "paper",
+      "local_path": "third_party/benchmarks/locomo-main/static/paper/locomo.pdf",
+      "official_path": "third_party/benchmarks/locomo-main/static/paper/locomo.pdf",
+      "sha256": "a72c82117d01d8e304a24364a189afb91d25bf5e871b023f1e8172d6bdf64025"
+    },
+    {
+      "role": "readme",
+      "local_path": "third_party/benchmarks/locomo-main/README.MD",
+      "official_path": "third_party/benchmarks/locomo-main/README.MD",
+      "sha256": "9f8e6fd00a3400aa687109f40ed53715f0a2c028ee3f8c465bdfa96475640e8a"
+    },
+    {
+      "role": "evaluator_qa_runner",
+      "local_path": "third_party/benchmarks/locomo-main/task_eval/evaluate_qa.py",
+      "official_path": "third_party/benchmarks/locomo-main/task_eval/evaluate_qa.py",
+      "sha256": "dde7c1c6b5501486f96ce31398d6e49de76abbfa656e980b137e54fc69e9f6ee"
+    },
+    {
+      "role": "evaluator_scorer",
+      "local_path": "third_party/benchmarks/locomo-main/task_eval/evaluation.py",
+      "official_path": "third_party/benchmarks/locomo-main/task_eval/evaluation.py",
+      "sha256": "8e3be5d57ff2ff9ec5cd05939592f468c5f3f1fd95d13e431932bdf6bf0fd6fd"
+    },
+    {
+      "role": "evaluator_stats",
+      "local_path": "third_party/benchmarks/locomo-main/task_eval/evaluation_stats.py",
+      "official_path": "third_party/benchmarks/locomo-main/task_eval/evaluation_stats.py",
+      "sha256": "d36bf596de05ea6f1c355e433167a8cd704bea3a3745277c650ac0c464bba139"
+    },
+    {
+      "role": "evaluator_answer_prompt",
+      "local_path": "third_party/benchmarks/locomo-main/task_eval/gpt_utils.py",
+      "official_path": "third_party/benchmarks/locomo-main/task_eval/gpt_utils.py",
+      "sha256": "5fc977375878199735acd28fba5ae6f4d657fa0e000c0d2918a90c07b6035793"
+    },
+    {
+      "role": "evaluator_global_methods",
+      "local_path": "third_party/benchmarks/locomo-main/global_methods.py",
+      "official_path": "third_party/benchmarks/locomo-main/global_methods.py",
+      "sha256": "d377f85e090b9fcea13b74bbd4016bb551371f2b98aa9cee43ddab301fcf2a3d"
+    }
+  ],
+  "notes": [
+    "third_party/benchmarks/locomo-main/ has no independent .git metadata; `git rev-parse HEAD` run inside it resolves to the parent memoryBenchmark repo's HEAD, not the LoCoMo commit. Do not use that command to identify this source.",
+    "official_source_commit above is the value already independently verified by the controller (docs/survey/benchmarks/LoCoMo.md) against a read-only temporary clone; this task re-derived only the local sha256 values, not the remote commit, to respect the offline/no-network hard rule."
+  ]
+}
