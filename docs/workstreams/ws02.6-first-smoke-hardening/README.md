@@ -17,6 +17,16 @@ created: 2026-07-09
   [plan-b2-longmemeval.md](plan-b2-longmemeval.md)。**已知偏差：judge 用
   gpt-4o-mini（论文 gpt-4o）**。当前没有开放 actor 卡；下一步 B3 MemBench
   由架构师先写 plan 再经用户确认派工。
+- 2026-07-10（smoke 设计原则升级，用户拍板）：**smoke = 最小路径覆盖切片**
+  ——先枚举 benchmark 的运行时路径清单（runner/provider 交互分叉），标准
+  smoke 全覆盖；离线分支归契约测试。默认口径 = 唯一认证口径，CLI 旋钮只作
+  调试。已写入 spec §6.7。B1/B2 用新尺回核：均单运行时路径，frozen-v1
+  仍成立，不返工。
+- 2026-07-10（B3 plan 就绪）：[plan-b3-membench.md](plan-b3-membench.md)
+  基于当日一手取证起草，含一个**现场实锤的 latent bug**：第三人称
+  LowLevel 数据 19,285 条消息时间格式无冒号（`time'…'`），#7 的正则
+  （`membench.py:498`）全部漏配——官方数据两文件格式不一致，#7 只在第一
+  人称上验证过。D1-D5 五批 + 冻结；**未派工，等用户确认**。
 
 - 2026-07-10（架构师回任 Fable 5 + B2 plan 就绪）：接任第一手核查复现
   890 passed；GPT-5.6 验收修正经用户批准落盘（`2965037`）。用户拍板三项：
