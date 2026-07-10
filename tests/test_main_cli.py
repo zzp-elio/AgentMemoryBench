@@ -730,6 +730,241 @@ def test_main_maps_predict_smoke_v2_arguments_to_command(
     ]
 
 
+def test_main_locomo_smoke_defaults_round_limit_from_registered_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """未传 --rounds 时，LoCoMo smoke 应归一为已注册 policy 的 1 round，
+    而不是全局 legacy 默认值 20。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--run-id",
+            "run-1",
+            "--allow-api",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received == [
+        PredictCommand(
+            project_root=tmp_path,
+            method="mem0",
+            benchmark="locomo",
+            profile="smoke",
+            run_id="run-1",
+            confirm_api=True,
+            smoke_turn_limit=1,
+            smoke_round_limit=1,
+            smoke_conversation_limit=1,
+            question_limit_per_conversation=1,
+            output_layout="hierarchical",
+        )
+    ]
+
+
+def test_main_locomo_smoke_explicit_rounds_overrides_registered_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """显式 --rounds 2 应覆盖 LoCoMo 已注册 policy 的默认值 1。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--run-id",
+            "run-1",
+            "--allow-api",
+            "--rounds",
+            "2",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received == [
+        PredictCommand(
+            project_root=tmp_path,
+            method="mem0",
+            benchmark="locomo",
+            profile="smoke",
+            run_id="run-1",
+            confirm_api=True,
+            smoke_turn_limit=2,
+            smoke_round_limit=2,
+            smoke_conversation_limit=1,
+            question_limit_per_conversation=1,
+            output_layout="hierarchical",
+        )
+    ]
+
+
+def test_main_legacy_predict_smoke_locomo_defaults_round_limit_from_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """legacy `predict --profile smoke` 对 LoCoMo 也要读注册 policy 默认值。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--profile",
+            "smoke",
+            "--run-id",
+            "run-1",
+            "--confirm-api",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received == [
+        PredictCommand(
+            project_root=tmp_path,
+            method="mem0",
+            benchmark="locomo",
+            profile="smoke",
+            run_id="run-1",
+            confirm_api=True,
+            smoke_turn_limit=1,
+            output_layout="hierarchical",
+        )
+    ]
+
+
+def test_main_legacy_predict_smoke_other_benchmark_keeps_global_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """尚无 policy 的 benchmark（如 LongMemEval）继续沿用 legacy 默认值 20。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "longmemeval",
+            "--profile",
+            "smoke",
+            "--run-id",
+            "run-1",
+            "--confirm-api",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received == [
+        PredictCommand(
+            project_root=tmp_path,
+            method="mem0",
+            benchmark="longmemeval",
+            profile="smoke",
+            run_id="run-1",
+            confirm_api=True,
+            smoke_turn_limit=20,
+            output_layout="hierarchical",
+        )
+    ]
+
+
+def test_main_rejects_turns_for_locomo_smoke(tmp_path: Path) -> None:
+    """LoCoMo smoke 的历史轴是 rounds，不接受 --turns。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--allow-api",
+            "--turns",
+            "3",
+        ]
+    )
+
+    assert exit_code == 2
+
+
+def test_main_rejects_sources_for_locomo_smoke(tmp_path: Path) -> None:
+    """LoCoMo smoke 的历史轴是 rounds，不接受 --sources。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--allow-api",
+            "--sources",
+            "2",
+        ]
+    )
+
+    assert exit_code == 2
+
+
 def test_main_maps_halumem_smoke_sessions_to_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1001,6 +1236,9 @@ def test_main_maps_predict_efficiency_flag_to_command(
             profile="smoke",
             run_id="run-1",
             confirm_api=True,
+            # LoCoMo 注册了 BenchmarkSmokePolicy(default_history_limit=1)；未传
+            # --rounds/--smoke-turn-limit 时不再退回全局 legacy 默认值 20。
+            smoke_turn_limit=1,
             enable_efficiency_observability=True,
             output_layout="hierarchical",
         )
@@ -1048,6 +1286,7 @@ def test_main_maps_predict_disable_efficiency_flag_to_command(
             profile="smoke",
             run_id="run-1",
             confirm_api=True,
+            smoke_turn_limit=1,
             enable_efficiency_observability=False,
             output_layout="hierarchical",
         )
@@ -1098,6 +1337,7 @@ def test_main_maps_answer_prompt_arguments_to_predict_command(
             profile="smoke",
             run_id="run-1",
             confirm_api=True,
+            smoke_turn_limit=1,
             answer_prompt_file=Path("prompts/locomo.txt"),
             answer_prompt_profile="locomo-custom",
             output_layout="hierarchical",
@@ -1145,6 +1385,7 @@ def test_main_accepts_memoryos_as_registered_method_choice(
             profile="smoke",
             run_id="memoryos-run",
             confirm_api=True,
+            smoke_turn_limit=1,
             output_layout="hierarchical",
         )
     ]

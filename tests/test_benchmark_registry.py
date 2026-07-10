@@ -9,6 +9,8 @@ import pytest
 from memory_benchmark.benchmark_adapters import (
     BenchmarkLoadRequest,
     BenchmarkRegistration,
+    BenchmarkResumePolicy,
+    BenchmarkSmokePolicy,
     BenchmarkVariantSpec,
     PreparedBenchmarkRun,
     RunScope,
@@ -16,6 +18,10 @@ from memory_benchmark.benchmark_adapters import (
     list_benchmarks,
     list_prediction_benchmarks,
     resolve_variant_selector,
+)
+from memory_benchmark.benchmark_adapters.registry import (
+    LOCOMO_RESUME_POLICY,
+    LOCOMO_SMOKE_POLICY,
 )
 from memory_benchmark.benchmark_adapters.locomo import (
     LoCoMoAdapter,
@@ -98,6 +104,8 @@ def _make_registration(
     variants: tuple[BenchmarkVariantSpec, ...],
     default_variant: str,
     prepare_run=None,
+    smoke_policy: BenchmarkSmokePolicy | None = None,
+    resume_policy: BenchmarkResumePolicy | None = None,
 ) -> BenchmarkRegistration:
     """构造用于测试的最小 registration。"""
 
@@ -130,6 +138,8 @@ def _make_registration(
         default_variant=default_variant,
         prepare_run=prepare_run,
         prediction_enabled=True,
+        smoke_policy=smoke_policy,
+        resume_policy=resume_policy,
     )
 
 
@@ -784,6 +794,11 @@ def test_locomo_registration_prepares_full_and_smoke_datasets() -> None:
     )
     assert full_run.dataset.metadata["variant"] == "locomo10"
     assert full_run.dataset.metadata["run_scope"] == "full"
+    # smoke/resume policy 必须写入 dataset metadata（不只存在于 CLI --help），
+    # 供审计和 resume 一致性检查复用；full run 同样携带，因为 policy 属于
+    # benchmark 声明本身，与 run_scope 无关。
+    assert full_run.dataset.metadata["smoke_policy"] == LOCOMO_SMOKE_POLICY.to_dict()
+    assert full_run.dataset.metadata["resume_policy"] == LOCOMO_RESUME_POLICY.to_dict()
 
     smoke_run = registration.prepare(
         Path("."),
@@ -806,8 +821,134 @@ def test_locomo_registration_prepares_full_and_smoke_datasets() -> None:
     assert smoke_run.dataset.metadata["run_scope"] == "smoke"
     assert smoke_run.dataset.metadata["smoke_turn_limit"] == 20
     assert smoke_run.dataset.metadata["smoke_conversation_limit"] == 2
+    assert smoke_run.dataset.metadata["smoke_policy"] == LOCOMO_SMOKE_POLICY.to_dict()
+    assert smoke_run.dataset.metadata["resume_policy"] == LOCOMO_RESUME_POLICY.to_dict()
     assert len(smoke_run.dataset.conversations) == 2
     assert smoke_run.dataset.conversations == expected_smoke.conversations
+
+
+def test_locomo_registration_declares_frozen_smoke_and_resume_policy() -> None:
+    """LoCoMo registration 必须声明 plan 指定的 smoke/resume policy 精确取值。"""
+
+    registration = get_benchmark_registration("locomo")
+
+    assert registration.smoke_policy == BenchmarkSmokePolicy(
+        history_axis="rounds",
+        default_history_limit=1,
+        default_isolation_limit=1,
+        default_question_limit=1,
+    )
+    assert registration.resume_policy == BenchmarkResumePolicy(
+        smoke_enabled=False,
+        ingest_checkpoint="conversation",
+        answer_checkpoint="question",
+        reuse_saved_retrieval=True,
+        evaluation_artifact_only=True,
+    )
+
+
+def test_benchmark_smoke_policy_rejects_unknown_history_axis() -> None:
+    """history_axis 只能是 rounds/turns/sessions/sources 之一。"""
+
+    with pytest.raises(ConfigurationError):
+        BenchmarkSmokePolicy(
+            history_axis="messages",  # type: ignore[arg-type]
+            default_history_limit=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["default_history_limit", "default_isolation_limit", "default_question_limit"],
+)
+def test_benchmark_smoke_policy_rejects_non_positive_limits(field_name: str) -> None:
+    """smoke policy 的三个预算字段都必须是正整数。"""
+
+    kwargs = {
+        "history_axis": "rounds",
+        "default_history_limit": 1,
+        "default_isolation_limit": 1,
+        "default_question_limit": 1,
+        field_name: 0,
+    }
+    with pytest.raises(ConfigurationError):
+        BenchmarkSmokePolicy(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    [("ingest_checkpoint", "turn"), ("answer_checkpoint", "conversation")],
+)
+def test_benchmark_resume_policy_rejects_unknown_checkpoint_granularity(
+    field_name: str,
+    bad_value: str,
+) -> None:
+    """resume policy 的 checkpoint 粒度当前只接受 conversation/question。"""
+
+    kwargs = {
+        "smoke_enabled": False,
+        "ingest_checkpoint": "conversation",
+        "answer_checkpoint": "question",
+        "reuse_saved_retrieval": True,
+        "evaluation_artifact_only": True,
+        field_name: bad_value,
+    }
+    with pytest.raises(ConfigurationError):
+        BenchmarkResumePolicy(**kwargs)
+
+
+def test_registration_requires_smoke_and_resume_policy_declared_together() -> None:
+    """只声明 smoke_policy 或只声明 resume_policy 都应在构造阶段被拒绝。"""
+
+    smoke_policy = BenchmarkSmokePolicy(history_axis="rounds", default_history_limit=1)
+    resume_policy = BenchmarkResumePolicy(
+        smoke_enabled=False,
+        ingest_checkpoint="conversation",
+        answer_checkpoint="question",
+        reuse_saved_retrieval=True,
+        evaluation_artifact_only=True,
+    )
+
+    with pytest.raises(ConfigurationError):
+        _make_registration(
+            variants=(
+                BenchmarkVariantSpec(
+                    name="only-smoke",
+                    source_relative_paths=(Path("data/demo/one.json"),),
+                ),
+            ),
+            default_variant="only-smoke",
+            smoke_policy=smoke_policy,
+            resume_policy=None,
+        )
+
+    with pytest.raises(ConfigurationError):
+        _make_registration(
+            variants=(
+                BenchmarkVariantSpec(
+                    name="only-resume",
+                    source_relative_paths=(Path("data/demo/one.json"),),
+                ),
+            ),
+            default_variant="only-resume",
+            smoke_policy=None,
+            resume_policy=resume_policy,
+        )
+
+    # 两者一起声明应正常构造并保留字段。
+    registration = _make_registration(
+        variants=(
+            BenchmarkVariantSpec(
+                name="both",
+                source_relative_paths=(Path("data/demo/one.json"),),
+            ),
+        ),
+        default_variant="both",
+        smoke_policy=smoke_policy,
+        resume_policy=resume_policy,
+    )
+    assert registration.smoke_policy is smoke_policy
+    assert registration.resume_policy is resume_policy
 
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,8 @@ from memory_benchmark.utils import get_logger
 from .base import BenchmarkAdapter
 from .contracts import (
     BenchmarkLoadRequest,
+    BenchmarkResumePolicy,
+    BenchmarkSmokePolicy,
     BenchmarkVariantSpec,
     PreparedBenchmarkRun,
     RunScope,
@@ -216,6 +218,56 @@ def _prepare_longmemeval_run(
     )
 
 
+# LoCoMo 是本 workstream 第一个完成 smoke/resume 审计的 benchmark（见
+# docs/workstreams/ws02.6-first-smoke-hardening/plan-b0-b1-locomo.md Task 3）。
+# 具体取值：LoCoMo 官方 QA 以 (question, evidence) 为单位、session 内 user/
+# assistant 成对出现，因此历史裁剪轴天然是完整 round；smoke 只需 1 个可回答
+# round 即可验证四步链路，故 default_history_limit=1。resume 上，smoke 数据
+# 量太小、状态不值得跨 run 复用（smoke_enabled=False），但 checkpoint 粒度、
+# retrieval 复用和"只跑 evaluator"仍遵循与 full 相同的 conversation/question
+# 级约定。
+LOCOMO_SMOKE_POLICY = BenchmarkSmokePolicy(
+    history_axis="rounds",
+    default_history_limit=1,
+    default_isolation_limit=1,
+    default_question_limit=1,
+)
+LOCOMO_RESUME_POLICY = BenchmarkResumePolicy(
+    smoke_enabled=False,
+    ingest_checkpoint="conversation",
+    answer_checkpoint="question",
+    reuse_saved_retrieval=True,
+    evaluation_artifact_only=True,
+)
+
+
+def _prepare_locomo_run_with_policy_metadata(
+    project_root: Path,
+    request: BenchmarkLoadRequest,
+) -> PreparedBenchmarkRun:
+    """在 LoCoMo 既有 prepare_run 之上补齐已注册的 smoke/resume policy metadata。
+
+    只追加 dataset metadata 字段，不改变 `locomo.py` 的转换/裁剪算法，也不
+    修改 conversation/question/gold 内容；供 manifest/dataset metadata 审计
+    使用，避免 policy 只存在于 CLI `--help` 文本里。
+    """
+
+    prepared = prepare_locomo_run(project_root, request)
+    metadata = copy.deepcopy(prepared.dataset.metadata)
+    metadata["smoke_policy"] = LOCOMO_SMOKE_POLICY.to_dict()
+    metadata["resume_policy"] = LOCOMO_RESUME_POLICY.to_dict()
+    return PreparedBenchmarkRun(
+        variant=prepared.variant,
+        run_scope=prepared.run_scope,
+        dataset=Dataset(
+            dataset_name=prepared.dataset.dataset_name,
+            conversations=list(prepared.dataset.conversations),
+            metadata=metadata,
+        ),
+        source_relative_paths=prepared.source_relative_paths,
+    )
+
+
 @dataclass(frozen=True)
 class BenchmarkRegistration:
     """一个 benchmark 的静态注册声明。"""
@@ -234,6 +286,10 @@ class BenchmarkRegistration:
         Callable[[Question, RetrievalResult], AnswerPromptResult] | None
     ) = None
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None
+    # smoke/resume policy 是可选声明：只有完成 B2-B5 审计的 benchmark 才注册,
+    # 未注册的 benchmark 保持现状兼容路径（CLI 沿用全局默认值/legacy 行为）。
+    smoke_policy: BenchmarkSmokePolicy | None = None
+    resume_policy: BenchmarkResumePolicy | None = None
 
     def __post_init__(self) -> None:
         """在注册阶段校验 variant 声明是否自洽。"""
@@ -285,6 +341,10 @@ class BenchmarkRegistration:
         if self.prompt_track == "native" and self.unified_prompt_builder is not None:
             raise ConfigurationError(
                 f"{self.name}: native prompt_track cannot declare unified_prompt_builder"
+            )
+        if (self.smoke_policy is None) != (self.resume_policy is None):
+            raise ConfigurationError(
+                f"{self.name}: smoke_policy and resume_policy must be declared together"
             )
 
     def variant_names(self) -> tuple[str, ...]:
@@ -414,6 +474,8 @@ def _try_register_adapter(
         Callable[[Question, RetrievalResult], AnswerPromptResult] | None
     ) = None,
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
+    smoke_policy: BenchmarkSmokePolicy | None = None,
+    resume_policy: BenchmarkResumePolicy | None = None,
 ) -> None:
     """尝试注册一个已迁移 adapter。"""
 
@@ -437,6 +499,8 @@ def _try_register_adapter(
             operation_level=operation_level,
             unified_prompt_builder=unified_prompt_builder,
             prediction_transform=prediction_transform,
+            smoke_policy=smoke_policy,
+            resume_policy=resume_policy,
         )
     )
 
@@ -482,8 +546,10 @@ def _build_default_registry() -> BenchmarkRegistry:
         required_capabilities=conversation_qa_capabilities,
         variants=LOCOMO_VARIANT_SPECS,
         default_variant="locomo10",
-        prepare_run=prepare_locomo_run,
+        prepare_run=_prepare_locomo_run_with_policy_metadata,
         prediction_enabled=True,
+        smoke_policy=LOCOMO_SMOKE_POLICY,
+        resume_policy=LOCOMO_RESUME_POLICY,
     )
     _try_register_adapter(
         registry,

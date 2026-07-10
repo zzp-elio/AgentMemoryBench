@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 import re
 
 from memory_benchmark.core import Dataset
@@ -52,6 +53,94 @@ class RunScope(StrEnum):
 
     SMOKE = "smoke"
     FULL = "full"
+
+
+_SMOKE_HISTORY_AXES = frozenset({"rounds", "turns", "sessions", "sources"})
+
+
+@dataclass(frozen=True)
+class BenchmarkSmokePolicy:
+    """一个 benchmark 声明的 smoke 历史裁剪轴与默认预算。
+
+    `history_axis` 是该 benchmark 自然的历史裁剪单位（round/turn/session/
+    source 文件），CLI 只接受与该轴匹配的参数，其余轴一律 fail-fast，避免
+    “全局 20”假装所有 benchmark 共享同一种历史语义（本任务修复的具体 bug，
+    见 `BenchmarkLoadRequest.smoke_turn_limit` 的历史默认值）。
+    """
+
+    history_axis: Literal["rounds", "turns", "sessions", "sources"]
+    default_history_limit: int
+    default_isolation_limit: int = 1
+    default_question_limit: int = 1
+
+    def __post_init__(self) -> None:
+        """校验历史轴取值合法，且三个默认预算都是正整数。"""
+
+        if self.history_axis not in _SMOKE_HISTORY_AXES:
+            allowed = ", ".join(sorted(_SMOKE_HISTORY_AXES))
+            raise ConfigurationError(
+                f"BenchmarkSmokePolicy.history_axis must be one of: {allowed}"
+            )
+        if self.default_history_limit < 1:
+            raise ConfigurationError(
+                "BenchmarkSmokePolicy.default_history_limit must be at least 1"
+            )
+        if self.default_isolation_limit < 1:
+            raise ConfigurationError(
+                "BenchmarkSmokePolicy.default_isolation_limit must be at least 1"
+            )
+        if self.default_question_limit < 1:
+            raise ConfigurationError(
+                "BenchmarkSmokePolicy.default_question_limit must be at least 1"
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        """转换为可写入 manifest/dataset metadata 的稳定字典。"""
+
+        return {
+            "history_axis": self.history_axis,
+            "default_history_limit": self.default_history_limit,
+            "default_isolation_limit": self.default_isolation_limit,
+            "default_question_limit": self.default_question_limit,
+        }
+
+
+@dataclass(frozen=True)
+class BenchmarkResumePolicy:
+    """一个 benchmark 声明的 resume/checkpoint 语义。
+
+    `ingest_checkpoint`/`answer_checkpoint` 当前只有一个合法取值，仍然显式
+    校验，避免未来字段扩展时静默接受非法组合。
+    """
+
+    smoke_enabled: bool
+    ingest_checkpoint: Literal["conversation"]
+    answer_checkpoint: Literal["question"]
+    reuse_saved_retrieval: bool
+    evaluation_artifact_only: bool
+
+    def __post_init__(self) -> None:
+        """校验 checkpoint 粒度取值合法。"""
+
+        if self.ingest_checkpoint != "conversation":
+            raise ConfigurationError(
+                "BenchmarkResumePolicy.ingest_checkpoint must be 'conversation'"
+            )
+        if self.answer_checkpoint != "question":
+            raise ConfigurationError(
+                "BenchmarkResumePolicy.answer_checkpoint must be 'question'"
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        """转换为可写入 manifest/dataset metadata 的稳定字典。"""
+
+        return {
+            "smoke_enabled": self.smoke_enabled,
+            "ingest_checkpoint": self.ingest_checkpoint,
+            "answer_checkpoint": self.answer_checkpoint,
+            "reuse_saved_retrieval": self.reuse_saved_retrieval,
+            "evaluation_artifact_only": self.evaluation_artifact_only,
+        }
 
 
 @dataclass(frozen=True)

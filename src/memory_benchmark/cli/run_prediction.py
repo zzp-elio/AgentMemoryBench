@@ -430,6 +430,7 @@ def run_registered_conversation_qa_prediction(
         if use_framework_answer_reader
         else None
     )
+    benchmark_policy_manifest = _build_benchmark_policy_manifest(benchmark_registration)
     children: list[_PreparedPredictionChild] = []
     for concrete_variant, selected_run_id, selected_output_root in zip(
         selected_variants,
@@ -470,6 +471,7 @@ def run_registered_conversation_qa_prediction(
                 if use_framework_answer_reader and prompt_track == "unified"
                 else None
             ),
+            benchmark_policy=benchmark_policy_manifest,
         )
         policy = PredictionRunPolicy(
             max_workers=max_workers,
@@ -808,6 +810,7 @@ def _run_custom_conversation_qa_prediction(
         answer_settings=answer_llm_settings,
     )
     prompt_track = getattr(benchmark_registration, "prompt_track", "native")
+    benchmark_policy_manifest = _build_benchmark_policy_manifest(benchmark_registration)
 
     children: list[_PreparedPredictionChild] = []
     for concrete_variant, selected_run_id, selected_output_root in zip(
@@ -839,6 +842,7 @@ def _run_custom_conversation_qa_prediction(
             answer_reader_manifest=answer_reader_manifest,
             allow_unsafe_custom_parallel=allow_unsafe_custom_parallel,
             prompt_track=prompt_track if prompt_track == "unified" else None,
+            benchmark_policy=benchmark_policy_manifest,
         )
         policy = PredictionRunPolicy(
             max_workers=max_workers,
@@ -1028,6 +1032,7 @@ def _build_custom_method_manifest(
     answer_reader_manifest: dict[str, object],
     allow_unsafe_custom_parallel: bool,
     prompt_track: str | None = None,
+    benchmark_policy: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """构造用户自定义 method 的公开 manifest。"""
 
@@ -1046,6 +1051,8 @@ def _build_custom_method_manifest(
     }
     if prompt_track is not None:
         manifest["prompt_track"] = prompt_track
+    if benchmark_policy is not None:
+        manifest["benchmark_policy"] = benchmark_policy
     return manifest
 
 
@@ -1476,6 +1483,31 @@ def _estimate_method_workload(
     }
 
 
+def _build_benchmark_policy_manifest(
+    benchmark_registration: object,
+) -> dict[str, object] | None:
+    """把已注册 benchmark 的 smoke/resume policy 转成可写入 manifest 的稳定字典。
+
+    输入:
+        benchmark_registration: 当前 benchmark 的静态注册声明。
+
+    输出:
+        dict | None: 尚未声明 policy 的 benchmark（B2-B5 待审计）返回 None，
+        manifest 不新增字段，保持既有兼容路径；已注册的 benchmark（当前只有
+        LoCoMo）返回稳定 `{"smoke": ..., "resume": ...}` 字典，供审计和 resume
+        一致性检查复用，不再只存在于 CLI `--help` 文本里。
+    """
+
+    smoke_policy = getattr(benchmark_registration, "smoke_policy", None)
+    resume_policy = getattr(benchmark_registration, "resume_policy", None)
+    if smoke_policy is None and resume_policy is None:
+        return None
+    return {
+        "smoke": None if smoke_policy is None else smoke_policy.to_dict(),
+        "resume": None if resume_policy is None else resume_policy.to_dict(),
+    }
+
+
 def _build_method_manifest(
     *,
     config_manifest: dict[str, object],
@@ -1483,6 +1515,7 @@ def _build_method_manifest(
     workload_estimate: dict[str, object] | None,
     answer_reader_manifest: dict[str, object] | None = None,
     prompt_track: str | None = None,
+    benchmark_policy: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """构造不含 secret 的 method manifest。"""
 
@@ -1496,6 +1529,8 @@ def _build_method_manifest(
         manifest["prompt_track"] = prompt_track
     if workload_estimate is not None:
         manifest["workload_estimate"] = workload_estimate
+    if benchmark_policy is not None:
+        manifest["benchmark_policy"] = benchmark_policy
     return manifest
 
 

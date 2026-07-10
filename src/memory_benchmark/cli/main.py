@@ -14,7 +14,10 @@ from typing import Any
 
 from rich.console import Console
 
-from memory_benchmark.benchmark_adapters import list_prediction_benchmarks
+from memory_benchmark.benchmark_adapters import (
+    get_benchmark_registration,
+    list_prediction_benchmarks,
+)
 from memory_benchmark.core import MemoryBenchmarkError
 from memory_benchmark.evaluators.registry import list_metrics
 from memory_benchmark.methods.registry import list_methods
@@ -192,7 +195,9 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--confirm-full", action="store_true")
     parser.add_argument("--rounds", type=int, default=None)
+    parser.add_argument("--turns", type=int, default=None)
     parser.add_argument("--sessions", type=int, default=None)
+    parser.add_argument("--sources", type=int, default=None)
     parser.add_argument("--smoke-turn-limit", type=int, default=None)
     parser.add_argument("--conversations", type=int, default=None)
     parser.add_argument(
@@ -446,17 +451,35 @@ def _normalize_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
     return _normalize_formal_prediction_args(args)
 
 
+_LEGACY_SMOKE_HISTORY_DEFAULT = 20
+
+
+def _default_smoke_history_limit(benchmark_name: str) -> int:
+    """返回某 benchmark smoke 历史轴的默认预算。
+
+    只有完成 B2-B5 审计并注册了 `BenchmarkSmokePolicy` 的 benchmark（当前只有
+    LoCoMo）才使用其声明的 `default_history_limit`；尚无 policy 的 benchmark
+    继续沿用 legacy 全局默认值 20，保持现状兼容路径不被提前冻结。
+    """
+
+    smoke_policy = getattr(get_benchmark_registration(benchmark_name), "smoke_policy", None)
+    if smoke_policy is None:
+        return _LEGACY_SMOKE_HISTORY_DEFAULT
+    return smoke_policy.default_history_limit
+
+
 def _normalize_legacy_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
     """保持旧 `predict --profile ...` 写法可用，并接入新别名。"""
 
     _reject_conflicting_aliases(args)
     _validate_smoke_axis_args(args)
+    default_history_limit = _default_smoke_history_limit(args.benchmark)
     return {
         "profile": args.profile or "smoke",
         "confirm_full": args.confirm_full,
         "smoke_turn_limit": _positive_or_default(
             args.rounds if args.rounds is not None else args.smoke_turn_limit,
-            default=20,
+            default=default_history_limit,
             field_name="rounds",
         ),
         "smoke_round_limit": None,
@@ -517,19 +540,20 @@ def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]
     round_limit = (
         args.rounds if args.rounds is not None else args.smoke_turn_limit
     )
+    default_history_limit = _default_smoke_history_limit(args.benchmark)
     return {
         "profile": "smoke",
         "confirm_full": False,
         "smoke_turn_limit": _positive_or_default(
             round_limit,
-            default=20,
+            default=default_history_limit,
             field_name="rounds",
         ),
         "smoke_round_limit": None
         if halumem_smoke
         else _positive_or_default(
             round_limit,
-            default=20,
+            default=default_history_limit,
             field_name="rounds",
         ),
         "smoke_conversation_limit": _positive_or_default(
@@ -574,10 +598,14 @@ def _normalize_formal_prediction_args(args: argparse.Namespace) -> dict[str, Any
         raise MemoryBenchmarkError("--retry-failed requires --resume")
     if args.rounds is not None or args.smoke_turn_limit is not None:
         raise MemoryBenchmarkError("predict formal does not support --rounds")
+    if args.turns is not None:
+        raise MemoryBenchmarkError("predict formal does not support --turns")
     if args.conversations is not None or args.smoke_conversation_limit is not None:
         raise MemoryBenchmarkError("predict formal does not support --conversations")
     if args.sessions is not None:
         raise MemoryBenchmarkError("predict formal does not support --sessions")
+    if args.sources is not None:
+        raise MemoryBenchmarkError("predict formal does not support --sources")
     if (
         args.questions_per_conversation is not None
         or args.question_limit_per_conversation is not None
@@ -642,6 +670,21 @@ def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
             raise MemoryBenchmarkError(
                 "HaluMem smoke uses --sessions; do not pass --rounds or "
                 "--smoke-turn-limit"
+            )
+        return
+    if args.benchmark == "locomo":
+        # LoCoMo 注册的 BenchmarkSmokePolicy.history_axis 是 "rounds"（见
+        # benchmark_adapters/registry.py 的 LOCOMO_SMOKE_POLICY）；turns/
+        # sessions/sources 是其他尚未审计 benchmark 的轴，对 LoCoMo 一律
+        # fail-fast，避免用户以为传了就生效。
+        if (
+            args.turns is not None
+            or args.sessions is not None
+            or args.sources is not None
+        ):
+            raise MemoryBenchmarkError(
+                "LoCoMo smoke uses --rounds; do not pass --turns, --sessions "
+                "or --sources"
             )
         return
     if args.sessions is not None:

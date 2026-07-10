@@ -6,6 +6,8 @@
 from .base import BenchmarkAdapter
 from .contracts import (
     BenchmarkLoadRequest,
+    BenchmarkResumePolicy,
+    BenchmarkSmokePolicy,
     BenchmarkVariantSpec,
     PreparedBenchmarkRun,
     RunScope,
@@ -28,6 +30,8 @@ __all__ = [
     "BenchmarkLoadRequest",
     "BenchmarkRegistration",
     "BenchmarkRegistry",
+    "BenchmarkResumePolicy",
+    "BenchmarkSmokePolicy",
     "BenchmarkVariantSpec",
     "PreparedBenchmarkRun",
     "HaluMemAdapter",

@@ -14,6 +14,8 @@ import pytest
 from memory_benchmark.cli import run_prediction as prediction_cli
 from memory_benchmark.benchmark_adapters import (
     BenchmarkLoadRequest,
+    BenchmarkResumePolicy,
+    BenchmarkSmokePolicy,
     PreparedBenchmarkRun,
     RunScope,
 )
@@ -587,6 +589,279 @@ def test_registered_prediction_builds_system_from_registry_context(
         tmp_path / "sources/locomo10.json",
     )
     assert runner_calls[0]["clean_failed_ingest_conversation"] is not None
+
+
+def test_registered_prediction_writes_benchmark_policy_into_method_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """已注册 smoke/resume policy 的 benchmark（如 LoCoMo）必须把 policy 写入
+    method manifest，供 resume 一致性检查和审计复用，不能只存在于 CLI --help。
+    """
+
+    config = Mem0Config.smoke()
+    fake_system = object()
+    expected_summary = SimpleNamespace(
+        run_id="run-1",
+        dataset_name="locomo",
+        completed_conversations=1,
+        completed_questions=1,
+    )
+    runner_calls: list[dict[str, object]] = []
+    path_settings = SimpleNamespace(
+        project_root=tmp_path,
+        outputs_root=tmp_path / "outputs",
+    )
+    prepared_run = _build_prepared_run(
+        dataset_name="locomo",
+        variant="locomo10",
+        run_scope=RunScope.SMOKE,
+    )
+    smoke_policy = BenchmarkSmokePolicy(
+        history_axis="rounds",
+        default_history_limit=1,
+        default_isolation_limit=1,
+        default_question_limit=1,
+    )
+    resume_policy = BenchmarkResumePolicy(
+        smoke_enabled=False,
+        ingest_checkpoint="conversation",
+        answer_checkpoint="question",
+        reuse_saved_retrieval=True,
+        evaluation_artifact_only=True,
+    )
+    benchmark_registration = SimpleNamespace(
+        name="locomo",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        default_variant="locomo10",
+        variant_names=lambda: ("locomo10",),
+        prepare=lambda project_root, request: prepared_run,
+        prediction_enabled=True,
+        smoke_policy=smoke_policy,
+        resume_policy=resume_policy,
+    )
+    method_registration = SimpleNamespace(
+        name="mem0",
+        display_name="Mem0",
+        task_families=frozenset({TaskFamily.CONVERSATION_QA}),
+        provided_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        requires_api=True,
+        resolve_profile_section=lambda profile_name: profile_name,
+        system_factory=lambda context: fake_system,
+        source_identity_factory=lambda settings: {"source_sha256": "abc"},
+        model_name_getter=lambda selected: selected.reader_model,
+        max_workers_getter=lambda selected: selected.max_workers,
+        workload_estimator=None,
+        allow_smoke_worker_override=True,
+        efficiency_model_inventory_getter=lambda selected: (),
+        efficiency_instrumentation_identity_getter=lambda settings, selected, source_identity: {
+            "collector_schema": 1,
+        },
+        retrieval_observation_contract_getter=lambda selected: RetrievalObservationContract(
+            required_by_profile=False,
+            supported_by_method=True,
+        ),
+        clean_failed_ingest_state=None,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_benchmark_registration",
+        lambda name: benchmark_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_method_registration",
+        lambda name: method_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_method_profile",
+        lambda **kwargs: config,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_path_settings",
+        lambda project_root: path_settings,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_openai_settings",
+        lambda project_root: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_completed_conversation_ids",
+        lambda run_dir, conversations: set(),
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "_preflight_prediction_run",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "run_predictions",
+        lambda **kwargs: runner_calls.append(kwargs) or expected_summary,
+    )
+
+    run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name="mem0",
+        benchmark_name="locomo",
+        profile_name="smoke",
+        run_id="run-1",
+        confirm_api=True,
+        confirm_full=False,
+        smoke_turn_limit=1,
+        smoke_conversation_limit=1,
+        smoke_max_workers=None,
+        enable_efficiency_observability=False,
+    )
+
+    assert runner_calls[0]["method_manifest"]["benchmark_policy"] == {
+        "smoke": smoke_policy.to_dict(),
+        "resume": resume_policy.to_dict(),
+    }
+
+
+def test_registered_prediction_omits_benchmark_policy_when_unregistered(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """尚无 policy 的 benchmark 的 method manifest 不应新增 benchmark_policy
+    字段，保持现状兼容路径（B2-B5 待审计）。"""
+
+    config = Mem0Config.smoke()
+    fake_system = object()
+    expected_summary = SimpleNamespace(
+        run_id="run-1",
+        dataset_name="locomo",
+        completed_conversations=1,
+        completed_questions=1,
+    )
+    runner_calls: list[dict[str, object]] = []
+    path_settings = SimpleNamespace(
+        project_root=tmp_path,
+        outputs_root=tmp_path / "outputs",
+    )
+    prepared_run = _build_prepared_run(
+        dataset_name="locomo",
+        variant="locomo10",
+        run_scope=RunScope.SMOKE,
+    )
+    benchmark_registration = SimpleNamespace(
+        name="locomo",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        default_variant="locomo10",
+        variant_names=lambda: ("locomo10",),
+        prepare=lambda project_root, request: prepared_run,
+        prediction_enabled=True,
+    )
+    method_registration = SimpleNamespace(
+        name="mem0",
+        display_name="Mem0",
+        task_families=frozenset({TaskFamily.CONVERSATION_QA}),
+        provided_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        requires_api=True,
+        resolve_profile_section=lambda profile_name: profile_name,
+        system_factory=lambda context: fake_system,
+        source_identity_factory=lambda settings: {"source_sha256": "abc"},
+        model_name_getter=lambda selected: selected.reader_model,
+        max_workers_getter=lambda selected: selected.max_workers,
+        workload_estimator=None,
+        allow_smoke_worker_override=True,
+        efficiency_model_inventory_getter=lambda selected: (),
+        efficiency_instrumentation_identity_getter=lambda settings, selected, source_identity: {
+            "collector_schema": 1,
+        },
+        retrieval_observation_contract_getter=lambda selected: RetrievalObservationContract(
+            required_by_profile=False,
+            supported_by_method=True,
+        ),
+        clean_failed_ingest_state=None,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_benchmark_registration",
+        lambda name: benchmark_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_method_registration",
+        lambda name: method_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_method_profile",
+        lambda **kwargs: config,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_path_settings",
+        lambda project_root: path_settings,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_openai_settings",
+        lambda project_root: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_completed_conversation_ids",
+        lambda run_dir, conversations: set(),
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "_preflight_prediction_run",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "run_predictions",
+        lambda **kwargs: runner_calls.append(kwargs) or expected_summary,
+    )
+
+    run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name="mem0",
+        benchmark_name="locomo",
+        profile_name="smoke",
+        run_id="run-1",
+        confirm_api=True,
+        confirm_full=False,
+        smoke_turn_limit=1,
+        smoke_conversation_limit=1,
+        smoke_max_workers=None,
+        enable_efficiency_observability=False,
+    )
+
+    assert "benchmark_policy" not in runner_calls[0]["method_manifest"]
 
 
 def test_custom_method_class_runs_without_builtin_registry(
