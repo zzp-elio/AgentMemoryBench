@@ -8,6 +8,7 @@ trajectory 转换为统一 `Dataset -> Conversation -> Session -> Turn -> Questi
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -75,6 +76,28 @@ Example: D
 
 _MEMBENCH_CHOICE_PATTERN_UPPER = re.compile(r"(?<![A-Za-z])([ABCD])(?![A-Za-z])")
 _MEMBENCH_CHOICE_PATTERN_LOWER = re.compile(r"(?<![A-Za-z])([abcd])(?![A-Za-z])")
+
+# 官方来源身份锁定值：见 notes/membench-source-lock.json
+# MIT license（README.md badge 声明，仓库内无 LICENSE 文件）
+MEMBENCH_OFFICIAL_REPO_URL = "https://github.com/ThetaReta-CN/MemBench"
+MEMBENCH_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2506.21605"
+MEMBENCH_LICENSE = "MIT"
+
+
+def _combined_source_sha256(
+    project_root: str | Path,
+    source_relative_paths: tuple[Path, ...],
+) -> str:
+    """对多个 source 文件按相对路径排序后逐个分块流式哈希，合并计算总 SHA-256。"""
+    digest = hashlib.sha256()
+    for rel_path in sorted(source_relative_paths):  # 排序确保顺序稳定
+        path = Path(project_root) / rel_path
+        digest.update(rel_path.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        with path.open("rb") as f:
+            while chunk := f.read(1024 * 1024):
+                digest.update(chunk)
+    return digest.hexdigest()
 
 
 class MemBenchAdapter(BenchmarkAdapter):
@@ -145,6 +168,10 @@ class MemBenchAdapter(BenchmarkAdapter):
         conversations: list[Conversation] = []
         total_raw_trajectories = 0
         source_fully_scanned = True
+        # 无论是否 limit 都报全文件合并哈希，与 source-lock.json 可比。
+        source_sha256 = _combined_source_sha256(
+            self.project_root, self.source_relative_paths
+        )
         for source_relative_path in self.source_relative_paths:
             raw_data = self.load_json(*source_relative_path.parts)
             source_context = source_relative_path.as_posix()
@@ -183,12 +210,19 @@ class MemBenchAdapter(BenchmarkAdapter):
                         conversations,
                         total_raw_trajectories=total_raw_trajectories,
                         source_fully_scanned=source_fully_scanned,
+                        source_sha256=source_sha256,
+                        official_question_count=len(conversations),
                     )
+
+        # MemBench 每条 trajectory 正好 1 个 question。
+        official_question_count = len(conversations)
 
         return self._dataset(
             conversations,
             total_raw_trajectories=total_raw_trajectories,
             source_fully_scanned=source_fully_scanned,
+            source_sha256=source_sha256,
+            official_question_count=official_question_count,
         )
 
     def _dataset(
@@ -197,6 +231,8 @@ class MemBenchAdapter(BenchmarkAdapter):
         *,
         total_raw_trajectories: int,
         source_fully_scanned: bool,
+        source_sha256: str = "",
+        official_question_count: int = 0,
     ) -> Dataset:
         """构造带统一 metadata 的 MemBench Dataset。"""
 
@@ -209,6 +245,12 @@ class MemBenchAdapter(BenchmarkAdapter):
                 "source_format": "membench_data2test",
                 "total_raw_trajectories": total_raw_trajectories,
                 "source_fully_scanned": source_fully_scanned,
+                "official_repo_url": MEMBENCH_OFFICIAL_REPO_URL,
+                "official_paper_url": MEMBENCH_OFFICIAL_PAPER_URL,
+                "license": MEMBENCH_LICENSE,
+                "source_sha256": source_sha256,
+                "official_conversation_count": official_question_count,
+                "official_question_count": official_question_count,
             },
         )
 
@@ -730,6 +772,9 @@ __all__ = [
     "MEMBENCH_100K_SOURCE_PATHS",
     "MEMBENCH_INSTRUCTION_FIRST",
     "MEMBENCH_INSTRUCTION_FIRST_PROFILE",
+    "MEMBENCH_LICENSE",
+    "MEMBENCH_OFFICIAL_PAPER_URL",
+    "MEMBENCH_OFFICIAL_REPO_URL",
     "MEMBENCH_VARIANT_SPECS",
     "MemBenchAdapter",
     "build_membench_unified_answer_prompt",

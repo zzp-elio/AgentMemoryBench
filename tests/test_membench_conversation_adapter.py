@@ -239,8 +239,73 @@ def test_canonical_sample_aligns_target_step_id_with_source_message() -> None:
 
 
 def test_canonical_public_payload_does_not_leak_private_keys() -> None:
-    """真实 MemBench 公开 payload 不得泄漏 answer/ground_truth/target_step_id。"""
+    """真实 MemBench 公开 payload 不得泄漏 answer/ground_truth/target_step_id。
 
-    conversation = MemBenchAdapter(ROOT, variant="0_10k").load(limit=1).conversations[0]
+    双保险：① validate_no_private_keys（12 条黑名单键递归扫描）；
+    ② 入公共 dict 的 keys 不得出现精确命中私有关键词（防新字段绕过 validate）。
+    """
 
-    validate_no_private_keys(conversation.to_public_dict())
+    adapter = MemBenchAdapter(ROOT, variant="0_10k")
+    dataset = adapter.load(limit=3)  # 覆盖多个 source 文件
+    for conversation in dataset.conversations:
+        public = conversation.to_public_dict()
+        validate_no_private_keys(public)
+
+    # key-level 扫描：gold_answers 已被 to_public_dict() 排除，但其 metadata 内
+    # 也包含 answer/ground_truth/target_step_id，确认全量公共输出不含这些键
+    public_data = {
+        conv.conversation_id: conv.to_public_dict() for conv in dataset.conversations
+    }
+    _assert_no_private_key_in_dict(public_data, "answer")
+    _assert_no_private_key_in_dict(public_data, "ground_truth")
+    _assert_no_private_key_in_dict(public_data, "target_step_id")
+
+    validate_no_private_keys(public_data)
+
+
+def _assert_no_private_key_in_dict(data: object, key: str) -> None:
+    """递归断言 data 中没有任何 dict 包含指定 key。"""
+    if isinstance(data, dict):
+        assert key not in data, f"private key '{key}' found in public dict: {list(data.keys())}"
+        for v in data.values():
+            _assert_no_private_key_in_dict(v, key)
+    elif isinstance(data, list):
+        for item in data:
+            _assert_no_private_key_in_dict(item, key)
+
+
+def test_dataset_metadata_includes_source_identity() -> None:
+    """Dataset metadata 应包含官方来源身份和实际数据审计字段。"""
+
+    dataset = MemBenchAdapter(ROOT, variant="0_10k").load(limit=1)
+    md = dataset.metadata
+
+    assert md["official_repo_url"] == "https://github.com/ThetaReta-CN/MemBench"
+    assert md["official_paper_url"] == "https://arxiv.org/abs/2506.21605"
+    assert md["license"] == "MIT"
+    assert md["official_conversation_count"] == 1  # post-limit count
+    assert md["official_question_count"] == 1
+    assert "source_sha256" in md
+    assert md["source_sha256"]
+    assert len(md["source_sha256"]) == 64  # hex sha256
+
+
+def test_combined_source_sha256_with_subset() -> None:
+    """部分源文件的合并 SHA-256 应为确定值。"""
+
+    dataset = MemBenchAdapter(
+        ROOT,
+        variant="0_10k",
+        source_relative_paths=(
+            Path("data/membench/Membenchdata/data2test/0-10k/ThirdAgentDataHighLevel_multiple_0.json"),
+        ),
+    ).load()
+    md = dataset.metadata
+
+    assert md["source_sha256"]
+    assert len(md["source_sha256"]) == 64
+    # 单文件：ThirdAgentDataHighLevel(0-10k) 共 400 条
+    assert md["total_raw_trajectories"] == 400
+    # NOTE: 全 4 源文件的 full load 会触发已知错误 —— highlevel_rec/* 中有
+    # target_step_id=[] 空列表，_target_step_ids 坚持非空 → DatasetValidationError。
+    # 该 bug 不在 D1 修复范围，留 D2/D3 处理。
