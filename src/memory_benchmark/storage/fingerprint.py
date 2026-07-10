@@ -25,6 +25,8 @@ def build_dataset_fingerprint(dataset: Dataset, source_paths: list[Path]) -> dic
 
     输出:
         dict[str, Any]: 包含完整 Dataset 内容 hash、规模和源文件指纹。
+        `source_fingerprint_sha256` 只由源文件内容（size+sha256）决定；
+        `source_paths` 中的 path 字段仅作人工审计记录，不参与身份比较。
     """
 
     canonical_dataset = json.dumps(
@@ -36,8 +38,17 @@ def build_dataset_fingerprint(dataset: Dataset, source_paths: list[Path]) -> dic
     source_fingerprints = [
         _source_path_fingerprint(path) for path in source_paths
     ]
+    # 实验身份只由内容决定：path 是给人看的 provenance 记录，不进身份哈希，
+    # 否则换机器/挪目录会让 resume 拒绝内容完全相同的 run（ws02.6 裁决）。
+    content_only_fingerprints = [
+        {
+            "size_bytes": fingerprint["size_bytes"],
+            "sha256": fingerprint["sha256"],
+        }
+        for fingerprint in source_fingerprints
+    ]
     canonical_source_fingerprints = json.dumps(
-        source_fingerprints,
+        content_only_fingerprints,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),

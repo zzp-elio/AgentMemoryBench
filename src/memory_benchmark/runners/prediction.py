@@ -1117,9 +1117,10 @@ def _validate_run_manifest_state(
             "source_fingerprint_sha256"
         ):
             raise ConfigurationError(
-                "Resume source fingerprint mismatch: source files changed, "
-                "are missing, or the existing schema v2 manifest predates "
-                "source fingerprint identity"
+                "Resume source fingerprint mismatch: source file contents "
+                "changed or are missing, or the existing manifest predates the "
+                "content-only source fingerprint (ws02.6; older manifests "
+                "hashed absolute paths into identity) — use a new run_id"
             )
         if not _manifests_match_for_resume(existing, manifest):
             raise ConfigurationError(

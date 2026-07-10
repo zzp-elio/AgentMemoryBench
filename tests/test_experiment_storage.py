@@ -345,6 +345,39 @@ class ExperimentStorageTests(unittest.TestCase):
             hashlib.sha256(source_bytes).hexdigest(),
         )
 
+    def test_source_fingerprint_identity_is_content_only(self):
+        """相同内容在不同路径下必须得到相同的 source_fingerprint_sha256。
+
+        path 只是 provenance 记录；若把路径混进身份哈希，换机器或挪目录会让
+        resume 拒绝内容完全相同的 run。
+        """
+
+        dataset = Dataset(dataset_name="fake", conversations=[])
+        source_bytes = b'{"conversation_id":"conv-1","question":"Where?"}\n'
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path_a = Path(temp_dir) / "machine-a" / "data.json"
+            path_b = Path(temp_dir) / "another" / "place" / "data-renamed.json"
+            for path in (path_a, path_b):
+                path.parent.mkdir(parents=True)
+                path.write_bytes(source_bytes)
+
+            fingerprint_a = build_dataset_fingerprint(
+                dataset=dataset, source_paths=[path_a]
+            )
+            fingerprint_b = build_dataset_fingerprint(
+                dataset=dataset, source_paths=[path_b]
+            )
+
+        self.assertEqual(
+            fingerprint_a["source_fingerprint_sha256"],
+            fingerprint_b["source_fingerprint_sha256"],
+        )
+        self.assertNotEqual(
+            fingerprint_a["source_paths"][0]["path"],
+            fingerprint_b["source_paths"][0]["path"],
+        )
+
     def test_dataset_fingerprint_reads_source_file_in_bounded_chunks(self):
         """源文件哈希必须分块读取，不能一次把大文件全部载入内存。"""
 
