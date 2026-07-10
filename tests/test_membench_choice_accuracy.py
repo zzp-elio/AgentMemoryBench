@@ -58,11 +58,14 @@ def test_membench_choice_accuracy_scores_correct_wrong_and_invalid_choice() -> N
     assert correct.score == 1.0
     assert correct.is_correct is True
     assert correct.details["category"] == "highlevel"
+    assert correct.details["parse_failed"] is False
     assert wrong.score == 0.0
     assert wrong.is_correct is False
+    assert wrong.details["parse_failed"] is False
     assert invalid.score == 0.0
     assert invalid.is_correct is False
     assert invalid.details["valid_prediction"] is False
+    assert invalid.details["parse_failed"] is True
 
 
 def test_membench_choice_accuracy_summary_uses_question_type_breakdown(

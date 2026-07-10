@@ -37,6 +37,13 @@ class MemBenchChoiceAccuracyEvaluator:
         ground_truth = _gold_choice(gold)
         is_valid_prediction = prediction in {"A", "B", "C", "D"}
         is_correct = is_valid_prediction and prediction == ground_truth
+        # 官方判定（third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:93-113）
+        # 用 json_schema enum A-D 强约束 + `json.loads(res)['choice']` 与 ground_truth
+        # 精确比较。本 evaluator 在统一管线里用自由文本 + 健壮 parser 替代（见
+        # parse_membench_choice / normalize_membench_choice_prediction）。审计时两类
+        # 口径分开统计：解析成功 → 字母精确比较；解析失败（invalid_choice）→ 记
+        # parse_failed=true 供后续官方 parity 复核。
+        parse_failed = prediction == "invalid_choice" or not is_valid_prediction
         return MetricResult(
             metric_name=self.metric_name,
             score=1.0 if is_correct else 0.0,
@@ -50,6 +57,7 @@ class MemBenchChoiceAccuracyEvaluator:
                 "prediction": prediction,
                 "ground_truth": ground_truth,
                 "valid_prediction": is_valid_prediction,
+                "parse_failed": parse_failed,
             },
         )
 

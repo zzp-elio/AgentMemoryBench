@@ -190,7 +190,9 @@ def test_question_public_fields_and_private_gold_are_split(tmp_path: Path) -> No
     assert question.metadata["choices"]["B"] == "Boston"
     assert question.options == question.metadata["choices"]
     assert gold.answer == "Boston"
-    assert gold.evidence == ["1"]
+    # D4 修复：公开 turn id 1 基（`str(step_index + 1)`），target_step_id=1（0 基）→
+    # 公开 turn id "2"。metadata 保留官方 0 基原值供对照。
+    assert gold.evidence == ["2"]
     assert gold.metadata["ground_truth"] == "B"
     assert gold.metadata["target_step_id"] == [1]
 
@@ -217,7 +219,7 @@ def test_duplicate_conversation_id_within_one_source_file_fails_fast(tmp_path: P
 
 
 def test_canonical_sample_aligns_target_step_id_with_source_message() -> None:
-    """真实样本中 target_step_id=0 应指向原始 message_list[0]，避免 off-by-one。"""
+    """真实样本中 target_step_id=0 应映射到公开 turn_id=1（+1 平移），避免 off-by-one。"""
 
     dataset = MemBenchAdapter(
         ROOT,
@@ -233,9 +235,119 @@ def test_canonical_sample_aligns_target_step_id_with_source_message() -> None:
 
     assert turn.turn_id == "1"
     assert turn.metadata["source_step_index"] == 0
-    assert gold.evidence[0] == "0"
+    # D4：evidence 存公开 turn-id 空间，target_step_id=0（0 基）→ "1"。
+    assert gold.evidence[0] == "1"
     assert "Casablanca" in turn.content
     assert gold.metadata["target_step_id"][0] == turn.metadata["source_step_index"]
+
+
+def test_evidence_step_to_turn_shift_is_consistent_across_persons(tmp_path: Path) -> None:
+    """第一人称 dict step 和第三人称 string step 的 step→turn 映射应一致（+1 平移）。
+
+    架构师预裁决要求断言 first/third 两种人称的 step→turn 映射一致：1 message/str
+    = 1 turn = 1 step，+1 平移。若发现 adapter 跳过空 step 导致错位需停工上报。
+    """
+
+    # 构造一个同时含 0 基 target_step_id=0（→ "1"）和 =1（→ "2"）的合成 payload，
+    # 验证两种人称在 +1 平移后都能正确映射到公开 turn-id 空间。
+    payload = {
+        "simple": {
+            "roles": [
+                {
+                    "tid": "ps-1",
+                    "message_list": [
+                        {"user": "msg 0", "agent": "ok 0"},
+                        {"user": "msg 1", "agent": "ok 1"},
+                    ],
+                    "QA": {
+                        "qid": 1,
+                        "question": "q?",
+                        "answer": "a",
+                        "target_step_id": [0, 1],  # 0 基 → 公开 "1", "2"
+                        "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
+                        "ground_truth": "A",
+                        "time": "'2024-10-01 08:00' Tuesday",
+                    },
+                }
+            ],
+            "observations": [
+                {
+                    "tid": "os-1",
+                    "message_list": [
+                        "msg 0",
+                        "msg 1",
+                    ],
+                    "QA": {
+                        "qid": 2,
+                        "question": "q?",
+                        "answer": "a",
+                        "target_step_id": [0, 1],  # 0 基 → 公开 "1", "2"
+                        "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
+                        "ground_truth": "A",
+                        "time": "'2024-10-01 08:00' Tuesday",
+                    },
+                }
+            ],
+        }
+    }
+
+    # 第三人称源文件（ThirdAgentDataHighLevel）—— 字符串 step
+    third_source = (
+        tmp_path
+        / "data2test"
+        / "0-10k"
+        / "ThirdAgentDataHighLevel_multiple_0.json"
+    )
+    _write_fixture(third_source, payload)
+    # 第一人称源文件（FirstAgentDataLowLevel）—— dict step
+    first_source = (
+        tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    )
+    _write_fixture(first_source, payload)
+
+    third_dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(third_source.relative_to(tmp_path),),
+    ).load()
+    first_dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(first_source.relative_to(tmp_path),),
+    ).load()
+
+    expected_target_step_id_to_evidence = {0: ["1", "2"], 1: ["1", "2"]}
+    for dataset in (third_dataset, first_dataset):
+        for conversation in dataset.conversations:
+            question = conversation.questions[0]
+            gold = conversation.gold_answers[question.question_id]
+            # 0 基 target_step_id=[0,1] → 公开 turn-id 空间 "1", "2"
+            assert gold.evidence == ["1", "2"]
+            # 官方 0 基原值保留在 metadata
+            assert gold.metadata["target_step_id"] == [0, 1]
+            # 对每个 evidence 公开 turn_id 在 conversation 中存在
+            all_turn_ids = [
+                turn.turn_id
+                for session in conversation.sessions
+                for turn in session.turns
+            ]
+            for evidence_turn_id in gold.evidence:
+                assert evidence_turn_id in all_turn_ids
+            # 不存在"跳过空 step"的路径：source_step_indices 必须是 0..N-1 连续
+            source_step_indices = sorted(
+                turn.metadata["source_step_index"]
+                for session in conversation.sessions
+                for turn in session.turns
+            )
+            assert source_step_indices == list(range(len(source_step_indices)))
+            # 公开 turn_id 与 source_step_index 严格 +1 平移
+            for session in conversation.sessions:
+                for turn in session.turns:
+                    assert turn.turn_id == str(turn.metadata["source_step_index"] + 1)
+            # 确保两条 trajectory 都被加载（PS + OS）以覆盖两种人称
+            assert len(dataset.conversations) == 2
+    # 防止 unused 变量警告
+    del expected_target_step_id_to_evidence
 
 
 def test_canonical_public_payload_does_not_leak_private_keys() -> None:
@@ -309,3 +421,101 @@ def test_combined_source_sha256_with_subset() -> None:
     # NOTE: 全 4 源文件的 full load 会触发已知错误 —— highlevel_rec/* 中有
     # target_step_id=[] 空列表，_target_step_ids 坚持非空 → DatasetValidationError。
     # 该 bug 不在 D1 修复范围，留 D2/D3 处理。
+
+
+def test_empty_target_step_id_produces_empty_evidence(tmp_path: Path) -> None:
+    """空 target_step_id（合法保留，highlevel_rec 全空）应生成空 evidence 列表。
+
+    D2 修复：空列表 = 无 step 证据，合法保留进 gold，recall 侧记 N/A。
+    D4 +1 平移对空列表退化为空（`[str(s+1) for s in []]` = `[]`）。
+    """
+
+    payload = {
+        "simple": {
+            "roles": [
+                {
+                    "tid": "t-empty",
+                    "message_list": [
+                        {
+                            "user": "I have no step evidence.",
+                            "agent": "OK.",
+                        }
+                    ],
+                    "QA": {
+                        "qid": 1,
+                        "question": "q?",
+                        "answer": "a",
+                        "target_step_id": [],
+                        "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
+                        "ground_truth": "A",
+                        "time": "'2024-10-01 08:00' Tuesday",
+                    },
+                }
+            ]
+        }
+    }
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, payload)
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+    conversation = dataset.conversations[0]
+    question = conversation.questions[0]
+    gold = conversation.gold_answers[question.question_id]
+
+    assert gold.evidence == []  # 公开 turn-id 空间也是空
+    assert gold.metadata["target_step_id"] == []  # 官方 0 基原值也空
+
+
+def test_out_of_bounds_target_step_id_maps_to_nonexistent_turn_id(tmp_path: Path) -> None:
+    """越界 target_step_id（0 基下 == len(message_list)）应映射到不存在公开 turn_id。
+
+    全库恰 2 例（comparative/events tid=4，0-10k 和 100k 各 1）。+1 平移后该 id
+    超出 message_list 真实范围（最大有效 turn_id=len），recall 侧记 unmatched-gold
+    + 单独计数，不崩。
+    """
+
+    payload = {
+        "simple": {
+            "roles": [
+                {
+                    "tid": "t-oob",
+                    "message_list": [
+                        {"user": "msg 0", "agent": "ok 0"},
+                        {"user": "msg 1", "agent": "ok 1"},
+                    ],
+                    "QA": {
+                        "qid": 1,
+                        "question": "q?",
+                        "answer": "a",
+                        # 0 基 len=2 → 0 基合法范围 0..1；2 越界
+                        "target_step_id": [2],
+                        "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
+                        "ground_truth": "A",
+                        "time": "'2024-10-01 08:00' Tuesday",
+                    },
+                }
+            ]
+        }
+    }
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, payload)
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+    conversation = dataset.conversations[0]
+    question = conversation.questions[0]
+    gold = conversation.gold_answers[question.question_id]
+    all_turn_ids = [
+        turn.turn_id
+        for session in conversation.sessions
+        for turn in session.turns
+    ]
+    # +1 平移后 evidence="3"，但 message_list 只有 2 条（turn_id=1,2）
+    assert gold.evidence == ["3"]
+    assert "3" not in all_turn_ids  # 公开空间确实无对应 turn
+    assert gold.metadata["target_step_id"] == [2]  # 官方 0 基原值保留

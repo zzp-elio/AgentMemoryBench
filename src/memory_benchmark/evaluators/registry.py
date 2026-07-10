@@ -27,6 +27,7 @@ from .locomo_f1 import LoCoMoF1Evaluator
 from .locomo_judge import LoCoMoJudgeEvaluator
 from .locomo_recall import LoCoMoRetrievalRecallEvaluator
 from .membench_choice_accuracy import MemBenchChoiceAccuracyEvaluator
+from .membench_recall import MemBenchRetrievalRecallEvaluator
 
 
 EvaluatorFactory = Callable[..., Any]
@@ -92,6 +93,12 @@ def _build_membench_choice_accuracy(**_: Any) -> MemBenchChoiceAccuracyEvaluator
     """构造无外部依赖的 MemBench choice accuracy evaluator。"""
 
     return MemBenchChoiceAccuracyEvaluator()
+
+
+def _build_membench_recall(**_: Any) -> MemBenchRetrievalRecallEvaluator:
+    """构造无外部依赖的 MemBench retrieval recall evaluator。"""
+
+    return MemBenchRetrievalRecallEvaluator()
 
 
 def _build_locomo_recall(**_: Any) -> LoCoMoRetrievalRecallEvaluator:
@@ -303,6 +310,16 @@ _REGISTRATIONS = {
         profile_relative_path=None,
         config_type=None,
         factory=_build_membench_choice_accuracy,
+    ),
+    "membench-recall": EvaluatorRegistration(
+        cli_name="membench-recall",
+        metric_name="membench_recall",
+        supported_benchmarks=frozenset({"membench"}),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_membench_recall,
     ),
     "locomo-recall": EvaluatorRegistration(
         cli_name="locomo-recall",

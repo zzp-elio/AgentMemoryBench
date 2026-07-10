@@ -22,6 +22,9 @@ from memory_benchmark.evaluators.llm_judge import LLMJudgeProfileConfig
 from memory_benchmark.evaluators.membench_choice_accuracy import (
     MemBenchChoiceAccuracyEvaluator,
 )
+from memory_benchmark.evaluators.membench_recall import (
+    MemBenchRetrievalRecallEvaluator,
+)
 from memory_benchmark.evaluators.registry import (
     create_evaluator,
     get_evaluator_registration,
@@ -48,6 +51,7 @@ def test_registry_lists_only_currently_supported_unified_metrics() -> None:
         "longmemeval-judge",
         "longmemeval-recall",
         "membench-choice-accuracy",
+        "membench-recall",
     ]
 
 
@@ -141,6 +145,29 @@ def test_membench_choice_accuracy_registration_is_offline_and_membench_only() ->
     with pytest.raises(ConfigurationError, match="does not support benchmark"):
         create_evaluator(
             "membench-choice-accuracy",
+            benchmark_name="locomo",
+        )
+
+
+def test_membench_recall_registration_is_offline_and_membench_only() -> None:
+    """MemBench retrieval recall 应标记为离线指标，且不能用于其他 benchmark。"""
+
+    registration = get_evaluator_registration("membench-recall")
+
+    assert registration.metric_name == "membench_recall"
+    assert registration.supported_benchmarks == frozenset({"membench"})
+    assert registration.requires_api is False
+    assert isinstance(
+        create_evaluator(
+            "membench-recall",
+            benchmark_name="membench",
+        ),
+        MemBenchRetrievalRecallEvaluator,
+    )
+
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator(
+            "membench-recall",
             benchmark_name="locomo",
         )
 

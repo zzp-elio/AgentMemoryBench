@@ -776,7 +776,11 @@ def _question_and_gold_from_qa(
     gold = GoldAnswerInfo(
         question_id=question_id,
         answer=answer_text,
-        evidence=[str(step_id) for step_id in target_step_ids],
+        # 公开 turn id 1 基（membench.py:706 `str(step_index + 1)`），与官方 0 基
+        # `target_step_id` 差 1。匹配键统一在公开空间，官方 0 基原值在 metadata
+        # 留作对照（见 GoldAnswerInfo.metadata["target_step_id"]）。架构师预裁决
+        # 沿用 LongMemEval C4 先例（plan-b3-membench.md §3 D4）。
+        evidence=[str(step_id + 1) for step_id in target_step_ids],
         metadata={
             "ground_truth": ground_truth,
             "answer": answer_text,
