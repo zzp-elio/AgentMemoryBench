@@ -15,25 +15,7 @@ from .halumem_common import (
     read_required_jsonl,
     safe_div,
 )
-
-
-# Official source: third_party/benchmarks/HaluMem-main/eval/eval_tools.py:218-283
-_QUESTION_PROMPT = """You are an **evaluation expert for AI memory system question answering**.
-
-* **Question:**
-  {question}
-
-* **Reference Answer:**
-  {reference_answer}
-
-* **Key Memory Points:**
-  {key_memory_points}
-
-* **Memory System Response:**
-  {response}
-
-Return JSON: {{"reasoning": "...", "evaluation_result": "Correct | Hallucination | Omission"}}.
-"""
+from .halumem_prompts import EVALUATION_PROMPT_FOR_QUESTION as _QUESTION_PROMPT
 
 
 class HalumemQAEvaluator(HalumemJudgeEvaluatorBase):
@@ -110,7 +92,7 @@ class HalumemQAEvaluator(HalumemJudgeEvaluatorBase):
             "mean_score": safe_div(
                 sum(float(record["score"]) for record in score_records),
                 len(score_records),
-            ),
+            ) or 0.0,
             "correct_count": sum(
                 1 for record in score_records if record.get("result_type") == "Correct"
             ),

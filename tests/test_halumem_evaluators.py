@@ -8,11 +8,19 @@ from typing import Any
 
 import pytest
 
+from memory_benchmark.core import (
+    ConfigurationError,
+    GoldAnswerInfo,
+    Question,
+    Session,
+    Turn,
+)
 from memory_benchmark.evaluators.halumem_extraction import (
     HalumemExtractionEvaluator,
     build_halumem_dialogue_str,
     build_halumem_golden_memories_str,
 )
+from memory_benchmark.evaluators.halumem_memory_type import HalumemMemoryTypeEvaluator
 from memory_benchmark.evaluators.halumem_qa import HalumemQAEvaluator
 from memory_benchmark.evaluators.halumem_update import HalumemUpdateEvaluator
 from memory_benchmark.evaluators.registry import (
@@ -21,7 +29,12 @@ from memory_benchmark.evaluators.registry import (
     list_metrics,
 )
 from memory_benchmark.runners.evaluation import run_artifact_evaluation
-from memory_benchmark.storage import read_jsonl
+from memory_benchmark.runners.operation_level import _evaluator_private_session_label_record
+from memory_benchmark.storage import (
+    evaluator_private_label_record,
+    public_question_record,
+    read_jsonl,
+)
 
 
 pytestmark = pytest.mark.unit
@@ -108,6 +121,7 @@ def test_halumem_extraction_evaluator_matches_official_routing_and_aggregates(
     assert summary_payload["category_breakdown"] == [
         {
             "category": "preference",
+            "denominator_scope": "integrity_stage_only",
             "memory_count": 1,
             "recall": 1.0,
         }
@@ -209,7 +223,159 @@ def test_halumem_extraction_na_summary_when_session_reports_are_na(
     assert summary.mean_score == 0.0
     assert payload["status"] == "n/a"
     assert payload["overall_score"]["memory_integrity"]["memory_num"] == 0
+    assert payload["overall_score"]["memory_integrity"]["recall(all)"] is None
+    assert payload["overall_score"]["memory_accuracy"]["target_accuracy(all)"] is None
     assert client.prompts == []
+
+
+def test_halumem_empty_denominators_are_none_with_explicit_counts(
+    tmp_path: Path,
+) -> None:
+    """extraction/update/QA 空分母必须是 None 且保留计数字段。"""
+
+    run_dir = _build_halumem_run_dir(tmp_path, extraction_status="n/a")
+    artifacts = run_dir / "artifacts"
+    _write_jsonl(artifacts / "update_probe_results.jsonl", [])
+    _write_jsonl(
+        artifacts / "public_questions.jsonl",
+        [public_question_record(Question("q-public", "user-1", "Question?"))],
+    )
+    _write_jsonl(
+        artifacts / "method_predictions.jsonl",
+        [{"question_id": "q-other", "conversation_id": "user-1", "answer": "x"}],
+    )
+    _write_jsonl(
+        artifacts / "evaluator_private_labels.jsonl",
+        [evaluator_private_label_record(GoldAnswerInfo("q-public", "gold"), None)],
+    )
+
+    extraction = run_artifact_evaluation(
+        run_dir, HalumemExtractionEvaluator(client=FakeHalumemJudgeClient()), "halumem"
+    )
+    update = run_artifact_evaluation(
+        run_dir, HalumemUpdateEvaluator(client=FakeHalumemJudgeClient()), "halumem"
+    )
+    qa = run_artifact_evaluation(
+        run_dir, HalumemQAEvaluator(client=FakeHalumemJudgeClient()), "halumem"
+    )
+    extraction_payload = json.loads(Path(extraction.summary_path).read_text())
+    update_payload = json.loads(Path(update.summary_path).read_text())
+    qa_payload = json.loads(Path(qa.summary_path).read_text())
+
+    assert extraction_payload["overall_score"]["memory_integrity"]["recall(all)"] is None
+    assert extraction_payload["overall_score"]["memory_integrity"]["memory_num"] == 0
+    assert update_payload["overall_score"]["memory_update"]["correct_update_memory_ratio(all)"] is None
+    assert update_payload["overall_score"]["memory_update"]["update_memory_num"] == 0
+    assert qa_payload["overall_score"]["question_answering"]["correct_qa_ratio(all)"] is None
+    assert qa_payload["overall_score"]["question_answering"]["qa_num"] == 0
+
+
+def test_halumem_memory_type_uses_real_upstream_evaluator_artifacts(
+    tmp_path: Path,
+) -> None:
+    """合成维度必须读真实 evaluator 落盘的共享分母记录。"""
+
+    run_dir = _build_halumem_run_dir(tmp_path)
+    client = FakeHalumemJudgeClient()
+    run_artifact_evaluation(run_dir, HalumemExtractionEvaluator(client=client), "halumem")
+    run_artifact_evaluation(run_dir, HalumemUpdateEvaluator(client=client), "halumem")
+    summary = run_artifact_evaluation(
+        run_dir, HalumemMemoryTypeEvaluator(), "halumem"
+    )
+    payload = json.loads(Path(summary.summary_path).read_text())
+
+    assert payload["category_breakdown"] == [
+        {
+            "category": "interference",
+            "integrity_correct_num": 0,
+            "memory_acc": 0.0,
+            "memory_integrity_acc": 0.0,
+            "memory_update_acc": 0.0,
+            "metric_name": "halumem_memory_type",
+            "score": 0.0,
+            "total_num": 1,
+            "update_correct_num": 0,
+        },
+        {
+            "category": "preference",
+            "integrity_correct_num": 1,
+            "memory_acc": 1.0,
+            "memory_integrity_acc": 0.5,
+            "memory_update_acc": 0.5,
+            "metric_name": "halumem_memory_type",
+            "score": 1.0,
+            "total_num": 2,
+            "update_correct_num": 1,
+        },
+    ]
+
+
+def test_halumem_memory_type_requires_both_upstream_artifacts(tmp_path: Path) -> None:
+    """缺任一上游 score artifact 都应明确 fail-fast。"""
+
+    run_dir = _build_halumem_run_dir(tmp_path)
+    with pytest.raises(
+        ConfigurationError,
+        match="requires prior halumem-extraction and halumem-update",
+    ):
+        run_artifact_evaluation(run_dir, HalumemMemoryTypeEvaluator(), "halumem")
+
+
+def test_halumem_qa_breakdown_reports_all_six_official_question_types(
+    tmp_path: Path,
+) -> None:
+    """QA category breakdown 应完整保留官方六类维度。"""
+
+    question_types = [
+        "Memory Boundary",
+        "Basic Fact Recall",
+        "Memory Conflict",
+        "Generalization & Application",
+        "Multi-hop Inference",
+        "Dynamic Update",
+    ]
+    run_dir = _build_halumem_run_dir(tmp_path)
+    artifacts = run_dir / "artifacts"
+    public_records = []
+    private_records = []
+    predictions = []
+    for index, question_type in enumerate(question_types):
+        question_id = f"user-1:s1:q{index}"
+        public_records.append(
+            public_question_record(
+                Question(question_id, "user-1", f"Question {index}?")
+            )
+        )
+        private_records.append(
+            evaluator_private_label_record(
+                GoldAnswerInfo(
+                    question_id,
+                    "answer",
+                    ["key memory"],
+                    {"question_type": question_type, "session_id": "s1"},
+                ),
+                None,
+            )
+        )
+        predictions.append(
+            {
+                "question_id": question_id,
+                "conversation_id": "user-1",
+                "answer": "unknown",
+                "metadata": {},
+            }
+        )
+    _write_jsonl(artifacts / "public_questions.jsonl", public_records)
+    _write_jsonl(artifacts / "evaluator_private_labels.jsonl", private_records)
+    _write_jsonl(artifacts / "method_predictions.jsonl", predictions)
+
+    summary = run_artifact_evaluation(
+        run_dir, HalumemQAEvaluator(client=FakeHalumemJudgeClient()), "halumem"
+    )
+    payload = json.loads(Path(summary.summary_path).read_text())
+    assert {item["category"] for item in payload["category_breakdown"]} == set(
+        question_types
+    )
 
 
 def test_halumem_dialogue_and_golden_memory_format_match_official_source() -> None:
@@ -243,8 +409,8 @@ def test_halumem_dialogue_and_golden_memory_format_match_official_source() -> No
     assert build_halumem_golden_memories_str(session_label) == "keep"
 
 
-def test_halumem_evaluator_registry_registers_three_api_metrics() -> None:
-    """三个 HaluMem judge metric 应注册为 requires_api=True。"""
+def test_halumem_evaluator_registry_registers_metrics() -> None:
+    """三个 judge 与一个离线合成 metric 应如实注册。"""
 
     assert "halumem-extraction" in list_metrics()
     assert "halumem-update" in list_metrics()
@@ -267,6 +433,13 @@ def test_halumem_evaluator_registry_registers_three_api_metrics() -> None:
         )
         assert isinstance(evaluator, evaluator_type)
         assert evaluator.model == "gpt-4o-mini"
+    registration = get_evaluator_registration("halumem-memory-type")
+    assert registration.metric_name == "halumem_memory_type"
+    assert registration.requires_api is False
+    assert isinstance(
+        create_evaluator("halumem-memory-type", benchmark_name="halumem"),
+        HalumemMemoryTypeEvaluator,
+    )
 
 
 def _build_halumem_run_dir(
@@ -299,27 +472,17 @@ def _build_halumem_run_dir(
         "keeps a cyan notebook",
         "extra unsupported memory",
     ]
+    session = Session(
+        session_id="s1",
+        turns=[
+            Turn("s1:t0", "user", "I keep a cyan notebook.", turn_time="Sep 01, 2025, 10:00:00"),
+            Turn("s1:t1", "assistant", "Noted.", turn_time="Sep 01, 2025, 10:00:01"),
+        ],
+        private_metadata={"memory_points": _memory_points()},
+    )
     _write_jsonl(
         artifacts / "evaluator_private_session_labels.jsonl",
-        [
-            {
-                "conversation_id": "user-1",
-                "session_id": "s1",
-                "memory_points": _memory_points(),
-                "dialogue": [
-                    {
-                        "turn_time": "Sep 01, 2025, 10:00:00",
-                        "speaker": "user",
-                        "content": "I keep a cyan notebook.",
-                    },
-                    {
-                        "turn_time": "Sep 01, 2025, 10:00:01",
-                        "speaker": "assistant",
-                        "content": "Noted.",
-                    },
-                ],
-            }
-        ],
+        [_evaluator_private_session_label_record(conversation_id="user-1", session=session)],
     )
     _write_jsonl(
         artifacts / "session_memory_reports.jsonl",
@@ -389,26 +552,20 @@ def _build_halumem_run_dir(
     _write_jsonl(
         artifacts / "evaluator_private_labels.jsonl",
         [
-            {
-                "question_id": "user-1:s1:q1",
-                "gold_answer": "reference blue",
-                "category": None,
-                "evidence": ["keeps a cyan notebook"],
-                "metadata": {
-                    "question_type": "Preference",
-                    "session_id": "s1",
-                },
-            },
-            {
-                "question_id": "user-1:s1:q2",
-                "gold_answer": "not enough information",
-                "category": None,
-                "evidence": [],
-                "metadata": {
-                    "question_type": "Memory Boundary",
-                    "session_id": "s1",
-                },
-            },
+            evaluator_private_label_record(
+                GoldAnswerInfo(
+                    "user-1:s1:q1", "reference blue", ["keeps a cyan notebook"],
+                    {"question_type": "Preference", "session_id": "s1"},
+                ),
+                None,
+            ),
+            evaluator_private_label_record(
+                GoldAnswerInfo(
+                    "user-1:s1:q2", "not enough information", [],
+                    {"question_type": "Memory Boundary", "session_id": "s1"},
+                ),
+                None,
+            ),
         ],
     )
     return run_dir

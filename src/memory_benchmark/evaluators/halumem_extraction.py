@@ -19,35 +19,10 @@ from .halumem_common import (
     safe_div,
     session_key_from_ref,
 )
-
-
-# Official source: third_party/benchmarks/HaluMem-main/eval/eval_tools.py:4-65
-_INTEGRITY_PROMPT = """You are a strict **"Memory Integrity" evaluator**.
-
-1. **Extracted Memories:**
-   {memories}
-
-2. **Expected Memory Point:**
-   {expected_memory_point}
-
-Please output JSON: {{"reasoning": "...", "score": "2|1|0"}}.
-"""
-
-
-# Official source: third_party/benchmarks/HaluMem-main/eval/eval_tools.py:68-158
-_ACCURACY_PROMPT = """You are a **Dialogue Memory Accuracy Evaluator.**
-
-* **Dialogue:**
-  {dialogue}
-
-* **Golden Memories (Target Memory Points):**
-  {golden_memories}
-
-* **Candidate Memory:**
-  {candidate_memory}
-
-Output JSON with accuracy_score, is_included_in_golden_memories, reason.
-"""
+from .halumem_prompts import (
+    EVALUATION_PROMPT_FOR_MEMORY_ACCURACY as _ACCURACY_PROMPT,
+    EVALUATION_PROMPT_FOR_MEMORY_INTEGRITY as _INTEGRITY_PROMPT,
+)
 
 
 class HalumemExtractionEvaluator(HalumemJudgeEvaluatorBase):
@@ -219,7 +194,7 @@ def _extraction_payload(
         "metric_name": "halumem_extraction",
         "score_records": score_records,
         "total_questions": len(score_records),
-        "mean_score": overall["memory_extraction_f1"],
+        "mean_score": overall["memory_extraction_f1"] or 0.0,
         "correct_count": None,
         "summary": {
             "status": status,
@@ -366,6 +341,7 @@ def _memory_type_breakdown(records: list[dict[str, Any]]) -> list[dict[str, Any]
                 "category": memory_type,
                 "memory_count": len(group),
                 "recall": safe_div(correct, len(group)),
+                "denominator_scope": "integrity_stage_only",
             }
         )
     return breakdown

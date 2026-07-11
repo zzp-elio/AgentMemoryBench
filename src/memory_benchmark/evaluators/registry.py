@@ -19,6 +19,7 @@ from .beam_rubric_judge import BeamRubricJudgeEvaluator
 from .beam_recall import BeamRetrievalRecallEvaluator
 from .f1 import F1Evaluator
 from .halumem_extraction import HalumemExtractionEvaluator
+from .halumem_memory_type import HalumemMemoryTypeEvaluator
 from .halumem_qa import HalumemQAEvaluator
 from .halumem_update import HalumemUpdateEvaluator
 from .llm_judge import LLMJudgeProfileConfig
@@ -215,6 +216,12 @@ def _build_halumem_qa(
     )
 
 
+def _build_halumem_memory_type(**_: Any) -> HalumemMemoryTypeEvaluator:
+    """构造无 API 的 HaluMem memory_type 合成 evaluator。"""
+
+    return HalumemMemoryTypeEvaluator()
+
+
 _REGISTRATIONS = {
     "beam-recall": EvaluatorRegistration(
         cli_name="beam-recall",
@@ -245,6 +252,16 @@ _REGISTRATIONS = {
         profile_relative_path=Path("configs/evaluators/llm_judge.toml"),
         config_type=LLMJudgeProfileConfig,
         factory=_build_halumem_extraction,
+    ),
+    "halumem-memory-type": EvaluatorRegistration(
+        cli_name="halumem-memory-type",
+        metric_name="halumem_memory_type",
+        supported_benchmarks=frozenset({"halumem"}),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_halumem_memory_type,
     ),
     "halumem-update": EvaluatorRegistration(
         cli_name="halumem-update",

@@ -18,22 +18,7 @@ from .halumem_common import (
     safe_div,
     session_key_from_ref,
 )
-
-
-# Official source: third_party/benchmarks/HaluMem-main/eval/eval_tools.py:161-215
-_UPDATE_PROMPT = """Your task is to **evaluate the update accuracy** of an AI memory system.
-
-1. **Generated Memories:**
-   {memories}
-
-2. **Target Memory for Update:**
-   {updated_memory}
-
-3. **Original Memory Content:**
-   {original_memory}
-
-Return JSON: {{"reason": "...", "evaluation_result": "Correct | Hallucination | Omission | Other"}}.
-"""
+from .halumem_prompts import EVALUATION_PROMPT_FOR_UPDATE_MEMORY as _UPDATE_PROMPT
 
 
 class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
@@ -95,6 +80,7 @@ class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
                     "memory_update_type": update_type,
                     "memory_content": memory_point.get("memory_content"),
                     "memory_type": memory_point.get("memory_type"),
+                    "importance": memory_point.get("importance"),
                     "raw_judge_response": result,
                 }
             )
@@ -115,12 +101,13 @@ class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
             "mean_score": safe_div(
                 sum(float(record["score"]) for record in score_records),
                 len(score_records),
-            ),
+            ) or 0.0,
             "correct_count": sum(
                 1 for record in score_records if record.get("memory_update_type") == "Correct"
             ),
             "summary": {
                 "overall_score": overall,
+                "category_breakdown": _memory_type_breakdown(score_records),
                 "official_source": self.official_source,
                 "profile_note": self.profile_note,
             },
@@ -133,3 +120,25 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _memory_type_breakdown(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """按 update 阶段内分母输出 memory_type breakdown。"""
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        memory_type = record.get("memory_type")
+        if memory_type is not None:
+            grouped.setdefault(str(memory_type), []).append(record)
+    return [
+        {
+            "category": memory_type,
+            "memory_count": len(group),
+            "correct_update_ratio": safe_div(
+                sum(item.get("memory_update_type") == "Correct" for item in group),
+                len(group),
+            ),
+            "denominator_scope": "update_stage_only",
+        }
+        for memory_type, group in sorted(grouped.items())
+    ]

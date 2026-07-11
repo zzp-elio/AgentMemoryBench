@@ -150,18 +150,20 @@ def build_halumem_golden_memories_str(session_label: dict[str, Any]) -> str:
     )
 
 
-def compute_f1(precision: float, recall: float) -> float:
+def compute_f1(precision: float | None, recall: float | None) -> float | None:
     """按 `evaluation.py:8-18` 计算 F1。"""
 
+    if precision is None or recall is None:
+        return None
     if precision + recall == 0:
         return 0.0
     return 2 * precision * recall / (precision + recall)
 
 
-def safe_div(numerator: float, denominator: float) -> float:
-    """除数为 0 时返回 0，避免空 N/A 段崩溃。"""
+def safe_div(numerator: float, denominator: float) -> float | None:
+    """除数为 0 时返回 None，保留空分母语义。"""
 
-    return numerator / denominator if denominator else 0.0
+    return numerator / denominator if denominator else None
 
 
 def count_ratios(
