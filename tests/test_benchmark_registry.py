@@ -631,7 +631,7 @@ def test_halumem_unified_prompt_builder_uses_official_memzero_prompt() -> None:
 
     assert prompt.metadata["answer_prompt_profile"] == HALUMEM_MEMZERO_PROMPT_PROFILE
     assert prompt.metadata["prompt_track"] == "unified"
-    assert prompt.metadata["official_source"].endswith("prompts.py:1-40")
+    assert prompt.metadata["official_source"].endswith("prompts.py:1-37")
     assert prompt.prompt_messages == [
         PromptMessage(role="user", content=prompt.answer_prompt)
     ]

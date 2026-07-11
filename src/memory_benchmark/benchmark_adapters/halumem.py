@@ -71,7 +71,7 @@ HALUMEM_RESUME_POLICY = BenchmarkResumePolicy(
 )
 HALUMEM_MEMZERO_PROMPT_PROFILE = "halumem_memzero_v1"
 HALUMEM_MEMZERO_OFFICIAL_SOURCE = (
-    "third_party/benchmarks/HaluMem-main/eval/prompts.py:1-40"
+    "third_party/benchmarks/HaluMem-main/eval/prompts.py:1-37"
 )
 HALUMEM_MEMZERO_PROMPT = """
     You are an intelligent memory assistant tasked with retrieving accurate information from conversation memories.

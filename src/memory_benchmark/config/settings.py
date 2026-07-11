@@ -303,6 +303,19 @@ def resolve_answer_llm_settings(
             max_tokens=None,
             top_p=None,
         )
+    if key[1] == "halumem":
+        # HaluMem Mem0 QA 调用点只执行 llm_request(prompt)，没有逐调用采样参数
+        # （eval_memzero.py:244-250）。llms.py:60-69 明确使用 user role；
+        # max_tokens/temperature 仅在对应环境变量存在时才进入 common_params
+        # （llms.py:25-31），top_p 未设置。因此三项均用 API 默认，模型仍按
+        # Phase 1 政策使用传入的 gpt-4o-mini；这些 None 不是臆造的官方值。
+        return AnswerLLMSettings(
+            model=model,
+            message_role="user",
+            temperature=None,
+            max_tokens=None,
+            top_p=None,
+        )
     return AnswerLLMSettings(model=model)
 
 

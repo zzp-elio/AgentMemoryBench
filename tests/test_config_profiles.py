@@ -300,6 +300,29 @@ def test_beam_answer_llm_settings_are_method_independent(method_name: str) -> No
     "method_name",
     ["mem0", "memoryos", "amem", "lightmem", "simplemem", "custom"],
 )
+def test_halumem_answer_llm_settings_are_method_independent(method_name: str) -> None:
+    """HaluMem answer 配置按 benchmark 归一，官方未设采样项走 API 默认。"""
+
+    settings = resolve_answer_llm_settings(
+        method_name=method_name,
+        benchmark_name="halumem",
+        model="gpt-4o-mini",
+    )
+
+    assert settings.model == "gpt-4o-mini"
+    assert settings.message_role == "user"
+    assert settings.temperature is None
+    assert settings.max_tokens is None
+    assert settings.top_p is None
+    assert settings.to_request_kwargs() == {}
+    assert settings.timeout_seconds == 60
+    assert settings.max_retries == 8
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ["mem0", "memoryos", "amem", "lightmem", "simplemem", "custom"],
+)
 def test_longmemeval_answer_llm_settings_are_method_independent(
     method_name: str,
 ) -> None:

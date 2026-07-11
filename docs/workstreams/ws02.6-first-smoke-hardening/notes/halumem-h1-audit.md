@@ -167,3 +167,29 @@ for path in map(Path, ["data/halumem/HaluMem-Medium.jsonl",
         while chunk := source.read(1024 * 1024): digest.update(chunk)
     print(path, count, qtypes, evidence, path.stat().st_size, digest.hexdigest())
 ```
+
+## 7. H3：unified prompt parity 与 answer 归一
+
+运行时 parity 测试落在 `tests/test_halumem_unified_prompt.py`：每次测试现场读取
+官方 `eval/prompts.py`，经 AST 提取 `PROMPT_MEMZERO`，同时锁定 2,104 字符
+长度与全文逐字相等。builder 测试以超长、含原始换行的 `formatted_memory`
+断言只作 `{context}` 原样替换，不重排、不截断，也不二次拼装官方 Mem0
+检索路径的 `{timestamp}: {memory}` 排版。canonical 与原样代入均采用 H1
+架构师裁决；官方 Mem0 的排版发生在 `eval_memzero.py:115-130`，不属于统一
+reader 的职责。
+
+| 参数 | 官方值 | 框架值 | 一手出处 |
+|---|---|---|---|
+| model | 环境变量 `OPENAI_MODEL`，无固定模型名 | `gpt-4o-mini`（Phase 1 统一政策） | `llms.py:20-22,60-62` |
+| message role | `user` | `user` | `llms.py:60-68` |
+| temperature | 仅 `OPENAI_TEMPERATURE` 存在时注入，否则 API 默认 | `None`（不传，API 默认） | `llms.py:25-31,60-69` |
+| max_tokens | 仅 `OPENAI_MAX_TOKENS` 存在时注入，否则 API 默认 | `None`（不传，API 默认） | `llms.py:25-31,60-69` |
+| top_p | 未设置 | `None`（不传，API 默认） | `llms.py:25-35,60-69` |
+| n | 未设置 | SDK 默认（框架 `AnswerLLMSettings` 无显式 n 字段） | `llms.py:60-69` |
+| timeout | 仅 `OPENAI_TIMEOUT` 存在时注入，否则 SDK 默认 | 60 秒（框架统一网络政策，非官方值） | `llms.py:33-34,60-69` |
+| retry | `RETRY_TIMES` 环境变量控制 tenacity 尝试次数 | 8（框架统一网络政策，非官方值） | `llms.py:15-18,43-47` |
+
+QA 实际调用点只执行 `PROMPT_MEMZERO.format(context=..., question=...)` 后调用
+`llm_request(prompt)`，没有局部采样参数覆盖（`eval_memzero.py:244-250`）。因此
+HaluMem 的 answer 配置按 benchmark 单键归一，跨 method 一致；官方未设置的
+采样项按 API 默认处理，不把框架选择冒充官方值。
