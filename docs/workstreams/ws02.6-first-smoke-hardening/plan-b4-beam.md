@@ -226,4 +226,15 @@ frozen-v1，才写 B5 plan。
   =独立 run 身份，混跑模糊身份；selector 子集扩展挡不住任何事故。policy
   保持单 run 语义，双结构认证定义落文档（frozen-v1），E5 用两次
   prepare/run 覆盖。裁决全文见 E2 卡末尾，actor 按此复工。
-- 全量基线：1000（B3 冻结门）→ E1 后 **1002**。
+- 2026-07-11（**E2 验收通过，零架构师修正**，actor=codex+GPT-5.6，commit
+  `1ba7bb3`）：4 variants 注册（含 10m）；10m 展开端到端实测（conv0 =
+  100 sessions = 10 plans × 10、plan 顺序正确、session id `pN:sM` 全
+  唯一、19,895 turns）；双结构 smoke 形态 100k `s1×2turns` /
+  10m `p1:s1×2turns` 均带 policy metadata；私有键黑名单**全局**扩展
+  （core/validators.py，BEAM 全类型 gold 字段 + 顺带加固 B2/B3 的
+  evidence_turn_ids），全量回归证明零误伤；负空间测试 5 条真实。
+  说明一处语义：smoke 数据集带全部 20 题，实际只答 1 题由 runner 的
+  smoke 默认预算（question_limit_per_conversation=1）保证——E5 断言。
+  定向 171 passed（含架构师此前验收测试合流），**全量 1007 passed**。
+- **E3 已开卡**：[actor-prompt-e3.md](actor-prompt-e3.md)。E4 等 E3 验收。
+- 全量基线：1000（B3 冻结门）→ E1 后 1002 → E2 后 **1007**。
