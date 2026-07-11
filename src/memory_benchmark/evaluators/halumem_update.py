@@ -43,6 +43,7 @@ class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
             "update_probe_results",
         )
         score_records: list[dict[str, Any]] = []
+        skipped_empty_retrieval_count = 0
         for update_record in update_records:
             session_id = session_key_from_ref(update_record)
             session_label = session_labels.get(session_id)
@@ -61,6 +62,11 @@ class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
             memories_from_system = _string_list(
                 update_record.get("memories_from_system")
             )
+            if not memories_from_system:
+                # 官方路由（evaluation.py:59-70）：memories_from_system 为空的
+                # update point 归 integrity 桶，不进入 update 评测与分母。
+                skipped_empty_retrieval_count += 1
+                continue
             prompt = _UPDATE_PROMPT.format(
                 memories="\n".join(memories_from_system),
                 updated_memory=memory_point.get("memory_content", ""),
@@ -108,6 +114,7 @@ class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
             "summary": {
                 "overall_score": overall,
                 "category_breakdown": _memory_type_breakdown(score_records),
+                "skipped_empty_retrieval_count": skipped_empty_retrieval_count,
                 "official_source": self.official_source,
                 "profile_note": self.profile_note,
             },

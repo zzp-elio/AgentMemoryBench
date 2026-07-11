@@ -68,3 +68,38 @@ uv run pytest -q tests/test_evaluator_registry.py tests/test_benchmark_registry.
 最后只回复：commit hash、两条测试尾行、实际改动文件、六项断言各自
 对应的测试函数名、是否存在 plan 偏差/停工点（发现生产 bug = 立即
 停工，这是 H5 存在的意义）。
+
+---
+
+## 架构师裁决（2026-07-11，回应"空 update 检索"停工；生产缺口已由架构师直修，按此复工）
+
+停工正确——H5 禁改生产代码下发现生产缺口即停，正是本批的设计目的。
+但三条引证经架构师一手核证后**只有一半成立**：
+
+- **extraction 论断是误诊**：`_update_memory_keys`
+  （halumem_extraction.py:350-360）本就有 `if not memories_from_system:
+  continue` 非空过滤（docstring "返回有检索结果的 update memory key"），
+  空检索的 update point **已经**留在 integrity——extraction 侧无 bug。
+- **update 论断成立，是真 parity bug**：update evaluator 对空
+  `memories_from_system` 照常拼空串调 judge 并计入分母，与官方
+  evaluation.py:59-70（只把非空者放进 update inputs）分歧；后果 =
+  空检索 point 被**双计**（integrity 评了它、update 也评了它）+
+  update 分母虚增。**不只影响 smoke**：真实 method 检索空时生产评测
+  同样错分桶。
+- **runner 无错不动**：官方同样无条件探针并记录
+  （eval_memzero.py:210-222），路由判定在评测端；probe record 是
+  "运行时调用发生过"的证据，正好支撑本卡断言 1。
+
+**架构师已直修**（D5 先例；H5 的禁改是给 actor 的）：
+`halumem_update.py` 在 gold 定位后跳过空 `memories_from_system`
+（不 judge、不进分母），summary 加 `skipped_empty_retrieval_count`
+诊断计数；契约测试
+`test_halumem_update_skips_empty_retrieval_per_official_routing`
+（probe record 经 runner 真实 `_update_probe_record` 序列化构造，
+断言全空时 `update_memory_num==0`、ratio None、skipped==1）。
+定向 54 / registry 13 / 全量 **1055 passed**。
+
+**复工范围**：按原卡六项断言复工，零障碍——断言 1 的"检索返回空的
+fake 变体"现在能得到官方路由语义（update 桶空 → None+count=0，
+extraction 侧该 point 照常进 integrity）。e2e 里可顺带断言
+`skipped_empty_retrieval_count` 与空变体探针数一致。

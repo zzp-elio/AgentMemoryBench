@@ -618,3 +618,42 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
         encoding="utf-8",
     )
+
+
+def test_halumem_update_skips_empty_retrieval_per_official_routing(
+    tmp_path: Path,
+) -> None:
+    """空 memories_from_system 的 probe 不进 update 评测与分母（evaluation.py:59-70）。
+
+    官方路由把空检索的 update point 归 integrity 桶；update evaluator 必须
+    跳过它（不调 judge、不进分母），全空时比率 None + 分母 0。probe record
+    经 runner 真实序列化函数 `_update_probe_record` 构造（fixture 铁律）。
+    """
+
+    from memory_benchmark.core.provider_protocol import RetrievalResult, SessionRef
+    from memory_benchmark.runners.operation_level import _update_probe_record
+
+    run_dir = _build_halumem_run_dir(tmp_path)
+    empty_probe = _update_probe_record(
+        session_ref=SessionRef(isolation_key="run_user-1", session_id="s1"),
+        memory_point=_memory_points()[1],
+        retrieval=RetrievalResult(
+            formatted_memory="no relevant memory found", items=()
+        ),
+        duration_ms=1.0,
+    )
+    assert empty_probe["memories_from_system"] == []
+    _write_jsonl(run_dir / "artifacts" / "update_probe_results.jsonl", [empty_probe])
+
+    client = FakeHalumemJudgeClient()
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=HalumemUpdateEvaluator(client=client),
+        expected_benchmark="halumem",
+    )
+    payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+
+    ratios = payload["overall_score"]["memory_update"]
+    assert ratios["update_memory_num"] == 0
+    assert ratios["correct_update_memory_ratio(all)"] is None
+    assert payload["skipped_empty_retrieval_count"] == 1

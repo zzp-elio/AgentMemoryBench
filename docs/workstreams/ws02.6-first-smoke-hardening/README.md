@@ -8,6 +8,30 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（H5 停工 → **架构师已裁决 + 直修生产 bug，actor 复工**）：
+  三条引证一手核证后**半数成立**——extraction 论断误诊
+  （`_update_memory_keys` 本有非空过滤，halumem_extraction.py:350-360，
+  空检索 point 已留 integrity）；**update 论断成立是真 parity bug**
+  （空检索照常 judge 进分母，与官方 evaluation.py:59-70 分歧，空检索
+  point 被双计 + 分母虚增，影响生产非仅 smoke）；runner 无错不动
+  （官方同样无条件探针记录，路由在评测端）。架构师直修（D5 先例）：
+  update evaluator 跳过空检索（不 judge 不进分母）+
+  `skipped_empty_retrieval_count` 诊断计数 + 契约测试（probe record
+  经 runner 真实 `_update_probe_record` 序列化）。定向 54 / 全量
+  **1055 passed**（1054+1，基线更新）。裁决全文见
+  [actor-prompt-h5.md](actor-prompt-h5.md) 末尾，actor 按原卡复工。
+- 2026-07-11（codex+GPT-5.6，H5 停工）：真实链路的“空 update 检索
+  路由回 integrity、update 分母为 0”要求与生产实现冲突，H5 禁改生产
+  代码，故未运行测试、未提交。证据：operation-level runner 对每个 update
+  memory point 检索后无条件追加 probe record
+  （`src/memory_benchmark/runners/operation_level.py:363-381`）；extraction
+  evaluator 仅凭该 record 的 session/index 键存在就把 gold 从 integrity
+  互斥移除（`halumem_extraction.py:52-56,81-85`），不检查检索内容是否为空；
+  update evaluator 又会把空 `memories_from_system` 拼成空字符串后照常调用
+  judge 并计入分母（`halumem_update.py:41-46,61-73`）。因此空 fake 不能
+  产生任务卡要求的 `None + count=0`，需架构师裁定是在 runner 仅对非空
+  retrieval 落 update record，还是在 evaluator 路由/过滤层表达官方空检索
+  语义。H5 测试草稿已撤回，`src/` 零改动。
 - 2026-07-11（**H4 架构师强验收通过 → H5 卡已开**）：commit `5b4e358`。
   四套官方 judge prompt（2568/4891/2259/3834 字符）架构师 AST 独立
   复算一致 + 运行时 parity 测试四套全覆盖；合成指标 halumem-memory-type

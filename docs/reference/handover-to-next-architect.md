@@ -68,7 +68,7 @@ HaluMem 收尾中，然后 B6 横向总验收，之后 method 侧才解冻。
 | H2 固定形状 smoke+声明式 policy | ✅ 已验收 | `b89dedd` |
 | H3 运行时 prompt parity+answer 归一 | ✅ 已验收 | `9f77216` |
 | H4 三阶段 metric parity（最重批；一次停工已裁决：memory_type=合成指标走 `evaluate_run_artifacts` 钩子） | ✅ 已验收（验收直修 registry 清单测试） | `5b4e358` |
-| H5 三操作离线 e2e | 卡已开 `actor-prompt-h5.md`，待派发 | — |
+| H5 三操作离线 e2e | 施工中：一次停工（空 update 检索路由）已裁决——extraction 侧误诊、update 侧真 parity bug 架构师直修（空检索跳过+skipped 计数，基线 1055），裁决块在卡末尾，actor 复工 | — |
 | 架构师冻结包 | 未开始（survey 三卡契约化 + halumem-frozen-v1.md + quirks 补锚 + 全量 + compileall） | — |
 
 **给继任者的 H5/冻结包提示**：H5 禁改生产代码，发现生产 bug = 停工
