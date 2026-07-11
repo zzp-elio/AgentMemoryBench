@@ -70,3 +70,32 @@ uv run pytest -q tests/test_beam_adapter.py tests/test_benchmark_registry.py \
 最后只回复：commit hash、测试尾行、实际改动文件、负空间需求对应测试函数
 名清单、是否存在 plan 偏差/停工点。遇到 plan 未覆盖的情况立即停工写断点，
 交回架构师裁决，不要自行发挥。
+
+---
+
+## 架构师裁决（2026-07-11，回应预埋断点：跨 variant smoke）
+
+停工正确（这是卡里预埋的断点，触发即停是预期行为）。四条证据属实。
+
+**裁决：采用"两次独立 smoke 均通过"语义，不扩展 variant selector。**
+
+理由（复杂度铁律：新机制必须回答"它挡住什么事故"）：
+
+1. variant = 独立数据集 = 独立 manifest/数据指纹/run 身份。一次 run 混
+   两个数据集会模糊 run 身份，与"身份=内容"设计冲突；
+2. 认证是人层面的陈述："BEAM smoke 绿" ≝ `--variant 100k smoke` 与
+   `--variant 10m smoke` **两条命令都绿**。成本 = 多敲一条命令；
+3. selector 子集扩展（`--variant 100k,10m`）挡不住任何事故，只增加
+   CLI 面——不做。`--variant all` 保持现状（调试用，跑全部 4 个）。
+
+**按此复工，落法调整**：
+
+- `BEAM_SMOKE_POLICY` 保持**单 run 语义**（1 conv × 1 round × 1 题，
+  对当前 variant 生效）；不需要任何跨 variant 机制；
+- 10m variant 注册后，smoke 默认 variant 仍为 `100k`（default_variant
+  不变）；10m smoke 由 `--variant 10m` 显式触发；
+- **双结构认证定义落文档不落代码**：在本批 adapter/policy 注释与
+  （架构师冻结时的）frozen-v1 记录里写明"BEAM smoke 认证 = 100k 与
+  10m 两次独立 smoke 均通过"；
+- 其余四件事按原卡执行；e2e 双结构覆盖由 E5 的测试用两次 prepare/run
+  实现（E5 卡届时按此写）。

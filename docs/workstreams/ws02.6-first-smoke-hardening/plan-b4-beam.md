@@ -219,4 +219,11 @@ frozen-v1，才写 B5 plan。
   - 定向 50 passed 复现，**全量 1002 passed**。
 - **E2 已开卡**：[actor-prompt-e2.md](actor-prompt-e2.md)（10M variant
   接纳 + 声明式 policy；含"跨 variant smoke 不支持则停工"的预设断点）。
+- 2026-07-11（E2 预埋断点触发 → 架构师裁决）：actor 开工检查即停（23s，
+  预期行为），四条证据属实（variant 单值贯穿 contracts:177/201、
+  registry:565、run_prediction:437）。**裁决：认证语义 = "100k 与 10m
+  两次独立 smoke 均通过"，不扩展 variant selector**——variant=独立数据集
+  =独立 run 身份，混跑模糊身份；selector 子集扩展挡不住任何事故。policy
+  保持单 run 语义，双结构认证定义落文档（frozen-v1），E5 用两次
+  prepare/run 覆盖。裁决全文见 E2 卡末尾，actor 按此复工。
 - 全量基线：1000（B3 冻结门）→ E1 后 **1002**。
