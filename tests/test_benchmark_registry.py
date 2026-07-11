@@ -32,6 +32,8 @@ from memory_benchmark.benchmark_adapters.locomo_prompt import (
 )
 from memory_benchmark.benchmark_adapters.beam import (
     BEAM_ANSWER_PROMPT_PROFILE,
+    BEAM_RESUME_POLICY,
+    BEAM_SMOKE_POLICY,
     BeamAdapter,
 )
 from memory_benchmark.benchmark_adapters.halumem import (
@@ -1103,9 +1105,17 @@ def test_beam_registration_declares_conversation_qa_unified_prompt() -> None:
             name="1m",
             source_relative_paths=(Path("data/BEAM/beam_dataset/1M"),),
         ),
+        BenchmarkVariantSpec(
+            name="10m",
+            source_relative_paths=(Path("data/BEAM/beam_10M_dataset/10M"),),
+        ),
     )
+    assert registration.smoke_policy == BEAM_SMOKE_POLICY
+    assert registration.resume_policy == BEAM_RESUME_POLICY
     assert resolve_variant_selector(registration, None) == ("100k",)
-    assert resolve_variant_selector(registration, "all") == ("100k", "500k", "1m")
+    assert resolve_variant_selector(registration, "all") == (
+        "100k", "500k", "1m", "10m"
+    )
 
 
 def test_beam_unified_prompt_builder_uses_official_rag_prompt() -> None:
@@ -1140,8 +1150,8 @@ def test_beam_unified_prompt_builder_uses_official_rag_prompt() -> None:
     assert "NOTE: Only provide the answer" not in prompt.answer_prompt
 
 
-def test_beam_registration_prepares_smoke_with_turn_truncation() -> None:
-    """BEAM smoke 应按 turn 数裁剪。"""
+def test_beam_registration_prepares_smoke_with_declared_round_policy() -> None:
+    """BEAM smoke 应按已声明的 round policy 裁剪并写入 metadata。"""
 
     registration = get_benchmark_registration("beam")
 
@@ -1150,7 +1160,7 @@ def test_beam_registration_prepares_smoke_with_turn_truncation() -> None:
         BenchmarkLoadRequest(
             variant="100k",
             run_scope=RunScope.SMOKE,
-            smoke_turn_limit=4,
+            smoke_turn_limit=1,
             smoke_conversation_limit=1,
         ),
     )
@@ -1158,10 +1168,12 @@ def test_beam_registration_prepares_smoke_with_turn_truncation() -> None:
     assert smoke_run.run_scope is RunScope.SMOKE
     assert smoke_run.dataset.metadata["variant"] == "100k"
     assert smoke_run.dataset.metadata["run_scope"] == "smoke"
-    assert smoke_run.dataset.metadata["smoke_turn_limit"] == 4
+    assert smoke_run.dataset.metadata["smoke_round_limit"] == 1
+    assert smoke_run.dataset.metadata["smoke_policy"] == BEAM_SMOKE_POLICY.to_dict()
+    assert smoke_run.dataset.metadata["resume_policy"] == BEAM_RESUME_POLICY.to_dict()
     assert len(smoke_run.dataset.conversations) == 1
     conversation = smoke_run.dataset.conversations[0]
     total_turns = sum(len(s.turns) for s in conversation.sessions)
-    assert total_turns <= 4
-    # 确保至少有一个 question（probing 不应被裁剪）
+    assert total_turns == 2
     assert len(conversation.questions) >= 1
+    assert registration.smoke_policy.default_question_limit == 1

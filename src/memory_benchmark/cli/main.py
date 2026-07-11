@@ -765,6 +765,16 @@ def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
             )
         _validate_membench_sources(args.membench_sources)
         return
+    if args.benchmark == "beam":
+        if (
+            args.turns is not None
+            or args.sessions is not None
+            or args.sources is not None
+        ):
+            raise MemoryBenchmarkError(
+                "BEAM smoke uses --rounds; do not pass --turns, --sessions or --sources"
+            )
+        return
     if args.sessions is not None:
         raise MemoryBenchmarkError(
             "--sessions is only supported for HaluMem smoke"

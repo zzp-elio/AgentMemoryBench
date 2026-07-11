@@ -1,7 +1,8 @@
 """BEAM conversation-QA benchmark adapter。
 
-把 `data/BEAM/beam_dataset/{100K,500K,1M}` 的 HF arrow 数据转换为统一
-Dataset。chat 是 list[session]（外层 session 列表、内层 turn 列表），
+把 `data/BEAM/` 下 100K/500K/1M/10M 的 HF arrow 数据转换为统一
+Dataset。前三个 variant 的 chat 是 list[session]；10M 是按 plan 聚合的
+list[dict]，按官方顺序展开为全 conversation 唯一的 canonical session。
 probing_questions 是 Python-repr 字符串（`ast.literal_eval` 解析），
 content 末尾带 `->-> a,b` 尾标记需裁剪。私有 rubric/ideal_response 等仅
 进 GoldAnswerInfo，公开 conversation 过 validate_no_private_keys。
@@ -32,6 +33,8 @@ from memory_benchmark.core.provider_protocol import RetrievalResult
 from .base import BenchmarkAdapter, reached_limit
 from .contracts import (
     BenchmarkLoadRequest,
+    BenchmarkResumePolicy,
+    BenchmarkSmokePolicy,
     BenchmarkVariantSpec,
     PreparedBenchmarkRun,
     RunScope,
@@ -42,31 +45,50 @@ from .contracts import (
 # ---------------------------------------------------------------------------
 
 _BEAM_DATASET_DIR = Path("data/BEAM/beam_dataset")
+_BEAM_10M_DATASET_DIR = Path("data/BEAM/beam_10M_dataset")
 
 BEAM_OFFICIAL_REPO_URL = "https://github.com/mohammadtavakoli78/BEAM"
 BEAM_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2510.27246"
 BEAM_OFFICIAL_DATASET_URL = "https://huggingface.co/datasets/Mohammadta/BEAM"
+BEAM_OFFICIAL_10M_DATASET_URL = "https://huggingface.co/datasets/Mohammadta/BEAM-10M"
 BEAM_LICENSE = "CC-BY-SA-4.0"
 _SOURCE_HASH_CHUNK_SIZE = 1024 * 1024
 
-# Arrow 目录名保留 HF 原始大写 split 名（100K 不是 128K）。
-_VARIANT_DIR_MAP: dict[str, str] = {
-    "100k": "100K",
-    "500k": "500K",
-    "1m": "1M",
+# Arrow 目录名保留 HF 原始大写 split 名；10M 使用独立数据集目录。
+_VARIANT_PATH_MAP: dict[str, Path] = {
+    "100k": _BEAM_DATASET_DIR / "100K",
+    "500k": _BEAM_DATASET_DIR / "500K",
+    "1m": _BEAM_DATASET_DIR / "1M",
+    "10m": _BEAM_10M_DATASET_DIR / "10M",
 }
 
 BEAM_VARIANT_SPECS: tuple[BenchmarkVariantSpec, ...] = tuple(
     BenchmarkVariantSpec(
         name=variant_name,
-        source_relative_paths=(_BEAM_DATASET_DIR / dir_name,),
+        source_relative_paths=(source_path,),
     )
-    for variant_name, dir_name in _VARIANT_DIR_MAP.items()
+    for variant_name, source_path in _VARIANT_PATH_MAP.items()
 )
 
 BEAM_VARIANT_BY_NAME: dict[str, BenchmarkVariantSpec] = {
     spec.name: spec for spec in BEAM_VARIANT_SPECS
 }
+
+# 单次 run 始终对应一个 variant。双结构认证由默认 100k smoke 和显式
+# `--variant 10m` smoke 两次独立运行组成，不混合数据指纹，也不扩 selector。
+BEAM_SMOKE_POLICY = BenchmarkSmokePolicy(
+    history_axis="rounds",
+    default_history_limit=1,
+    default_isolation_limit=1,
+    default_question_limit=1,
+)
+BEAM_RESUME_POLICY = BenchmarkResumePolicy(
+    smoke_enabled=False,
+    ingest_checkpoint="conversation",
+    answer_checkpoint="question",
+    reuse_saved_retrieval=True,
+    evaluation_artifact_only=True,
+)
 
 # 10 类记忆能力（第一手 compute_metrics.py 10 个 evaluate_* = 真实 probing_questions 10 key）。
 BEAM_ABILITY_KEYS: tuple[str, ...] = (
@@ -152,13 +174,13 @@ class BeamAdapter(BenchmarkAdapter):
         normalized_variant = variant.strip().lower() if isinstance(variant, str) else ""
         if not normalized_variant:
             raise ConfigurationError("beam variant is required")
-        if normalized_variant not in _VARIANT_DIR_MAP:
-            allowed = ", ".join(_VARIANT_DIR_MAP)
+        if normalized_variant not in _VARIANT_PATH_MAP:
+            allowed = ", ".join(_VARIANT_PATH_MAP)
             raise ConfigurationError(
                 f"Unknown beam variant '{variant}'. Allowed: {allowed}"
             )
         self.variant = normalized_variant
-        self._variant_dir = _VARIANT_DIR_MAP[normalized_variant]
+        self._source_relative_path = _VARIANT_PATH_MAP[normalized_variant]
 
     def load_dataset(self, limit: int | None = None) -> Dataset:
         """读取 HF arrow 并转换为统一 Dataset。"""
@@ -173,15 +195,19 @@ class BeamAdapter(BenchmarkAdapter):
                 "datasets (HuggingFace) is required for BEAM adapter"
             ) from exc
 
-        dataset_path = self.require_path(
-            *_BEAM_DATASET_DIR.parts, self._variant_dir
-        )
+        dataset_path = self.require_path(*self._source_relative_path.parts)
         ds = hf_datasets.load_from_disk(str(dataset_path))
 
         conversations: list[Conversation] = []
         source_fully_scanned = True
         for row_idx, row in enumerate(ds):
-            conversations.append(_conversation_from_row(row, row_idx=row_idx))
+            conversations.append(
+                _conversation_from_row(
+                    row,
+                    row_idx=row_idx,
+                    ten_million=self.variant == "10m",
+                )
+            )
             if reached_limit(len(conversations), limit):
                 source_fully_scanned = False
                 break
@@ -196,7 +222,11 @@ class BeamAdapter(BenchmarkAdapter):
                 "source_format": "beam_arrow",
                 "official_repo_url": BEAM_OFFICIAL_REPO_URL,
                 "official_paper_url": BEAM_OFFICIAL_PAPER_URL,
-                "official_dataset_url": BEAM_OFFICIAL_DATASET_URL,
+                "official_dataset_url": (
+                    BEAM_OFFICIAL_10M_DATASET_URL
+                    if self.variant == "10m"
+                    else BEAM_OFFICIAL_DATASET_URL
+                ),
                 "license": BEAM_LICENSE,
                 "source_size_bytes": source_size_bytes,
                 "source_sha256": source_sha256,
@@ -242,7 +272,7 @@ def prepare_beam_run(
     elif request.run_scope is RunScope.SMOKE:
         dataset = _build_beam_smoke_dataset(
             adapter.load(limit=request.smoke_conversation_limit),
-            turn_limit=request.smoke_turn_limit,
+            round_limit=request.smoke_turn_limit,
         )
     else:  # pragma: no cover
         raise ConfigurationError(f"unsupported BEAM run scope: {request.run_scope}")
@@ -250,6 +280,8 @@ def prepare_beam_run(
     metadata = copy.deepcopy(dataset.metadata)
     metadata["variant"] = request.variant
     metadata["run_scope"] = request.run_scope.value
+    metadata["smoke_policy"] = BEAM_SMOKE_POLICY.to_dict()
+    metadata["resume_policy"] = BEAM_RESUME_POLICY.to_dict()
     return PreparedBenchmarkRun(
         variant=request.variant,
         run_scope=request.run_scope,
@@ -293,6 +325,7 @@ def _conversation_from_row(
     row: dict[str, Any],
     *,
     row_idx: int,
+    ten_million: bool = False,
 ) -> Conversation:
     """把 BEAM arrow row 转成 Conversation。"""
 
@@ -303,20 +336,11 @@ def _conversation_from_row(
             f"beam row {row_idx}: chat must be a list, got {type(chat_raw).__name__}"
         )
 
-    # chat: list[session] → 外层是 session 列表
-    sessions: list[Session] = []
-    for session_index, session_turns in enumerate(chat_raw, start=1):
-        if not isinstance(session_turns, list):
-            raise DatasetValidationError(
-                f"{conversation_id}: chat[{session_index - 1}] must be a list"
-            )
-        sessions.append(
-            _session_from_turns(
-                session_turns,
-                conversation_id=conversation_id,
-                session_index=session_index,
-            )
-        )
+    sessions = (
+        _sessions_from_10m_chat(chat_raw, conversation_id=conversation_id)
+        if ten_million
+        else _sessions_from_standard_chat(chat_raw, conversation_id=conversation_id)
+    )
     raw_id_to_public_turn_ids: dict[int, list[str]] = {}
     for session in sessions:
         for turn in session.turns:
@@ -410,6 +434,77 @@ def _conversation_from_row(
     )
 
 
+def _sessions_from_standard_chat(
+    chat_raw: list[Any],
+    *,
+    conversation_id: str,
+) -> list[Session]:
+    """把 100K/500K/1M 的 list[session] chat 转成 canonical sessions。"""
+
+    sessions: list[Session] = []
+    for session_index, session_turns in enumerate(chat_raw, start=1):
+        if not isinstance(session_turns, list):
+            raise DatasetValidationError(
+                f"{conversation_id}: chat[{session_index - 1}] must be a list"
+            )
+        sessions.append(
+            _session_from_turns(
+                session_turns,
+                conversation_id=conversation_id,
+                session_id=f"s{session_index}",
+            )
+        )
+    return sessions
+
+
+def _sessions_from_10m_chat(
+    chat_raw: list[Any],
+    *,
+    conversation_id: str,
+) -> list[Session]:
+    """按官方 `chat[i]['plan-{i+1}']` 顺序展开 10M plan/batch。"""
+
+    sessions: list[Session] = []
+    for plan_index, plan_slot in enumerate(chat_raw):
+        plan_number = plan_index + 1
+        plan_id = f"plan-{plan_number}"
+        if not isinstance(plan_slot, dict):
+            raise DatasetValidationError(
+                f"{conversation_id}: 10M chat[{plan_index}] must be a dict"
+            )
+        batches = plan_slot.get(plan_id)
+        if not isinstance(batches, list):
+            raise DatasetValidationError(
+                f"{conversation_id}: 10M chat[{plan_index}]['{plan_id}'] must be a list"
+            )
+        for batch_index, batch in enumerate(batches):
+            if not isinstance(batch, dict) or not isinstance(batch.get("turns"), list):
+                raise DatasetValidationError(
+                    f"{conversation_id}/{plan_id}: batch[{batch_index}] must contain turns"
+                )
+            session_turns: list[dict[str, Any]] = []
+            for group_index, turn_group in enumerate(batch["turns"]):
+                if not isinstance(turn_group, list):
+                    raise DatasetValidationError(
+                        f"{conversation_id}/{plan_id}/batch[{batch_index}]: "
+                        f"turns[{group_index}] must be a list"
+                    )
+                session_turns.extend(turn_group)
+            sessions.append(
+                _session_from_turns(
+                    session_turns,
+                    conversation_id=conversation_id,
+                    session_id=f"p{plan_number}:s{batch_index + 1}",
+                    session_metadata={
+                        "plan_id": plan_id,
+                        "plan_index": plan_index,
+                        "batch_number": batch.get("batch_number", batch_index + 1),
+                    },
+                )
+            )
+    return sessions
+
+
 def _flatten_evidence_atoms(value: Any) -> list[Any]:
     """递归打平 BEAM 三种 source_chat_ids 结构，保留原子顺序。"""
 
@@ -492,11 +587,11 @@ def _session_from_turns(
     session_turns: list[dict[str, Any]],
     *,
     conversation_id: str,
-    session_index: int,
+    session_id: str,
+    session_metadata: dict[str, Any] | None = None,
 ) -> Session:
     """把 BEAM 内层 turn 列表转成 Session。"""
 
-    session_id = f"s{session_index}"
     turns: list[Turn] = []
     session_time: str | None = None
     for turn_index, turn_raw in enumerate(session_turns, start=1):
@@ -540,7 +635,7 @@ def _session_from_turns(
         session_time=session_time,
         start_time=session_time,
         end_time=None,
-        metadata={},
+        metadata=copy.deepcopy(session_metadata or {}),
         private_metadata={},
     )
 
@@ -548,12 +643,13 @@ def _session_from_turns(
 def _build_beam_smoke_dataset(
     dataset: Dataset,
     *,
-    turn_limit: int,
+    round_limit: int,
 ) -> Dataset:
-    """按 turn 数裁剪 BEAM smoke 数据（BEAM 是 conversation-QA，裁剪轴=turn）。"""
+    """按公开顺序裁 BEAM 单 variant smoke 的 conversation 与 round。"""
 
-    if turn_limit < 1:
-        raise ConfigurationError("BEAM smoke turn_limit must be at least 1")
+    if round_limit < 1:
+        raise ConfigurationError("BEAM smoke round_limit must be at least 1")
+    turn_limit = round_limit * 2
 
     cropped_conversations: list[Conversation] = []
     total_original_turn_count = 0
@@ -593,7 +689,7 @@ def _build_beam_smoke_dataset(
         conversation_metadata = copy.deepcopy(conversation.metadata)
         conversation_metadata.update(
             {
-                "smoke_turn_limit": turn_limit,
+                "smoke_round_limit": round_limit,
                 "smoke_original_turn_count": original_turn_count,
                 "smoke_retained_turn_count": retained_turn_count,
             }
@@ -611,7 +707,7 @@ def _build_beam_smoke_dataset(
     metadata = copy.deepcopy(dataset.metadata)
     metadata.update(
         {
-            "smoke_turn_limit": turn_limit,
+            "smoke_round_limit": round_limit,
             "smoke_original_turn_count": total_original_turn_count,
             "smoke_retained_turn_count": total_retained_turn_count,
         }

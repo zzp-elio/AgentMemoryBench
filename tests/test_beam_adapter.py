@@ -14,8 +14,11 @@ from typing import Any
 import pytest
 
 from memory_benchmark.benchmark_adapters.beam import (
+    BEAM_RESUME_POLICY,
+    BEAM_SMOKE_POLICY,
     BEAM_VARIANT_SPECS,
     BeamAdapter,
+    _conversation_from_row,
     prepare_beam_run,
     strip_tail_marker,
 )
@@ -337,6 +340,7 @@ def test_public_conversation_excludes_rubric_and_private_fields(
     validate_no_private_keys(public)
 
     public_text = json.dumps(public, ensure_ascii=False)
+    public_questions_text = json.dumps(public["questions"], ensure_ascii=False)
     # 私有字段不得出现在公开 payload 中
     assert "rubric" not in public_text
     assert "ideal_response" not in public_text
@@ -348,6 +352,23 @@ def test_public_conversation_excludes_rubric_and_private_fields(
     assert "conversation_seed" not in public_text
     assert "user_profile" not in public_text
     assert "conversation_plan" not in public_text
+    private_question_keys = {
+        "abstention_type", "answer", "bullet_points_covered", "calculation_required",
+        "compliance_indicators", "complexity_factors", "contradiction_type",
+        "conversation_reference", "conversation_references", "conversation_sessions",
+        "difficulty", "evidence_turn_ids", "expected_compliance", "extraction_challenge",
+        "ideal_answer", "ideal_response", "ideal_summary", "instruction_being_tested",
+        "instruction_type", "key_elements_tested", "key_facts_tested",
+        "non_compliance_signs", "ordering_tested", "ordering_type", "plan_reference",
+        "potential_confusion", "preference_being_tested", "preference_type",
+        "question_type", "reasoning_steps", "reasoning_type", "rubric",
+        "sessions_required", "source_chat_ids", "summarization_type",
+        "synthesis_required", "temporal_type", "tests_for", "tests_retention_of",
+        "time_points", "topic_questioned", "total_mentions", "update_type",
+        "why_unanswerable",
+    }
+    for private_key in private_question_keys:
+        assert private_key not in public_questions_text
 
 
 def test_gold_answers_preserve_all_question_obj_fields(tmp_path: Path) -> None:
@@ -451,10 +472,10 @@ def test_public_question_has_no_private_metadata(tmp_path: Path) -> None:
 
 
 def test_beam_variants_declare_100k_500k_1m() -> None:
-    """BEAM 应声明 100k/500k/1m 三 variant。"""
+    """BEAM 应声明三个同构 variant 与独立 10M variant。"""
 
     names = [spec.name for spec in BEAM_VARIANT_SPECS]
-    assert names == ["100k", "500k", "1m"]
+    assert names == ["100k", "500k", "1m", "10m"]
 
 
 def test_beam_adapter_rejects_unknown_variant(tmp_path: Path) -> None:
@@ -463,7 +484,54 @@ def test_beam_adapter_rejects_unknown_variant(tmp_path: Path) -> None:
     from memory_benchmark.core.exceptions import ConfigurationError
 
     with pytest.raises(ConfigurationError, match="Unknown beam variant"):
-        BeamAdapter(tmp_path, variant="10m")
+        BeamAdapter(tmp_path, variant="20m")
+
+
+def test_beam_10m_real_data_expands_plans_and_preserves_invalid_evidence() -> None:
+    """真实 10M 应按 plan 顺序展开，官方 `--` evidence 保留但不进入匹配键。"""
+
+    prepared = prepare_beam_run(
+        Path("."),
+        BenchmarkLoadRequest(
+            variant="10m",
+            run_scope=RunScope.SMOKE,
+            smoke_turn_limit=1,
+            smoke_conversation_limit=1,
+        ),
+    )
+    first = prepared.dataset.conversations[0]
+
+    assert len(first.sessions) == 1
+    assert first.sessions[0].session_id == "p1:s1"
+    assert first.sessions[0].metadata["plan_id"] == "plan-1"
+    assert first.sessions[0].metadata["plan_index"] == 0
+    assert first.sessions[0].turns[0].turn_id == "p1:s1:t1"
+    assert len(first.sessions[0].turns) == 2
+    assert prepared.source_relative_paths == (
+        Path("data/BEAM/beam_10M_dataset/10M"),
+    )
+
+    import datasets as hf_datasets
+
+    raw = hf_datasets.load_from_disk("data/BEAM/beam_10M_dataset/10M")[5]
+    regression = _conversation_from_row(raw, row_idx=5, ten_million=True)
+    assert len(regression.sessions) == 100
+    assert regression.sessions[10].session_id == "p2:s1"
+
+    question = next(
+        item
+        for item in regression.questions
+        if item.category == "event_ordering" and item.question_id.endswith(":q1")
+    )
+    gold = regression.gold_answers[question.question_id]
+    assert gold.metadata["source_chat_ids"][-1] == ["--"]
+    assert gold.metadata["unmatched_gold_id_count"] == 1
+    assert "--" not in gold.metadata["evidence_turn_ids"]
+    public = regression.to_public_dict()
+    validate_no_private_keys(public)
+    public_text = json.dumps(public, ensure_ascii=False)
+    assert "source_chat_ids" not in public_text
+    assert "evidence_turn_ids" not in public_text
 
 
 # ---------------------------------------------------------------------------
@@ -471,8 +539,10 @@ def test_beam_adapter_rejects_unknown_variant(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_beam_run_smoke_limits_turns(tmp_path: Path) -> None:
-    """BEAM smoke 应按 turn 数裁剪（裁剪轴 = turn，不是 session）。"""
+def test_prepare_beam_run_smoke_limits_rounds_and_declares_question_budget(
+    tmp_path: Path,
+) -> None:
+    """BEAM adapter 裁 round，单题预算由声明式 policy 交给 runner。"""
 
     _make_beam_arrow(
         tmp_path / "data" / "BEAM" / "beam_dataset" / "100K",
@@ -490,7 +560,7 @@ def test_prepare_beam_run_smoke_limits_turns(tmp_path: Path) -> None:
         BenchmarkLoadRequest(
             variant="100k",
             run_scope=RunScope.SMOKE,
-            smoke_turn_limit=8,
+            smoke_turn_limit=1,
             smoke_conversation_limit=1,
         ),
     )
@@ -499,14 +569,18 @@ def test_prepare_beam_run_smoke_limits_turns(tmp_path: Path) -> None:
     assert prepared.run_scope is RunScope.SMOKE
     conversation = prepared.dataset.conversations[0]
     total_turns = sum(len(s.turns) for s in conversation.sessions)
-    assert total_turns == 8
-    assert len(conversation.sessions) == 2  # session 1: 6 turns + session 2: 2 turns = 8
+    assert total_turns == 2
+    assert len(conversation.sessions) == 1
+    assert len(conversation.questions) == 2
 
     # metadata 记录裁剪前后规模
-    assert prepared.dataset.metadata["smoke_turn_limit"] == 8
+    assert prepared.dataset.metadata["smoke_round_limit"] == 1
     assert prepared.dataset.metadata["smoke_original_turn_count"] == 18
-    assert prepared.dataset.metadata["smoke_retained_turn_count"] == 8
+    assert prepared.dataset.metadata["smoke_retained_turn_count"] == 2
     assert conversation.metadata["smoke_original_turn_count"] == 18
+    assert prepared.dataset.metadata["smoke_policy"] == BEAM_SMOKE_POLICY.to_dict()
+    assert BEAM_SMOKE_POLICY.default_question_limit == 1
+    assert prepared.dataset.metadata["resume_policy"] == BEAM_RESUME_POLICY.to_dict()
 
 
 def test_prepare_beam_run_full_loads_all(tmp_path: Path) -> None:

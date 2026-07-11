@@ -1208,6 +1208,34 @@ def test_predict_smoke_rejects_membench_sources_on_other_benchmark(
     )
 
 
+@pytest.mark.parametrize("unsupported_axis", ["--turns", "--sessions", "--sources"])
+def test_predict_beam_smoke_rejects_unwired_history_axes(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    unsupported_axis: str,
+) -> None:
+    """BEAM 只接线 rounds，其他历史轴必须明确 fail-fast。"""
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "beam",
+            "--allow-api",
+            unsupported_axis,
+            "1",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "BEAM smoke uses --rounds" in capsys.readouterr().err
+
+
 def test_predict_formal_rejects_membench_sources(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

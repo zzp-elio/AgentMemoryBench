@@ -43,6 +43,8 @@ from .contracts import (
     normalize_variant_run_id_token,
 )
 from .beam import (
+    BEAM_RESUME_POLICY,
+    BEAM_SMOKE_POLICY,
     BEAM_VARIANT_SPECS,
     build_beam_unified_answer_prompt,
     prepare_beam_run,
@@ -665,6 +667,8 @@ def _build_default_registry() -> BenchmarkRegistry:
         default_variant="100k",
         prepare_run=prepare_beam_run,
         prediction_enabled=True,
+        smoke_policy=BEAM_SMOKE_POLICY,
+        resume_policy=BEAM_RESUME_POLICY,
         prompt_track="unified",
         unified_prompt_builder=build_beam_unified_answer_prompt,
     )

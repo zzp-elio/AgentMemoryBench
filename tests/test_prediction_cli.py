@@ -16,6 +16,7 @@ from memory_benchmark.benchmark_adapters import (
     BenchmarkLoadRequest,
     BenchmarkResumePolicy,
     BenchmarkSmokePolicy,
+    get_benchmark_registration,
     PreparedBenchmarkRun,
     RunScope,
 )
@@ -54,6 +55,17 @@ from memory_benchmark.cli.run_prediction import (
 
 
 pytestmark = pytest.mark.unit
+
+
+def test_beam_registered_policy_serializes_into_manifest_top_level() -> None:
+    """BEAM 声明式 policy 应走通用 manifest 链路，不混入 method identity。"""
+
+    registration = get_benchmark_registration("beam")
+
+    assert prediction_cli._build_benchmark_policy_manifest(registration) == {
+        "smoke": registration.smoke_policy.to_dict(),
+        "resume": registration.resume_policy.to_dict(),
+    }
 
 
 def _build_smoke_source_dataset() -> Dataset:
