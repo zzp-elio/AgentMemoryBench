@@ -45,6 +45,7 @@ def test_registry_lists_only_currently_supported_unified_metrics() -> None:
         "beam-rubric-judge",
         "f1",
         "halumem-extraction",
+        "halumem-memory-type",
         "halumem-qa",
         "halumem-update",
         "locomo-f1",

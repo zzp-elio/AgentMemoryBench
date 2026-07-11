@@ -60,16 +60,24 @@ HaluMem 收尾中，然后 B6 横向总验收，之后 method 侧才解冻。
 ## 4. 在途状态（每轮验收后更新本节）
 
 **B5 HaluMem 进度**（plan：`ws02.6/plan-b5-halumem.md`，全量基线
-**1046 passed**）：
+**1054 passed**）：
 
 | 批次 | 状态 | commit |
 |---|---|---|
 | H1 来源锁+剖面+三判定 | ✅ 已验收 | `67eb1a2` |
 | H2 固定形状 smoke+声明式 policy | ✅ 已验收 | `b89dedd` |
 | H3 运行时 prompt parity+answer 归一 | ✅ 已验收 | `9f77216` |
-| H4 三阶段 metric parity（最重批） | 施工中：一次停工（memory_type 共享分母落点）已裁决复工——合成指标走既有 `evaluate_run_artifacts` 钩子，裁决块在卡末尾 | — |
-| H5 三操作离线 e2e | 未开卡 | — |
-| 架构师冻结包 | 未开始 | — |
+| H4 三阶段 metric parity（最重批；一次停工已裁决：memory_type=合成指标走 `evaluate_run_artifacts` 钩子） | ✅ 已验收（验收直修 registry 清单测试） | `5b4e358` |
+| H5 三操作离线 e2e | 卡已开 `actor-prompt-h5.md`，待派发 | — |
+| 架构师冻结包 | 未开始（survey 三卡契约化 + halumem-frozen-v1.md + quirks 补锚 + 全量 + compileall） | — |
+
+**给继任者的 H5/冻结包提示**：H5 禁改生产代码，发现生产 bug = 停工
+是设计目的；自检命令必须包含 registry 清单测试（H4 教训——新 metric
+注册后 `-k halumem` 抓不到全量清单断言漂移）。冻结包照四个先例
+（`notes/*-frozen-v1.md` 的版式），known limitations 必须含：recall
+N/A（evidence 无 turn id）、与官方 MemOS/Supermemory 数字的 prompt
+偏差（canonical=MEMZERO）、judge 模型 gpt-4o-mini vs 论文、
+`is_generated_qa_session` 跳过语义、memory_type 共享分母口径。
 
 **H4 的关键裁决已由 Fable 5 做出（写在卡里，不要重新裁）**：
 recall = **N/A 声明为冻结限制**（evidence 无 turn id，官方无 retrieval
@@ -100,3 +108,5 @@ R0 真实校准（用户批预算；lightmem 校准实验见原则 #16）。
 
 - 2026-07-11（创建）：H1-H3 已验收，H4 卡已开待派发；快照/镜像审计
   同步完成。
+- 2026-07-11（第二次更新）：H4 已验收（`5b4e358`，基线 1054）；H5
+  卡已开待派发；补"给继任者的 H5/冻结包提示"节。

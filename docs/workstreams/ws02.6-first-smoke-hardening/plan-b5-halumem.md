@@ -218,12 +218,24 @@ frozen-v1 → **B6 横向总验收**。
   RETRY_TIMES :15-18,43-47、QA 调用点无逐调用参数
   eval_memzero.py:244-250）架构师现场核对一致，无发明权威。定向
   45 passed、全量 **1046 passed**（1038+8 自洽）。
-- 当前断点：**H4 卡已开**（`actor-prompt-h4.md`，B5 最重批）——四套
-  judge prompt 逐字修正 + 聚合 parity 复审 + memory_type 维度 +
-  question_type breakdown + 0 分母契约。架构师四项裁决已写卡：
-  **recall = N/A 冻结限制**（evidence 无 turn id、官方无 recall 指标、
-  禁止文本相似度造 gold）；memory_type 按官方原样含共同分母怪癖；
-  0 分母输出 None+计数；valid/Other 诊断字段一并实现。待 actor 施工。
+- **H4 架构师强验收通过（2026-07-11）**：commit `5b4e358`
+  （codex+GPT-5.6，8min，一次停工已裁决——memory_type 合成指标走
+  `evaluate_run_artifacts` 既有钩子）。四套官方 judge prompt 长度
+  2568/4891/2259/3834 架构师 AST 独立复算一致，运行时 parity 测试
+  四套参数化全覆盖；合成 evaluator 复刻官方过滤条件与共享分母
+  （evaluation.py:364-383），fail-fast 上游缺失，fixture 经真实
+  evaluator+fake judge 落盘；`or 0.0` 仅限 runner 兼容字段
+  mean_score，官方指标 None 语义在 summary 保留；阶段内 breakdown
+  加 `denominator_scope` 标注两口径。**验收发现并直修一处**：全量
+  metric 清单断言（test_evaluator_registry.py）未含新 metric——
+  测试过时非代码错误（原则 #5），根因是 H4 卡自检命令 `-k halumem`
+  覆盖不到该文件（**教训入 H5 卡：自检必须加 registry 清单测试**）。
+  定向 53 passed、全量 **1054 passed**（1046+8 自洽）。
+- 当前断点：**H5 卡已开**（`actor-prompt-h5.md`，禁改生产代码）——
+  三操作离线 e2e：固定形状 smoke 真实链路、双 fake 变体（检索非空/
+  空 → update 0 分母边界）、四 evaluator 全链含合成指标、privacy
+  三层扫描、resume 三契约、`is_generated_qa_session` runner 级锚。
+  H5 过后进入架构师冻结包。
 - **交接包已建**（2026-07-11）：`docs/reference/
   handover-to-next-architect.md`（Fable 5 离任前每轮验收后更新）+
   playbook §9 快照刷新 + §9.5 交接安排更新 + memory 镜像审计全绿。
