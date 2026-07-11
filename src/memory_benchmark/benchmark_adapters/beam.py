@@ -105,33 +105,37 @@ BEAM_ABILITY_KEYS: tuple[str, ...] = (
 )
 
 # --- unified answer prompt --------------------------------------------------
-# 官方 answer_generation_for_rag（src/prompts.py:11683-11701）。
-# <context> / <question> 占位，语义："只用 context 回答、不得用内部知识"。
-# 与 RAG 路径（long_term_memory_methods.py:639-641）一致，对应 unified 口径。
+# 官方 answer_generation_for_rag（src/prompts.py:11683-11701），由 RAG/记忆
+# 分支在 long_term_memory_methods.py:598-643 实际调用。long-context 分支
+# (:534-596) 直接发送 raw history messages，属于另一 baseline，不适合框架
+# formatted_memory。官方 typo/首尾换行/行尾空格均按字节保留。
 
 BEAM_ANSWER_PROMPT_PROFILE = "beam_rag_v1"
 BEAM_ANSWER_PROMPT_OFFICIAL_SOURCE = (
     "third_party/benchmarks/BEAM/src/prompts.py:11683-11701"
 )
 
-BEAM_ANSWER_PROMPT_TEMPLATE = """You are an assistant that MUST answer questions using ONLY the information provided in the context below.
-
-STRICT INSTRUCTIONS:
-1. Answer ONLY based on the provided context
-2. Do NOT use your internal knowledge
-
-CONTEXT:
-<context>
-
-QUESTION:
-<question>
-
-ANSWER REQUIREMENTS:
-- Be direct and concise
-- Only output the answer to the question without any explanation
-
-RESPONSE:
-"""
+BEAM_ANSWER_PROMPT_TEMPLATE = (
+    "\n"
+    "You are an assistant that MUST answer questions using ONLY the information "
+    "provided in the context below. \n"
+    "\n"
+    "STRICT INSTRUCTIONS:\n"
+    "1. Answer ONLY based on the provided context\n"
+    "2. Do NOT use your internal knowledge\n"
+    "\n"
+    "CONTEXT:\n"
+    "<context>\n"
+    "\n"
+    "QUESTION:\n"
+    "<question>\n"
+    "\n"
+    "ANSWER REQUIREMENTS:\n"
+    "- Be direct and concise\n"
+    "- Only output the answer to the question without any explanation \n"
+    "\n"
+    "RESPONSE:\n"
+)
 
 # --- content 尾标记裁剪 -----------------------------------------------------
 # turn content 末尾的 "->-> a,b" 是数据生成 artifact（session 索引,turn 索引

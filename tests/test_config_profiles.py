@@ -278,6 +278,28 @@ def test_membench_answer_llm_settings_are_method_independent(
     "method_name",
     ["mem0", "memoryos", "amem", "lightmem", "simplemem", "custom"],
 )
+def test_beam_answer_llm_settings_are_method_independent(method_name: str) -> None:
+    """BEAM answer 配置按 benchmark 归一，只采用官方明确的 temperature=0。"""
+
+    settings = resolve_answer_llm_settings(
+        method_name=method_name,
+        benchmark_name="beam",
+        model="gpt-4o-mini",
+    )
+
+    assert settings.model == "gpt-4o-mini"
+    assert settings.message_role == "user"
+    assert settings.temperature == 0.0
+    assert settings.max_tokens is None
+    assert settings.top_p is None
+    assert settings.timeout_seconds == 60
+    assert settings.max_retries == 8
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ["mem0", "memoryos", "amem", "lightmem", "simplemem", "custom"],
+)
 def test_longmemeval_answer_llm_settings_are_method_independent(
     method_name: str,
 ) -> None:

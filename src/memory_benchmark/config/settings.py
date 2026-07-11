@@ -287,6 +287,22 @@ def resolve_answer_llm_settings(
             max_tokens=None,
             top_p=None,
         )
+    if key[1] == "beam":
+        # BEAM RAG answer reader 参数，method 无关。一手来源：
+        # answer_generation.py:303-307 构造 reader_llm 时显式 temperature=0；
+        # long_term_memory_methods.py:639-643 用字符串 prompt 调 model.invoke，
+        # 对应 user/human message。BuildLLm 在 llm.py:19-26 只向 ChatOpenAI
+        # 显式传 model/key/base_url/temperature，未传 max_tokens/top_p/n。
+        # 官方 reader model 由 CLI 必填参数提供（answer_generation.py:235-240），
+        # 没有固定模型名；本框架按 Phase 1 政策统一使用传入的 gpt-4o-mini。
+        # max_tokens/top_p 使用 API 默认是框架决定，不冒充官方值。
+        return AnswerLLMSettings(
+            model=model,
+            message_role="user",
+            temperature=0.0,
+            max_tokens=None,
+            top_p=None,
+        )
     return AnswerLLMSettings(model=model)
 
 
