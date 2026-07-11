@@ -1,6 +1,14 @@
 # BEAM Benchmark 调研卡片
 
-更新日期：2026-06-29
+更新日期：2026-07-11（B4 `frozen-v1`；**现行契约以
+`docs/survey/datasets/BEAM.md` + `docs/survey/workflows/BEAM.md` 两张
+契约卡与冻结记录
+`docs/workstreams/ws02.6-first-smoke-hardening/notes/beam-frozen-v1.md`
+为准**；本卡正文为 2026-06-29 调研期材料。要点更正：① 官方有效评测面
+零嵌入零 BLEU/ROUGE（均为分发链外死代码），event_ordering 的 alignment
+实际走 LLM 判等；② 官方 judge int() 截断是真 bug（prompt 明定 0.5 档），
+框架双轨 float+official_int；③ 10M 顶层 chat = list[plan-dict]，10m
+variant 已接纳；④ 官方代码 commit 已锁 3e12035。）
 
 调研依据：
 

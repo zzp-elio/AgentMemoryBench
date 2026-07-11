@@ -258,6 +258,13 @@ frozen-v1，才写 B5 plan。
   粒度显式报错（不静默评分——BEAM gold 为 turn 级官方字段，session 级
   可由 `sN` 前缀派生但暂不实现，记冻结已知限制）；负空间 10 条真实。
   定向 59 passed 复现，**全量 1026 passed**。
-- **E5 已开卡**：[actor-prompt-e5.md](actor-prompt-e5.md)，最后一个
-  actor 批次；之后架构师做最终冻结。
-- 全量基线：1000（B3 冻结门）→ 1002 → 1007 → 1017 → E4 后 **1026**。
+- 2026-07-11（**E5 已验收**，actor=cc+MiniMax M3，commit `ecff84d`）：
+  重写 pre-E1 legacy 测试为双结构全链路（两次独立 prepare/run、20 题/
+  裁 1 题双断言、`p1:s1` 切片、0.5 双轨、category_breakdown、三层
+  privacy）；两处自调整核实合理（abstention 首题无 evidence 的 recall
+  断言口径、run_id variant 后缀规避）；架构师精确复验 6 passed。
+- 2026-07-11（**B4 完成，BEAM `frozen-v1`**）：冻结包全过——survey 三卡
+  契约化、[beam-frozen-v1.md](notes/beam-frozen-v1.md) 落盘、**全量
+  1025 passed + compileall**（E5 重写吸收 legacy 净 -1）、零真实 API。
+  本 plan 关闭。
+- 全量基线：1000 → 1002 → 1007 → 1017 → 1026 → **1025（B4 冻结门）**。

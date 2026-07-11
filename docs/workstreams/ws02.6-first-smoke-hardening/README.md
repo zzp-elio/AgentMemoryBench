@@ -1,12 +1,32 @@
 ---
 id: ws02.6
 parent: ws02
-status: in-progress（LoCoMo、LongMemEval、MemBench 已 frozen-v1；B4 BEAM 未开工）
+status: in-progress（LoCoMo、LongMemEval、MemBench、BEAM 已 frozen-v1；B5 HaluMem 未开工）
 created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
 
 ## 当前冻结与设计断点（2026-07-11）
+
+- 2026-07-11（**BEAM `frozen-v1`，B4 完成**）：E1-E5 五批（codex+GPT-5.6
+  ×4、cc+MiniMax M3 ×1）+ 架构师逐批强验收；三次停工全部停对（Q2 反例、
+  预埋断点、E4 卡口径错——那次纠正的是架构师）。B4 战果：10M 异构 variant
+  接纳（plan-dict 展开）、evidence 三形态 + `'--'` + 重复 id 官方数据
+  异常全裁决、官方有效评测面判定（零嵌入零 BLEU，event_ordering 走 LLM
+  对齐）、int 截断实锤 → float+official_int 双轨、官方 commit 首次可锁。
+  冻结门：**1025 passed** + compileall + 真实数据验证 + 泄漏 CLEAN +
+  零真实 API。冻结记录 [beam-frozen-v1.md](notes/beam-frozen-v1.md)。
+- 2026-07-11（**论文指标覆盖，用户新要求，对 5 benchmark 生效**）：各
+  benchmark 论文报告的指标必须覆盖；扩展指标可做但不许乱做（如 NDCG
+  需逐项相关性可定义才行）。盘点：LoCoMo（F1+recall ✅）、BEAM（10 类
+  rubric 双轨 ✅）、HaluMem（B5 模板项）；**两个缺口立项**：
+  ① `longmemeval-ndcg@k` + `recall_all`（官方 `eval_utils.py:12-29`
+  一手实锤，ranked items 已在 artifact，artifact-only 可算）；
+  ② membench **源文件维度聚合**（论文按 Factual/Reflective ×
+  First/Third 报 = first_high/first_low/third_high/third_low 四格，
+  conversation_id 前缀天然携带该维度，聚合即可）。两项均为**加法**
+  （新 evaluator/summary 维度），不触发 frozen-v2；排 B5 后的 F 批或
+  并入 B6 横向验收，spec §9 验收标准同步补条目。
 
 - 2026-07-11（E4 停工 → **架构师已裁决**，actor=codex+GPT-5.6）：actor
   开工核证发现 event_ordering 实际走 `align_type="llm"`（成对
