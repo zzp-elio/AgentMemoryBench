@@ -1,6 +1,16 @@
 # HaluMem Benchmark 调研卡片
 
-更新日期：2026-06-29
+更新日期：2026-07-11（B5 `frozen-v1`；**现行契约以
+`docs/survey/datasets/halumem.md` + `docs/survey/workflows/halumem.md`
+两张契约卡与冻结记录
+`docs/workstreams/ws02.6-first-smoke-hardening/notes/halumem-frozen-v1.md`
+为准**；本卡正文为 2026-06-29 调研期材料。要点更正：① 官方 QA prompt
+按 method 分五脚本，unified canonical = PROMPT_MEMZERO 逐字（裁决），
+PROMPT_MEMOBASE 是官方死代码；② `is_update` 是字符串 "True"/"False"；
+evidence 元素无 turn id → retrieval recall N/A；③ 更新探针官方路由 =
+`is_update=="True"` 且检索非空才进 update 桶，空检索归 integrity；
+④ Long 的 1,030 个 `is_generated_qa_session` session 官方评测端整体
+跳过（questions 键恒空、无 memory_points）。）
 
 ## 1. 一句话结论
 

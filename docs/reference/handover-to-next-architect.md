@@ -59,25 +59,23 @@ HaluMem 收尾中，然后 B6 横向总验收，之后 method 侧才解冻。
 
 ## 4. 在途状态（每轮验收后更新本节）
 
-**B5 HaluMem 进度**（plan：`ws02.6/plan-b5-halumem.md`，全量基线
-**1054 passed**）：
+**B5 HaluMem：✅ 全部完成，`frozen-v1`（2026-07-11，全量基线
+**1058 passed**）**——五 benchmark 全冻。批次链：H1 `67eb1a2` →
+H2 `b89dedd` → H3 `9f77216` → H4 `5b4e358`（停工→合成指标裁决）→
+架构师直修 `20ee6b7`（update 空检索路由 parity bug）→ H5 `a55a3de`。
+冻结记录 `ws02.6/notes/halumem-frozen-v1.md`（known limitations
+六条）；survey 三卡已契约化；quirks 全实锚。
 
-| 批次 | 状态 | commit |
-|---|---|---|
-| H1 来源锁+剖面+三判定 | ✅ 已验收 | `67eb1a2` |
-| H2 固定形状 smoke+声明式 policy | ✅ 已验收 | `b89dedd` |
-| H3 运行时 prompt parity+answer 归一 | ✅ 已验收 | `9f77216` |
-| H4 三阶段 metric parity（最重批；一次停工已裁决：memory_type=合成指标走 `evaluate_run_artifacts` 钩子） | ✅ 已验收（验收直修 registry 清单测试） | `5b4e358` |
-| H5 三操作离线 e2e | 施工中：一次停工（空 update 检索路由）已裁决——extraction 侧误诊、update 侧真 parity bug 架构师直修（空检索跳过+skipped 计数，基线 1055），裁决块在卡末尾，actor 复工 | — |
-| 架构师冻结包 | 未开始（survey 三卡契约化 + halumem-frozen-v1.md + quirks 补锚 + 全量 + compileall） | — |
-
-**给继任者的 H5/冻结包提示**：H5 禁改生产代码，发现生产 bug = 停工
-是设计目的；自检命令必须包含 registry 清单测试（H4 教训——新 metric
-注册后 `-k halumem` 抓不到全量清单断言漂移）。冻结包照四个先例
-（`notes/*-frozen-v1.md` 的版式），known limitations 必须含：recall
-N/A（evidence 无 turn id）、与官方 MemOS/Supermemory 数字的 prompt
-偏差（canonical=MEMZERO）、judge 模型 gpt-4o-mini vs 论文、
-`is_generated_qa_session` 跳过语义、memory_type 共享分母口径。
+**你的第一件正事 = B6 横向总验收**（架构师亲自做 plan，工作项已全部
+立项在 ws02.6 README 断点区 2026-07-11 条目）：
+1. 论文指标覆盖两缺口：`longmemeval-ndcg@k`+`recall_all`（官方
+   eval_utils.py:12-29，artifact-only 可算）、membench 源文件维度
+   聚合（first/third × high/low 四格）；
+2. judge 配置双轨：longmemeval 官方/lightmem 可选 profile（先一手核
+   现状是哪套）；locomo 保持 lightmem（无官方 judge）；
+3. "匹配键=公开 id 空间"升跨 benchmark 通用契约写进 spec；
+4. 五套契约互不矛盾的横向复核（quirks 表逐行过）。
+B6 过后 method 侧解冻（M0；EverOS 替 cognee，排最后）。
 
 **H4 的关键裁决已由 Fable 5 做出（写在卡里，不要重新裁）**：
 recall = **N/A 声明为冻结限制**（evidence 无 turn id，官方无 retrieval
@@ -110,3 +108,5 @@ R0 真实校准（用户批预算；lightmem 校准实验见原则 #16）。
   同步完成。
 - 2026-07-11（第二次更新）：H4 已验收（`5b4e358`，基线 1054）；H5
   卡已开待派发；补"给继任者的 H5/冻结包提示"节。
+- 2026-07-11（第三次更新）：**B5 完成、HaluMem frozen-v1、五 benchmark
+  全冻（基线 1058）**；在途状态节改写为"第一件正事 = B6"。

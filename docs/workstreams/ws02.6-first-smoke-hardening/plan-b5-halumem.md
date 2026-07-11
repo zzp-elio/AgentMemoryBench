@@ -231,14 +231,18 @@ frozen-v1 → **B6 横向总验收**。
   测试过时非代码错误（原则 #5），根因是 H4 卡自检命令 `-k halumem`
   覆盖不到该文件（**教训入 H5 卡：自检必须加 registry 清单测试**）。
   定向 53 passed、全量 **1054 passed**（1046+8 自洽）。
-- 当前断点：**H5 施工中，一次停工已裁决 + 架构师直修生产 bug**
-  （2026-07-11）：actor 报"空 update 检索"生产缺口，核证后 extraction
-  侧误诊（`_update_memory_keys` 本有非空过滤）、**update 侧真 parity
-  bug**（空检索照常 judge 进分母 → 双计+分母虚增，违官方
-  evaluation.py:59-70）。直修：update evaluator 跳过空检索 +
-  `skipped_empty_retrieval_count` + 契约测试（probe record 经 runner
-  真实序列化）。全量基线 **1055 passed**（1054+1）。actor 按原卡
-  六项断言复工；H5 过后进入架构师冻结包。
+- **H5 架构师强验收通过（2026-07-11）**：commit `a55a3de`（4min）。
+  主链 e2e 断言与 H2 固定形状精确咬合（8 turn/4 session/7 update
+  probe/1 QA 运行时调用口径）、四 evaluator 全链含合成指标、privacy
+  三层、artifact-only 重跑一致、generated session 只 ingest；
+  SMOKE→FULL 既有测试修改 = 修正"smoke 下测 resume"概念错误（policy
+  smoke_enabled=False 本就矛盾）并补四断言。定向 57 / 全量 **1058
+  passed**（1055+3 自洽）+ compileall。
+- **B5 完成，HaluMem `frozen-v1`（2026-07-11）**：冻结记录
+  `notes/halumem-frozen-v1.md`（含 known limitations 六条）；survey
+  三卡契约化；quirks 换实锚；真实数据抽查含新事实（generated session
+  questions 键恒空——3,467 题全在普通 session，官方跳过零损失）。
+  本 plan 归档；后续入口 = ws02.6 README 断点区 + B6。
 - **交接包已建**（2026-07-11）：`docs/reference/
   handover-to-next-architect.md`（Fable 5 离任前每轮验收后更新）+
   playbook §9 快照刷新 + §9.5 交接安排更新 + memory 镜像审计全绿。

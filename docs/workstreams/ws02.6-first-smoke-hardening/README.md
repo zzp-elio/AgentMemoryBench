@@ -1,13 +1,26 @@
 ---
 id: ws02.6
 parent: ws02
-status: in-progress（LoCoMo、LongMemEval、MemBench、BEAM 已 frozen-v1；B5 HaluMem H1 已验收，H2 施工中）
+status: in-progress（五 benchmark 全部 frozen-v1：LoCoMo、LongMemEval、MemBench、BEAM、HaluMem；下一步 B6 横向总验收）
 created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（**HaluMem `frozen-v1`，B5 完成——五 benchmark 全冻**）：
+  H5 commit `a55a3de` 验收通过（三操作 e2e 六项断言全在案，SMOKE→FULL
+  的既有测试修改是修正"smoke 下测 resume"的概念错误并补 policy 四
+  断言）。B5 全程 H1-H5 五批 + 架构师直修一次（update 空检索路由
+  parity bug），四次停工全部停对（两次纠正架构师：H1 探针 bug、H4 卡
+  落点盲区；一次半对：H5 extraction 误诊/update 真 bug）。冻结门：
+  **1058 passed** + compileall + 真实数据抽查（含新事实：generated
+  session questions 键恒空、无 memory_points——虚惊核证 3,467 题全在
+  普通 session）+ e2e privacy CLEAN + 零真实 API。冻结记录
+  [halumem-frozen-v1.md](notes/halumem-frozen-v1.md)；survey 三卡已
+  契约化；quirks 全部换实锚。**下一步 = B6 横向总验收**（已立项：
+  论文指标两缺口、judge 双轨、"匹配键=公开 id 空间"升通用契约；见
+  spec B6 与本断点区 2026-07-11 立项条目）。
 - 2026-07-11（H5 停工 → **架构师已裁决 + 直修生产 bug，actor 复工**）：
   三条引证一手核证后**半数成立**——extraction 论断误诊
   （`_update_memory_keys` 本有非空过滤，halumem_extraction.py:350-360，
