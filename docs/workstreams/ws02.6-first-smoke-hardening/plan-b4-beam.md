@@ -236,5 +236,14 @@ frozen-v1，才写 B5 plan。
   说明一处语义：smoke 数据集带全部 20 题，实际只答 1 题由 runner 的
   smoke 默认预算（question_limit_per_conversation=1）保证——E5 断言。
   定向 171 passed（含架构师此前验收测试合流），**全量 1007 passed**。
-- **E3 已开卡**：[actor-prompt-e3.md](actor-prompt-e3.md)。E4 等 E3 验收。
-- 全量基线：1000（B3 冻结门）→ E1 后 1002 → E2 后 **1007**。
+- 2026-07-11（**E3 验收通过，零架构师修正**，actor=codex+GPT-5.6，commit
+  `08a1299`）：模板与官方 `answer_generation_for_rag` 架构师独立程序化
+  比对**逐字一致**；settings 注释教科书级——temperature=0 有官方一手出处
+  （`answer_generation.py:303-307` 显式传 0，架构师逐行核实）、
+  role=user 依据 `long_term_memory_methods.py:639`（字符串 prompt =
+  human message）、max_tokens/top_p API 默认并明写"框架决定，不冒充
+  官方值"（D3 教训完全内化）；无 prediction transform 断言到位。
+  定向 126 passed 复现，**全量 1017 passed**。
+- **E4 已开卡**：[actor-prompt-e4.md](actor-prompt-e4.md)（B4 最重批：
+  rubric judge 10 类 parity + event_ordering τ×F1 + conditional recall）。
+- 全量基线：1000（B3 冻结门）→ 1002 → 1007 → E3 后 **1017**。
