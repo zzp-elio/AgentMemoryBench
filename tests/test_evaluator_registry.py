@@ -9,6 +9,7 @@ from memory_benchmark.evaluators.f1 import F1Evaluator
 from memory_benchmark.evaluators.beam_rubric_judge import (
     BeamRubricJudgeEvaluator,
 )
+from memory_benchmark.evaluators.beam_recall import BeamRetrievalRecallEvaluator
 from memory_benchmark.evaluators.longmemeval_judge import (
     LongMemEvalJudgeEvaluator,
 )
@@ -40,6 +41,7 @@ def test_registry_lists_only_currently_supported_unified_metrics() -> None:
     """统一入口应列出当前已装配的 LoCoMo 与 LongMemEval 指标。"""
 
     assert list_metrics() == [
+        "beam-recall",
         "beam-rubric-judge",
         "f1",
         "halumem-extraction",
@@ -294,3 +296,14 @@ def test_beam_rubric_judge_registration_requires_api_and_beam_only() -> None:
             benchmark_name="locomo",
             profile_name="compact",
         )
+
+
+def test_beam_recall_registration_is_offline_and_beam_only() -> None:
+    """BEAM recall 应为仅支持 beam 的离线补充指标。"""
+
+    registration = get_evaluator_registration("beam-recall")
+    assert registration.metric_name == "beam_recall"
+    assert registration.supported_benchmarks == frozenset({"beam"})
+    assert registration.requires_api is False
+    evaluator = create_evaluator("beam-recall", benchmark_name="beam")
+    assert isinstance(evaluator, BeamRetrievalRecallEvaluator)

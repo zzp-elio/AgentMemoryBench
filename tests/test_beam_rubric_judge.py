@@ -1,12 +1,8 @@
-"""测试 BEAM rubric-nugget LLM judge evaluator。
-
-关键测试：**float 0.5 不被 int() 截断**（回归官方 compute_metrics.py bug）、
-rubric 逐条聚合、ability breakdown、event_ordering v1 仅 rubric 路径。
-全部测试用 fake judge client，不调真实 API。
-"""
+"""测试 BEAM rubric judge 与 event-ordering 官方有效路径。"""
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from typing import Any
@@ -15,6 +11,7 @@ import pytest
 
 from memory_benchmark.evaluators.beam_rubric_judge import (
     BEAM_ABILITY_KEYS,
+    BEAM_EQUIVALENCE_MESSAGES,
     BEAM_JUDGE_PROMPT,
     BeamRubricJudgeEvaluator,
     _build_evaluation_payload,
@@ -46,12 +43,22 @@ class _FakeBeamJudgeClient:
         self.score = score
         self.reason = reason
         self.calls: list[str] = []
+        self.equivalence_calls: list[list[dict[str, str]]] = []
 
     def judge_json(self, prompt: str) -> dict[str, Any]:
         """记录调用并返回固定分数。"""
 
         self.calls.append(prompt)
         return {"score": self.score, "reason": self.reason}
+
+    def judge_equivalence(self, messages: list[dict[str, str]]) -> str:
+        """当两段文本逐字一致时返回 YES。"""
+
+        self.equivalence_calls.append(messages)
+        content = messages[1]["content"]
+        first, second = content.split("Second snippet:", 1)
+        first = first.split("First snippet:", 1)[1].strip()
+        return "YES" if first == second.strip() else "NO"
 
 
 class _MixedFakeClient:
@@ -207,6 +214,7 @@ def test_score_0_5_is_preserved_not_truncated_to_0() -> None:
         f"Using float() not int() for judge scores."
     )
     assert record["score"] != 0.0, "0.5 must NOT be truncated to 0 (official int() bug)"
+    assert record["llm_judge_score_official_int"] == 0.0
 
 
 def test_score_mixture_preserves_float_precision() -> None:
@@ -310,19 +318,19 @@ def test_ability_breakdown_handles_missing_abilities() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_event_ordering_v1_uses_rubric_judge_only() -> None:
-    """event_ordering v1 仅走 rubric judge 路径，不涉及 kendall-tau 排序分。"""
+def test_event_ordering_uses_newline_split_llm_alignment_and_composite() -> None:
+    """event ordering 应走换行切分、LLM 贪心判等与 tau x F1。"""
 
     evaluator = BeamRubricJudgeEvaluator(
         mode="compact",
         client=_FakeBeamJudgeClient(score=1.0),
     )
 
-    rubric = ["event A before event B", "event C after event D"]
+    rubric = ["event A", "event B"]
     score_records = _run_mini_evaluation(
         evaluator,
         rubric=rubric,
-        answer="events ordered correctly",
+        answer="event A\nevent B",
         ability="event_ordering",
     )
 
@@ -330,10 +338,11 @@ def test_event_ordering_v1_uses_rubric_judge_only() -> None:
     assert record["ability"] == "event_ordering"
     assert record["score"] == pytest.approx(1.0)
     assert len(record["item_scores"]) == 2
-    # 确认只有 rubric judge 逻辑，没有 kendall-tau
-    for item_score in record["item_scores"]:
-        assert "score" in item_score
-        assert "reason" in item_score
+    assert record["details"]["event_ordering_f1"] == 1.0
+    assert record["details"]["event_ordering_tau_norm"] == 1.0
+    assert record["details"]["event_ordering_composite_score"] == 1.0
+    assert record["details"]["prediction_split"] == "llm_response.split('\\n')"
+    assert len(evaluator.client.equivalence_calls) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -353,21 +362,52 @@ def test_judge_prompt_contains_required_sections() -> None:
     assert "<llm_response>" in BEAM_JUDGE_PROMPT
 
 
+def test_judge_prompt_matches_official_runtime_literal_exactly() -> None:
+    """运行时读官方源码，逐字比对 unified judge prompt。"""
+
+    source = Path("third_party/benchmarks/BEAM/src/prompts.py").read_text(
+        encoding="utf-8"
+    )
+    module = ast.parse(source)
+    assignment = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "unified_llm_judge_base_prompt"
+            for target in node.targets
+        )
+    )
+    assert ast.literal_eval(assignment.value) == BEAM_JUDGE_PROMPT
+
+
+def test_equivalence_prompt_matches_official_literals_and_roles() -> None:
+    """判等 prompt 保留官方 system/user role 与原文 typo。"""
+
+    assert [message["role"] for message in BEAM_EQUIVALENCE_MESSAGES] == [
+        "system",
+        "user",
+    ]
+    assert "DO NOT provide any exaplanation." in BEAM_EQUIVALENCE_MESSAGES[0]["content"]
+    official = Path(
+        "third_party/benchmarks/BEAM/src/evaluation/compute_metrics.py"
+    ).read_text(encoding="utf-8")
+    assert BEAM_EQUIVALENCE_MESSAGES[0]["content"] in official
+
+
 def test_judge_prompt_substitution() -> None:
-    """placeholders 正确替换为实际值。"""
+    """官方有效路径只替换 rubric/response，保留 question placeholder。"""
 
     prompt = BEAM_JUDGE_PROMPT.replace(
-        "<question>", "What did I do?"
-    ).replace(
         "<rubric_item>", "Answer mentions coding"
     ).replace(
         "<llm_response>", "You wrote code."
     )
 
-    assert "What did I do?" in prompt
     assert "Answer mentions coding" in prompt
     assert "You wrote code." in prompt
-    assert "<question>" not in prompt
+    assert "<question>" in prompt
     assert "<rubric_item>" not in prompt
     assert "<llm_response>" not in prompt
 

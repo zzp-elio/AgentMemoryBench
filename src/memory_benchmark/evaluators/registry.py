@@ -16,6 +16,7 @@ from memory_benchmark.config.profiles import load_typed_profile
 from memory_benchmark.core import ConfigurationError
 
 from .beam_rubric_judge import BeamRubricJudgeEvaluator
+from .beam_recall import BeamRetrievalRecallEvaluator
 from .f1 import F1Evaluator
 from .halumem_extraction import HalumemExtractionEvaluator
 from .halumem_qa import HalumemQAEvaluator
@@ -75,6 +76,12 @@ def _build_beam_rubric_judge(
         project_root=project_root,
         env_file=env_file,
     )
+
+
+def _build_beam_recall(**_: Any) -> BeamRetrievalRecallEvaluator:
+    """构造无外部依赖的 BEAM retrieval recall evaluator。"""
+
+    return BeamRetrievalRecallEvaluator()
 
 
 def _build_locomo_f1(**_: Any) -> LoCoMoF1Evaluator:
@@ -209,6 +216,16 @@ def _build_halumem_qa(
 
 
 _REGISTRATIONS = {
+    "beam-recall": EvaluatorRegistration(
+        cli_name="beam-recall",
+        metric_name="beam_recall",
+        supported_benchmarks=frozenset({"beam"}),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_beam_recall,
+    ),
     "beam-rubric-judge": EvaluatorRegistration(
         cli_name="beam-rubric-judge",
         metric_name="beam_rubric_judge",
