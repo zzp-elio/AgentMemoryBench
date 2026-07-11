@@ -8,6 +8,15 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（H1 Q3 停工 → **架构师已裁决**，actor=codex+GPT-5.6）：官方
+  五脚本 QA prompt 异构，实际语义两族——严格记忆族 3/5（MEMZERO×2+ZEP）
+  vs 宽松族 2/5（MEMOS 允许 world knowledge，`prompts.py:89`）；架构师
+  另实锤 `PROMPT_MEMOBASE` 是**死代码**（memobase 脚本 import MEMZERO，
+  跨 benchmark 第三个死代码案例）。**裁决：canonical = PROMPT_MEMZERO
+  逐字**——多数派语义 + 幻觉评测主旨（只依据记忆是幻觉可判定的前提，
+  world knowledge 放宽与测量目标自相矛盾）+ 公平性；与官方 MemOS/
+  Supermemory 数字的 prompt 偏差进冻结声明。裁决全文见
+  [actor-prompt-h1.md](actor-prompt-h1.md) 末尾，actor 复工。
 - 2026-07-11（**BEAM `frozen-v1`，B4 完成**）：E1-E5 五批（codex+GPT-5.6
   ×4、cc+MiniMax M3 ×1）+ 架构师逐批强验收；三次停工全部停对（Q2 反例、
   预埋断点、E4 卡口径错——那次纠正的是架构师）。B4 战果：10M 异构 variant

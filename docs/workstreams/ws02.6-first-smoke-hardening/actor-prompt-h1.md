@@ -77,3 +77,39 @@ uv run pytest -q tests/ -k halumem
 （各一句 + 证据行号）**、论文指标清单的覆盖/缺口统计（几项已覆盖/几项
 缺）、是否存在 plan 偏差/停工点。遇到 plan 未覆盖的情况立即停工写断点，
 交回架构师裁决，不要自行发挥。
+
+---
+
+## 架构师裁决（2026-07-11，回应 Q3 停工；按此复工完成 H1）
+
+停工正确，五路调用点引证架构师逐条复核为真，另补一个你没点破的事实：
+**`PROMPT_MEMOBASE` 常量是死代码**（`eval_memobase.py:24` import 的是
+`PROMPT_MEMZERO`）——跨 benchmark 第三个死代码案例（前两个：MemBench
+INSTRUCTION_THIRD、BEAM extract_facts/嵌入路径）。
+
+**实际语义分组**（按调用点，非按常量数）：
+
+- **严格记忆族**（3/5 脚本）：MEMZERO（memzero+memobase 共用）+ ZEP
+  （仅"two speakers"措辞与 Context 标签差，语义同族）——只依据记忆作答；
+- **宽松族**（2/5 脚本）：MEMOS（memos+supermemory 共用）——第 4 条
+  **允许 general world knowledge 补全**（`prompts.py:89,100`），这是
+  唯一的实质语义分歧。
+
+**裁决：unified canonical = `PROMPT_MEMZERO` 逐字。** 三条理由：
+
+1. **多数派语义**：严格族覆盖 3/5 调用点，MEMZERO 是其中被两个脚本
+   共用的本体；
+2. **benchmark 主旨一致性（决定性）**：HaluMem 评的是**幻觉**——"只依据
+   记忆作答"是幻觉可判定的前提；允许 world knowledge 会让"参数知识补全"
+   与"幻觉"边界失明，与论文测量目标自相矛盾（MEMOS 版的放宽本身就是
+   官方评测的公平性弱点）；
+3. **公平性**：reader 是框架统一的 gpt-4o-mini，宽松 prompt 只会注入
+   与记忆质量无关的语义噪声。
+
+**偏差声明（进冻结 known limitations）**：官方按 method 微调 QA prompt；
+本框架统一用 MEMZERO 语义——与官方 MemOS/Supermemory 数字对比时存在
+prompt 偏差，须声明。PROMPT_MEMOBASE 死代码作 quirk 留档。
+
+**复工范围**：按原五件事完成 H1；Q3 结论按本裁决落 audit（含死代码
+事实与调用点表）；现有 `build_halumem_unified_answer_prompt` 与 MEMZERO
+的逐字差异照原卡"只判定不修改"记录，修改归 H3。
