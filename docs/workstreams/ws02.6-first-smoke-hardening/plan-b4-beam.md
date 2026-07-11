@@ -244,6 +244,20 @@ frozen-v1，才写 B5 plan。
   human message）、max_tokens/top_p API 默认并明写"框架决定，不冒充
   官方值"（D3 教训完全内化）；无 prediction transform 断言到位。
   定向 126 passed 复现，**全量 1017 passed**。
-- **E4 已开卡**：[actor-prompt-e4.md](actor-prompt-e4.md)（B4 最重批：
-  rubric judge 10 类 parity + event_ordering τ×F1 + conditional recall）。
-- 全量基线：1000（B3 冻结门）→ 1002 → 1007 → E3 后 **1017**。
+- 2026-07-11（E4 停工 → 架构师裁决）：卡口径是架构师错（签名默认值 ≠
+  实际调用点）。架构师核完全部辅助函数调用链：**官方有效评测面 = 9 类
+  纯 rubric judge + event_ordering 的 judge+τ×F1（LLM alignment）；
+  嵌入/BLEU/ROUGE/fact-level 全为分发链外死代码**。裁决四条 + 方法论
+  规矩（parity 审计核实际调用点，第二次被证明）见 E4 卡末尾。
+- 2026-07-11（**E4 验收通过，零架构师修正**，actor=codex+GPT-5.6，commit
+  `772602d`）：judge prompt 架构师独立比对**逐字一致**；equivalence
+  prompt 带 system/user role 复刻 + 贪心 1-1 对位官方 `:136-160`；
+  event_ordering 有效行为（split+LLM align+τ×F1）断言到位；int/float
+  双轨落地（主分 float + `llm_judge_score_official_int` 对照，注释带
+  官方截断行号 357/385/454/483/512/541）；recall 条件契约 + session
+  粒度显式报错（不静默评分——BEAM gold 为 turn 级官方字段，session 级
+  可由 `sN` 前缀派生但暂不实现，记冻结已知限制）；负空间 10 条真实。
+  定向 59 passed 复现，**全量 1026 passed**。
+- **E5 已开卡**：[actor-prompt-e5.md](actor-prompt-e5.md)，最后一个
+  actor 批次；之后架构师做最终冻结。
+- 全量基线：1000（B3 冻结门）→ 1002 → 1007 → 1017 → E4 后 **1026**。
