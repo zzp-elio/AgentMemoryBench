@@ -20,6 +20,17 @@ created: 2026-07-09
   [plan-b3-membench.md](plan-b3-membench.md)。已知偏差两条（官方
   json_schema 结构化输出、answer 参数不可考）见冻结记录 §7。当前没有
   开放 actor 卡；下一步 B4 BEAM 由架构师先写 plan 再经用户确认派工。
+- 2026-07-11（B4 plan 就绪 + E1 开卡）：[plan-b4-beam.md](plan-b4-beam.md)
+  基于当日一手取证起草。核心事实：用户先验核实为真——100K/500K/1M 同构
+  （20/35/35 conv），**10M 异构**（10 conv，各带 plans×10 每 plan 独立
+  chat）且 **10M variant 未注册**（B4 最大新增项）；10 类问题 × 每类
+  2 题 × 100 conv = 2,000 题对上论文；每题 rubric + source_chat_ids
+  evidence + 按类异构 gold 字段；turn/user_questions 均带 time_anchor；
+  `probing_questions` 须 ast.literal_eval；官方 metric = rubric LLM
+  judge 浮点分 + event_ordering 的 Kendall τ×F1（嵌入阈值 0.65）；现有
+  beam_rubric_judge 自述"修正官方 int 截断 bug"的主动偏差待 E4 核证。
+  用户拍板：变体全接纳、smoke 覆盖 100k+10m、每类指标分开报。E1 卡含
+  两个强制判定（10M 消费方式、evidence id 空间）。
 
 - 2026-07-11（D5 停工 → **架构师已裁决并直修**）：actor（cc+MiniMax M3）
   在 D5 T0 对照真实生产 artifact，发现 D4 `membench-recall` 读
