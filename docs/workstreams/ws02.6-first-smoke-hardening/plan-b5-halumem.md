@@ -73,19 +73,35 @@ operation-level runner 的交错语义**（官方 `eval_memzero.py:148-256` 已
 - 缺：source lock、剖面、声明式 smoke/resume policy、论文指标覆盖清单、
   三操作路径覆盖 e2e。
 
-### 2.4 运行时路径清单与 smoke 口径（用户拍板 2026-07-11）
+### 2.4 运行时路径清单与 smoke 口径 v2（用户二次拍板 2026-07-11）
 
 运行时路径：① session ingest+提取探针；② 更新探针；③ QA 问答
 （+operation-level runner 本身的 scope 机制）。
 
-**标准 smoke = 首 conversation 的最小 session 前缀，使三操作各 ≥1 次**
-（更新操作按官方语义 `is_update=="True"` 且 original_memories 非空）；
-**【勘误 2026-07-11】正确语义下 Medium 前缀分布 = 4×18/2×1/5×1**（首
-conversation 前缀=4，架构师此前"19/20 前缀=1"是 truthy 探针 bug 的产物），
-规则确定性兜底数据变化——smoke 规模仍极小（≈4 个 session）。**不伪造探针**（伪造走自控形状，
-恰好绕开真实数据怪癖——B 线全部 bug 都藏在怪癖里）。session 内部不裁
-turn（用户既定：不裁也能跑通提取，smoke 只看跑通）；QA 由 runner smoke
-预算裁 1 题。smoke 禁 resume；formal 为 conversation 级。
+**标准 smoke = 首 conversation 的固定极小切片，零 CLI 旋钮**：
+
+- session 前缀 = 三操作最小前缀（提取/更新[`is_update=="True"` 且
+  original_memories 非空]/QA 各 ≥1；Medium 20 user 分布 4×18/2/5，
+  首 conversation 前缀 = 4）；
+- **每个保留 session 的 dialogue 只留前 2 turn（首个 user 锚定 round）**
+  ——【v2 变更】用户二次拍板推翻此前"session 内不裁 turn"的旧口径：
+  smoke 必须足够小，ingest 的 method 侧 LLM 调用是成本大头
+  （首 conv 前 4 session 不裁 = 112 turn，裁后 = 8 turn）；
+- gold memory_points/questions 结构不裁（评测面完整，judge 用 mini
+  成本可忽略——架构师权衡），QA 全 smoke 只留 1 题；
+- **HaluMem smoke 不接受任何 CLI 裁剪参数**（operation-level 交错评测
+  下"每 conversation 题数"等通用旋钮语义不通，一律 fail-fast——用户
+  拍板标准化）；
+- **smoke 验收口径 = 三操作运行时调用各 ≥1 次，不是聚合桶非空**
+  （裁剪后更新检索可能返回空 → 官方语义把该 point 路由回 integrity
+  → update 聚合桶可为空、官方公式 0 分母——这是 smoke 应暴露的
+  evaluator 边界，H4 处理优雅性）。
+
+**不伪造探针**（伪造走自控形状，恰好绕开真实数据怪癖——B 线全部 bug
+都藏在怪癖里）；裁剪 = 取真实子集，不是伪造。天然礼物：首 conversation
+的 s3（第 4 个 session）恰好缺 questions 键且含 7 个更新探针，smoke
+免费覆盖"缺键健壮读取"第四条路径。smoke 禁 resume；formal 为
+conversation 级。
 
 ## 3. 施工批次
 
@@ -179,5 +195,13 @@ frozen-v1 → **B6 横向总验收**。
   （evaluation.py:51-52）**，Long 的 1,030 个生成 session 只 ingest
   不评测——已登记 quirks，H2/H5 须落测试锚。actor（codex+GPT-5.6）
   本批零缺陷交付。
-- 当前断点：**H2 卡已开**（`actor-prompt-h2.md`），待 actor 施工。
+- 当前断点：**H2 卡已开且升级 v2**（`actor-prompt-h2.md`）——用户
+  二次拍板 smoke 改固定形状硬裁剪（前缀 4 session × 每 session 2 turn
+  × QA 1 题，零 CLI 旋钮 fail-fast），架构师取证确认首 conversation
+  s3 天然缺 questions 键 + 首个更新探针 session，四路径免费全覆盖。
+  待 actor 施工。
+- 用户同日新指令（立项去向）：judge 配置双轨（longmemeval 官方/
+  lightmem 可选 + lightmem 校准实验计划）→ 本 README 断点区立项，
+  B6 展开；evaluator 通用化 + prompt 存放 + 遗留清理 → ws03 扩充；
+  method 名单 cognee→EverOS → ws02 方法侧计划。
 - 全量基线：**1025 passed**。

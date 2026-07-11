@@ -8,6 +8,26 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（**H2 卡升级 v2 + 用户四项新指令立项**）：用户二次拍板
+  推翻"session 内不裁 turn"旧口径——HaluMem smoke 改**固定形状硬裁剪**
+  （首 conv 前缀 4 session × 每 session 前 2 turn × QA 1 题，零 CLI
+  旋钮 fail-fast；operation-level 交错评测下通用裁剪旋钮语义不通）。
+  架构师取证：首 conv s3 天然缺 questions 键 + 首个更新探针 session
+  （7 probes），四路径免费全覆盖；smoke 验收口径 = 运行时三操作调用
+  ≥1（非聚合桶非空——裁剪后 update 检索空会被官方语义路由回
+  integrity，0 分母是 H4 要处理的 evaluator 边界）。**四项立项**：
+  ① judge 配置双轨：longmemeval 增加官方/lightmem 可选 judge profile
+  （locomo 无官方 judge、保持 lightmem 不动；membench/beam/halumem
+  为官方 parity）+ **lightmem 校准实验计划**（全量前用 lightmem 的
+  judge+answer 配置复跑 locomo/longmemeval，对齐其论文中 A-mem/
+  MemoryOS/Mem0 数字以校准框架，再换统一公平配置）——B6 展开，
+  longmemeval judge 现状（是否还是 lightmem 配置）B6 一手核；
+  ② evaluator 通用化（recall 骨架/judge 调用壳）+ per-benchmark 指标
+  归目录 + prompt 统一存放 + 遗留盘点 → 已扩充进 ws03（铁律：重构
+  只在 B6 行为冻结后动手）；③ 长期健壮性排查（wall-clock 泄漏 +
+  judge/answer 模型指纹）→ ws03；④ method 名单变更：**去 cognee、
+  加 EverOS**（`third_party/methods/EverOS` 已 vendored，上游活跃，
+  排 method 接入序列最后）。
 - 2026-07-11（**H1 架构师强验收通过** → H2 卡已开）：commit `67eb1a2`
   五项验收全过——lock 一手复核（仅 title 用了 README h1 副标题，架构师
   已修加 title_note）、audit 全部数字独立复算一致（两 variant 各 3,467
