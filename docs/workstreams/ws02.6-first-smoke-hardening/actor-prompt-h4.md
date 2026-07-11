@@ -85,3 +85,44 @@ uv run pytest -q tests/ -k halumem
 修正前后长度对照、聚合复审逐项结论（一致/已修正）、0 分母与负空间
 测试函数名清单、是否存在 plan 偏差/停工点。遇到 plan 未覆盖的情况
 立即停工写断点，交回架构师裁决，不要自行发挥。
+
+---
+
+## 架构师裁决（2026-07-11，回应 memory_type 共享分母停工；按此复工）
+
+停工正确：三个候选项否决理由全部成立（评测顺序不是契约、重复 judge
+双倍成本且 LLM 非确定性会让同 run 两处判定不一致、半分母违官方
+parity）。但存在第四条路，且是既有机制：
+
+**裁决：`memory_type_accuracy` = 合成指标 `halumem-memory-type`，走
+既有 `evaluate_run_artifacts` artifact-level 钩子（该钩子已有 8 个
+evaluator 使用，runners/evaluation.py:86-96 分发），零 judge 调用。**
+
+实现要点：
+
+1. 新注册 `halumem-memory-type`（`requires_api=False`——纯 artifact
+   算术）；`evaluate_run_artifacts` 读同一 run 的
+   `answer_scores.halumem_extraction.jsonl` +
+   `answer_scores.halumem_update.jsonl`（路径经 `ExperimentPaths`
+   的 metric scores 约定 experiment_paths.py:204，不硬编码）。
+2. **文件级依赖，不是执行顺序依赖**：用户可任意顺序跑各 metric；
+   合成指标在任一上游 artifact 缺失时 `ConfigurationError`，错误信息
+   明示"须先运行 halumem-extraction 与 halumem-update"（fail-fast，
+   不静默 N/A）。
+3. 公式官方原样（evaluation.py:364-383）：per memory_type 共享
+   `total_num`（= 该 type 的 integrity 记录数 + update 记录数）、
+   `memory_integrity_acc` 与 `memory_update_acc` 同除该分母、
+   `memory_acc` = 两者之和（语义 = 该 type 综合记忆准确率的两阶段
+   贡献分解，≤1）。0 分母按裁决 3（None+计数）。
+4. 上游 per-record 字段：extraction scores 已带 `memory_type`
+   （halumem_extraction.py:167）；update scores 若缺该字段则在
+   update evaluator 补上（**只加字段，不改判定逻辑**）。
+5. 既有的阶段内 per-type breakdown（分母=各自阶段记录数）**保留
+   不动**——它与官方共享分母是两个不同口径，都报，summary 里语义
+   标注清楚（阶段内 vs 官方共享分母）。
+6. 契约测试 fixture 铁律加强版：两份上游 scores artifact 必须由
+   真实 extraction/update evaluator（fake judge）跑出后落盘生成，
+   **不许手写 jsonl**（D4/D5 假绿判例的直接适用）。
+
+复工范围：按本裁决完成第 3 件事的 memory_type 部分；其余四件事
+不受影响照原卡执行。

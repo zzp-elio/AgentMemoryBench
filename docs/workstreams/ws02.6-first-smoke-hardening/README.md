@@ -8,6 +8,33 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（H4 停工 → **架构师已裁决，actor 复工**）：actor 三个
+  候选项的否决理由全部成立（顺序依赖非契约/重复 judge 且 LLM 非
+  确定性/半分母违 parity），但存在第四条路且是**既有机制**：
+  `memory_type_accuracy` = 合成指标 `halumem-memory-type`，走
+  `evaluate_run_artifacts` artifact-level 钩子（已有 8 个 evaluator
+  使用，runners/evaluation.py:86-96），读同 run 两份上游 scores
+  artifact，零 judge 调用，`requires_api=False`；文件级依赖 fail-fast
+  （非执行顺序依赖）；上游 fixture 必须由真实 evaluator+fake judge
+  跑出落盘，不许手写 jsonl。裁决全文见
+  [actor-prompt-h4.md](actor-prompt-h4.md) 末尾。
+- 2026-07-11（codex+GPT-5.6，停工）：在 H4 的
+  `memory_type_accuracy` 官方共享分母落点遇到 plan 未覆盖的
+  evaluator 边界；H1-H3 已完成并 commit，H4 未改产品代码、未运行
+  测试。证据：官方 `eval/evaluation.py:364-383` 在同一次聚合中将
+  integrity 与 update 记录累加到同一 `total_num`，再同时计算
+  `memory_integrity_acc` / `memory_update_acc` / `memory_acc`；框架将两阶段
+  注册为独立 `halumem-extraction` 与 `halumem-update`
+  （`src/memory_benchmark/evaluators/registry.py:239-260`），
+  `run_artifact_evaluation` 每次只运行一个 evaluator 并立即写该 metric
+  自己的 score/summary（`src/memory_benchmark/runners/evaluation.py:56-96,233-271`），
+  无跨 metric 聚合阶段。现有 extraction 还会将有检索结果的 update
+  point 互斥路由移出 integrity（`halumem_extraction.py:106-117`），update
+  记录只在另一 evaluator 中产生（`halumem_update.py:61-100`）。若强行落到
+  任一现有 evaluator，只能三选一：依赖评测顺序读另一 metric
+  artifact、重复调用另一阶段 judge，或输出非官方半分母。等待架构师
+  裁定共享维度应归属新的组合 evaluator/后处理阶段，还是允许某个
+  现有 evaluator 重放另一阶段。
 - 2026-07-11（**H3 架构师强验收通过 → H4 卡已开 + 交接包创建**）：
   H3 commit `9f77216`，运行时 parity 测试（AST 逐字+原样性断言）与
   answer 归一（官方无硬编码采样参数 → API 默认如实标注，全部行号

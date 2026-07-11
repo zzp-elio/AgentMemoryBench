@@ -67,7 +67,7 @@ HaluMem 收尾中，然后 B6 横向总验收，之后 method 侧才解冻。
 | H1 来源锁+剖面+三判定 | ✅ 已验收 | `67eb1a2` |
 | H2 固定形状 smoke+声明式 policy | ✅ 已验收 | `b89dedd` |
 | H3 运行时 prompt parity+answer 归一 | ✅ 已验收 | `9f77216` |
-| H4 三阶段 metric parity（最重批） | 卡已开 `actor-prompt-h4.md`，待派发 | — |
+| H4 三阶段 metric parity（最重批） | 施工中：一次停工（memory_type 共享分母落点）已裁决复工——合成指标走既有 `evaluate_run_artifacts` 钩子，裁决块在卡末尾 | — |
 | H5 三操作离线 e2e | 未开卡 | — |
 | 架构师冻结包 | 未开始 | — |
 
