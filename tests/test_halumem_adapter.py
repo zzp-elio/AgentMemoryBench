@@ -6,6 +6,7 @@ operation-level runner，也不调用真实 API。
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -162,6 +163,20 @@ def test_synthetic_user_maps_user_sessions_turns_questions_and_private_gold(
 
     assert dataset.dataset_name == "halumem"
     assert dataset.metadata["variant"] == "medium"
+    assert dataset.metadata["source_sha256"] == hashlib.sha256(
+        source.read_bytes()
+    ).hexdigest()
+    assert dataset.metadata["source_size_bytes"] == source.stat().st_size
+    assert dataset.metadata["loaded_conversation_count"] == 1
+    assert dataset.metadata["loaded_session_count"] == 3
+    assert dataset.metadata["loaded_turn_count"] == 4
+    assert dataset.metadata["loaded_question_count"] == 2
+    assert dataset.metadata["official_repo_url"] == "https://github.com/MemTensor/HaluMem"
+    assert dataset.metadata["official_paper_url"] == "https://arxiv.org/abs/2511.03506"
+    assert dataset.metadata["official_dataset_url"] == (
+        "https://huggingface.co/datasets/IAAR-Shanghai/HaluMem"
+    )
+    assert dataset.metadata["license"] == "CC-BY-NC-ND-4.0"
     assert conversation.conversation_id == "user-1"
     assert first_session.session_id == "s1"
     assert first_session.session_time == "2025-09-04T18:42:18+00:00"

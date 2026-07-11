@@ -1,0 +1,39 @@
+{
+  "audit_date": "2026-07-11",
+  "official_repository": {
+    "url": "https://github.com/MemTensor/HaluMem",
+    "source": "third_party/benchmarks/HaluMem-main/README.md:8-9（issues URL 的 repository root）"
+  },
+  "paper": {
+    "title": "HaluMem: A Comprehensive Benchmark for Evaluating Hallucinations in Memory Systems",
+    "arxiv_id": "2511.03506",
+    "url": "https://arxiv.org/abs/2511.03506",
+    "source": "third_party/benchmarks/HaluMem-main/README.md:11-12,972-979"
+  },
+  "dataset": {
+    "url": "https://huggingface.co/datasets/IAAR-Shanghai/HaluMem",
+    "source": "third_party/benchmarks/HaluMem-main/README.md:14-15,785"
+  },
+  "license": {
+    "spdx": "CC-BY-NC-ND-4.0",
+    "url": "https://spdx.org/licenses/CC-BY-NC-ND-4.0.html",
+    "source": "third_party/benchmarks/HaluMem-main/README.md:5-6",
+    "note": "本地快照无独立 LICENSE 文件；许可仅按 README badge 锁定。"
+  },
+  "local_snapshot_commit": {
+    "commit": null,
+    "status": "来源待溯",
+    "reason": "third_party/benchmarks/HaluMem-main/ 不含 .git；git -C 会向上命中主项目，不能冒充第三方快照 commit。"
+  },
+  "data_files": {
+    "data/halumem/HaluMem-Medium.jsonl": {
+      "size_bytes": 33511525,
+      "sha256": "486fbc130a5c8781a2af27ffa508a1d7855245137aa449c193ac4d29c45634e7"
+    },
+    "data/halumem/HaluMem-Long.jsonl": {
+      "size_bytes": 106535674,
+      "sha256": "dfdbed570b402b7b8c17e0d7808fc6f3ae7a53b6144f18feb16bbdd3f55cb0c9"
+    }
+  },
+  "reproduction": "shasum -a 256 data/halumem/HaluMem-{Medium,Long}.jsonl && wc -c data/halumem/HaluMem-{Medium,Long}.jsonl"
+}

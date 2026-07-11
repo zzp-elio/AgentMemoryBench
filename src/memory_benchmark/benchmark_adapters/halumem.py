@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,10 @@ HALUMEM_VARIANT_SPECS = (
     ),
 )
 HALUMEM_VARIANT_BY_NAME = {spec.name: spec for spec in HALUMEM_VARIANT_SPECS}
+HALUMEM_OFFICIAL_REPO_URL = "https://github.com/MemTensor/HaluMem"
+HALUMEM_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2511.03506"
+HALUMEM_OFFICIAL_DATASET_URL = "https://huggingface.co/datasets/IAAR-Shanghai/HaluMem"
+HALUMEM_LICENSE = "CC-BY-NC-ND-4.0"
 HALUMEM_MEMZERO_PROMPT_PROFILE = "halumem_memzero_v1"
 HALUMEM_MEMZERO_OFFICIAL_SOURCE = (
     "third_party/benchmarks/HaluMem-main/eval/prompts.py:1-40"
@@ -160,6 +165,24 @@ class HaluMemAdapter(BenchmarkAdapter):
                     source_fully_scanned = False
                     break
 
+        source_digest = hashlib.sha256()
+        source_size_bytes = 0
+        with source_path.open("rb") as source_file:
+            while chunk := source_file.read(1024 * 1024):
+                source_digest.update(chunk)
+                source_size_bytes += len(chunk)
+
+        loaded_session_count = sum(
+            len(conversation.sessions) for conversation in conversations
+        )
+        loaded_turn_count = sum(
+            len(session.turns)
+            for conversation in conversations
+            for session in conversation.sessions
+        )
+        loaded_question_count = sum(
+            len(conversation.questions) for conversation in conversations
+        )
         return Dataset(
             dataset_name=self.name,
             conversations=conversations,
@@ -167,8 +190,18 @@ class HaluMemAdapter(BenchmarkAdapter):
                 "source_paths": [self.source_relative_path.as_posix()],
                 "variant": self.variant,
                 "source_format": "halumem_jsonl",
+                "official_repo_url": HALUMEM_OFFICIAL_REPO_URL,
+                "official_paper_url": HALUMEM_OFFICIAL_PAPER_URL,
+                "official_dataset_url": HALUMEM_OFFICIAL_DATASET_URL,
+                "license": HALUMEM_LICENSE,
+                "source_sha256": source_digest.hexdigest(),
+                "source_size_bytes": source_size_bytes,
                 "total_raw_users": total_raw_users,
                 "source_fully_scanned": source_fully_scanned,
+                "loaded_conversation_count": len(conversations),
+                "loaded_session_count": loaded_session_count,
+                "loaded_turn_count": loaded_turn_count,
+                "loaded_question_count": loaded_question_count,
             },
         )
 
