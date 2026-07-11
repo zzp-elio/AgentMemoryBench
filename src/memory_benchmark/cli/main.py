@@ -494,8 +494,8 @@ def _validate_membench_sources(raw: str | None, *, is_membench: bool = False) ->
 def _default_smoke_history_limit(benchmark_name: str) -> int:
     """返回某 benchmark smoke 历史轴的默认预算。
 
-    只有完成审计并注册了 `BenchmarkSmokePolicy` 的 benchmark（当前
-    LoCoMo/LongMemEval/MemBench）才使用其声明的 `default_history_limit`；
+    只有完成审计并注册了 `BenchmarkSmokePolicy` 的 benchmark（当前五个
+    benchmark 已全部注册）才使用其声明的 `default_history_limit`；
     尚无 policy 的 benchmark 继续沿用 legacy 全局默认值 20。
     """
 

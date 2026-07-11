@@ -195,13 +195,26 @@ frozen-v1 → **B6 横向总验收**。
   （evaluation.py:51-52）**，Long 的 1,030 个生成 session 只 ingest
   不评测——已登记 quirks，H2/H5 须落测试锚。actor（codex+GPT-5.6）
   本批零缺陷交付。
-- 当前断点：**H2 卡已开且升级 v2**（`actor-prompt-h2.md`）——用户
-  二次拍板 smoke 改固定形状硬裁剪（前缀 4 session × 每 session 2 turn
-  × QA 1 题，零 CLI 旋钮 fail-fast），架构师取证确认首 conversation
-  s3 天然缺 questions 键 + 首个更新探针 session，四路径免费全覆盖。
-  待 actor 施工。
+- **H2 架构师强验收通过（2026-07-11）**：commit `b89dedd`
+  （codex+GPT-5.6）。三层 fail-fast 链路架构师逐层核证（CLI
+  `_validate_smoke_axis_args` 拒全部裁剪旗标 → `_normalize` 经
+  `_default_smoke_history_limit` 读注册 policy 填 4/1/None →
+  run_prediction 轴拒绝 → adapter 值比对兜底）；`_halumem_smoke_prefix`
+  规则实现正确；真实 Medium 锚测试完整（分布 4×18/2/5、首现序号
+  1/4/1、s3 update 7、smoke 形状 4 session/8 turn/1 题）；交替性全库
+  0 异常（Medium 0/1,387、Long 0/2,417——无新 quirk）；负空间 5 测试
+  在案；`is_generated_qa_session` flag 已进公开 session metadata 且
+  规则天然忽略生成 session。定向 37 passed、全量 **1038 passed**
+  （1025+13 新测试，自洽）。actor 诚实报告一次 fixture 自修，交付
+  质量高。验收顺手修：`_default_smoke_history_limit` docstring 过期
+  （五 benchmark 已全部注册 policy）。
+- 当前断点：**H3 卡已开**（`actor-prompt-h3.md`，轻批）——运行时
+  prompt parity 测试 + answer 归一。架构师预裁定：formatted_memory
+  原样代入不拼装（关闭 §3 H3 预留停工点）；官方 llms.py 无硬编码
+  采样参数仅环境变量可选注入（llms.py:28,31）→ 官方未设 = API 默认
+  如实标注。待 actor 施工。
 - 用户同日新指令（立项去向）：judge 配置双轨（longmemeval 官方/
   lightmem 可选 + lightmem 校准实验计划）→ 本 README 断点区立项，
   B6 展开；evaluator 通用化 + prompt 存放 + 遗留清理 → ws03 扩充；
   method 名单 cognee→EverOS → ws02 方法侧计划。
-- 全量基线：**1025 passed**。
+- 全量基线：**1038 passed**（H2 验收门，2026-07-11）。

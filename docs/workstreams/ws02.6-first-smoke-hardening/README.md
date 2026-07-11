@@ -8,6 +8,14 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（**H2 架构师强验收通过 → H3 卡已开**）：commit `b89dedd`，
+  固定形状 smoke（4 session×8 turn×1 题）+ 三层 fail-fast + 声明式
+  policies 全部核证；真实 Medium 锚（4×18/2/5）在测试里钉死；全库
+  交替性 0 异常；定向 37、全量 **1038 passed**（1025+13 自洽）。
+  验收顺手修 `_default_smoke_history_limit` 过期 docstring。H3 =
+  运行时 prompt parity + answer 归一（轻批，`actor-prompt-h3.md`；
+  formatted_memory 原样代入已预裁定，官方 llms.py 无硬编码采样参数
+  llms.py:28,31）。全量基线更新为 **1038**。
 - 2026-07-11（**H2 卡升级 v2 + 用户四项新指令立项**）：用户二次拍板
   推翻"session 内不裁 turn"旧口径——HaluMem smoke 改**固定形状硬裁剪**
   （首 conv 前缀 4 session × 每 session 前 2 turn × QA 1 题，零 CLI
