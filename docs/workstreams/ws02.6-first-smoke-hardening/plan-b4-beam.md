@@ -188,6 +188,15 @@ frozen-v1，才写 B5 plan。
   taxonomy 全解析、官方 metric 分发链定位、probing_questions 须
   ast.literal_eval、10M variant 未注册缺口）。用户拍板：变体全接纳；
   smoke 覆盖 100k + 10m；每类指标分开报告。
-- **E1 已开卡**：[actor-prompt-e1.md](actor-prompt-e1.md)。E2 等 E1 的
-  Q1/Q2 判定与架构师验收。
+- 2026-07-11（E1 Q2 停工 → 架构师裁决，actor=codex+GPT-5.6）：actor 三项
+  声明独立复核全真（1 基索引换算后）。架构师全量重扫权威数字：evidence
+  原子 10,534 个、**三种形态**（平铺/嵌套分组/带标签 dict——actor 的
+  1,335 计数未下钻 dict）、非法原子恰 1 个 `'--'`（10M 位置 5 EO 题 0）、
+  1M 位置 4/25/32/33 turn id 跨 session 重复（150/424/206/940）；另修正
+  一个形态事实：**10M 顶层 chat = list[dict]（10 个 plan 字典）**，与
+  单 plan 变体不同构。裁决（B2/B3 先例第三次适用）：匹配键=公开
+  turn-id 空间（现行位置复合键）；raw id → 全部匹配位置（any-match，
+  歧义计数）；`'--'` 不进匹配键、unmatched 计数；三形态打平匹配、结构
+  语义归 metric 层。全文见 [actor-prompt-e1.md](actor-prompt-e1.md)
+  末尾裁决块。**E1 复工中**。
 - 全量基线：**1000 passed**（B3 冻结门）。

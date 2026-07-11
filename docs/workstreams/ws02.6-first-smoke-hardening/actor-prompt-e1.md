@@ -83,3 +83,40 @@ uv run pytest -q tests/ -k beam
 最后只回复：commit hash、测试尾行、实际改动文件、Q1/Q2 判定结论（各一句
 + 证据 文件:行号）、是否存在 plan 偏差/停工点。遇到 plan 未覆盖的情况
 立即停工写断点，交回架构师裁决，不要自行发挥。
+
+---
+
+## 架构师裁决（2026-07-11，回应 Q2 停工；按此复工完成 E1）
+
+停工正确。三项声明架构师全部独立复核为**真**（注意你用的是 1 基索引，
+audit 落笔统一用 0 基位置索引 + conversation_id 双标注）：
+
+- **Q1 采纳**（补充一个形态修正进 audit）：官方消费单份顶层聚合 chat +
+  全局 probing_questions（`answer_generation.py:154-171`）；但 **10M 的
+  顶层 `chat` 字段实测是 `list[dict]`——10 个 `{plan-N: …}` 字典**，按
+  `chat[i]['plan-{i+1}']` 取用（`ten_milion_pipeline.py:1438-1440`），
+  与 100K/500K/1M 的 `list[list[turn_dict]]` 不同构。audit 必须记录这个
+  形态差异（E2 的 10m adapter 按 plan 顺序展开聚合）。
+- **Q2 采纳 + 架构师全量重扫权威数字**（audit 以此为准，附脚本）：
+  evidence 原子 = turn 整数 `id`；全库 **10,534 个原子**（注意
+  contradiction_resolution / knowledge_update / temporal_reasoning 的
+  source_chat_ids 是**带标签 dict 分组**、event_ordering 是**嵌套分组**、
+  其余为平铺 list——**三种形态**，你此前的 1,335 计数没下钻 dict 值）；
+  非法原子恰 **1 个**：`'--'`（10M 位置 5、event_ordering 题 0）；
+  **1M 位置 4/25/32/33 的 turn id 跨 session 不唯一**（重复 150/424/
+  206/940，与你的计数一致）。
+- **id 映射裁决（E2/E4 按此实施，写进 audit 结论）**：
+  1. 匹配键 = 公开 turn-id 空间（现行 `{session_id}:t{turn_index}`，
+     `beam.py:432`，天然唯一，保持不动）——B2/B3 先例第三次适用；
+  2. adapter 落 gold 时提供 `metadata["evidence_turn_ids"]`（公开空间）：
+     raw id → **所有**匹配位置的公开 id（4 个重复 conv 内一个 raw id 可
+     映射多个位置，全收，recall any-match=hit；`ambiguous_gold_id_count`
+     记录歧义规模）；官方 source_chat_ids **三种形态原样**留 metadata
+     对照；
+  3. `'--'` 原子：不可解析 gold → 不进匹配键、保留官方记录、recall 记
+     unmatched + 单独计数（B3 越界先例），不崩；
+  4. 三种 evidence 形态在 recall 里一律用打平原子集合匹配；结构语义
+     （顺序/标签）属于 metric 层（event_ordering 的 τ 等），不属于
+     recall。
+- **复工范围**：按原四件事完成 E1（lock/audit/Q1Q2 结论/metadata），
+  上述权威数字与裁决全部落进 audit；其余口径不变。
