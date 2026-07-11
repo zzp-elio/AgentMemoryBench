@@ -8,6 +8,19 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（H1 二次停工 → **架构师认错勘误**，actor=codex+GPT-5.6）：
+  actor 全量扫描证明 H1 卡的两项数据前提是**架构师探针 bug 的产物**——
+  ① evidence 实为原生 list（架构师用 `str(v)` 打印把 list 看成了
+  `"[]"`）；② `is_update` 是字符串 "True"/"False"，字符串 "False" 在
+  truthy 判断下为真（架构师的 `if m.get("is_update")` 中招，"15/15 全
+  update"实为 15/15 全 "False"）。架构师用正确类型判断独立复核 actor
+  全对（全库 evidence 6,934 全 list；"True" 6,244 条全带非空
+  original_memories；官方探针要求二者同时成立
+  `eval_memzero.py:210-222`）。**连锁勘误：正确语义下 smoke 最小前缀 =
+  4×18/2/5（非"19/20 前缀=1"）**，smoke 仍极小（≈4 session）。plan
+  §2.1/§2.4、H1 卡 Q1/Q2、quirks 档案均已勘误；`is_update` 字符串布尔
+  本身登记为 quirk（truthy 判断必错——架构师亲自示范了中招）。actor
+  按勘误后的卡复工。
 - 2026-07-11（H1 Q3 停工 → **架构师已裁决**，actor=codex+GPT-5.6）：官方
   五脚本 QA prompt 异构，实际语义两族——严格记忆族 3/5（MEMZERO×2+ZEP）
   vs 宽松族 2/5（MEMOS 允许 world knowledge，`prompts.py:89`）；架构师

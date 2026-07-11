@@ -30,12 +30,16 @@ operation-level runner 的交错语义**（官方 `eval_memzero.py:148-256` 已
   有 start/end_time——时间戳三层齐全。
 - memory_points 字段：`memory_content / memory_type / is_update /
   original_memories / importance / index / event_source(部分) /
-  memory_source / timestamp`。⚠️ **首 session 的 15 个点全带 is_update
-  标记**——语义可疑（H1 强制判定 Q1）。
+  memory_source / timestamp`。**【勘误 2026-07-11，actor 二次停工纠正
+  架构师探针 bug】`is_update` 是字符串 "True"/"False"（truthy 判断必错，
+  字符串 "False" 为真）**；首 session 15 个点实为全 "False"；全库
+  "True" 共 6,244 条（Medium 3,122）且全部带非空 original_memories，
+  官方探针要求二者同时成立（`eval_memzero.py:210-222`）——Q1 已判定。
 - questions 字段：`{question, answer, evidence, difficulty,
-  question_type}`；⚠️ **`evidence` 是字符串形态**（样例 `"[]"`）——
-  是否 Python/JSON 字面量、非空时装什么（memory_content 引用？
-  turn 引用？）= H1 强制判定 Q2（决定 recall 契约走向）。
+  question_type}`；**【勘误 2026-07-11】`evidence` 是原生 list**
+  （架构师此前"字符串"结论是 str() 打印伪影；全库 6,934 条全 list，
+  Medium 828 空/2,639 非空）——Q2 剩余部分：非空 list 装什么、能否作
+  recall gold（H1 完成 audit 时落档）。
 - question_type 6 类：Memory Boundary 828 / Basic Fact Recall 746 /
   Memory Conflict 769 / Generalization & Application 746 / Multi-hop
   Inference 198 / Dynamic Update 180（category 分报维度）。
@@ -74,9 +78,11 @@ operation-level runner 的交错语义**（官方 `eval_memzero.py:148-256` 已
 运行时路径：① session ingest+提取探针；② 更新探针；③ QA 问答
 （+operation-level runner 本身的 scope 机制）。
 
-**标准 smoke = 首 conversation 的最小 session 前缀，使三操作各 ≥1 次**；
-现场实测 **19/20 user 前缀=1**（首 conversation s0：12 turns/15 update
-标记/3 题），规则确定性兜底数据变化。**不伪造探针**（伪造走自控形状，
+**标准 smoke = 首 conversation 的最小 session 前缀，使三操作各 ≥1 次**
+（更新操作按官方语义 `is_update=="True"` 且 original_memories 非空）；
+**【勘误 2026-07-11】正确语义下 Medium 前缀分布 = 4×18/2×1/5×1**（首
+conversation 前缀=4，架构师此前"19/20 前缀=1"是 truthy 探针 bug 的产物），
+规则确定性兜底数据变化——smoke 规模仍极小（≈4 个 session）。**不伪造探针**（伪造走自控形状，
 恰好绕开真实数据怪癖——B 线全部 bug 都藏在怪癖里）。session 内部不裁
 turn（用户既定：不裁也能跑通提取，smoke 只看跑通）；QA 由 runner smoke
 预算裁 1 题。smoke 禁 resume；formal 为 conversation 级。
