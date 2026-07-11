@@ -8,6 +8,17 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（E4 停工 → **架构师已裁决**，actor=codex+GPT-5.6）：actor
+  开工核证发现 event_ordering 实际走 `align_type="llm"`（成对
+  `llm_equivalence`），与 E4 卡的 semantic/all-MiniLM 口径冲突——**卡是
+  架构师错**（读签名默认值没读实际调用点）。架构师随后核完全部辅助函数
+  调用链：**官方有效评测面 = 9 类纯 rubric judge + event_ordering 的
+  judge+τ×F1（LLM alignment）；嵌入/BLEU/ROUGE/fact-level 全部是分发链
+  之外的死代码**。裁决：alignment 跟官方实际 LLM 路径（semantic 作废）；
+  extract_facts 死代码 quirk 留档，有效行为=split("\n")；int 截断实锤
+  （prompt 定义 0.5 档）→ 主分 float 已声明偏差 + 并报官方 parity int
+  聚合；**方法论规矩第二次被证明：parity 审计必须核实际调用点**。裁决
+  全文见 [actor-prompt-e4.md](actor-prompt-e4.md) 末尾，actor 复工。
 - 2026-07-11（**MemBench `frozen-v1`，B3 完成**）：D1-D5 五批 actor 施工
   （DeepSeek V4 Flash ×2、混合路由 ×1、MiniMax M3 ×2）+ 架构师逐批强
   验收。B3 战果：**3 个 latent bug 实锤修复**（第三人称无冒号时间戳

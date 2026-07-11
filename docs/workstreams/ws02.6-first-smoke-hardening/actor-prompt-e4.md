@@ -82,3 +82,41 @@ uv run pytest -q tests/test_beam_rubric_judge.py tests/test_beam_recall.py \
 （一句 + prompt 原文关键句）**、负空间需求对应测试函数名清单、是否存在
 plan 偏差/停工点。遇到 plan 未覆盖的情况立即停工写断点，交回架构师裁决，
 不要自行发挥。
+
+---
+
+## 架构师裁决（2026-07-11，回应 event_ordering 口径停工；按此复工）
+
+停工正确——**卡的原口径是架构师的错**（读了函数签名默认值没读实际调用
+点）。架构师随后把全部辅助函数的实际调用链核完，官方**有效评测面**如下
+（audit/冻结以此为准）：
+
+- 9 类 = 纯 unified rubric judge（逐条 0/0.5/1，`:454` 等处官方 int()
+  截断）；
+- event_ordering = rubric judge + τ_b×F1 复合分，**alignment 实际走
+  `align_type="llm"`（`:407-410`）= 成对 `llm_equivalence` LLM 判等 +
+  贪心 1-1**；`extract_facts` 结果被 `:405` 覆盖（官方死代码），有效
+  行为 = `llm_response.split("\n")`；
+- **嵌入（all-MiniLM/bge-large）、BLEU/ROUGE、semantic_align、
+  fact-level 全部在 10 类分发链之外（零调用方）**——不实现、不接入，
+  audit 记"官方仓库存在但分发未用"。
+
+**具体裁定**：
+
+1. **alignment = 官方实际 LLM 路径**：`llm_equivalence` prompt 逐字
+   （运行时读官方文件断言），贪心 1-1 匹配语义逐行对照 `:136-160`；
+   用与 rubric judge 同一 judge client（不新增 API 依赖种类）；semantic
+   路径不实现（官方未用，原卡的 all-MiniLM/0.65 口径作废）。
+2. **死代码 quirk**：parity 跟随**有效行为**——predicted list =
+   `llm_response.split("\n")`，不调 extract_facts；quirk 进冻结记录。
+3. **int 截断裁定采纳 actor 预核**（prompt `:34-42` 明确定义 0.5 档 →
+   int() 是真截断 bug）：**主分 = float**（符合 prompt 意图，已声明
+   偏差），同时在 details 与 summary 记官方 parity 的 int 截断聚合
+   `llm_judge_score_official_int`（供论文数字对比）。现有 evaluator 的
+   float 注释改写为带上述证据链的版本。
+4. **方法论规矩（第二次被证明，B5 起写进模板）**：metric parity 审计
+   必须核**实际调用点**，函数签名/默认参数不作数。
+5. requires_api：judge + alignment 均走 judge LLM → evaluator 注册面
+   requires_api=True 照实；无嵌入依赖。
+
+其余四件事按原卡执行（recall/断言收尾不变）。
