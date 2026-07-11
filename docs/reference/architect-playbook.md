@@ -316,53 +316,58 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
 仓库含测评代码（`third_party/methods/`，如 LightMem/experiments、mem0
 memory-benchmarks）、5 个 benchmark 官方仓库（`third_party/benchmarks/`）。
 
-## 9. 当前项目快照（2026-07-08 更新；接任先核对是否过期）
+## 9. 当前项目快照（2026-07-11 更新；接任先核对是否过期，权威活状态
+永远在 ws02.6 README 断点区）
 
-- 主线 ws02：5×10 smoke 矩阵，里程碑 2026-07-20。**协议 v3 已全链路落地，
-  真实 API 对照 smoke 全部通过（2026-07-07 晚收官）**。全量回归基线
-  **831 passed**（HaluMem T1-retouch+T3 后；2026-07-07 曾为 819）。
-- **矩阵进展**：MemBench（ws02.1）与 SimpleMem（ws02.4）架构师验收通过；
-  **HaluMem（ws02.2）spec approved + plan（T1-T7）**，operation-level（抽取/
-  更新/QA 三段，协议 v3 零改动，接口即契约弃 enum 门控）。T1/T2/T3 +
-  T1-retouch 已交付、架构师第一手验收通过（读 `evaluation.py` scorer 核对
-  runner 语义）；验收修两处 plan 失误（evidence 存 index、smoke 口径）+ 发现
-  integrity/update 互斥路由（`evaluation.py:58-70`）已钉进 plan T4。下一批 T4
-  三 evaluator。后续 BEAM（ws02.3）+ method 侧 LangMem→Supermemory→MemOS→
-  Cognee→Letta。
-- **smoke 必须极小（用户 2026-07-08 重申）**：LoCoMo/LongMemEval 是
-  ~20 rounds/40 turns 级。新 benchmark 接入必须让 smoke 能裁到同量级——
-  HaluMem 一 user≈65 sessions 太大，须支持"每 user 前 M 整 session"截断
-  （F2 判例）。写新 benchmark adapter 的 smoke 口径时先想清截断单元。
-- **已知问题（全量 run 前必须处置，详见 ws02 README 断点）**：
-  LongMemEval 14 个 session 不满足严格交替口径（新旧路径同样 fail-fast），
-  需架构师定口径。（manifest 协议章缺失已于 2026-07-07 闭环：registration
-  声明 `protocol_version` + isolated worker 与单 worker 根实例双路径交叉
-  校验 fail-fast。）
-- **工程定案**：配置格式定 TOML 不迁移（stdlib tomllib、强类型 loader 已建、
-  避开 YAML 隐式类型坑）；actor 规矩固化为 `actor-handbook.md`。
-- **actor 池实测校准（2026-07-07）**：Codex——spec 依从性高，两次大任务
-  （MemBench、SimpleMem）零缺陷，可派复杂施工；DeepSeek+Claude Code——
-  方向执行正确、测试意识好，但两单各漏一处（workers=1 校验缺口；把过时
-  协议状态写进 README），**派工可以、验收必须从严**，文档类任务尤其要
-  在任务卡里钉死事实源。
-- **手艺补遗（2026-07-07）**：新 benchmark（如 MemBench）没有任何 method 的
-  官方 prompt——method-native 口径只存在于"method 论文跑过该 benchmark"的
-  格子；新 benchmark 天然只有 unified 口径（prompt 三级来源第 1 级：benchmark
-  官方 prompt）。写新 benchmark spec 时先想清这一点，不要为不存在的 native
-  口径设计接口。另：单角色消息流（MemBench OS）会让 positional pair 配对
-  错位，pair 语义 method 在此类 benchmark 下应特化为 turn 粒度。
-- 真实 API 对照 smoke（spec §9.2 native 口径迁移前后一致性）待用户确认
-  预算后执行——**这应是接任后第一个提醒用户的事项**。
-- 挂起小项：third_party 全仓 vendor 是否裁剪（ws02 Track 0 末项）、ws03
-  架构减重、ws04 终端治理、ws05 兜底工程、ws06 tests 重组；工程优化专项
-  （并行/resume/兜底/日志/终端）等用户发令。
-- 关键不变量速记：709→758→771 基线只升不降；公私数据边界；R1-R6
-  （spec §3）；official=method 论文口径可多变体；结果占位规范（N/A 不硬造）。
+- **主线 = ws02.6 benchmark 串行冻结**（先稳定 benchmark 一边，全部
+  frozen 后 method 侧才解冻）：LoCoMo → LongMemEval → MemBench → BEAM
+  四个已 **frozen-v1**（冻结记录 `ws02.6/notes/*-frozen-v1.md`，推翻须
+  frozen-v2 + 影响分析）；**B5 HaluMem 进行中**：H1（来源锁+剖面+三判定）
+  /H2（固定形状 smoke+声明式 policy）/H3（运行时 prompt parity+answer
+  归一）已架构师验收，**H4 待施工（B5 最重批：四套 judge prompt 逐字
+  parity、12 项缩写偏差修正、聚合公式复审、memory_type 维度、recall
+  N/A 裁决、update 0 分母优雅化）**，H5（三操作 e2e）→ 冻结包 → B6
+  横向总验收。全量回归基线 **1046 passed**（只升不降）。
+- **B6 已立项事项**：论文指标覆盖审计（longmemeval-ndcg@k+recall_all、
+  membench 源文件维度聚合）、judge 配置双轨（longmemeval 官方/lightmem
+  可选；locomo 无官方 judge 保持 lightmem）、"匹配键=公开 id 空间"升
+  跨 benchmark 通用契约进 spec。
+- **lightmem 校准实验（用户战略，原则 #16）**：全量前用 lightmem 论文
+  的 judge+answer 配置跑 locomo/longmemeval，对齐其论文中 A-mem/
+  MemoryOS/Mem0 数字 = 框架正确性的外部校准；之后换统一公平配置。
+- **method 侧（B6 后解冻，Method Track M0）**：第一阶段 10 method
+  名单变更——**去 cognee、加 EverOS**（`third_party/methods/EverOS`
+  已 vendored，上游活跃，排接入序列最后）。
+- **ws03 已扩充（2026-07-11 用户立项）**：evaluator 通用化（recall
+  骨架/judge 壳，红线=benchmark 个性保持显式）、目录分层、prompt 统一
+  存放、遗留盘点（三列清单，引用扫描为证据）、长期健壮性排查
+  （wall-clock 泄漏 + judge/answer 模型指纹）。**前置条件 = B6 冻结后**
+  （原则 #15）。
+- **smoke 口径现状**：五 benchmark 全部注册 BenchmarkSmokePolicy/
+  ResumePolicy；HaluMem 是唯一固定形状零旋钮（4 session×8 turn×1 题，
+  operation-level 交错评测下通用裁剪旋钮语义不通）；smoke 验收口径 =
+  运行时路径调用 ≥1，非聚合桶非空（原则 #13）。
+- **actor 池实测校准（2026-07-11 最新）**：**codex+GPT-5.6 = 当前最强
+  actor**（H1 零缺陷、H2/H3 高质量、两次正确停工纠正架构师探针 bug——
+  异质制衡的实证），复杂施工首选；cc+GLM-5.2 可靠；cc+DeepSeek 派工
+  可以但验收必须从严（编造 repo URL、负空间漏做两判例）；cc+MiniMax M3
+  正常。每个 actor 都当"新人"，卡必须自包含。
+- 真实 API 校准（R0）待用户批预算——smoke 全部跑通后攒成本表申请。
+- 关键不变量速记：基线只升不降（当前 1046）；公私数据边界（4 层防护+
+  全局私有键黑名单）；官方 parity 逐字含 typo；每类问题指标分开报告；
+  论文指标必须覆盖；数据只从 `data/` 加载；不自动 commit 例外 =
+  验收后 commit+push 已获用户授权（Co-Authored-By 用当任模型真名）。
 
-## 9.5 交接安排与最后一日议程（2026-07-07 定）
+## 9.5 交接安排（2026-07-11 更新：Fable 5 预计 2026-07-13 下线）
 
-- **继任者：Opus 4.8（主架构师），GPT 系（备战席）**；交接日约 2026-07-08。
-  两者都按 §10 自检上任；用户持有激活口令。
+- **架构师推荐继任：Opus 4.8；GPT-5.6 留任最强 actor**（三理由：harness
+  自动加载 CLAUDE.md+memory 摩擦最低；Claude 架构师 × GPT actor 的异质
+  制衡是实证资产——双向抓过对方的错；架构师产出=能力×纪律×上下文效率，
+  手艺已外化成本手册 16 条原则）。继任者第一会话读
+  **`docs/reference/handover-to-next-architect.md`（交接信，Fable 5
+  离任前持续更新）**，再按 §10 自检上任。
+- 历史记录（2026-07-07 定）：当时安排 Opus 4.8 接任、交接日约
+  2026-07-08——实际由 Fable 5 于 2026-07-09 回任执行了 B 线冻结。
 - 最后一日目标（用户要求"重构优化收官"）：① 真实 API 对照 smoke（协议 v3
   重构的最后验收门，命令已交用户，等预算确认执行）；② Codex 完成 ws02.1
   MemBench 施工 + 架构师验收；③ ws02.4 SimpleMem 获批后施工；④ 本手册

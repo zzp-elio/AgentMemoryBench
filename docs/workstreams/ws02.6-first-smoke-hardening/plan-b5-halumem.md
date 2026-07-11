@@ -208,11 +208,25 @@ frozen-v1 → **B6 横向总验收**。
   （1025+13 新测试，自洽）。actor 诚实报告一次 fixture 自修，交付
   质量高。验收顺手修：`_default_smoke_history_limit` docstring 过期
   （五 benchmark 已全部注册 policy）。
-- 当前断点：**H3 卡已开**（`actor-prompt-h3.md`，轻批）——运行时
-  prompt parity 测试 + answer 归一。架构师预裁定：formatted_memory
-  原样代入不拼装（关闭 §3 H3 预留停工点）；官方 llms.py 无硬编码
-  采样参数仅环境变量可选注入（llms.py:28,31）→ 官方未设 = API 默认
-  如实标注。待 actor 施工。
+- **H3 架构师强验收通过（2026-07-11）**：commit `9f77216`
+  （codex+GPT-5.6）。运行时 parity 测试（AST 提取官方 PROMPT_MEMZERO、
+  逐字+长度双断言、builder 原样性断言含 5000 行大 memory 不截断/
+  count==1/user role）写法超出卡最低要求；answer 归一落点正确
+  （`resolve_answer_llm_settings` 按 beam 先例加 halumem 分支，
+  settings.py 改动是卡内"照先例落"的正确执行）；llms.py 全部行号
+  引证（MODEL 环境变量 :20-22、条件注入 :25-34、user role :60-69、
+  RETRY_TIMES :15-18,43-47、QA 调用点无逐调用参数
+  eval_memzero.py:244-250）架构师现场核对一致，无发明权威。定向
+  45 passed、全量 **1046 passed**（1038+8 自洽）。
+- 当前断点：**H4 卡已开**（`actor-prompt-h4.md`，B5 最重批）——四套
+  judge prompt 逐字修正 + 聚合 parity 复审 + memory_type 维度 +
+  question_type breakdown + 0 分母契约。架构师四项裁决已写卡：
+  **recall = N/A 冻结限制**（evidence 无 turn id、官方无 recall 指标、
+  禁止文本相似度造 gold）；memory_type 按官方原样含共同分母怪癖；
+  0 分母输出 None+计数；valid/Other 诊断字段一并实现。待 actor 施工。
+- **交接包已建**（2026-07-11）：`docs/reference/
+  handover-to-next-architect.md`（Fable 5 离任前每轮验收后更新）+
+  playbook §9 快照刷新 + §9.5 交接安排更新 + memory 镜像审计全绿。
 - 用户同日新指令（立项去向）：judge 配置双轨（longmemeval 官方/
   lightmem 可选 + lightmem 校准实验计划）→ 本 README 断点区立项，
   B6 展开；evaluator 通用化 + prompt 存放 + 遗留清理 → ws03 扩充；

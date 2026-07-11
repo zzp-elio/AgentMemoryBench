@@ -8,6 +8,17 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（**H3 架构师强验收通过 → H4 卡已开 + 交接包创建**）：
+  H3 commit `9f77216`，运行时 parity 测试（AST 逐字+原样性断言）与
+  answer 归一（官方无硬编码采样参数 → API 默认如实标注，全部行号
+  一手核对）质量高；定向 45、全量 **1046 passed**（1038+8 自洽，
+  基线更新）。**H4 = B5 最重批**（`actor-prompt-h4.md`）：四套官方
+  judge prompt 逐字（eval_tools.py:4-65,68-158,161-215,218-283）+
+  聚合 parity + memory_type 维度 + 六类 breakdown + 0 分母契约；
+  架构师四裁决已预置（recall=N/A 冻结限制、memory_type 官方原样、
+  0 分母 None+计数、valid/Other 诊断字段）。**交接包**：
+  `docs/reference/handover-to-next-architect.md`（继任者第一读物，
+  Fable 5 离任前持续更新）+ playbook §9/§9.5 刷新。
 - 2026-07-11（**H2 架构师强验收通过 → H3 卡已开**）：commit `b89dedd`，
   固定形状 smoke（4 session×8 turn×1 题）+ 三层 fail-fast + 声明式
   policies 全部核证；真实 Medium 锚（4×18/2/5）在测试里钉死；全库
