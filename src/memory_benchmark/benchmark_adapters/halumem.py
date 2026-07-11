@@ -31,6 +31,8 @@ from memory_benchmark.core.provider_protocol import RetrievalResult
 from .base import BenchmarkAdapter, reached_limit
 from .contracts import (
     BenchmarkLoadRequest,
+    BenchmarkResumePolicy,
+    BenchmarkSmokePolicy,
     BenchmarkVariantSpec,
     PreparedBenchmarkRun,
     RunScope,
@@ -54,6 +56,19 @@ HALUMEM_OFFICIAL_REPO_URL = "https://github.com/MemTensor/HaluMem"
 HALUMEM_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2511.03506"
 HALUMEM_OFFICIAL_DATASET_URL = "https://huggingface.co/datasets/IAAR-Shanghai/HaluMem"
 HALUMEM_LICENSE = "CC-BY-NC-ND-4.0"
+HALUMEM_SMOKE_POLICY = BenchmarkSmokePolicy(
+    history_axis="sessions",
+    default_history_limit=4,
+    default_isolation_limit=1,
+    default_question_limit=1,
+)
+HALUMEM_RESUME_POLICY = BenchmarkResumePolicy(
+    smoke_enabled=False,
+    ingest_checkpoint="conversation",
+    answer_checkpoint="question",
+    reuse_saved_retrieval=True,
+    evaluation_artifact_only=True,
+)
 HALUMEM_MEMZERO_PROMPT_PROFILE = "halumem_memzero_v1"
 HALUMEM_MEMZERO_OFFICIAL_SOURCE = (
     "third_party/benchmarks/HaluMem-main/eval/prompts.py:1-40"
@@ -235,16 +250,24 @@ def prepare_halumem_run(
     if request.run_scope is RunScope.FULL:
         dataset = adapter.load()
     elif request.run_scope is RunScope.SMOKE:
-        dataset = _build_halumem_smoke_dataset(
-            adapter.load(limit=request.smoke_conversation_limit),
-            session_limit_per_user=request.smoke_session_limit or 1,
-        )
+        if (
+            request.smoke_turn_limit != HALUMEM_SMOKE_POLICY.default_history_limit
+            or request.smoke_conversation_limit
+            != HALUMEM_SMOKE_POLICY.default_isolation_limit
+            or request.smoke_session_limit is not None
+        ):
+            raise ConfigurationError(
+                "halumem smoke has a fixed shape and does not accept cropping parameters"
+            )
+        dataset = _build_halumem_smoke_dataset(adapter.load(limit=1))
     else:  # pragma: no cover - RunScope 只有 smoke / full
         raise ConfigurationError(f"unsupported HaluMem run scope: {request.run_scope}")
 
     metadata = copy.deepcopy(dataset.metadata)
     metadata["variant"] = request.variant
     metadata["run_scope"] = request.run_scope.value
+    metadata["smoke_policy"] = HALUMEM_SMOKE_POLICY.to_dict()
+    metadata["resume_policy"] = HALUMEM_RESUME_POLICY.to_dict()
     return PreparedBenchmarkRun(
         variant=request.variant,
         run_scope=request.run_scope,
@@ -361,7 +384,11 @@ def _session_from_raw(
             session_time=start_time,
             start_time=start_time,
             end_time=end_time,
-            metadata={},
+            metadata={
+                "is_generated_qa_session": bool(
+                    session_raw.get("is_generated_qa_session", False)
+                )
+            },
             private_metadata={
                 "source_format": "halumem_session",
                 "source_session_index": session_index - 1,
@@ -371,6 +398,7 @@ def _session_from_raw(
                 "is_generated_qa_session": bool(
                     session_raw.get("is_generated_qa_session", False)
                 ),
+                "source_question_count": len(questions_raw),
                 "memory_points": copy.deepcopy(memory_points),
                 "persona_info": persona_info,
             },
@@ -476,27 +504,47 @@ def _evidence_memory_contents(raw_evidence: list[Any]) -> list[str]:
 
 def _build_halumem_smoke_dataset(
     dataset: Dataset,
-    *,
-    session_limit_per_user: int,
 ) -> Dataset:
-    """按每个 user 前 M 个完整 session 裁剪 HaluMem smoke 数据。"""
-
-    if session_limit_per_user < 1:
-        raise ConfigurationError("HaluMem smoke session limit must be at least 1")
+    """按三操作首现前缀、每 session 两 turn、全局一题构造固定 smoke。"""
 
     cropped_conversations: list[Conversation] = []
     total_original_session_count = 0
     total_retained_session_count = 0
+    total_original_turn_count = 0
+    total_retained_turn_count = 0
+    total_original_question_count = 0
+    total_retained_question_count = 0
     for conversation in dataset.conversations:
-        retained_sessions = copy.deepcopy(
-            conversation.sessions[:session_limit_per_user]
-        )
+        prefix_length, first_seen = _halumem_smoke_prefix(conversation.sessions)
+        retained_sessions = copy.deepcopy(conversation.sessions[:prefix_length])
+        turn_shapes: list[dict[str, object]] = []
+        round_anomaly = False
+        for source_session, retained_session in zip(
+            conversation.sessions[:prefix_length], retained_sessions, strict=True
+        ):
+            original_turn_count = len(source_session.turns)
+            retained_session.turns = retained_session.turns[:2]
+            session_anomaly = (
+                original_turn_count < 2
+                or not source_session.turns
+                or source_session.turns[0].normalized_role != "user"
+            )
+            round_anomaly = round_anomaly or session_anomaly
+            turn_shapes.append(
+                {
+                    "session_id": source_session.session_id,
+                    "original_turn_count": original_turn_count,
+                    "retained_turn_count": len(retained_session.turns),
+                    "smoke_round_anomaly": session_anomaly,
+                }
+            )
         retained_session_ids = {session.session_id for session in retained_sessions}
-        retained_questions = [
+        eligible_questions = [
             copy.deepcopy(question)
             for question in conversation.questions
             if _question_session_id(question.question_id) in retained_session_ids
         ]
+        retained_questions = eligible_questions[:1]
         retained_gold_answers = {
             question.question_id: copy.deepcopy(
                 conversation.gold_answers[question.question_id]
@@ -505,12 +553,35 @@ def _build_halumem_smoke_dataset(
         }
         total_original_session_count += len(conversation.sessions)
         total_retained_session_count += len(retained_sessions)
+        total_original_turn_count += sum(
+            len(session.turns) for session in conversation.sessions
+        )
+        total_retained_turn_count += sum(
+            len(session.turns) for session in retained_sessions
+        )
+        total_original_question_count += len(conversation.questions)
+        total_retained_question_count += len(retained_questions)
         metadata = copy.deepcopy(conversation.metadata)
         metadata.update(
             {
-                "smoke_session_limit_per_user": session_limit_per_user,
+                "smoke_prefix_rule": {
+                    "extraction_first_session": first_seen["extraction"],
+                    "update_first_session": first_seen["update"],
+                    "qa_first_session": first_seen["qa"],
+                    "final_prefix_length": prefix_length,
+                },
+                "smoke_prefix_incomplete": any(
+                    value is None for value in first_seen.values()
+                ),
                 "smoke_original_session_count": len(conversation.sessions),
                 "smoke_retained_session_count": len(retained_sessions),
+                "smoke_session_turn_shapes": turn_shapes,
+                "smoke_round_anomaly": round_anomaly,
+                "smoke_original_question_count": len(conversation.questions),
+                "smoke_retained_question_count": len(retained_questions),
+                "smoke_removed_question_count": (
+                    len(conversation.questions) - len(retained_questions)
+                ),
             }
         )
         cropped_conversations.append(
@@ -526,9 +597,43 @@ def _build_halumem_smoke_dataset(
     metadata = copy.deepcopy(dataset.metadata)
     metadata.update(
         {
-            "smoke_session_limit_per_user": session_limit_per_user,
+            "smoke_fixed_shape": True,
             "smoke_original_session_count": total_original_session_count,
             "smoke_retained_session_count": total_retained_session_count,
+            "smoke_original_turn_count": total_original_turn_count,
+            "smoke_retained_turn_count": total_retained_turn_count,
+            "smoke_original_question_count": total_original_question_count,
+            "smoke_retained_question_count": total_retained_question_count,
+            "smoke_removed_question_count": (
+                total_original_question_count - total_retained_question_count
+            ),
+            "smoke_conversation_shapes": [
+                {
+                    "conversation_id": conversation.conversation_id,
+                    "smoke_prefix_rule": copy.deepcopy(
+                        conversation.metadata["smoke_prefix_rule"]
+                    ),
+                    "smoke_prefix_incomplete": conversation.metadata[
+                        "smoke_prefix_incomplete"
+                    ],
+                    "smoke_session_turn_shapes": copy.deepcopy(
+                        conversation.metadata["smoke_session_turn_shapes"]
+                    ),
+                    "smoke_round_anomaly": conversation.metadata[
+                        "smoke_round_anomaly"
+                    ],
+                    "smoke_original_question_count": conversation.metadata[
+                        "smoke_original_question_count"
+                    ],
+                    "smoke_retained_question_count": conversation.metadata[
+                        "smoke_retained_question_count"
+                    ],
+                    "smoke_removed_question_count": conversation.metadata[
+                        "smoke_removed_question_count"
+                    ],
+                }
+                for conversation in cropped_conversations
+            ],
         }
     )
     return Dataset(
@@ -536,6 +641,42 @@ def _build_halumem_smoke_dataset(
         conversations=cropped_conversations,
         metadata=metadata,
     )
+
+
+def _halumem_smoke_prefix(
+    sessions: list[Session],
+) -> tuple[int, dict[str, int | None]]:
+    """返回提取、更新、QA 三操作均首现时的最短 session 前缀。"""
+
+    first_seen: dict[str, int | None] = {
+        "extraction": None,
+        "update": None,
+        "qa": None,
+    }
+    for session_index, session in enumerate(sessions, start=1):
+        memory_points = session.private_metadata.get("memory_points")
+        if not isinstance(memory_points, list):
+            memory_points = []
+        if first_seen["extraction"] is None and memory_points:
+            first_seen["extraction"] = session_index
+        if first_seen["update"] is None and any(
+            isinstance(point, dict)
+            and point.get("is_update") == "True"
+            and bool(point.get("original_memories"))
+            for point in memory_points
+        ):
+            first_seen["update"] = session_index
+        if (
+            first_seen["qa"] is None
+            and session.private_metadata.get("source_question_count", 0) > 0
+        ):
+            first_seen["qa"] = session_index
+    if all(value is not None for value in first_seen.values()):
+        prefix_length = max(
+            value for value in first_seen.values() if value is not None
+        )
+        return prefix_length, first_seen
+    return len(sessions), first_seen
 
 
 def _question_session_id(question_id: str) -> str | None:

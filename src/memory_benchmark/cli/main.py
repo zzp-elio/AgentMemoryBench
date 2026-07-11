@@ -605,13 +605,7 @@ def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]
             default=1,
             field_name="conversations",
         ),
-        "smoke_session_limit": _positive_or_default(
-            args.sessions,
-            default=1,
-            field_name="sessions",
-        )
-        if halumem_smoke
-        else None,
+        "smoke_session_limit": None,
         "workers": _positive_or_none(
             args.workers if args.workers is not None else args.smoke_max_workers,
             field_name="workers",
@@ -717,11 +711,15 @@ def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
             args.rounds is not None
             or args.smoke_turn_limit is not None
             or args.turns is not None
+            or args.sessions is not None
             or args.sources is not None
+            or args.conversations is not None
+            or args.smoke_conversation_limit is not None
+            or args.questions_per_conversation is not None
+            or args.question_limit_per_conversation is not None
         ):
             raise MemoryBenchmarkError(
-                "HaluMem smoke uses --sessions; do not pass --rounds, --turns, "
-                "--sources or --smoke-turn-limit"
+                "HaluMem smoke has a fixed shape and does not accept cropping parameters"
             )
         return
     if args.benchmark == "locomo":

@@ -1208,16 +1208,16 @@ def _resolve_adapter_smoke_session_limit(
     smoke_session_limit: int | None,
     smoke_round_limit: int | None,
 ) -> int | None:
-    """解析 HaluMem 专用 session smoke 轴，并拒绝错误 benchmark 轴。"""
+    """拒绝 HaluMem 固定 smoke 的旧 session/round 裁剪轴。"""
 
     if benchmark_name == "halumem":
         if smoke_round_limit is not None:
-            raise ConfigurationError("HaluMem smoke uses sessions, not rounds")
-        if smoke_session_limit is None:
-            return 1
-        if smoke_session_limit < 1:
-            raise ConfigurationError("sessions must be at least 1")
-        return smoke_session_limit
+            raise ConfigurationError("HaluMem smoke has a fixed shape")
+        if smoke_session_limit is not None:
+            raise ConfigurationError(
+                "HaluMem smoke has a fixed shape and does not accept sessions"
+            )
+        return None
     if smoke_session_limit is not None:
         raise ConfigurationError("--sessions is only supported for HaluMem")
     return None

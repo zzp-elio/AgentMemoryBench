@@ -37,6 +37,8 @@ from memory_benchmark.benchmark_adapters.beam import (
     BeamAdapter,
 )
 from memory_benchmark.benchmark_adapters.halumem import (
+    HALUMEM_RESUME_POLICY,
+    HALUMEM_SMOKE_POLICY,
     HALUMEM_MEMZERO_PROMPT_PROFILE,
     HaluMemAdapter,
 )
@@ -581,6 +583,21 @@ def test_halumem_registration_declares_operation_level_unified_prompt() -> None:
     assert registration.operation_level is True
     assert registration.prompt_track == "unified"
     assert registration.unified_prompt_builder is not None
+    assert registration.smoke_policy == HALUMEM_SMOKE_POLICY
+    assert registration.resume_policy == HALUMEM_RESUME_POLICY
+    assert registration.smoke_policy == BenchmarkSmokePolicy(
+        history_axis="sessions",
+        default_history_limit=4,
+        default_isolation_limit=1,
+        default_question_limit=1,
+    )
+    assert registration.resume_policy == BenchmarkResumePolicy(
+        smoke_enabled=False,
+        ingest_checkpoint="conversation",
+        answer_checkpoint="question",
+        reuse_saved_retrieval=True,
+        evaluation_artifact_only=True,
+    )
     assert registration.default_variant == "medium"
     assert registration.variants == (
         BenchmarkVariantSpec(

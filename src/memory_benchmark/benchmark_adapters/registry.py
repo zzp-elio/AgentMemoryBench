@@ -50,6 +50,8 @@ from .beam import (
     prepare_beam_run,
 )
 from .halumem import (
+    HALUMEM_RESUME_POLICY,
+    HALUMEM_SMOKE_POLICY,
     HALUMEM_VARIANT_SPECS,
     build_halumem_unified_answer_prompt,
     prepare_halumem_run,
@@ -653,6 +655,8 @@ def _build_default_registry() -> BenchmarkRegistry:
         default_variant="medium",
         prepare_run=prepare_halumem_run,
         prediction_enabled=True,
+        smoke_policy=HALUMEM_SMOKE_POLICY,
+        resume_policy=HALUMEM_RESUME_POLICY,
         prompt_track="unified",
         operation_level=True,
         unified_prompt_builder=build_halumem_unified_answer_prompt,

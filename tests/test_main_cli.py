@@ -1002,11 +1002,11 @@ def test_main_rejects_unwired_smoke_axes_for_other_benchmarks(
     assert dispatched == []
 
 
-def test_main_maps_halumem_smoke_sessions_to_command(
+def test_main_maps_halumem_fixed_smoke_shape_to_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """HaluMem smoke 应使用 session 轴而不是 round/turn 轴。"""
+    """HaluMem smoke 无裁剪旗标时应使用声明的固定形状。"""
 
     received: list[PredictCommand] = []
     monkeypatch.setattr(
@@ -1029,10 +1029,6 @@ def test_main_maps_halumem_smoke_sessions_to_command(
             "--run-id",
             "mem0-halumem-smoke",
             "--allow-api",
-            "--conversations",
-            "1",
-            "--sessions",
-            "1",
         ]
     )
 
@@ -1045,9 +1041,9 @@ def test_main_maps_halumem_smoke_sessions_to_command(
             profile="smoke",
             run_id="mem0-halumem-smoke",
             confirm_api=True,
-            smoke_turn_limit=20,
+            smoke_turn_limit=4,
             smoke_round_limit=None,
-            smoke_session_limit=1,
+            smoke_session_limit=None,
             smoke_conversation_limit=1,
             question_limit_per_conversation=1,
             output_layout="hierarchical",
@@ -1055,8 +1051,23 @@ def test_main_maps_halumem_smoke_sessions_to_command(
     ]
 
 
-def test_main_rejects_rounds_for_halumem_smoke(tmp_path: Path) -> None:
-    """HaluMem 不接受 round/turn 轴裁剪。"""
+@pytest.mark.parametrize(
+    "axis",
+    [
+        ("--rounds", "2"),
+        ("--turns", "2"),
+        ("--sessions", "2"),
+        ("--conversations", "2"),
+        ("--questions-per-conversation", "2"),
+        ("--smoke-turn-limit", "2"),
+        ("--smoke-conversation-limit", "2"),
+        ("--question-limit-per-conversation", "2"),
+    ],
+)
+def test_main_rejects_all_cropping_parameters_for_halumem_smoke(
+    tmp_path: Path, axis: tuple[str, str]
+) -> None:
+    """HaluMem 固定 smoke 不接受任何显式裁剪参数。"""
 
     exit_code = main_cli.main(
         [
@@ -1069,8 +1080,7 @@ def test_main_rejects_rounds_for_halumem_smoke(tmp_path: Path) -> None:
             "--benchmark",
             "halumem",
             "--allow-api",
-            "--rounds",
-            "2",
+            *axis,
         ]
     )
 
