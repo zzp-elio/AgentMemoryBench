@@ -1,13 +1,26 @@
 ---
 id: ws02.6
 parent: ws02
-status: in-progress（LoCoMo、LongMemEval、MemBench、BEAM 已 frozen-v1；B5 HaluMem 未开工）
+status: in-progress（LoCoMo、LongMemEval、MemBench、BEAM 已 frozen-v1；B5 HaluMem H1 已验收，H2 施工中）
 created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（**H1 架构师强验收通过** → H2 卡已开）：commit `67eb1a2`
+  五项验收全过——lock 一手复核（仅 title 用了 README h1 副标题，架构师
+  已修加 title_note）、audit 全部数字独立复算一致（两 variant 各 3,467
+  题/491 缺键/evidence 4,651 元素全 `{memory_content,memory_type}` 无
+  turn id/3,354 同 session+1,297 前序）、Q1/Q2/Q3+memory_type 分母全部
+  一手核证（evaluation.py:59-70,178-185,364-383；prompts.py:90）、定向
+  24 passed、全量 **1025 passed** 持平。验收新发现登记 quirks：
+  **`is_generated_qa_session` session 官方评测端整体跳过
+  （evaluation.py:51-52）**，Long 1,030 个生成 session 只 ingest 不评测
+  （H2 锚 adapter 层，H5 锚 runner 层）。actor 本批零缺陷。**H2 卡 =
+  `actor-prompt-h2.md`**（三操作最小前缀规则+声明式 policy；架构师裁定：
+  运行时走规则，policy 常量 4 由真实数据锚测试钉住；前缀分布基线
+  4×18/2/5 actor 须独立复算）。详见 plan-b5-halumem.md §4。
 - 2026-07-11（H1 二次停工 → **架构师认错勘误**，actor=codex+GPT-5.6）：
   actor 全量扫描证明 H1 卡的两项数据前提是**架构师探针 bug 的产物**——
   ① evidence 实为原生 list（架构师用 `str(v)` 打印把 list 看成了

@@ -5,7 +5,8 @@
     "source": "third_party/benchmarks/HaluMem-main/README.md:8-9（issues URL 的 repository root）"
   },
   "paper": {
-    "title": "HaluMem: A Comprehensive Benchmark for Evaluating Hallucinations in Memory Systems",
+    "title": "HaluMem: Evaluating Hallucinations in Memory Systems of Agents",
+    "title_note": "架构师验收修正：以官方 bibtex（README.md:974）为准；README h1（README.md:2）用的宣传副标题 'A Comprehensive Benchmark…' 与论文标题不同。",
     "arxiv_id": "2511.03506",
     "url": "https://arxiv.org/abs/2511.03506",
     "source": "third_party/benchmarks/HaluMem-main/README.md:11-12,972-979"

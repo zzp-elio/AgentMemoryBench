@@ -163,9 +163,21 @@ frozen-v1 → **B6 横向总验收**。
   MEMZERO 2,104 字符逐字一致（H3 将很轻）；论文指标 12/12 已有实现
   但 **12 项全部存在 judge prompt 缩写偏差（H4 修正）**，memory-type
   附加维度未完整覆盖；快照无 .git，commit 来源待溯（合规）。
-- **验收清单（压缩后新会话第一件事）**：① lock 的 repo URL/license
-  一手复核（B3 编造判例）；② audit 关键数字抽验（evidence 4,651 匹配、
-  与架构师已核的 6,934/6,244/491 基线一致性）；③ Q2 结论对
-  evaluation.py:176-185 一手核证；④ 定向 24 passed 复跑 + 全量回归；
-  ⑤ 过则开 H2 卡（smoke 前缀规则）。
-- 全量基线：**1025 passed**（B4 冻结门）；H1 后以验收记录为准。
+- **H1 架构师强验收通过（2026-07-11）**：① lock 五字段一手复核为真
+  （URL/arXiv/HF/license 与 README 现场一致；SHA-256+字节数架构师独立
+  重算吻合；无 .git"来源待溯"合规）——仅 paper title 误用 README h1
+  宣传副标题而非 bibtex 正式标题，架构师已修（lock 加 title_note）；
+  ② audit 全部关键数字架构师独立脚本复算完全一致（两 variant 各
+  3,467 题/491 缺键/evidence 4,651 元素全 `{memory_content,memory_type}`
+  /3,354 同 session+1,297 前序=4,651、future/unmatched 0/is_update
+  "True" 6,244）；③ Q1 路由（evaluation.py:59-70）、Q2 evidence 用途
+  （evaluation.py:178-185）、memory_type 共同分母
+  （evaluation.py:364-383）、Q3 五调用点+MEMOS 宽松条款（prompts.py:90）
+  全部一手核证；④ 定向 24 passed、全量 **1025 passed**（与 B4 基线
+  持平——H1 只在既有测试内加断言）；⑤ 验收新发现：
+  **`is_generated_qa_session` session 官方评测端整体 continue 跳过
+  （evaluation.py:51-52）**，Long 的 1,030 个生成 session 只 ingest
+  不评测——已登记 quirks，H2/H5 须落测试锚。actor（codex+GPT-5.6）
+  本批零缺陷交付。
+- 当前断点：**H2 卡已开**（`actor-prompt-h2.md`），待 actor 施工。
+- 全量基线：**1025 passed**。
