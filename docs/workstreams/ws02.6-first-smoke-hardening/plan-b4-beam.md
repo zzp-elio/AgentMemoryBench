@@ -199,4 +199,24 @@ frozen-v1，才写 B5 plan。
   歧义计数）；`'--'` 不进匹配键、unmatched 计数；三形态打平匹配、结构
   语义归 metric 层。全文见 [actor-prompt-e1.md](actor-prompt-e1.md)
   末尾裁决块。**E1 复工中**。
-- 全量基线：**1000 passed**（B3 冻结门）。
+- 2026-07-11（**E1 强验收通过**，actor=codex+GPT-5.6，commit `56ee346` +
+  架构师补强 ×1 + 收编 ×1）：
+  - **lock 质量历来最高**：repo URL 一手来源 `.git/config`（README 也
+    核过）、三层 license 结构化（code MIT/dataset CC-BY-SA-4.0/论文
+    CC-BY-4.0 全带文件:行号）、17 文件哈希（架构师抽验 2 个一致）、
+    HF revision 如实"来源待溯"。**架构师补强**：快照自带 .git → 补锁
+    `local_snapshot_commit=3e12035`（五 benchmark 首个可锁代码 commit）。
+  - **audit 超预期**：裁决权威数字全录；额外挖出重复 id 根因（后续
+    session id 从 0 重启）与顶层/plans chat "content 相等但 id 序列
+    不等"的实测。
+  - **范围溢出收编**：actor 提前实现了 E2/E4 的 evidence 映射
+    （`_map_evidence_turn_ids`）。架构师三案例验证后收编：正常题
+    **内容级对照**（raw id 28 → `s1:t29`，1 基平移正确）、abstention
+    空 evidence、重复 conv 歧义计数真实触发（8/3）。E2 卡已注明勿重做。
+  - **数据源确认**（用户 2026-07-11 指令）：adapter 只加载
+    `data/BEAM/`，third_party 仅作代码/prompt 事实源，未加载其数据——
+    已合规，指令写进 E2 卡防回退。
+  - 定向 50 passed 复现，**全量 1002 passed**。
+- **E2 已开卡**：[actor-prompt-e2.md](actor-prompt-e2.md)（10M variant
+  接纳 + 声明式 policy；含"跨 variant smoke 不支持则停工"的预设断点）。
+- 全量基线：1000（B3 冻结门）→ E1 后 **1002**。
