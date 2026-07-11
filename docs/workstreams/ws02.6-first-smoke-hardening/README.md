@@ -8,6 +8,12 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-11）
 
+- 2026-07-11（**B6 plan 就绪，执行预定 2026-07-12**）：
+  [plan-b6-horizontal.md](plan-b6-horizontal.md)——B6.1 论文指标两
+  缺口（actor 卡 F1）、B6.2 judge 双轨（架构师先核 longmemeval 现状
+  再开 F2）、B6.3 匹配键通用契约、B6.4 五套契约横向互查（本体）、
+  B6.5 总验收门 → method 解冻 M0。执行者 = Fable 5（若在线）或继任
+  架构师（先读 handover-to-next-architect.md）。
 - 2026-07-11（**HaluMem `frozen-v1`，B5 完成——五 benchmark 全冻**）：
   H5 commit `a55a3de` 验收通过（三操作 e2e 六项断言全在案，SMOKE→FULL
   的既有测试修改是修正"smoke 下测 resume"的概念错误并补 policy 四
