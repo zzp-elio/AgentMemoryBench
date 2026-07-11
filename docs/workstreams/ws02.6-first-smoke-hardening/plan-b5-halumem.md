@@ -148,6 +148,24 @@ frozen-v1 → **B6 横向总验收**。
 
 ## 4. 当前断点
 
-- 2026-07-11：plan 起草完成（§2 一手取证 + #6 存量）。
-- **H1 已开卡**：[actor-prompt-h1.md](actor-prompt-h1.md)。
-- 全量基线：**1025 passed**（B4 冻结门）。
+- 2026-07-11：plan 起草完成；H1 历经两次停工（Q3 prompt 裁决 =
+  PROMPT_MEMZERO；架构师探针 bug 勘误 = evidence 原生 list /
+  is_update 字符串布尔 / smoke 前缀 4×18/2/5）。
+- **H1 actor 已交付、待架构师强验收**：commit `67eb1a2`
+  （codex+GPT-5.6，自检 24 passed），改动 =
+  notes/halumem-source-lock.json + notes/halumem-h1-audit.md +
+  adapter metadata + tests/test_halumem_adapter.py。actor 报告要点：
+  Q1 落档（=="True"+original_memories 非空，eval_memzero.py:210-222）；
+  Q2 = evidence 元素 {memory_content, memory_type}，4,651 条全匹配同
+  user memory point，**无 turn id → 不能作 turn-level recall gold**，
+  官方用于 QA Key Memory Points（evaluation.py:176-185）→ H4 需裁决
+  recall 契约形态（memory-point 级 or N/A）；Q3 = 现有常量与官方
+  MEMZERO 2,104 字符逐字一致（H3 将很轻）；论文指标 12/12 已有实现
+  但 **12 项全部存在 judge prompt 缩写偏差（H4 修正）**，memory-type
+  附加维度未完整覆盖；快照无 .git，commit 来源待溯（合规）。
+- **验收清单（压缩后新会话第一件事）**：① lock 的 repo URL/license
+  一手复核（B3 编造判例）；② audit 关键数字抽验（evidence 4,651 匹配、
+  与架构师已核的 6,934/6,244/491 基线一致性）；③ Q2 结论对
+  evaluation.py:176-185 一手核证；④ 定向 24 passed 复跑 + 全量回归；
+  ⑤ 过则开 H2 卡（smoke 前缀规则）。
+- 全量基线：**1025 passed**（B4 冻结门）；H1 后以验收记录为准。
