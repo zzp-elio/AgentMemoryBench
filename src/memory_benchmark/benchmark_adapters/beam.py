@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import hashlib
 import re
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,12 @@ from .contracts import (
 # ---------------------------------------------------------------------------
 
 _BEAM_DATASET_DIR = Path("data/BEAM/beam_dataset")
+
+BEAM_OFFICIAL_REPO_URL = "https://github.com/mohammadtavakoli78/BEAM"
+BEAM_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2510.27246"
+BEAM_OFFICIAL_DATASET_URL = "https://huggingface.co/datasets/Mohammadta/BEAM"
+BEAM_LICENSE = "CC-BY-SA-4.0"
+_SOURCE_HASH_CHUNK_SIZE = 1024 * 1024
 
 # Arrow 目录名保留 HF 原始大写 split 名（100K 不是 128K）。
 _VARIANT_DIR_MAP: dict[str, str] = {
@@ -179,6 +186,7 @@ class BeamAdapter(BenchmarkAdapter):
                 source_fully_scanned = False
                 break
 
+        source_size_bytes, source_sha256 = _directory_source_identity(dataset_path)
         return Dataset(
             dataset_name=self.name,
             conversations=conversations,
@@ -186,8 +194,26 @@ class BeamAdapter(BenchmarkAdapter):
                 "source_paths": [str(dataset_path)],
                 "variant": self.variant,
                 "source_format": "beam_arrow",
+                "official_repo_url": BEAM_OFFICIAL_REPO_URL,
+                "official_paper_url": BEAM_OFFICIAL_PAPER_URL,
+                "official_dataset_url": BEAM_OFFICIAL_DATASET_URL,
+                "license": BEAM_LICENSE,
+                "source_size_bytes": source_size_bytes,
+                "source_sha256": source_sha256,
                 "total_raw_rows": len(ds),
                 "source_fully_scanned": source_fully_scanned,
+                "loaded_conversation_count": len(conversations),
+                "loaded_session_count": sum(
+                    len(conversation.sessions) for conversation in conversations
+                ),
+                "loaded_turn_count": sum(
+                    len(session.turns)
+                    for conversation in conversations
+                    for session in conversation.sessions
+                ),
+                "loaded_question_count": sum(
+                    len(conversation.questions) for conversation in conversations
+                ),
             },
         )
 
@@ -291,6 +317,12 @@ def _conversation_from_row(
                 session_index=session_index,
             )
         )
+    raw_id_to_public_turn_ids: dict[int, list[str]] = {}
+    for session in sessions:
+        for turn in session.turns:
+            raw_id = turn.metadata.get("id")
+            if isinstance(raw_id, int) and not isinstance(raw_id, bool):
+                raw_id_to_public_turn_ids.setdefault(raw_id, []).append(turn.turn_id)
 
     # probing_questions: Python-repr 字符串 → ast.literal_eval
     probing_raw = row.get("probing_questions")
@@ -332,12 +364,19 @@ def _conversation_from_row(
             # instruction_following/preference_following → expected_compliance;
             # summarization → ideal_summary
             gold_answer_text = _resolve_answer_field(q_obj, question_id)
+            evidence_turn_ids, ambiguous_count, unmatched_count = _map_evidence_turn_ids(
+                q_obj.get("source_chat_ids"),
+                raw_id_to_public_turn_ids,
+            )
 
             # 防御性保留原始 question_obj 全部字段（不含 question 文本自身），
             # 对齐 actor 好行为判例（raw_evidence 保留）。
             gold_metadata: dict[str, Any] = {
                 "ability": ability,
                 **{k: copy.deepcopy(v) for k, v in q_obj.items() if k != "question"},
+                "evidence_turn_ids": evidence_turn_ids,
+                "ambiguous_gold_id_count": ambiguous_count,
+                "unmatched_gold_id_count": unmatched_count,
                 # row 级私有元信息
                 "conversation_seed": row.get("conversation_seed"),
                 "user_profile": row.get("user_profile"),
@@ -369,6 +408,59 @@ def _conversation_from_row(
         gold_answers=gold_answers,
         metadata={},
     )
+
+
+def _flatten_evidence_atoms(value: Any) -> list[Any]:
+    """递归打平 BEAM 三种 source_chat_ids 结构，保留原子顺序。"""
+
+    if isinstance(value, dict):
+        return [atom for nested in value.values() for atom in _flatten_evidence_atoms(nested)]
+    if isinstance(value, (list, tuple)):
+        return [atom for nested in value for atom in _flatten_evidence_atoms(nested)]
+    return [] if value is None else [value]
+
+
+def _map_evidence_turn_ids(
+    source_chat_ids: Any,
+    raw_id_to_public_turn_ids: dict[int, list[str]],
+) -> tuple[list[str], int, int]:
+    """把官方 raw id 原子映射到全部公开 turn id，并统计歧义与非法原子。"""
+
+    mapped: list[str] = []
+    seen_public_ids: set[str] = set()
+    ambiguous_raw_ids: set[int] = set()
+    unmatched_count = 0
+    for atom in _flatten_evidence_atoms(source_chat_ids):
+        public_ids = (
+            raw_id_to_public_turn_ids.get(atom, [])
+            if isinstance(atom, int) and not isinstance(atom, bool)
+            else []
+        )
+        if not public_ids:
+            unmatched_count += 1
+            continue
+        if len(public_ids) > 1:
+            ambiguous_raw_ids.add(atom)
+        for public_id in public_ids:
+            if public_id not in seen_public_ids:
+                mapped.append(public_id)
+                seen_public_ids.add(public_id)
+    return mapped, len(ambiguous_raw_ids), unmatched_count
+
+
+def _directory_source_identity(source_path: Path) -> tuple[int, str]:
+    """按相对路径排序聚合目录内全部文件，返回总字节数和 SHA-256。"""
+
+    digest = hashlib.sha256()
+    size_bytes = 0
+    for member in sorted(path for path in source_path.rglob("*") if path.is_file()):
+        digest.update(member.relative_to(source_path).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        with member.open("rb") as source_file:
+            while chunk := source_file.read(_SOURCE_HASH_CHUNK_SIZE):
+                digest.update(chunk)
+                size_bytes += len(chunk)
+    return size_bytes, digest.hexdigest()
 
 
 # 不同 ability 的 gold answer 字段名映射（第一手实测，按尝试优先级排序）。

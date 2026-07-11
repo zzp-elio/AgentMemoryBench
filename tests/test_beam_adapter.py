@@ -372,6 +372,62 @@ def test_gold_answers_preserve_all_question_obj_fields(tmp_path: Path) -> None:
     assert gold.metadata["user_profile"] == "profile"
 
 
+def test_gold_evidence_maps_raw_ids_to_all_public_turn_ids(tmp_path: Path) -> None:
+    """重复 raw id 应映射到全部公开 turn id，非法原子只计数不崩。"""
+
+    row = _minimal_row(num_sessions=2, turns_per_session=2)
+    for session_index, session in enumerate(row["chat"]):
+        for turn_index, turn in enumerate(session):
+            turn["id"] = session_index * 10 + turn_index
+    row["chat"][0][0]["id"] = 7
+    row["chat"][1][0]["id"] = 7
+    row["probing_questions"] = str(
+        {
+            "event_ordering": [
+                {
+                    "question": "What happened first?",
+                    "answer": "The first event.",
+                    "difficulty": "medium",
+                    "rubric": ["orders the events"],
+                    "source_chat_ids": [[7], ["--"]],
+                }
+            ]
+        }
+    )
+    _make_beam_arrow(
+        tmp_path / "data" / "BEAM" / "beam_dataset" / "100K",
+        [row],
+    )
+
+    conversation = BeamAdapter(tmp_path, variant="100k").load().conversations[0]
+    gold = conversation.gold_answers[conversation.questions[0].question_id]
+
+    assert gold.metadata["source_chat_ids"] == [[7], ["--"]]
+    assert gold.metadata["evidence_turn_ids"] == ["s1:t1", "s2:t1"]
+    assert gold.metadata["ambiguous_gold_id_count"] == 1
+    assert gold.metadata["unmatched_gold_id_count"] == 1
+
+
+def test_dataset_metadata_locks_source_identity_and_actual_counts(tmp_path: Path) -> None:
+    """BEAM metadata 应记录目录内容身份与实际加载规模。"""
+
+    target = tmp_path / "data" / "BEAM" / "beam_dataset" / "100K"
+    _make_beam_arrow(target, [_minimal_row()])
+
+    metadata = BeamAdapter(tmp_path, variant="100k").load().metadata
+
+    assert metadata["official_repo_url"] == "https://github.com/mohammadtavakoli78/BEAM"
+    assert metadata["official_paper_url"] == "https://arxiv.org/abs/2510.27246"
+    assert metadata["official_dataset_url"] == "https://huggingface.co/datasets/Mohammadta/BEAM"
+    assert metadata["license"] == "CC-BY-SA-4.0"
+    assert metadata["source_size_bytes"] > 0
+    assert len(metadata["source_sha256"]) == 64
+    assert metadata["loaded_conversation_count"] == 1
+    assert metadata["loaded_session_count"] == 2
+    assert metadata["loaded_turn_count"] == 8
+    assert metadata["loaded_question_count"] == 2
+
+
 def test_public_question_has_no_private_metadata(tmp_path: Path) -> None:
     """公开 Question.metadata 应为空 dict。"""
 

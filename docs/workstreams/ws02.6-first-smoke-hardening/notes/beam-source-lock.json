@@ -1,0 +1,53 @@
+{
+  "benchmark": "BEAM",
+  "locked": "2026-07-11",
+  "official_repo_url": "https://github.com/mohammadtavakoli78/BEAM",
+  "official_repo_url_source": "third_party/benchmarks/BEAM/.git/config:8-10（本地官方仓库 remote；论文 beam.pdf 内嵌同一链接）",
+  "official_paper_url": "https://arxiv.org/abs/2510.27246",
+  "official_paper_url_source": "third_party/benchmarks/BEAM/README.md:7-18,272-282",
+  "official_dataset_urls": {
+    "100K_500K_1M": "https://huggingface.co/datasets/Mohammadta/BEAM",
+    "10M": "https://huggingface.co/datasets/Mohammadta/BEAM-10M",
+    "source": "third_party/benchmarks/BEAM/README.md:10-15,92-100"
+  },
+  "licenses": {
+    "code": "MIT（third_party/benchmarks/BEAM/LICENSE:1-20）",
+    "dataset": "CC-BY-SA-4.0（data/BEAM/beam_dataset/README.md:73；data/BEAM/beam_10M_dataset/README.md:375）",
+    "paper_pdf_metadata": "CC-BY-4.0（beam.pdf 内嵌 metadata；仅论文，不替代代码或数据许可）"
+  },
+  "bundled_paper": {
+    "path": "third_party/benchmarks/BEAM/beam.pdf",
+    "size_bytes": 1693510,
+    "sha256": "8ae85b00eb0f93f0717edb082f5471716f6c757670d7157dc5ba94df01fbb303"
+  },
+  "data_files": {
+    "beam_dataset/100K/data-00000-of-00001.arrow": {"size_bytes": 14125472, "sha256": "7b78964d628b866242dcb5df03bb6e3140d60cc8b366c7c87cbf43cc708007d0"},
+    "beam_dataset/100K/dataset_info.json": {"size_bytes": 2865, "sha256": "cb58ef4b335fb929e6bc830bf5490eab3f749f881a462c5d808575fa90295826"},
+    "beam_dataset/100K/state.json": {"size_bytes": 249, "sha256": "f783ac62db4c1cb34016b9e6e689a3b5ddaf462b5ca62685afa4dd8c41e8a147"},
+    "beam_dataset/500K/data-00000-of-00001.arrow": {"size_bytes": 86086352, "sha256": "6cfc778035b1ff56cafc84e98b2deb1d5e62c8c5aaa330849c5ec07d747a43ff"},
+    "beam_dataset/500K/dataset_info.json": {"size_bytes": 2865, "sha256": "cb58ef4b335fb929e6bc830bf5490eab3f749f881a462c5d808575fa90295826"},
+    "beam_dataset/500K/state.json": {"size_bytes": 249, "sha256": "3d83742b768999152bdf788e44cab042e2f5f0bae5ed24511fdd1bc231d0ba3c"},
+    "beam_dataset/1M/data-00000-of-00001.arrow": {"size_bytes": 172580288, "sha256": "3d9029d389cd589135fd0c0d7ad09d9160532d35e1f240f2d45136ccef600c95"},
+    "beam_dataset/1M/dataset_info.json": {"size_bytes": 2865, "sha256": "cb58ef4b335fb929e6bc830bf5490eab3f749f881a462c5d808575fa90295826"},
+    "beam_dataset/1M/state.json": {"size_bytes": 247, "sha256": "eb91ffab9f027c64637d646e5150370bfcab3d721291ac52001fd7143af53563"},
+    "beam_dataset/README.md": {"size_bytes": 7437, "sha256": "30b9ff56f4ca52e4078754e91f5e8dd8cd73b1b1246a42a000f11ce6b940400d"},
+    "beam_dataset/dataset_dict.json": {"size_bytes": 34, "sha256": "19d05ad0e27e1fe1e08f7f373a3be2498e338ecd190e4e069e07cd256e6470d8"},
+    "beam_10M_dataset/10M/data-00000-of-00002.arrow": {"size_bytes": 469763360, "sha256": "8389b33d2ae60b9c44527dcd193f958bfb83039dbaf9ff60cba35855c44a417d"},
+    "beam_10M_dataset/10M/data-00001-of-00002.arrow": {"size_bytes": 505696432, "sha256": "0b30f493e06161be99fdfcd81bf19185b78a20ea41b5da286b06249ae435ef63"},
+    "beam_10M_dataset/10M/dataset_info.json": {"size_bytes": 21408, "sha256": "2867dc5b01c217030d0bbd777f5e30977d19478d0a17264e01b9a513c01fe1f9"},
+    "beam_10M_dataset/10M/state.json": {"size_bytes": 307, "sha256": "2760e34bbefec5580b830813cd19d11bb592246c85abb38271573cdfaf752e3b"},
+    "beam_10M_dataset/README.md": {"size_bytes": 14927, "sha256": "c0320e253998bbec395053a8320b1d9f4bf74f87cbcf2713c348cc864c179525"},
+    "beam_10M_dataset/dataset_dict.json": {"size_bytes": 19, "sha256": "5851c23e80ebfd0d3f15d326c9ea97c41d7f8f960ff4c1710c4d124dc27013b8"}
+  },
+  "split_directory_identity": {
+    "100K": {"size_bytes": 14128586, "sha256": "b135cbd7e6c59722b29795fcf7769204648dc68ae2f7a8b320672955c1c54f6d"},
+    "500K": {"size_bytes": 86089466, "sha256": "38c29a3c2d665be3a9132bcf73c805c72b5f4b51b378a9a8829b967f77ddaa40"},
+    "1M": {"size_bytes": 172583400, "sha256": "7fdf29cecce42072c66b4769ff42f1b53f5a77051331eabcd54a5ab20d552276"},
+    "10M": {"size_bytes": 975481507, "sha256": "c155a1ca06e5de7dfdef656a416eea431c6ca615c1ba14f152299921eb8521cd"}
+  },
+  "huggingface_correspondence": {
+    "offline_verifiable": "本地 dataset README 的 split 名、样本数和 schema 与 load_from_disk 实测一致；README 明载 Mohammadta/BEAM 与 Mohammadta/BEAM-10M 发布地址。",
+    "not_offline_verifiable": "来源待溯：本地目录没有 HuggingFace revision/commit 标识，无法离线证明 Arrow 字节与 Hub 当前 revision 完全一致。",
+    "sources": "data/BEAM/beam_dataset/README.md:52-73,124-136；third_party/benchmarks/BEAM/README.md:92-100"
+  }
+}
