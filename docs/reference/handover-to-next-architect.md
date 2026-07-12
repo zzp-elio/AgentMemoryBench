@@ -77,25 +77,28 @@ evaluator，DCG/NDCG/recall 公式经 3000 例复算与官方零失配、fixture
 **B6.5 总验收门通过**（全量 **1069 passed** + compileall + 两审计无
 open 项）。**method 侧已正式解冻**。
 
-**当前 = ws02.7 Method Track M0 进行中（LightMem 首接）**：M0.1 LightMem
-审查已完成（`ws02.7/notes/lightmem-m0-audit.md`：物理隔离/offline flush/
-provenance=none/api_usage 已做/native={locomo,longmemeval}）；首 actor 卡
-已开（`ws02.7/actor-prompt-m0-lightmem-config.md` = native prompt/judge
-一手抽取+parity，纯离线）。**标准接入判据 = `docs/reference/
-method-integration-checklist.md`（B1-B11，逐 method 必过）**。
-- **双轨已定（老师拍板）**：unified（框架统一 embedding+answer+judge，所有
-  格子）+ native（method paper 配置，仅有官方实验的格子）。一手 native
-  矩阵在 ws02.7 README（Mem0=locomo+lme+beam、SimpleMem=locomo+lme+membench、
-  LightMem=locomo+lme、其余见表；HaluMem 全员无）。
-- **待你做**：① 首 actor 卡 Task1 **已裁决**（native locomo=ANSWER_PROMPT、
-  StructMem 不接，见 ws02.7 §3.5）→ 用户派新 actor 续 Task2-4，回来后**验收**
-  （逐字 parity、无编造）；② 设计运行时 config-track 机制 = **M0-1b**（TOML 捆绑 +
-  track-aware run_id `{method}/{benchmark}/{mode}/{track}/{run_id}`，与 benchmark 级
-  `prompt_track` 正交，别混）→ 再派；③ 跑真实 unified smoke（measure-first：先
-  LightMem×LoCoMo 一个读成本，$0.7 余额紧）。
-  **双轨政策已成文**：`docs/reference/dual-track-config-policy.md`（唯一政策源，
-  build/readout 二分、native 来源决策树、reproduce-vs-paper 检查、single-track
-  collapse、算法代码单一化）——接任遇双轨问题先读它，别重新推导。
+**当前 = ws02.7 Method Track M0（LightMem 首接）——今日 2026-07-13 收尾状态**：
+全量基线 **1106 passed**（0 fail；BEAM 测试需 `datasets` 模块，缺则 18 项**环境性** fail、
+非回归）。已验收并 push：M0-1（native prompt/judge profile）、**M0-1b**（config-track 运行时
+机制，unified 字节零回归）、**M0-eff**（per-run 成本报告聚合器，合并 prediction+evaluator
+两效率 store + ohmygpt 计价 0.165/0.66）、**卡 X**（CLI 删 5 旧别名 + smoke 默认问题帽=1）、
+**卡 Y**（per-run `logs/method.log` 落盘）。
+- **首个真实 flow-through smoke 已跑通**（lightmem×locomo unified，1conv/1round/1q，管道 OK、
+  空记忆、judge=0，符合"smoke 只验管道不看答对率"）。**⚠️ 空库悬案**：1-round 抽取 0 条 entry，
+  force_extract 已接且触发,因是 segmenter 空 buffer 还是抽取返 0 **静态判不了**——待用**卡 Y 的
+  method.log** 重跑读 `Created N` 定论（**下一步第一件事**，需用户确认预算后跑真 API）。
+- **待你做**：① **重跑 1-round smoke 诊断空库**（method.log 已能落盘）；② **M0-1c**：
+  track-aware 路径层 `.../{mode}/{track}/{run_id}` + resume（现 native/unified 靠显式 run_id 分）；
+  ③ **M0.2**：核 LightMem native 内部超参 vs repo 默认（定 build 是否分叉、成本是否 ×2）；
+  ④ **成本探针**：逐格(method×benchmark)跑一整条 conversation/instance → `build_run_cost_report`
+  读实测 → 外推(locomo×10、lme×500)，"区间 vs 中位隔离空间"待真预算时按 token 量定；
+  ⑤ 逐格更新 `docs/reference/integration-status.md`（接入状态实例化落表）。
+- **关键长效文档**（接任先读，别重推）：`dual-track-config-policy.md`（双轨唯一政策源）、
+  `method-integration-checklist.md`（A1-A8/B1-B11 判据）、`integration-status.md`（谁过了哪项，
+  当前静态勾选）。native 矩阵：Mem0=locomo+lme+beam、SimpleMem=locomo+lme+membench、
+  LightMem=locomo+lme、其余见 ws02.7 README；HaluMem 全员无。
+- **方法论血泪（playbook #18，2026-07-13 事故）**：并行派多 actor 会在同一 git 树"打架"→
+  烧额度、无结果；**默认串行派卡**，要并行须 per-actor 独立 worktree/分支；收尾必一手复核 git。
 - R0 真实校准（lightmem 论文对齐）等用户批预算，见 judge-config-audit §6。
 
 **H4 的关键裁决已由 Fable 5 做出（写在卡里，不要重新裁）**：
@@ -144,3 +147,8 @@ R0 真实校准（用户批预算；lightmem 校准实验见原则 #16）。
   collapse、算法代码单一化）；A-Mem 双仓库一手核（adapter 接复现版）；
   GitHub 用户名 buctzzp→zzp-elio active 文件已改；config-track 运行时机制
   拆为 M0-1b（架构师设计后派）。
+- 2026-07-13（第七次更新，今日收尾）：**M0-1b + M0-eff + 卡 X（CLI 去重+问题帽）+
+  卡 Y（日志落盘）四卡全验收 push**（基线 1106 passed）；首个真实 flow-through smoke
+  跑通（空库悬案待 method.log 诊断）；LightMem online=空壳、offline 唯一模式一手定论；
+  新建 `integration-status.md`（接入状态实例化）；**playbook #18 记多 actor git 打架事故**
+  （默认串行派卡）。在途状态节改写为"下一步=重跑诊断空库 + M0-1c + 成本探针"。

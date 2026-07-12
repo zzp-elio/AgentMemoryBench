@@ -15,6 +15,16 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**卡 X + 卡 Y 验收通过 + 今日收尾**，Opus 4.8 强验收）：两卡由用户派
+  cc+GLM5.2 并行跑，**两 agent 在同一 git 树打架**烧光额度中断、中途换 DeepSeek 续，
+  但最终 git 树线性干净（3 commit 未坏）。架构师一手复核：cd86c81(卡X)/5438064+feaa161(卡Y)
+  齐、无冲突标记、**独立复跑 1106 passed 0 fail**（actor 报的"20 failed"是其环境缺 `datasets`
+  模块的 BEAM 环境性失败，我环境 datasets=5.0.0 全绿，非回归）。**卡 X**：5 旧别名删净
+  （calibrate 自有 flag 保留、已文档化）、smoke 默认问题帽=1、formal 仍 None。**卡 Y**：
+  `method_log_scope` 上下文管理器 run 起挂 run 止摘（无泄漏）、第三方 INFO 降噪保 WARNING、
+  已包裹 prediction+operation_level 两 runner。**均接受、待 push。事故记 playbook #18
+  （多 actor 默认串行派、要并行须 git 隔离、收尾必一手复核 git）。** 新建
+  [integration-status.md](../../reference/integration-status.md)（接入状态实例化落表）。
 - 2026-07-13（**首次真实 flow-through smoke + LightMem offline 一手核 + 前置两卡派发**，Opus 4.8）：
   - **用户跑通首个真实 smoke**：`predict lightmem×locomo unified`（1 conv/1 round/1 question）
     + `evaluate locomo-judge` 全流程无崩，answers=1/1、judge mean=0.0（空记忆下瞎答，符合 smoke
