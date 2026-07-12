@@ -5,6 +5,7 @@
 """
 
 from .cost import APIEmbeddingPrice, APILLMPrice, CostReport, calculate_cost
+from .run_cost_report import RunCostReport, build_run_cost_report
 from .efficiency import (
     EfficiencySummary,
     EmbeddingTokenSummary,
@@ -17,6 +18,8 @@ __all__ = [
     "APIEmbeddingPrice",
     "APILLMPrice",
     "CostReport",
+    "RunCostReport",
+    "build_run_cost_report",
     "EfficiencySummary",
     "EmbeddingTokenSummary",
     "LLMTokenSummary",
