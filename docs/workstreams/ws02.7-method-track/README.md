@@ -13,6 +13,28 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 **接入顺序（用户 2026-07-12 拍板）**：LightMem 首（外部校准器，原则 #16）
 → 其余按 method-interface-inventory 排 → **EverOS 最后**。
 
+## 当前断点（2026-07-13）
+
+- 2026-07-13（**首次真实 flow-through smoke + LightMem offline 一手核 + 前置两卡派发**，Opus 4.8）：
+  - **用户跑通首个真实 smoke**：`predict lightmem×locomo unified`（1 conv/1 round/1 question）
+    + `evaluate locomo-judge` 全流程无崩，answers=1/1、judge mean=0.0（空记忆下瞎答，符合 smoke
+    只验管道不看答对率）。产物在 `outputs/runs/lightmem/locomo/smoke/lm-locomo-unified-flowthrough/`。
+  - **LightMem update 模式一手定论**：core `online_update()` 是**空壳 `return None`**
+    （lightmem.py:394-395），`offline_update()` 才真持久化；**adapter 已用 offline**（:461）。
+    → 用户"只用 offline"正确,且是唯一可用模式,无需动作。
+  - **空库诊断（`No entries found...`）——纠正架构师草率结论**：非"数据少按阈值不生成"。
+    force_segment/force_extract **已接且触发**（adapter last-batch:491-494、end_conversation:563/579-580；
+    core:209-239）。空库只剩两因:segmenter 切出空 buffer(core short_term_memory.py:51 需 buffer 非空)
+    或抽取返回 0。**静态代码判不了,因诊断 INFO 日志(“Created N MemoryEntry objects”等)没落盘**
+    → 由**卡 Y** 落地后重跑读日志定论。
+  - **两张前置卡派发**（cost-safety，服务 5×10 真实 smoke）:
+    [卡 X CLI 别名去重 + smoke 默认问题帽=1](../ws04-terminal-observability/actor-prompt-cli-dedup.md)、
+    [卡 Y per-run 日志落盘](../ws04-terminal-observability/actor-prompt-per-run-logfile.md)。与 M0-1c 不撞。
+  - **measure-first 计划敲定（用户）**：① 先 5×10 全用极小 flow-through（1 conv/1 round/**1 question**）
+    跑通=验管道(≠验记忆构建,build 在整条 conversation 阶段才真跑);② 再**逐格(method×benchmark)**
+    跑一整条 conversation/instance 估成本,外推倍数按 benchmark(locomo×10、longmemeval×500);
+    ③ 外推"区间 vs 点值"、如何选中位隔离空间,**待真正预算时按每隔离空间 token 数再定**（用户）。
+
 ## 当前断点（2026-07-12）
 
 - 2026-07-12（**M0-1b + M0-eff 双卡验收通过**，Opus 4.8 强验收；含防作弊专查）：
