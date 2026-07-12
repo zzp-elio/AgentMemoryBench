@@ -188,6 +188,14 @@ def test_longmemeval_registered_prediction_offline_probe_workflow(
         "longmemeval",
     )
     assert f1_summary.total_questions == 1
+    # 每类分开报告契约：端到端 summary 必须携带 category_breakdown。
+    f1_payload = json.loads(
+        Path(f1_summary.summary_path).read_text(encoding="utf-8")
+    )
+    f1_breakdown = f1_payload["category_breakdown"]
+    assert len(f1_breakdown) == 1
+    assert f1_breakdown[0]["category"] == public_questions[0]["category"]
+    assert f1_breakdown[0]["question_count"] == 1
 
     recall_summary = run_artifact_evaluation(
         run_dir,

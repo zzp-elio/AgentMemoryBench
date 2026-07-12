@@ -8,6 +8,20 @@ created: 2026-07-09
 
 ## 当前冻结与设计断点（2026-07-12）
 
+- 2026-07-12（**B6.3 + B6.4 完成**，Fable 5）：① **B6.3**：匹配键
+  契约升格 spec 通用契约 **GC-1**（spec.md B6 节后新增；三判例 +
+  HaluMem N/A 边界 + 新 benchmark 接入检查项；裁定不进 playbook——域
+  契约非手艺）。② **B6.4 六项互查完成**，
+  [notes/b6-horizontal-audit.md](notes/b6-horizontal-audit.md)：五冻结
+  记录无矛盾（smoke/resume/answer 归一五行表全部代码现场核证
+  settings.py:245-318）；question-time 五行表全有锚；**3 处加法修复**
+  ——locomo/longmemeval 补端到端 category_breakdown 锚（此前与其余三家
+  不对齐）、全局私有键黑名单补 `has_answer`/`memory_points`/
+  `session_memory_points` 三缺口（quirks "全局黑名单"描述由此修成真；
+  全量通过反证无既存泄漏）；prompt parity 两代方法差异登记 ws03；
+  **frozen-v2 候选零**。修复后全量 **1058 passed** + compileall。
+  **B6 余项：派发 F1（卡已开）→ F1 验收 → B6.5 总验收门 → method
+  解冻 M0。**
 - 2026-07-12（**B6 开工：B6.2 收口 + F1 卡开**，Fable 5）：
   ① **B6.2 judge 核证完成**，[notes/judge-config-audit.md](notes/judge-config-audit.md)
   ——longmemeval 框架 judge **现状已是官方 parity**（prompt 逐字 +
