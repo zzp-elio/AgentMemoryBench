@@ -306,6 +306,7 @@ def _evaluate_questions(
     每项是一个 dict，包含 `_idx`、`question_id`、`metric_name`、`score`、
     `is_correct`、`details`、`category` 和 `efficiency_observations` 字段。
     """
+    should_skip_category = getattr(evaluator, "should_skip_category", None)
     question_args = [
         (
             evaluator,
@@ -316,6 +317,8 @@ def _evaluate_questions(
             idx,
         )
         for idx, qid in enumerate(ordered_question_ids)
+        if not callable(should_skip_category)
+        or not should_skip_category(public_by_id[qid].get("category"))
     ]
 
     if max_workers <= 1:

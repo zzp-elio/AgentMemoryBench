@@ -62,6 +62,32 @@ class LoCoMoJudgeEvaluator(LLMJudgeEvaluator):
     metric_tier = "framework_auxiliary"
     prompt_profile = "framework_auxiliary_lightmem_reference_v1"
 
+    def __init__(
+        self,
+        *args: Any,
+        prompt_template_override: str | None = None,
+        skipped_categories: frozenset[str] = frozenset(),
+        prompt_profile_override: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """初始化 LoCoMo judge，可选注入已锁定的 method-native judge 语义。"""
+
+        super().__init__(*args, **kwargs)
+        self._prompt_template_override = prompt_template_override
+        self._skipped_categories = skipped_categories
+        self._prompt_profile_override = prompt_profile_override
+
+    def should_skip_category(self, category: str | int | None) -> bool:
+        """判断 native profile 是否按官方规则跳过当前 category。"""
+
+        if category is None:
+            return False
+        try:
+            normalized = str(int(category))
+        except (TypeError, ValueError):
+            normalized = str(category)
+        return normalized in self._skipped_categories
+
     def build_prompt(
         self,
         question: Question | str,
@@ -84,6 +110,12 @@ class LoCoMoJudgeEvaluator(LLMJudgeEvaluator):
             prediction,
             gold_answer,
         )
+        if self._prompt_template_override is not None:
+            return self._prompt_template_override.format(
+                question=question_text,
+                gold_answer=gold_text,
+                generated_answer=prediction_text,
+            )
         judge_prompt = _LOC0MO_JUDGE_PROMPT.format(
             question=question_text,
             gold_answer=gold_text,
@@ -132,7 +164,9 @@ class LoCoMoJudgeEvaluator(LLMJudgeEvaluator):
                 details={
                     "raw_judge_response": model_response.text,
                     "metric_tier": self.metric_tier,
-                    "prompt_profile": self.prompt_profile,
+                    "prompt_profile": (
+                        self._prompt_profile_override or self.prompt_profile
+                    ),
                 },
             )
 
@@ -145,7 +179,7 @@ class LoCoMoJudgeEvaluator(LLMJudgeEvaluator):
                 "reason": decision.reason,
                 "raw_judge_response": model_response.text,
                 "metric_tier": self.metric_tier,
-                "prompt_profile": self.prompt_profile,
+                "prompt_profile": self._prompt_profile_override or self.prompt_profile,
             },
         )
 

@@ -18,6 +18,8 @@ from memory_benchmark.evaluators.registry import (
     get_evaluator_registration,
     load_evaluator_profile,
 )
+from memory_benchmark.evaluators.locomo_judge import LoCoMoJudgeEvaluator
+from memory_benchmark.methods.config_track import resolve_config_track
 from memory_benchmark.cli.run_prediction import (
     PredictionBatchResult,
     run_registered_conversation_qa_prediction,
@@ -179,6 +181,14 @@ def execute_evaluate(command: EvaluateCommand) -> tuple[Any, ...]:
     run_dir = _resolve_run_dir(root, command.run_id)
     manifest = _read_manifest(run_dir)
     benchmark_name = _required_manifest_text(manifest, "benchmark_name")
+    method_manifest = manifest.get("method")
+    native_bundle = None
+    if isinstance(method_manifest, dict) and method_manifest.get("config_track") == "native":
+        native_bundle = resolve_config_track(
+            _required_manifest_text(manifest, "method_name"),
+            benchmark_name,
+            "native",
+        )
 
     results: list[Any] = []
     for metric_name in command.metrics:
@@ -200,6 +210,16 @@ def execute_evaluate(command: EvaluateCommand) -> tuple[Any, ...]:
                 model=profile.model,
                 project_root=str(root),
             )
+            if native_bundle is not None and metric_name == "locomo-judge":
+                native_judge = native_bundle.judge_profile
+                evaluator = LoCoMoJudgeEvaluator(
+                    mode=profile.mode,
+                    model=profile.model,
+                    project_root=str(root),
+                    prompt_template_override=native_judge.prompt_template,
+                    skipped_categories=native_judge.skipped_categories,
+                    prompt_profile_override=native_judge.profile_name,
+                )
         else:
             evaluator = create_evaluator(metric_name, benchmark_name)
         results.append(

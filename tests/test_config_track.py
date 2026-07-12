@@ -6,6 +6,8 @@ import pytest
 
 from memory_benchmark.core import ConfigurationError
 from memory_benchmark.evaluators.longmemeval_judge import LongMemEvalJudgeEvaluator
+from memory_benchmark.evaluators.locomo_judge import LoCoMoJudgeEvaluator
+from memory_benchmark.core import AnswerResult, GoldAnswerInfo, Question
 from memory_benchmark.methods.config_track import resolve_config_track
 from memory_benchmark.methods.lightmem_native_prompts import (
     LIGHTMEM_LOCOMO_NATIVE_JUDGE_PROMPT,
@@ -83,3 +85,31 @@ def test_unified_manifest_is_byte_shape_compatible_and_native_adds_identity() ->
         "prompt_track": "native",
         "config_track": "native",
     }
+
+
+def test_lightmem_native_locomo_judge_uses_exact_prompt_and_category_skip() -> None:
+    """native LoCoMo judge 应使用逐字 profile，并按官方跳过 category 5。"""
+
+    bundle = resolve_config_track("lightmem", "locomo", "native")
+    assert bundle is not None
+    profile = bundle.judge_profile
+    evaluator = LoCoMoJudgeEvaluator(
+        mode="compact",
+        prompt_template_override=profile.prompt_template,
+        skipped_categories=profile.skipped_categories,
+        prompt_profile_override=profile.profile_name,
+    )
+    question = Question("q1", "c1", "What happened?", category="1")
+
+    assert evaluator.build_prompt(
+        question,
+        AnswerResult("q1", "c1", "generated"),
+        GoldAnswerInfo("q1", "gold"),
+    ) == LIGHTMEM_LOCOMO_NATIVE_JUDGE_PROMPT.format(
+        question="What happened?",
+        gold_answer="gold",
+        generated_answer="generated",
+    )
+    assert evaluator.should_skip_category(5) is True
+    assert evaluator.should_skip_category("5") is True
+    assert evaluator.should_skip_category(4) is False
