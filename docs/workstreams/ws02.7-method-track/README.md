@@ -15,6 +15,13 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-12）
 
+- 2026-07-12（**双卡并行派发**）：**M0-1b 已派**（用户，config-track 运行时机制，
+  core-pipeline serial-freeze，架构师验收后才动下游）。**M0-eff 卡已开**
+  [`actor-prompt-m0-eff-cost-report.md`](actor-prompt-m0-eff-cost-report.md)——per-run
+  成本报告原语（合并两效率 store + ohmygpt 计价，价格用户后填），**离线、与 M0-1b
+  文件不重叠**，可并行派第二 actor。效率**采集层审计无缺口**
+  （[notes/lightmem-efficiency-audit.md](notes/lightmem-efficiency-audit.md)）。
+  5×10 成本表仍归 ws05；本卡只做单元格来源原语。
 - 2026-07-12（**M0-1 Task2-4 验收通过**，Opus 4.8 强验收）：actor（Codex/
   GPT-5.6）交 `lightmem_native_prompts.py` + `test_lightmem_native_prompts.py`
   （commits c57cabe/2ca91d4/6fcf1f0）。**独立复跑 41 passed**；scope 干净（零
