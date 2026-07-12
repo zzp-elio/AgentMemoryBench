@@ -68,17 +68,18 @@ def _prices() -> dict[str, APILLMPrice]:
 
 
 def test_load_ohmygpt_pricing_parses_api_and_skips_local_model() -> None:
-    """加载器应强类型解析占位 API 价格，并把本地模型留给 inventory 处理。"""
+    """加载器应强类型解析 API 价格并把本地模型留给 inventory；断言契约而非具体价数。"""
 
     prices = load_pricing(Path("configs/pricing/ohmygpt.toml"))
 
-    assert prices == {
-        "gpt-4o-mini": APILLMPrice(
-            input_cost_per_million_tokens=Decimal("0.0"),
-            output_cost_per_million_tokens=Decimal("0.0"),
-            currency="USD",
-        )
-    }
+    assert set(prices) == {"gpt-4o-mini"}
+    gpt_price = prices["gpt-4o-mini"]
+    assert isinstance(gpt_price, APILLMPrice)
+    assert gpt_price.currency == "USD"
+    # 已填 ohmygpt 实价（非 0.0 占位）；不 pin 具体数值——商务价可变，
+    # 只锁"已填正价 + 本地模型不进价格表"这两条契约。
+    assert gpt_price.input_cost_per_million_tokens > 0
+    assert gpt_price.output_cost_per_million_tokens > 0
     assert "all-MiniLM-L6-v2" not in prices
 
 

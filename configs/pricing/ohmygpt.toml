@@ -2,8 +2,8 @@
 model_id = "gpt-4o-mini"
 kind = "llm"
 execution_mode = "api"
-input_cost_per_million_tokens = 0.0 # 来源待溯: 填 ohmygpt 实价
-output_cost_per_million_tokens = 0.0 # 来源待溯: 填 ohmygpt 实价
+input_cost_per_million_tokens = 0.165 # ohmygpt 实价（2026-07-12 用户提供，约 OpenAI 官价 +10%）
+output_cost_per_million_tokens = 0.66 # ohmygpt 实价（2026-07-12 用户提供，约 OpenAI 官价 +10%）
 currency = "USD"
 
 [[models]]

@@ -15,6 +15,25 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-12）
 
+- 2026-07-12（**M0-1b + M0-eff 双卡验收通过**，Opus 4.8 强验收；含防作弊专查）：
+  两 actor 并行交付、文件不重叠、**独立复跑全量 1093 passed + 3 deselected**（只升不降）。
+  - **M0-1b（Actor A，config-track 机制）**：用户特别要求查"是否作弊式过测"——**结论：无作弊、第一性原理**。
+    证据：① 22 处删除全是合法（longmemeval pass-through 重写 + prompt_track/answer-settings
+    重构接 config_track），**零删断言、零 skip/xfail/assert True**；② unified 全程零回归——
+    native 分支全部 gated 在 `config_track_bundle is not None`，unified 走原路且 manifest **不加**
+    config_track 字段（既有 run 身份字节不变、resume 兼容）；③ cat5 跳过靠 evaluator 构造参数
+    `_skipped_categories`（unified=空集→不跳）门控，不泄漏；④ 我此前发现的 longmemeval fidelity
+    gap **已闭合**——端到端测试驱动真实 adapter retrieve→native builder，断言官方 formatter
+    串在、reader-layout `formatted_memory` 不在；⑤ 被改的已验收 parity 测试是**加强**（sentinel
+    formatted_memory 反证不被使用），非削弱。commits f502791/6010f77/0d93e60/2a24cd9/b26fd7c。
+  - **M0-eff（Actor B，per-run 成本报告）**：`run_cost_report.py` 合并 prediction+全部 evaluator
+    效率 store，`complete = cost.complete AND not missing_stores`（fail-loud，不把未采集角色当 0）+
+    stage 拆分 + token-source 混比置信 + config_track 优雅降级；`cost.py` 纯加法（零删除、不改
+    既有 `calculate_cost`）；ohmygpt.toml 用占位+来源待溯（未编造）。commits 890440e/788ffba/1218415/6c89476。
+  - **架构师两处收尾**：① 填 ohmygpt gpt-4o-mini 实价 0.165/0.66 per-M（用户 2026-07-12 提供）；
+    ② 直修 Actor B 一处脆测（`test_load_ohmygpt_pricing...` 硬 pin 占位 0.0，我填实价后暴露）→
+    改断言"契约"（正价+本地跳过）而非具体价数。
+  - **下一步**：M0-1c（track-aware 路径层）+ measure-first 真实 unified smoke（待用户确认预算/run_id）。
 - 2026-07-12（**双卡并行派发**）：**M0-1b 已派**（用户，config-track 运行时机制，
   core-pipeline serial-freeze，架构师验收后才动下游）。**M0-eff 卡已开**
   [`actor-prompt-m0-eff-cost-report.md`](actor-prompt-m0-eff-cost-report.md)——per-run
