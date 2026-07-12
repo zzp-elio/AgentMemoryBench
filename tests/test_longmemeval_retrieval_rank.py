@@ -39,10 +39,10 @@ def test_ndcg_matches_official_formula_hand_computed(tmp_path: Path) -> None:
         paths=paths, manifest=manifest
     )
     by_id = {record["question_id"]: record["metrics"] for record in result["score_records"]}
-    # k=3: all=(1+1/log2(3))/(1+1/log2(3))=1；part=(1/log2(3))/ideal；zero=0。
-    ideal_two = 1.0 + 1.0 / log2(3)
+    # k=3: all=(1+1/log2(2))/(1+1/log2(2))=1；part=1/log2(2)/2=0.5；zero=0。
+    ideal_two = 1.0 + 1.0 / log2(2)
     assert by_id["q-all"]["ndcg_any@3"] == pytest.approx(1.0)
-    assert by_id["q-part"]["ndcg_any@3"] == pytest.approx((1.0 / log2(3)) / ideal_two)
+    assert by_id["q-part"]["ndcg_any@3"] == pytest.approx((1.0 / log2(2)) / ideal_two)
     assert by_id["q-zero"]["ndcg_any@3"] == 0.0
 
 

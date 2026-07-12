@@ -178,7 +178,7 @@ def _dcg(relevances: list[float]) -> float:
     if not relevances:
         return 0.0
     return relevances[0] + sum(
-        relevance / log2(index + 1)
+        relevance / log2(index)
         for index, relevance in enumerate(relevances[1:], start=2)
     )
 

@@ -25,11 +25,13 @@ from .halumem_update import HalumemUpdateEvaluator
 from .llm_judge import LLMJudgeProfileConfig
 from .longmemeval_judge import LongMemEvalJudgeEvaluator
 from .longmemeval_recall import LongMemEvalRetrievalRecallEvaluator
+from .longmemeval_retrieval_rank import LongMemEvalRetrievalRankEvaluator
 from .locomo_f1 import LoCoMoF1Evaluator
 from .locomo_judge import LoCoMoJudgeEvaluator
 from .locomo_recall import LoCoMoRetrievalRecallEvaluator
 from .membench_choice_accuracy import MemBenchChoiceAccuracyEvaluator
 from .membench_recall import MemBenchRetrievalRecallEvaluator
+from .membench_source_accuracy import MemBenchSourceAccuracyEvaluator
 
 
 EvaluatorFactory = Callable[..., Any]
@@ -119,6 +121,18 @@ def _build_longmemeval_recall(**_: Any) -> LongMemEvalRetrievalRecallEvaluator:
     """构造无外部依赖的 LongMemEval retrieval recall evaluator。"""
 
     return LongMemEvalRetrievalRecallEvaluator()
+
+
+def _build_longmemeval_retrieval_rank(**_: Any) -> LongMemEvalRetrievalRankEvaluator:
+    """构造无外部依赖的 LongMemEval retrieval rank evaluator。"""
+
+    return LongMemEvalRetrievalRankEvaluator()
+
+
+def _build_membench_source_accuracy(**_: Any) -> MemBenchSourceAccuracyEvaluator:
+    """构造无外部依赖的 MemBench source accuracy 合成 evaluator。"""
+
+    return MemBenchSourceAccuracyEvaluator()
 
 
 def _build_locomo_judge(
@@ -335,6 +349,16 @@ _REGISTRATIONS = {
         config_type=None,
         factory=_build_longmemeval_recall,
     ),
+    "longmemeval-retrieval-rank": EvaluatorRegistration(
+        cli_name="longmemeval-retrieval-rank",
+        metric_name="longmemeval_retrieval_rank",
+        supported_benchmarks=frozenset({"longmemeval"}),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_longmemeval_retrieval_rank,
+    ),
     "membench-choice-accuracy": EvaluatorRegistration(
         cli_name="membench-choice-accuracy",
         metric_name="membench_choice_accuracy",
@@ -354,6 +378,16 @@ _REGISTRATIONS = {
         profile_relative_path=None,
         config_type=None,
         factory=_build_membench_recall,
+    ),
+    "membench-source-accuracy": EvaluatorRegistration(
+        cli_name="membench-source-accuracy",
+        metric_name="membench_source_accuracy",
+        supported_benchmarks=frozenset({"membench"}),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_membench_source_accuracy,
     ),
     "locomo-recall": EvaluatorRegistration(
         cli_name="locomo-recall",
