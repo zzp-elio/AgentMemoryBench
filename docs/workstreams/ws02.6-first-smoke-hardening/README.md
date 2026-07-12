@@ -6,8 +6,24 @@ created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
 
-## 当前冻结与设计断点（2026-07-11）
+## 当前冻结与设计断点（2026-07-12）
 
+- 2026-07-12（**B6 开工：B6.2 收口 + F1 卡开**，Fable 5）：
+  ① **B6.2 judge 核证完成**，[notes/judge-config-audit.md](notes/judge-config-audit.md)
+  ——longmemeval 框架 judge **现状已是官方 parity**（prompt 逐字 +
+  参数 n=1/temp=0/max_tokens=10 双测试锚，`test_llm_judge_parsing.py:192-212,319-345`），
+  此前"longmemeval 用 lightmem 配置"的说法证伪；lightmem 的
+  longmemeval judge prompt 本就逐字复制官方，双轨实质差异只有参数/
+  解析/abstention-gate 三处；locomo 框架 judge 系 lightmem 衍生但
+  实测 7 类文本偏差（auxiliary tier，冻结不动）。**裁决：F2 不开卡，
+  降级 R0 校准实验前置包**（差异清单已落 audit §2/§3/§6，实现时照抄）。
+  ② **F1 卡已开待派发**：[actor-prompt-f1.md](actor-prompt-f1.md)
+  （`longmemeval-retrieval-rank`：官方 k=[1,3,5,10,30,50] 三指标，
+  abstention 官方排除语义；`membench-source-accuracy`：四格合成指标
+  走 evaluate_run_artifacts 钩子——落点改裁，原 summary 扩展方案作废，
+  理由见 plan §1）。③ plan §1 官方路径笔误勘误（实际
+  `src/retrieval/eval_utils.py`，"开工现场复核"纪律再次抓到二手转述
+  漂移）。下一步：用户派 F1 → actor 施工期间架构师做 B6.3 + B6.4。
 - 2026-07-11（**B6 plan 就绪，执行预定 2026-07-12**）：
   [plan-b6-horizontal.md](plan-b6-horizontal.md)——B6.1 论文指标两
   缺口（actor 卡 F1）、B6.2 judge 双轨（架构师先核 longmemeval 现状

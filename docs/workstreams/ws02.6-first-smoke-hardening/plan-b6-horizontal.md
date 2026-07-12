@@ -18,18 +18,24 @@ frozen 行为——任何项若发现需要改冻结行为，立即停工走 fro
 已立项（2026-07-11，README 断点区），均为加法不触发 frozen-v2：
 
 - **longmemeval-ndcg@k + recall_all**：官方
-  `third_party/benchmarks/LongMemEval-main/src/evaluation/
-  eval_utils.py:12-29`（一手实锤，行号 H 批前架构师核过；开工时
-  现场复核）；ranked items 已在 prediction artifact，artifact-only
+  `third_party/benchmarks/LongMemEval-main/src/retrieval/eval_utils.py:12-29`
+  （**2026-07-12 勘误：原写 `src/evaluation/` 是路径笔误，行号无误**，
+  现场复核已完成）；ranked items 已在 prediction artifact，artifact-only
   可算（照 `evaluate_run_artifacts` 钩子模式，halumem-memory-type
-  是最新先例）；k 取官方口径（现场从 eval 代码调用点抄，禁止发明）；
-  abstention 题（30 道 `_abs`）的 recall N/A 语义沿用既有裁决。
+  是最新先例）；k 官方口径 = `[1,3,5,10,30,50]`（`run_retrieval.py:316`），
+  指标名逐字 `recall_any@k/recall_all@k/ndcg_any@k`（:318-321）；
+  abstention 题官方排除不计（`run_retrieval.py:389-408`，与既有 C4
+  N/A 裁决语义一致）。**F1 卡已开：`actor-prompt-f1.md`**（含 k>top_k
+  跳过裁定、ideal DCG 免 corpus 等价推导、turn2session 不可算裁定）。
 - **membench 源文件维度聚合**：论文按 Factual/Reflective ×
   First/Third 报四格（first_high/first_low/third_high/third_low）；
-  conversation_id 前缀天然携带维度，纯 summary 聚合（不新 judge）；
-  落在 membench 相应 evaluator 的 summary/category_breakdown 或
-  合成指标（落点开工时按现状代码定，倾向 summary 维度扩展——它不
-  跨 metric，无需合成钩子）。
+  conversation_id 前两段即两维（`membench.py:817-832` +
+  `_source_profile_from_path` :797-815）。**落点已裁（2026-07-12）：
+  合成指标 `membench-source-accuracy` 走 evaluate_run_artifacts 钩子**
+  ——原"倾向 summary 维度扩展"作废，因通用 summary 由
+  `runners/evaluation.py:192-221` 生成，塞 membench 专属前缀解析进
+  通用 runner 违"个性显式声明"红线；per-question evaluator 又无 run
+  级 summary 出口。合成钩子是既有机制（halumem-memory-type 先例）。
 - 自检：定向 + `tests/test_evaluator_registry.py`（B5 H4 教训：新
   metric 必撞全量清单断言）+ 全量。
 - 验收：架构师对官方 eval_utils 逐行核公式（ndcg 的 log 底、gain
@@ -44,10 +50,14 @@ frozen 行为——任何项若发现需要改冻结行为，立即停工走 fro
   `evaluators/` 现行实现 + `configs/evaluators/llm_judge.toml`。
   三方一手比对后落一页 `notes/judge-config-audit.md`（五 benchmark
   judge 配置全景表：来源/prompt 出处/参数/与官方偏差）。
-- **第二步（裁决后 actor 卡 F2）**：longmemeval 增加官方/lightmem
-  双 profile（**默认 = 官方 parity**，lightmem = 显式可选扩展，不
-  推翻冻结——playbook 原则 #16 推论）；locomo 无官方 judge，保持
-  lightmem 不动；membench/beam/halumem 已官方 parity 不碰。
+- **第二步已裁决（2026-07-12，见 audit §5）：F2 不在 B6 开卡，降级
+  为 R0 校准实验前置包**。核证结论：longmemeval 框架 judge **现状
+  已是官方 parity**（逐字+参数双测试锚），lightmem 的 longmemeval
+  judge prompt 与官方逐字相同，双轨实质差异只有调用参数/解析函数/
+  abstention gate 三处（audit §2 差异表）；locomo 框架 judge 系
+  lightmem 衍生但有 7 类文本偏差（audit §3，auxiliary tier 无 parity
+  义务，冻结不动）。lightmem profile 唯一消费者是 R0 校准实验（预算
+  未批、零真实 API 下无法验证），放 R0 前置一次做对。
 - **lightmem 校准实验计划**（文档项，落 audit 附录）：R0 预算批准
   后，用 lightmem 的 judge+answer 配置跑 locomo/longmemeval 全量，
   对齐 lightmem 论文中 A-mem/MemoryOS/Mem0 数字 = 框架外部校准；
@@ -92,8 +102,13 @@ EverOS 最后；真实 API 校准 R0 等用户预算）。
 
 ## 6. 当前断点
 
-- 2026-07-11：plan 起草完成（Fable 5 额度 12% 时落盘）。**未开始
-  执行**。执行顺序建议：B6.2 第一步（核证，轻）→ B6.1 卡派发（actor
-  施工期间）→ B6.3/B6.4（架构师并行做）→ F 批验收 → B6.5。
+- 2026-07-12（Fable 5）：**B6.2 收口**——`notes/judge-config-audit.md`
+  落盘（longmemeval 现状=官方 parity 实锤；五家全景表；F2 降级 R0
+  前置包裁决）；**F1 卡已开待派发**（`actor-prompt-f1.md`，两个新
+  evaluator 均加法）；§1 路径笔误勘误、membench 落点改裁合成指标。
+  下一步：用户派发 F1 → actor 施工期间架构师做 B6.3 + B6.4。
+- 2026-07-11：plan 起草完成（Fable 5 额度 12% 时落盘）。执行顺序
+  建议：B6.2 第一步（核证，轻）→ B6.1 卡派发（actor 施工期间）→
+  B6.3/B6.4（架构师并行做）→ F 批验收 → B6.5。
 - 执行者：Fable 5（若 2026-07-12 仍在线）或继任架构师（读
   `docs/reference/handover-to-next-architect.md` 后按本 plan 执行）。
