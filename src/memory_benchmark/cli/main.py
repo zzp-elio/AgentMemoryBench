@@ -184,6 +184,12 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
         choices=list_prediction_benchmarks(),
     )
     parser.add_argument("--profile", choices=["smoke", "official-full"], default=None)
+    parser.add_argument(
+        "--config-track",
+        choices=["unified", "native"],
+        default="unified",
+        help="Run with framework-unified or method paper-native readout configuration.",
+    )
     parser.add_argument("--variant", default=None)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--resume", action="store_true")
@@ -398,6 +404,7 @@ def _prediction_command_from_args(args: argparse.Namespace) -> PredictCommand:
         allow_unsafe_custom_parallel=args.allow_unsafe_custom_parallel,
         benchmark=args.benchmark,
         profile=normalized["profile"],
+        config_track=args.config_track,
         variant=args.variant,
         run_id=args.run_id,
         resume=args.resume,

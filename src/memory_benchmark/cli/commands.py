@@ -41,6 +41,7 @@ class PredictCommand:
     project_root: str | Path
     benchmark: str
     profile: str
+    config_track: str = "unified"
     method: str | None = None
     method_class: str | None = None
     allow_unsafe_custom_parallel: bool = False
@@ -133,6 +134,7 @@ def execute_predict(command: PredictCommand) -> PredictionBatchResult:
         benchmark_name=command.benchmark,
         project_root=command.project_root,
         profile_name=command.profile,
+        config_track=command.config_track,
         variant=command.variant,
         run_id=command.run_id,
         resume=command.resume,

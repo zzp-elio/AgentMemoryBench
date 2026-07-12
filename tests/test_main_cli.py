@@ -180,6 +180,7 @@ def test_execute_predict_delegates_to_registered_prediction(
             "benchmark_name": "locomo",
             "project_root": tmp_path,
             "profile_name": "smoke",
+            "config_track": "unified",
             "variant": None,
             "run_id": "run-1",
             "resume": False,

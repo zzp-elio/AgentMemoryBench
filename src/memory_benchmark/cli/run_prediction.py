@@ -42,6 +42,7 @@ from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySystem
 from memory_benchmark.core.provider_protocol import MemoryProvider
 from memory_benchmark.methods.custom_loader import load_custom_memory_provider
+from memory_benchmark.methods.config_track import resolve_config_track
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.methods.registry import (
     MethodBuildContext,
@@ -241,6 +242,7 @@ def run_registered_conversation_qa_prediction(
     method_name: str | None,
     benchmark_name: str,
     profile_name: str = "smoke",
+    config_track: str = "unified",
     method_class: str | None = None,
     allow_unsafe_custom_parallel: bool = False,
     variant: str | None = None,
@@ -270,6 +272,7 @@ def run_registered_conversation_qa_prediction(
         method_name: method registry 中的稳定名称。
         benchmark_name: benchmark registry 中的稳定名称。
         profile_name: `smoke` 或 `official-full`。
+        config_track: `unified` 保持框架默认；`native` 使用已注册 method 论文配置。
         variant: 可选 benchmark variant selector；为空时使用 registration 默认值。
         run_id: 可选稳定运行 id；resume 时必须传显式 base run_id。
         resume: 是否复用兼容 manifest/checkpoint 和 Mem0 method state。
@@ -303,6 +306,10 @@ def run_registered_conversation_qa_prediction(
     if bool(method_name) == bool(method_class):
         raise ConfigurationError("Pass exactly one of method_name or method_class")
     if method_class is not None:
+        if config_track != "unified":
+            raise ConfigurationError(
+                "Custom methods do not have registered native config-track bundles"
+            )
         return _run_custom_conversation_qa_prediction(
             project_root=root,
             path_settings=path_settings,
@@ -333,6 +340,11 @@ def run_registered_conversation_qa_prediction(
     if method_name is None:
         raise ConfigurationError("method_name is required")
     method_registration = get_method_registration(method_name)
+    config_track_bundle = (
+        None
+        if config_track == "unified"
+        else resolve_config_track(method_name, benchmark_name, config_track)
+    )
     if not benchmark_registration.prediction_enabled:
         raise ConfigurationError(
             f"Benchmark '{benchmark_name}' prediction is not enabled"
@@ -414,7 +426,9 @@ def run_registered_conversation_qa_prediction(
         else "native"
     )
     answer_llm_settings = (
-        resolve_answer_llm_settings(
+        config_track_bundle.answer_llm_settings
+        if config_track_bundle is not None
+        else resolve_answer_llm_settings(
             method_name=method_registration.name,
             benchmark_name=benchmark_registration.name,
             model=DEFAULT_OPENAI_MODEL,
@@ -470,10 +484,13 @@ def run_registered_conversation_qa_prediction(
             workload_estimate=workload_estimate,
             answer_reader_manifest=answer_reader_manifest,
             prompt_track=(
-                prompt_track
+                "native"
+                if config_track_bundle is not None
+                else prompt_track
                 if use_framework_answer_reader and prompt_track == "unified"
                 else None
             ),
+            config_track=("native" if config_track_bundle is not None else None),
         )
         policy = PredictionRunPolicy(
             max_workers=max_workers,
@@ -683,10 +700,10 @@ def run_registered_conversation_qa_prediction(
                 supports_shared_instance_parallelism=supports_shared_instance_parallelism,
                 answer_reader=answer_reader,
                 unified_prompt_builder=getattr(
-                    benchmark_registration,
-                    "unified_prompt_builder",
-                    None,
-                ),
+                    benchmark_registration, "unified_prompt_builder", None
+                )
+                if config_track_bundle is None
+                else None,
                 prediction_transform=getattr(
                     benchmark_registration,
                     "prediction_transform",
@@ -1520,6 +1537,7 @@ def _build_method_manifest(
     workload_estimate: dict[str, object] | None,
     answer_reader_manifest: dict[str, object] | None = None,
     prompt_track: str | None = None,
+    config_track: str | None = None,
 ) -> dict[str, object]:
     """构造不含 secret 的 method manifest。"""
 
@@ -1531,6 +1549,8 @@ def _build_method_manifest(
         manifest["answer_reader"] = answer_reader_manifest
     if prompt_track is not None:
         manifest["prompt_track"] = prompt_track
+    if config_track is not None:
+        manifest["config_track"] = config_track
     if workload_estimate is not None:
         manifest["workload_estimate"] = workload_estimate
     return manifest

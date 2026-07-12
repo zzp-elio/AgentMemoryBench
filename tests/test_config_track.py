@@ -10,6 +10,7 @@ from memory_benchmark.methods.config_track import resolve_config_track
 from memory_benchmark.methods.lightmem_native_prompts import (
     LIGHTMEM_LOCOMO_NATIVE_JUDGE_PROMPT,
 )
+from memory_benchmark.cli.run_prediction import _build_method_manifest
 
 
 def test_unified_config_track_returns_no_overrides() -> None:
@@ -55,3 +56,30 @@ def test_config_track_rejects_unknown_track() -> None:
 
     with pytest.raises(ConfigurationError, match="config_track"):
         resolve_config_track("lightmem", "locomo", "paper")
+
+
+def test_unified_manifest_is_byte_shape_compatible_and_native_adds_identity() -> None:
+    """unified 缺省不得新增字段，native 必须进入 resume 身份。"""
+
+    kwargs = {
+        "config_manifest": {"profile_name": "smoke"},
+        "source_identity": {"source_sha256": "abc"},
+        "workload_estimate": None,
+        "answer_reader_manifest": {"answer_protocol": "retrieve_first_v1"},
+        "prompt_track": "unified",
+    }
+    expected_unified = {
+        "config": {"profile_name": "smoke"},
+        "source": {"source_sha256": "abc"},
+        "answer_reader": {"answer_protocol": "retrieve_first_v1"},
+        "prompt_track": "unified",
+    }
+
+    assert _build_method_manifest(**kwargs) == expected_unified
+    assert _build_method_manifest(
+        **{**kwargs, "prompt_track": "native"}, config_track="native"
+    ) == {
+        **expected_unified,
+        "prompt_track": "native",
+        "config_track": "native",
+    }
