@@ -15,6 +15,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-12）
 
+- 2026-07-12（**M0-1 Task2-4 验收通过**，Opus 4.8 强验收）：actor（Codex/
+  GPT-5.6）交 `lightmem_native_prompts.py` + `test_lightmem_native_prompts.py`
+  （commits c57cabe/2ca91d4/6fcf1f0）。**独立复跑 41 passed**；scope 干净（零
+  third_party/adapter/算法/现有 judge/unified 改动）；parity 测试运行时 AST 读真源
+  逐字比对（非硬编码），locomo ANSWER_PROMPT/ACCURACY_PROMPT、longmemeval
+  system+user、answer 参数 (0/2000/0.8)、longmemeval judge 复用现有 evaluator、
+  cat5 跳过、负空间断言全部核实无编造。**接受。**
+  **一处 fidelity 发现（架构师 owns，我卡欠规格，折进 M0-1b 不重派）**：longmemeval
+  native builder 从 `formatted_memory` 重建，而 `formatted_memory` 走
+  `_format_lightmem_memory`（reader 布局 `:1532`），官方 longmemeval 用
+  `_format_lightmem_memory_as_official_retrieve`（`:1572`，docstring 明写对齐
+  `run_lightmem_gpt.py:186`）→ 运行时会与官方分叉；locomo builder 靠透传 adapter
+  `prompt_messages` 已规避。**M0-1b 修**：两个 native builder 都透传 adapter
+  `prompt_messages`（native 单一真源）+ 端到端 parity 测试。
 - 2026-07-12（**架构师裁 Task1 + 双轨政策成文 + 杂项**，Opus 4.8）：
   ① **Task1 裁决**——native locomo answer=`ANSWER_PROMPT`（标准），StructMem 不接
   （一手核 `experiments/locomo/readme.md`：`--enable-summary` 改 build+检索+embedding
