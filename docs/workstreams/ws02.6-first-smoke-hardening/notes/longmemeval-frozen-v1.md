@@ -103,8 +103,18 @@ assistant-first / 纯 assistant / 奇数 session（raw=kept 零丢弃）、
    真实运行报告必须声明该偏差，与论文数字对比时不可直接对齐。
 2. `_m`（2.7GB）只做数据剖面 + 单 instance 流式验证，未做全链路；full
    运行前需单独评估成本。
-3. 官方 retrieval 扩展口径（recall_all/ndcg_any/k 档位）未纳入；conditional
-   recall 只报 recall@returned-items。
+3. ~~官方 retrieval 扩展口径（recall_all/ndcg_any/k 档位）未纳入~~
+   **已由 B6.1 加法补齐（2026-07-12）**：`longmemeval-retrieval-rank`
+   evaluator 覆盖官方 k=[1,3,5,10,30,50] 的 recall_any/recall_all/
+   ndcg_any（公式与官方 eval_utils.py:4-29 经 3000 例复算零失配）；
+   artifact 仅 top_k 条 → k>top_k 跳过不报、turn2session 视图不可算
+   （官方 effective_k 越界扩张需全 corpus）。**建模决定（登记）**：
+   method 返回的 memory item 可携多个 source_turn_ids，`_ranked_source_ids`
+   按 rank 顺序 expand 并去重、再 `[:k]` 截断到 k 个公开 id（非 k 个
+   item）——这是 artifact-only + method-neutral 下的合理口径，与
+   `longmemeval-recall` 的 source-id 并集口径同源；formula 本身与官方
+   数值精确等价（GC-1 公开 id 空间匹配）。conditional recall
+   （单一 requested-k）仍保留，两指标并存不冲突。
 4. 本地快照官方 commit 来源待溯（需联网时补进 source-lock）。
 5. 真实 API 成本、效率观测完整性和回答效果尚未测量。
 6. 若官方源码/数据、prompt、metric 或公私边界有新一手证据推翻本记录，必须

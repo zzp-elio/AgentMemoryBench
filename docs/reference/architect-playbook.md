@@ -316,22 +316,21 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
 仓库含测评代码（`third_party/methods/`，如 LightMem/experiments、mem0
 memory-benchmarks）、5 个 benchmark 官方仓库（`third_party/benchmarks/`）。
 
-## 9. 当前项目快照（2026-07-11 更新；接任先核对是否过期，权威活状态
+## 9. 当前项目快照（2026-07-12 更新；接任先核对是否过期，权威活状态
 永远在 ws02.6 README 断点区）
 
-- **主线 = ws02.6 benchmark 串行冻结**（先稳定 benchmark 一边，全部
-  frozen 后 method 侧才解冻）：LoCoMo → LongMemEval → MemBench → BEAM
-  四个已 **frozen-v1**（冻结记录 `ws02.6/notes/*-frozen-v1.md`，推翻须
-  frozen-v2 + 影响分析）；**B5 HaluMem 进行中**：H1（来源锁+剖面+三判定）
-  /H2（固定形状 smoke+声明式 policy）/H3（运行时 prompt parity+answer
-  归一）已架构师验收，**H4 待施工（B5 最重批：四套 judge prompt 逐字
-  parity、12 项缩写偏差修正、聚合公式复审、memory_type 维度、recall
-  N/A 裁决、update 0 分母优雅化）**，H5（三操作 e2e）→ 冻结包 → B6
-  横向总验收。全量回归基线 **1046 passed**（只升不降）。
-- **B6 已立项事项**：论文指标覆盖审计（longmemeval-ndcg@k+recall_all、
-  membench 源文件维度聚合）、judge 配置双轨（longmemeval 官方/lightmem
-  可选；locomo 无官方 judge 保持 lightmem）、"匹配键=公开 id 空间"升
-  跨 benchmark 通用契约进 spec。
+- **主线 = ws02.6 benchmark 串行冻结 → 已收官**：五 benchmark 全部
+  **frozen-v1**（LoCoMo/LongMemEval/MemBench/BEAM/HaluMem，冻结记录
+  `ws02.6/notes/*-frozen-v1.md`，推翻须 frozen-v2 + 影响分析）；**B6
+  横向总验收 = 完成（2026-07-12）**——method 侧已解冻。全量回归基线
+  **1069 passed**（只升不降）。**下一步 = Method Track M0**（待用户
+  拍板启动序列/预算）。
+- **B6 收官结论**：① 论文指标两缺口已补（`longmemeval-retrieval-rank`
+  官方 k=[1,3,5,10,30,50] 三指标经 3000 例复算与官方零失配、
+  `membench-source-accuracy` 四格合成指标）；② judge 全景审计
+  `judge-config-audit.md`（longmemeval 现状=官方 parity，F2 降级 R0
+  前置包）；③ 匹配键契约升格 spec **GC-1**；④ 横向互查 3 处加法修复
+  （breakdown 锚 + 黑名单三键），零 frozen-v2 候选。
 - **lightmem 校准实验（用户战略，原则 #16）**：全量前用 lightmem 论文
   的 judge+answer 配置跑 locomo/longmemeval，对齐其论文中 A-mem/
   MemoryOS/Mem0 数字 = 框架正确性的外部校准；之后换统一公平配置。

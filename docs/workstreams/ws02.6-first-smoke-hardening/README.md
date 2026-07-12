@@ -1,13 +1,38 @@
 ---
 id: ws02.6
 parent: ws02
-status: in-progress（五 benchmark 全部 frozen-v1：LoCoMo、LongMemEval、MemBench、BEAM、HaluMem；下一步 B6 横向总验收）
+status: in-progress（五 benchmark 全部 frozen-v1 + B6 横向总验收完成 2026-07-12；method 侧已解冻，下一步 Method Track M0 待用户拍板启动）
 created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
 
 ## 当前冻结与设计断点（2026-07-12）
 
+- 2026-07-12（**F1 强验收通过 + B6.5 总验收门通过 → B6 完成、method
+  侧解冻**，架构师 Opus 4.8 接任 Fable 5）：actor（codex+GPT-5.6）三
+  commit `0c3a7bd`（longmemeval-retrieval-rank）→ `a44f6ed`
+  （membench-source-accuracy）→ `16fcc51`（registry + DCG 下标纠正）。
+  **架构师独立验收**：① DCG/NDCG/recall 公式**逐行核对官方
+  eval_utils.py:4-29 一致**，并写复算脚本拿框架 `_evaluate_at_k` 与
+  官方公式（NumPy2.0 兼容复刻）**3000 随机例零失配**（recall_any/all
+  +ndcg 全等）；DCG 下标纠正确认正确（`enumerate(rel[1:],start=2)` ↔
+  官方 `arange(2,size+1)`）；ideal-DCG 免 corpus 等价式在"gold 全在
+  corpus"不变量下精确成立。② 两 evaluator 均走 `evaluate_run_artifacts`
+  钩子（evaluation.py:86-95 分发确认生产可用）；k>top_k 跳过不冒充、
+  abstention 官方排除、N/A payload、缺上游/未知前缀 fail-fast、空格
+  None——代码+测试双证。③ fixture 私有 label/public question 经真实
+  序列化（membench 上游经真实 choice evaluator+run_artifact_evaluation
+  落盘）；answer_prompts 手写与冻结 recall 测试一致（method 公开输出
+  形状无私有漂移风险）。④ registry 两注册 offline+benchmark 专用，
+  全量清单断言含两新 metric（H4 教训满足）。⑤ 既有 evaluator/runner/
+  third_party 零改动。**定向 33 passed + 全量 1069 passed（1058+11
+  自洽）+ compileall**。**建模登记（非缺陷）**：longmemeval-rank 的
+  `_ranked_source_ids` 对 item→多 source_turn_ids 采 expand-then-
+  truncate-at-k-ids，是 artifact-only 下的合理决定（已记入
+  longmemeval-frozen-v1 §7）。**B6.5 门条件全部满足**（全量+compileall
+  +两审计无 open 项+GC-1 进 spec+F1 验收）→ **B6 横向总验收完成，
+  method 侧正式解冻（Method Track M0 解阻）**。M0 首步（roster 排序、
+  首个 method、EverOS 排最后）涉及方向/预算，交用户拍板启动。
 - 2026-07-12（**B6.3 + B6.4 完成**，Fable 5）：① **B6.3**：匹配键
   契约升格 spec 通用契约 **GC-1**（spec.md B6 节后新增；三判例 +
   HaluMem N/A 边界 + 新 benchmark 接入检查项；裁定不进 playbook——域
