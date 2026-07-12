@@ -48,6 +48,7 @@ benchmark = 25 格**的极小 v3 smoke（LoCoMo 列 5 格都要重跑，旧 V2 f
 | [ws02.4](workstreams/ws02.4-simplemem/README.md) | simplemem-adapter | accepted | P0 | SimpleMem T1-T6 架构师验收通过（2026-07-07）；剩极小真实 smoke 待预算 |
 | [ws02.5](workstreams/ws02.5-method-interface-audit/README.md) | method-interface-audit | done | P0 | 2026-07-09 关闭：5 method 接口审计 + MemoryOS 迁移 + config 归一化（repo 默认/embedder 统一/LLM 只统一模型名）+ 接口文档全清；**5×5 smoke 前置门已开**，只待预算 |
 | [ws02.6](workstreams/ws02.6-first-smoke-hardening/README.md) | first-smoke-hardening | in-progress | P0 | 实验可信度门：**五 benchmark 全部 frozen-v1 + B6 横向总验收完成（2026-07-12）**；method 侧已解冻，下一步 Method Track M0（待用户拍板启动，EverOS 排最后）；基线 1069 passed |
+| [ws02.7](workstreams/ws02.7-method-track/README.md) | method-track-m0 | in-progress | P0 | method 侧解冻后逐个接入：双轨（unified+native）config-track + 极小 smoke；LightMem 首接、EverOS 最后；标准判据见 method-integration-checklist.md |
 | [ws03](workstreams/ws03-architecture-slimming/README.md) | architecture-slimming | open | P1 | registry/capability/legacy 接口与 CLI 减重、LLMRuntimeConfig |
 | [ws04](workstreams/ws04-terminal-observability/README.md) | terminal-observability | open | P2 | isolated 进度心跳、第三方 stdout/tqdm 治理 |
 | [ws05](workstreams/ws05-experiment-reporting/README.md) | experiment-reporting | open | P1 | 全量实验申请材料：成本估算表 + 结果汇总 + 兜底验证清单（依赖 ws02） |

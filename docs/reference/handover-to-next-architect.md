@@ -77,14 +77,22 @@ evaluator，DCG/NDCG/recall 公式经 3000 例复算与官方零失配、fixture
 **B6.5 总验收门通过**（全量 **1069 passed** + compileall + 两审计无
 open 项）。**method 侧已正式解冻**。
 
-**你的第一件正事 = Method Track M0（待用户拍板启动）**：M0 首步是
-对照 `docs/reference/method-interface-inventory.md` 排 method 接入
-序列（10 method：Mem0/MemoryOS/A-Mem/LightMem/SimpleMem/MemOS/Letta/
-LangMem/Supermemory/**EverOS 排最后**），逐个审计（官方接口选择、
-注入粒度、formatted_memory 完整性、provenance、效率观测）。序列/预算
-属用户决策，先与用户对齐再开工。参考 spec Method Track M0 节 +
-playbook §9.6 全局规划原理。真实 API 校准 R0 等用户批预算（含 lightmem
-校准实验，见 judge-config-audit §6）。
+**当前 = ws02.7 Method Track M0 进行中（LightMem 首接）**：M0.1 LightMem
+审查已完成（`ws02.7/notes/lightmem-m0-audit.md`：物理隔离/offline flush/
+provenance=none/api_usage 已做/native={locomo,longmemeval}）；首 actor 卡
+已开（`ws02.7/actor-prompt-m0-lightmem-config.md` = native prompt/judge
+一手抽取+parity，纯离线）。**标准接入判据 = `docs/reference/
+method-integration-checklist.md`（B1-B11，逐 method 必过）**。
+- **双轨已定（老师拍板）**：unified（框架统一 embedding+answer+judge，所有
+  格子）+ native（method paper 配置，仅有官方实验的格子）。一手 native
+  矩阵在 ws02.7 README（Mem0=locomo+lme+beam、SimpleMem=locomo+lme+membench、
+  LightMem=locomo+lme、其余见表；HaluMem 全员无）。
+- **待你做**：① 验收首 actor 卡（locomo answer 的 StructMem-vs-ANSWER_PROMPT
+  死代码问题要核实际调用点）；② 设计运行时 config-track 机制（TOML 捆绑 +
+  track-aware run_id `{method}/{benchmark}/{mode}/{track}/{run_id}`，现有
+  benchmark 级 `prompt_track` 与之正交，别混）→ 派 M0-2；③ 跑真实 unified
+  smoke（measure-first：先 LightMem×LoCoMo 一个读成本，$0.7 余额紧）。
+- R0 真实校准（lightmem 论文对齐）等用户批预算，见 judge-config-audit §6。
 
 **H4 的关键裁决已由 Fable 5 做出（写在卡里，不要重新裁）**：
 recall = **N/A 声明为冻结限制**（evidence 无 turn id，官方无 retrieval
