@@ -11,6 +11,7 @@ from typing import Callable
 
 from memory_benchmark.core import AnswerPromptResult, ConfigurationError, PromptMessage, Question
 from memory_benchmark.core.provider_protocol import RetrievalResult
+from memory_benchmark.evaluators.longmemeval_judge import LongMemEvalJudgeEvaluator
 
 
 LIGHTMEM_LOCOMO_NATIVE_ANSWER_PROMPT = '''
@@ -63,6 +64,32 @@ LIGHTMEM_LONGMEMEVAL_NATIVE_USER_PROMPT = (
     "Please answer the question based on the following memories: {formatted_memory}"
 )
 
+LIGHTMEM_LOCOMO_NATIVE_JUDGE_PROMPT = '''
+Your task is to label an answer to a question as ’CORRECT’ or ’WRONG’. You will be given the following data:
+    (1) a question (posed by one user to another user), 
+    (2) a ’gold’ (ground truth) answer, 
+    (3) a generated answer
+which you will score as CORRECT/WRONG.
+
+The point of the question is to ask about something one user should know about the other user based on their prior conversations.
+The gold answer will usually be a concise and short answer that includes the referenced topic, for example:
+Question: Do you remember what I got the last time I went to Hawaii?
+Gold answer: A shell necklace
+The generated answer might be much longer, but you should be generous with your grading - as long as it touches on the same topic as the gold answer, it should be counted as CORRECT. 
+
+For time related questions, the gold answer will be a specific date, month, year, etc. The generated answer might be much longer or use relative time references (like "last Tuesday" or "next month"), but you should be generous with your grading - as long as it refers to the same date or time period as the gold answer, it should be counted as CORRECT. Even if the format differs (e.g., "May 7th" vs "7 May"), consider it CORRECT if it's the same date.
+
+Now it's time for the real question:
+Question: {question}
+Gold answer: {gold_answer}
+Generated answer: {generated_answer}
+
+First, provide a short (one sentence) explanation of your reasoning, then finish with CORRECT or WRONG. 
+Do NOT include both CORRECT and WRONG in your response, or it will break the evaluation script.
+
+Just return the label CORRECT or WRONG in a json format with the key as "label".
+'''
+
 LIGHTMEM_LOCOMO_NATIVE_ANSWER_PROFILE = "lightmem_locomo_paper_native_v1"
 LIGHTMEM_LONGMEMEVAL_NATIVE_ANSWER_PROFILE = "lightmem_longmemeval_paper_native_v1"
 
@@ -83,6 +110,21 @@ class LightMemNativeAnswerProfile:
     profile_name: str
     builder: Callable[[Question, RetrievalResult], AnswerPromptResult]
     settings: LightMemNativeAnswerSettings
+    official_source: str
+
+
+@dataclass(frozen=True)
+class LightMemNativeJudgeProfile:
+    """一个 benchmark 的 LightMem native judge 静态 profile。"""
+
+    profile_name: str
+    prompt_template: str | None
+    evaluator_type: type | None
+    temperature: float
+    max_tokens: int | None
+    n: int | None
+    response_format: dict[str, str] | None
+    skipped_categories: frozenset[str]
     official_source: str
 
 
@@ -181,17 +223,63 @@ LIGHTMEM_NATIVE_ANSWER_PROFILES = {
     ),
 }
 
+LIGHTMEM_NATIVE_JUDGE_PROFILES = {
+    "locomo": LightMemNativeJudgeProfile(
+        profile_name="lightmem_locomo_paper_native_judge_v1",
+        prompt_template=LIGHTMEM_LOCOMO_NATIVE_JUDGE_PROMPT,
+        evaluator_type=None,
+        temperature=0.0,
+        max_tokens=None,
+        n=None,
+        response_format={"type": "json_object"},
+        skipped_categories=frozenset({"5"}),
+        official_source=(
+            "third_party/methods/LightMem/experiments/locomo/"
+            "llm_judge.py:22-46,60-74,106-108"
+        ),
+    ),
+    "longmemeval": LightMemNativeJudgeProfile(
+        profile_name="longmemeval_official_evaluate_qa_v1",
+        prompt_template=None,
+        evaluator_type=LongMemEvalJudgeEvaluator,
+        temperature=0.0,
+        max_tokens=10,
+        n=1,
+        response_format=None,
+        skipped_categories=frozenset(),
+        official_source=(
+            "third_party/methods/LightMem/experiments/longmemeval/"
+            "run_lightmem_gpt.py:8-28; reused framework official parity evaluator"
+        ),
+    ),
+}
+
+
+def lightmem_locomo_native_judge_skips_category(category: str | int | None) -> bool:
+    """按官方 `int(category) == 5` 判断 LoCoMo native judge 是否跳过。"""
+
+    if category is None:
+        return False
+    try:
+        return int(category) == 5
+    except (TypeError, ValueError):
+        return False
+
 
 __all__ = [
     "LIGHTMEM_LOCOMO_NATIVE_ANSWER_PROFILE",
     "LIGHTMEM_LOCOMO_NATIVE_ANSWER_PROMPT",
+    "LIGHTMEM_LOCOMO_NATIVE_JUDGE_PROMPT",
     "LIGHTMEM_LONGMEMEVAL_NATIVE_ANSWER_PROFILE",
     "LIGHTMEM_LONGMEMEVAL_NATIVE_SYSTEM_PROMPT",
     "LIGHTMEM_LONGMEMEVAL_NATIVE_USER_PROMPT",
     "LIGHTMEM_NATIVE_ANSWER_PROFILES",
     "LIGHTMEM_NATIVE_ANSWER_SETTINGS",
+    "LIGHTMEM_NATIVE_JUDGE_PROFILES",
     "LightMemNativeAnswerProfile",
     "LightMemNativeAnswerSettings",
+    "LightMemNativeJudgeProfile",
     "build_lightmem_locomo_native_answer_prompt",
     "build_lightmem_longmemeval_native_answer_prompt",
+    "lightmem_locomo_native_judge_skips_category",
 ]
