@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+from pathlib import Path
+import tomllib
 from typing import Mapping, Sequence
 
 from memory_benchmark.core import ConfigurationError
@@ -89,6 +91,114 @@ class CostReport:
 
 
 APIPrice = APILLMPrice | APIEmbeddingPrice
+
+
+def load_pricing(path: str | Path) -> Mapping[str, APIPrice]:
+    """从严格 TOML 配置加载 API 价格，忽略显式标记的本地模型。
+
+    每个 ``models`` 条目必须声明 ``model_id``、``kind`` 和 ``execution_mode``。
+    API 条目还必须提供对应价格字段与币种；local 条目不得携带价格字段，后续由
+    ``calculate_cost`` 的模型清单语义将其列入零成本模型。
+    """
+
+    pricing_path = Path(path)
+    try:
+        payload = tomllib.loads(pricing_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ConfigurationError(f"Pricing TOML is invalid: {pricing_path}") from exc
+    if set(payload) != {"models"} or not isinstance(payload["models"], list):
+        raise ConfigurationError("Pricing TOML must contain only a models array")
+
+    prices: dict[str, APIPrice] = {}
+    seen_model_ids: set[str] = set()
+    for index, record in enumerate(payload["models"]):
+        if not isinstance(record, dict):
+            raise ConfigurationError(f"Pricing models[{index}] must be a table")
+        model_id = record.get("model_id")
+        kind = record.get("kind")
+        execution_mode = record.get("execution_mode")
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ConfigurationError(f"Pricing models[{index}].model_id is required")
+        if model_id in seen_model_ids:
+            raise ConfigurationError(f"Pricing has duplicate model_id: {model_id}")
+        seen_model_ids.add(model_id)
+
+        if execution_mode == "local":
+            if set(record) != {"model_id", "kind", "execution_mode"}:
+                raise ConfigurationError(
+                    f"Local pricing model {model_id} must not contain price fields"
+                )
+            if kind not in {"llm", "embedding"}:
+                raise ConfigurationError(f"Pricing model {model_id} has invalid kind")
+            continue
+        if execution_mode != "api":
+            raise ConfigurationError(
+                f"Pricing model {model_id} has invalid execution_mode"
+            )
+
+        if kind == "llm":
+            expected = {
+                "model_id",
+                "kind",
+                "execution_mode",
+                "input_cost_per_million_tokens",
+                "output_cost_per_million_tokens",
+                "currency",
+            }
+            if set(record) != expected:
+                _raise_pricing_field_error(model_id, record, expected)
+            prices[model_id] = APILLMPrice(
+                input_cost_per_million_tokens=_decimal_from_toml(
+                    record["input_cost_per_million_tokens"], model_id
+                ),
+                output_cost_per_million_tokens=_decimal_from_toml(
+                    record["output_cost_per_million_tokens"], model_id
+                ),
+                currency=record["currency"],
+            )
+            continue
+        if kind == "embedding":
+            expected = {
+                "model_id",
+                "kind",
+                "execution_mode",
+                "input_cost_per_million_tokens",
+                "currency",
+            }
+            if set(record) != expected:
+                _raise_pricing_field_error(model_id, record, expected)
+            prices[model_id] = APIEmbeddingPrice(
+                input_cost_per_million_tokens=_decimal_from_toml(
+                    record["input_cost_per_million_tokens"], model_id
+                ),
+                currency=record["currency"],
+            )
+            continue
+        raise ConfigurationError(f"Pricing model {model_id} has invalid kind")
+
+    return prices
+
+
+def _raise_pricing_field_error(
+    model_id: str,
+    record: Mapping[str, object],
+    expected: set[str],
+) -> None:
+    """报告价格条目的缺失与多余字段。"""
+
+    raise ConfigurationError(
+        f"Pricing model {model_id} fields do not match schema: "
+        f"missing={sorted(expected - set(record))}, "
+        f"extra={sorted(set(record) - expected)}"
+    )
+
+
+def _decimal_from_toml(value: object, model_id: str) -> Decimal:
+    """把 TOML 数值无损转换为 Decimal，并拒绝布尔值等伪数值。"""
+
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ConfigurationError(f"Pricing model {model_id} price must be numeric")
+    return Decimal(str(value))
 
 
 def calculate_cost(
@@ -203,4 +313,5 @@ __all__ = [
     "APILLMPrice",
     "CostReport",
     "calculate_cost",
+    "load_pricing",
 ]
