@@ -25,6 +25,7 @@ def _llm_call(
     observation_id: str,
     stage: EfficiencyStage,
     input_tokens: int,
+    source: MeasurementSource = MeasurementSource.API_USAGE,
 ) -> LLMCallObservation:
     """构造成本报告测试用 LLM observation。"""
 
@@ -34,7 +35,7 @@ def _llm_call(
         model_id="gpt-4o-mini",
         input_tokens=input_tokens,
         output_tokens=0,
-        token_measurement_source=MeasurementSource.API_USAGE,
+        token_measurement_source=source,
         conversation_id="conv-1",
         question_id=None if stage is EfficiencyStage.MEMORY_BUILD else "q-1",
     )
@@ -131,3 +132,32 @@ def test_build_run_cost_report_merges_prediction_and_evaluator_stores(
     assert report.config_track == "native"
     assert report.complete is True
     assert report.missing_stores == ()
+
+
+def test_run_cost_report_exposes_mixed_token_source_confidence(tmp_path: Path) -> None:
+    """混合真实 usage 与 tokenizer estimate 时应给出 token 数、占比和标注。"""
+
+    paths = ExperimentPaths.create(tmp_path / "run")
+    EfficiencyArtifactStore.for_prediction(paths).merge_observations(
+        [
+            _llm_call("build", EfficiencyStage.MEMORY_BUILD, 100),
+            _llm_call(
+                "answer",
+                EfficiencyStage.ANSWER,
+                300,
+                MeasurementSource.TOKENIZER_ESTIMATE,
+            ),
+        ]
+    )
+    EfficiencyArtifactStore.for_evaluator(paths, "judge").merge_observations(
+        [_llm_call("judge", EfficiencyStage.JUDGE, 100)]
+    )
+
+    report = build_run_cost_report(paths.run_dir, _prices(), _api_inventory())
+
+    assert report.total_cost == Decimal("0.0005")
+    assert report.token_source_mix.api_usage_tokens == 200
+    assert report.token_source_mix.tokenizer_estimate_tokens == 300
+    assert report.token_source_mix.api_usage_ratio == pytest.approx(0.4)
+    assert report.token_source_mix.tokenizer_estimate_ratio == pytest.approx(0.6)
+    assert report.token_source_mix.confidence == "contains_tokenizer_estimate"

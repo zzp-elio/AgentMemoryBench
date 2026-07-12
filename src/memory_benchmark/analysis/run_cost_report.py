@@ -14,9 +14,25 @@ from memory_benchmark.observability.efficiency import (
     EfficiencyArtifactStore,
     EfficiencyObservation,
     EfficiencyStage,
+    EmbeddingCallObservation,
+    LLMCallObservation,
+    MeasurementSource,
     ModelDescriptor,
 )
 from memory_benchmark.storage.experiment_paths import ExperimentPaths
+
+
+@dataclass(frozen=True)
+class TokenSourceMix:
+    """计费调用 token 的计量来源构成与置信标注。"""
+
+    api_usage_tokens: int
+    tokenizer_estimate_tokens: int
+    other_source_tokens: int
+    total_tokens: int
+    api_usage_ratio: float | None
+    tokenizer_estimate_ratio: float | None
+    confidence: str
 
 
 @dataclass(frozen=True)
@@ -36,6 +52,9 @@ class RunCostReport:
     missing_price_model_ids: tuple[str, ...] = ()
     skipped_local_model_ids: tuple[str, ...] = ()
     missing_stores: tuple[str, ...] = ()
+    token_source_mix: TokenSourceMix = field(
+        default_factory=lambda: TokenSourceMix(0, 0, 0, 0, None, None, "no_tokens")
+    )
 
 
 def build_run_cost_report(
@@ -80,6 +99,47 @@ def build_run_cost_report(
         missing_price_model_ids=cost_report.missing_price_model_ids,
         skipped_local_model_ids=cost_report.skipped_local_model_ids,
         missing_stores=missing_stores,
+        token_source_mix=_build_token_source_mix(observations),
+    )
+
+
+def _build_token_source_mix(
+    observations: Sequence[EfficiencyObservation],
+) -> TokenSourceMix:
+    """按真实 observation 汇总 token 来源，不把 latency 等非 token 记录混入。"""
+
+    tokens_by_source = {source: 0 for source in MeasurementSource}
+    for observation in observations:
+        if isinstance(observation, LLMCallObservation):
+            token_count = observation.input_tokens + observation.output_tokens
+        elif isinstance(observation, EmbeddingCallObservation):
+            token_count = observation.input_tokens
+        else:
+            continue
+        tokens_by_source[observation.token_measurement_source] += token_count
+
+    api_tokens = tokens_by_source[MeasurementSource.API_USAGE]
+    estimate_tokens = tokens_by_source[MeasurementSource.TOKENIZER_ESTIMATE]
+    other_tokens = sum(tokens_by_source.values()) - api_tokens - estimate_tokens
+    total_tokens = api_tokens + estimate_tokens + other_tokens
+    if total_tokens == 0:
+        confidence = "no_tokens"
+    elif estimate_tokens > 0:
+        confidence = "contains_tokenizer_estimate"
+    elif other_tokens > 0:
+        confidence = "contains_other_source"
+    else:
+        confidence = "high"
+    return TokenSourceMix(
+        api_usage_tokens=api_tokens,
+        tokenizer_estimate_tokens=estimate_tokens,
+        other_source_tokens=other_tokens,
+        total_tokens=total_tokens,
+        api_usage_ratio=None if total_tokens == 0 else api_tokens / total_tokens,
+        tokenizer_estimate_ratio=(
+            None if total_tokens == 0 else estimate_tokens / total_tokens
+        ),
+        confidence=confidence,
     )
 
 
@@ -134,4 +194,4 @@ def _read_config_track(manifest_path: Path) -> str:
     return config_track if isinstance(config_track, str) and config_track else "unknown"
 
 
-__all__ = ["RunCostReport", "build_run_cost_report"]
+__all__ = ["RunCostReport", "TokenSourceMix", "build_run_cost_report"]
