@@ -30,15 +30,24 @@ smoke，你不用跑 API。
   参数化）。
 - 遇本卡未覆盖 → 停工写断点交架构师。
 
-## Task 1：解决 locomo answer prompt 的死代码问题（先做，可能停工）
-LightMem locomo answer prompt 有两个候选：`experiments/locomo/prompts.py:148
-ANSWER_PROMPT` 与 `:232 ANSWER_PROMPT_StructMem`。**必须核 `search_locomo.py`
-的实际调用点**（原则 #2：读签名≠读调用；StructMem 是 LightMem 主打，很
-可能实际用的是它）。
-- 一手确定实际调用哪个 + 行号。
-- 若两个都在活跃分支（按配置切换）或无法一手确定 → **停工上报**，附
-  `search_locomo.py` 调用点证据，交架构师裁定用哪个。
-- 确定后继续 Task 2。
+## Task 1：locomo answer prompt 选定 —— 【架构师已裁决，直接照用，不再调查】
+> 2026-07-12：首轮 actor（Codex/GPT-5.6）**已正确停工上报**——两 prompt 都是活跃
+> 分支、`--enable-summary` 切换、默认 False（`search_locomo.py:258-280/441-447/
+> 566-570/616-620`）。停工纪律到位。架构师已裁决，本 Task 无需再查，按结论进 Task 2。
+
+**结论：native locomo answer = `experiments/locomo/prompts.py:148 ANSWER_PROMPT`
+（标准）。不接 `:232 ANSWER_PROMPT_StructMem`。**
+
+依据（架构师一手核 `experiments/locomo/readme.md`）：
+- `--enable-summary` **不是纯 answer 开关**，而是 build+检索+embedding 三处都变
+  （build `add_locomo.py --extraction_mode event --enable_summary
+  --summary_time_window 3600 --summary_top_k 15`；检索 `--summary-limit 5`；
+  embedding `text-embedding-3-small`）——StructMem 是**另一套完整实验**，非本卡范围。
+- paper **headline locomo 数字（71.95–72.99）= LightMem 模式 = summary OFF = 标准
+  ANSWER_PROMPT**（`readme.md:49-97` "for our reported results" 指非-summary 表；
+  StructMem 是 `:183-196` 独立 ablation）。
+
+Task 2 的 locomo native answer builder 内容 = `ANSWER_PROMPT` 逐字。StructMem 完全不碰。
 
 ## Task 2：注册 LightMem native answer profile（locomo + longmemeval）
 新文件 `src/memory_benchmark/methods/lightmem_native_prompts.py`（或就近合适

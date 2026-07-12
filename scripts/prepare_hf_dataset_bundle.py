@@ -299,7 +299,7 @@ license: other
 # AgentMemoryBench Data
 
 This dataset repository stores runtime benchmark data used by
-[AgentMemoryBench](https://github.com/buctzzp/AgentMemoryBench).
+[AgentMemoryBench](https://github.com/zzp-elio/AgentMemoryBench).
 
 This repository is intended for public download by AgentMemoryBench users. Please keep upstream
 benchmark licenses, citations, and redistribution notes up to date before broad distribution.

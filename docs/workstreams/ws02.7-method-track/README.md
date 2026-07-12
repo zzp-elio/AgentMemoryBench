@@ -15,6 +15,31 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-12）
 
+- 2026-07-12（**架构师裁 Task1 + 双轨政策成文 + 杂项**，Opus 4.8）：
+  ① **Task1 裁决**——native locomo answer=`ANSWER_PROMPT`（标准），StructMem 不接
+  （一手核 `experiments/locomo/readme.md`：`--enable-summary` 改 build+检索+embedding
+  三处、非纯 answer；paper headline 数字是 summary OFF）。actor 卡 Task1 已改成"已裁决
+  直接照用"，**可派新 actor 续 Task2-4**。② **双轨政策落盘**
+  [`docs/reference/dual-track-config-policy.md`](../../reference/dual-track-config-policy.md)
+  （7 轴 build/readout 二分、native 配置来源决策树、reproduce-vs-paper 一致性检查、
+  single-track collapse、算法代码单一化）；checklist B10 与本 plan §3 已引用。
+  ③ **改正记忆复用口径**：非无条件，仅两轨 build 轴全同才复用。④ **A-Mem 双仓库一手核**：
+  `third_party/methods/A-mem`=复现版（adapter 接的这份，对）、`third_party/A-mem`=通用库版
+  （adapter 未用），M 阶段再定通用版去留（policy §7）。⑤ GitHub 用户名 buctzzp→zzp-elio，
+  active 文件已改（README/scripts），archive 保留历史。⑥ 运行时 config-track 机制拆成
+  **M0-1b**（架构师设计后派，不丢欠规格机制给 actor）。
+- 2026-07-12（Codex / GPT-5.6，M0-1 Task 1 停工）：LightMem LoCoMo 的
+  `ANSWER_PROMPT` 与 `ANSWER_PROMPT_StructMem` **都是实际可达的活跃分支**，
+  任务卡要求交回架构师裁定，不能由 actor 自选。证据：
+  `search_locomo.py:258-280` 在 `enable_summary=True` 时格式化 StructMem
+  prompt，在 False 时格式化标准 prompt；`process_sample` 将该配置原样传入
+  builder（`:441-447`）；CLI 暴露 `--enable-summary` 的 `store_true` 开关，
+  默认 False（`:566-570`），并据此选择带 summary 的 entry loader
+  （`:616-620`）。候选方案：A. native locomo 默认 profile 锁官方 CLI 默认
+  `ANSWER_PROMPT`，StructMem 另列可选 native 子 profile；B. native locomo
+  选 StructMem，但这还要求同时定义 summary retrieval/`session_summaries`
+  输入契约，已超出本卡纯 answer profile 范围。等待架构师裁定后再做 Task 2-4；
+  当前零生产代码改动、未运行自检、未提交。
 - 2026-07-12（**M0 立项 + LightMem M0.1 审查完成 + 首 actor 卡开**）：
   ① 标准清单落盘 `docs/reference/method-integration-checklist.md`
   （benchmark A1-A8 + method B1-B11 的 Definition of Done）。

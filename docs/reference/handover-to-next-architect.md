@@ -87,11 +87,15 @@ method-integration-checklist.md`（B1-B11，逐 method 必过）**。
   格子）+ native（method paper 配置，仅有官方实验的格子）。一手 native
   矩阵在 ws02.7 README（Mem0=locomo+lme+beam、SimpleMem=locomo+lme+membench、
   LightMem=locomo+lme、其余见表；HaluMem 全员无）。
-- **待你做**：① 验收首 actor 卡（locomo answer 的 StructMem-vs-ANSWER_PROMPT
-  死代码问题要核实际调用点）；② 设计运行时 config-track 机制（TOML 捆绑 +
-  track-aware run_id `{method}/{benchmark}/{mode}/{track}/{run_id}`，现有
-  benchmark 级 `prompt_track` 与之正交，别混）→ 派 M0-2；③ 跑真实 unified
-  smoke（measure-first：先 LightMem×LoCoMo 一个读成本，$0.7 余额紧）。
+- **待你做**：① 首 actor 卡 Task1 **已裁决**（native locomo=ANSWER_PROMPT、
+  StructMem 不接，见 ws02.7 §3.5）→ 用户派新 actor 续 Task2-4，回来后**验收**
+  （逐字 parity、无编造）；② 设计运行时 config-track 机制 = **M0-1b**（TOML 捆绑 +
+  track-aware run_id `{method}/{benchmark}/{mode}/{track}/{run_id}`，与 benchmark 级
+  `prompt_track` 正交，别混）→ 再派；③ 跑真实 unified smoke（measure-first：先
+  LightMem×LoCoMo 一个读成本，$0.7 余额紧）。
+  **双轨政策已成文**：`docs/reference/dual-track-config-policy.md`（唯一政策源，
+  build/readout 二分、native 来源决策树、reproduce-vs-paper 检查、single-track
+  collapse、算法代码单一化）——接任遇双轨问题先读它，别重新推导。
 - R0 真实校准（lightmem 论文对齐）等用户批预算，见 judge-config-audit §6。
 
 **H4 的关键裁决已由 Fable 5 做出（写在卡里，不要重新裁）**：
@@ -134,3 +138,9 @@ R0 真实校准（用户批预算；lightmem 校准实验见原则 #16）。
   验收通过 + B6.5 门通过 → B6 完成、method 侧解冻**（全量 1069
   passed）；在途状态节改写为"第一件正事 = Method Track M0（待用户
   拍板）"。首个由 Opus 4.8 执行并验收的批次。
+- 2026-07-12（第六次更新）：M0 首 actor 卡 **Task1 停工 → 架构师裁决**
+  （native locomo=ANSWER_PROMPT、StructMem 不接）；**双轨政策成文**
+  `dual-track-config-policy.md`（含 reproduce-vs-paper 检查、single-track
+  collapse、算法代码单一化）；A-Mem 双仓库一手核（adapter 接复现版）；
+  GitHub 用户名 buctzzp→zzp-elio active 文件已改；config-track 运行时机制
+  拆为 M0-1b（架构师设计后派）。

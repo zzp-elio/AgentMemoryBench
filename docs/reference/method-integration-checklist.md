@@ -86,16 +86,21 @@
   轨用 method paper embedding（见 B10）。
 
 ### B10. 双配置轨（unified + native，老师 2026-07-12 敲定）
-- **unified 轨**：框架统一 embedding + answer + judge（控制变量、公平横比）。
-  **所有 method×benchmark 格子都要有**。
-- **native 轨**：method 自己 paper 的 embedding + answer + judge（原样复现、
-  对齐论文）。**只在 method 对该 benchmark 有官方实验配置时才有**（一手矩阵
-  见 ws02.7 plan）。
-- 两轨差异 = answer 配置 + judge 配置 +（可能）embedding。**embedding 相同
-  → 记忆可复用只重跑 answer+judge；embedding 不同 → 两次独立构建**（成本 ×2）。
-- 实现 = TOML config-track 捆绑 + track-aware run_id（`{method}/{benchmark}/
-  {mode}/{track}/{run_id}`），一旗标切换；native prompt 从 method 仓库一手
-  抄成注册 profile。
+> **完整政策见 `docs/reference/dual-track-config-policy.md`**；本项是接入时的核对清单。
+- **unified 轨**：框架统一 embedding+answer+judge + method **repo 默认超参**（非 paper、
+  非 per-benchmark 调参）。所有兼容格子都有。
+- **native 轨**：method 官方复现实验配置。**仅 native 格存在**（矩阵见 ws02.7 README）；
+  **无官方实验的格 = 单轨 native≡unified，不重复跑**（policy §6 collapse 规则）。
+- **差异 7 轴，分 build/readout**（policy §2）：readout（answer/judge 的 LLM+prompt+语义）
+  改了**记忆可复用**；build（embedding + 内部超参）改了**必须重建、成本 ×2**。**记忆复用
+  是有条件的**（两轨 build 轴全同才成立），不默认。
+- **reproduce-vs-paper 一致性检查**（policy §5，逐 native 格必做）：取证 paper / repo 复现
+  目录 / repo 默认三份配置并对比；失配且无作者指引 → 标 native=DISPUTED、留痕、不阻塞接入
+  （同 recall=N/A 冻结限制法）。
+- **算法代码单一化**（policy §7）：多仓库 method（复现版/通用版/产品版）选**一份**代码
+  （优先复现版），两轨只换配置不换算法实现。
+- 实现 = TOML config-track 捆绑 + track-aware run_id `{method}/{benchmark}/{mode}/{track}/
+  {run_id}`；native prompt/judge 从 method 仓库一手抄成注册 profile + parity 锁。
 
 ### B11. smoke（两轨）+ 冻结
 - unified 轨所有格子 smoke；native 轨仅有配置的格子 smoke。验收口径 =
