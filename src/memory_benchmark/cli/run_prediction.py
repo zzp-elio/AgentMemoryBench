@@ -226,7 +226,7 @@ def resolve_prediction_max_workers(
         return config.max_workers
     if config.profile_name != "smoke":
         raise ConfigurationError(
-            "--smoke-max-workers is a smoke-only diagnostic option"
+            "smoke_max_workers is a smoke-only diagnostic option"
         )
     if smoke_max_workers < 1:
         raise ConfigurationError("Mem0 smoke_max_workers must be at least 1")
@@ -1205,7 +1205,7 @@ def _resolve_adapter_smoke_history_limit(
 ) -> int:
     """把 CLI smoke 历史预算转换成当前 adapter 的裁剪单位。
 
-    legacy `--smoke-turn-limit` 继续按原有 turn 语义传递；CLI v2 `--rounds`
+    legacy `predict --profile smoke` 路径按原有 turn 语义传递；CLI v2 `--rounds`
     使用 `smoke_round_limit`，LoCoMo 转成双 turn round，LongMemEval 已在
     adapter registry 内按完整 round 裁剪。
     """

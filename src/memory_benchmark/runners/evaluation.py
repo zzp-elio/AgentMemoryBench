@@ -485,7 +485,7 @@ def _validate_matching_question_ids(
 ) -> None:
     """校验 artifacts 的 question id 集合关系：predictions 必须是 public/private 的子集。
 
-    在分批实验（--max-new-conversations）场景下，predictions 可能只包含部分
+    在分批实验（per-command conversation 预算）场景下，predictions 可能只包含部分
     conversation 的 question，此时允许 predictions 为 public/private 的子集。
     public 和 private 仍需完全一致。
     """

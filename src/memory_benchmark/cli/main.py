@@ -210,20 +210,8 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Comma-separated MemBench source filters: first_high,first_low,third_high,third_low (debug knob, default=all 4)",
     )
-    parser.add_argument("--smoke-turn-limit", type=int, default=None)
     parser.add_argument("--conversations", type=int, default=None)
-    parser.add_argument(
-        "--smoke-conversation-limit",
-        type=int,
-        default=None,
-    )
     parser.add_argument("--workers", type=int, default=None)
-    parser.add_argument(
-        "--smoke-max-workers",
-        type=int,
-        default=None,
-        help="Override smoke conversation worker count; validated by method profile.",
-    )
     efficiency_group = parser.add_mutually_exclusive_group()
     efficiency_group.add_argument(
         "--enable-efficiency-observability",
@@ -242,18 +230,14 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
         help="Disable prediction efficiency observation for this run.",
     )
     parser.add_argument(
-        "--max-new-conversations",
-        type=int,
-        default=None,
-        help=MAX_NEW_CONVERSATIONS_HELP,
-    )
-    parser.add_argument(
         "--conversation-budget",
         type=int,
         default=None,
         help=(
             "formal mode only: advance at most this many unfinished "
-            "conversations in this invocation."
+            "conversations in this invocation. It is a per-command budget "
+            "and does not become experiment identity; a later resume can "
+            "increase it."
         ),
     )
     parser.add_argument(
@@ -271,15 +255,6 @@ def _add_prediction_arguments(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         help="smoke mode only: maximum questions per selected conversation.",
-    )
-    parser.add_argument(
-        "--question-limit-per-conversation",
-        type=int,
-        default=None,
-        help=(
-            "Per-command question budget for each selected conversation. It is "
-            "not experiment identity, so a later resume can increase it."
-        ),
     )
     parser.add_argument(
         "--answer-prompt-file",
@@ -515,24 +490,20 @@ def _default_smoke_history_limit(benchmark_name: str) -> int:
 def _normalize_legacy_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
     """保持旧 `predict --profile ...` 写法可用，并接入新别名。"""
 
-    _reject_conflicting_aliases(args)
     _validate_smoke_axis_args(args)
     default_history_limit = _default_smoke_history_limit(args.benchmark)
+    smoke = (args.profile or "smoke") == "smoke"
     return {
         "profile": args.profile or "smoke",
         "confirm_full": args.confirm_full,
         "smoke_turn_limit": _positive_or_default(
-            args.rounds if args.rounds is not None else args.smoke_turn_limit,
+            args.rounds,
             default=default_history_limit,
             field_name="rounds",
         ),
         "smoke_round_limit": None,
         "smoke_conversation_limit": _positive_or_default(
-            (
-                args.conversations
-                if args.conversations is not None
-                else args.smoke_conversation_limit
-            ),
+            args.conversations,
             default=1,
             field_name="conversations",
         ),
@@ -540,25 +511,24 @@ def _normalize_legacy_prediction_args(args: argparse.Namespace) -> dict[str, Any
             args.sessions,
             field_name="sessions",
         ),
-        "workers": _positive_or_none(
-            args.workers if args.workers is not None else args.smoke_max_workers,
-            field_name="workers",
-        ),
+        "workers": _positive_or_none(args.workers, field_name="workers"),
         "max_new_conversations": _positive_or_none(
-            (
-                args.conversation_budget
-                if args.conversation_budget is not None
-                else args.max_new_conversations
-            ),
+            args.conversation_budget,
             field_name="conversation budget",
         ),
-        "question_limit_per_conversation": _positive_or_none(
-            (
-                args.questions_per_conversation
-                if args.questions_per_conversation is not None
-                else args.question_limit_per_conversation
-            ),
-            field_name="questions per conversation",
+        # cost-safety: smoke 默认只评 1 个问题（验证链路足够，省 token）。
+        # formal/official-full 路径不设帽（None=全题），显式传值始终覆盖默认。
+        "question_limit_per_conversation": (
+            _positive_or_default(
+                args.questions_per_conversation,
+                default=1,
+                field_name="questions per conversation",
+            )
+            if smoke
+            else _positive_or_none(
+                args.questions_per_conversation,
+                field_name="questions per conversation",
+            )
         ),
         # ws02.6: legacy `--profile` 也走分层布局，杜绝结果扁平散落 outputs/ 根。
         # `--profile` 的彻底废弃另起 actor 卡（涉及 legacy-only 组合的测试删改）。
@@ -572,21 +542,17 @@ def _normalize_legacy_prediction_args(args: argparse.Namespace) -> dict[str, Any
 def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
     """校验并归一化 `predict smoke` 参数。"""
 
-    _reject_conflicting_aliases(args)
     _validate_smoke_axis_args(args)
     if args.resume:
         raise MemoryBenchmarkError("predict smoke does not support --resume")
     if args.retry_failed_conversations:
         raise MemoryBenchmarkError("predict smoke does not support --retry-failed")
-    if args.conversation_budget is not None or args.max_new_conversations is not None:
+    if args.conversation_budget is not None:
         raise MemoryBenchmarkError(
-            "predict smoke does not support --conversation-budget or "
-            "--max-new-conversations; use --conversations"
+            "predict smoke does not support --conversation-budget; use --conversations"
         )
     halumem_smoke = args.benchmark == "halumem"
-    round_limit = (
-        args.rounds if args.rounds is not None else args.smoke_turn_limit
-    )
+    round_limit = args.rounds
     default_history_limit = _default_smoke_history_limit(args.benchmark)
     return {
         "profile": "smoke",
@@ -604,26 +570,15 @@ def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]
             field_name="rounds",
         ),
         "smoke_conversation_limit": _positive_or_default(
-            (
-                args.conversations
-                if args.conversations is not None
-                else args.smoke_conversation_limit
-            ),
+            args.conversations,
             default=1,
             field_name="conversations",
         ),
         "smoke_session_limit": None,
-        "workers": _positive_or_none(
-            args.workers if args.workers is not None else args.smoke_max_workers,
-            field_name="workers",
-        ),
+        "workers": _positive_or_none(args.workers, field_name="workers"),
         "max_new_conversations": None,
         "question_limit_per_conversation": _positive_or_default(
-            (
-                args.questions_per_conversation
-                if args.questions_per_conversation is not None
-                else args.question_limit_per_conversation
-            ),
+            args.questions_per_conversation,
             default=1,
             field_name="questions per conversation",
         ),
@@ -637,26 +592,22 @@ def _normalize_smoke_prediction_args(args: argparse.Namespace) -> dict[str, Any]
 def _normalize_formal_prediction_args(args: argparse.Namespace) -> dict[str, Any]:
     """校验并归一化 `predict formal` 参数。"""
 
-    _reject_conflicting_aliases(args)
     if args.retry_failed_conversations and not args.resume:
         raise MemoryBenchmarkError("--retry-failed requires --resume")
-    if args.rounds is not None or args.smoke_turn_limit is not None:
+    if args.rounds is not None:
         raise MemoryBenchmarkError("predict formal does not support --rounds")
     if args.turns is not None:
         raise MemoryBenchmarkError("predict formal does not support --turns")
     if getattr(args, "membench_sources", None) is not None:
         # smoke 调试旋钮；formal 静默忽略会让人误以为跑了部分源。
         raise MemoryBenchmarkError("predict formal does not support --membench-sources")
-    if args.conversations is not None or args.smoke_conversation_limit is not None:
+    if args.conversations is not None:
         raise MemoryBenchmarkError("predict formal does not support --conversations")
     if args.sessions is not None:
         raise MemoryBenchmarkError("predict formal does not support --sessions")
     if args.sources is not None:
         raise MemoryBenchmarkError("predict formal does not support --sources")
-    if (
-        args.questions_per_conversation is not None
-        or args.question_limit_per_conversation is not None
-    ):
+    if args.questions_per_conversation is not None:
         raise MemoryBenchmarkError(
             "predict formal does not support --questions-per-conversation"
         )
@@ -667,16 +618,9 @@ def _normalize_formal_prediction_args(args: argparse.Namespace) -> dict[str, Any
         "smoke_round_limit": None,
         "smoke_conversation_limit": 1,
         "smoke_session_limit": None,
-        "workers": _positive_or_none(
-            args.workers if args.workers is not None else args.smoke_max_workers,
-            field_name="workers",
-        ),
+        "workers": _positive_or_none(args.workers, field_name="workers"),
         "max_new_conversations": _positive_or_none(
-            (
-                args.conversation_budget
-                if args.conversation_budget is not None
-                else args.max_new_conversations
-            ),
+            args.conversation_budget,
             field_name="conversation budget",
         ),
         "question_limit_per_conversation": None,
@@ -685,45 +629,17 @@ def _normalize_formal_prediction_args(args: argparse.Namespace) -> dict[str, Any
     }
 
 
-def _reject_conflicting_aliases(args: argparse.Namespace) -> None:
-    """拒绝新旧别名同时出现，避免用户误解最终生效值。"""
-
-    if args.workers is not None and args.smoke_max_workers is not None:
-        raise MemoryBenchmarkError("Use either --workers or --smoke-max-workers, not both")
-    if args.rounds is not None and args.smoke_turn_limit is not None:
-        raise MemoryBenchmarkError("Use either --rounds or --smoke-turn-limit, not both")
-    if args.conversations is not None and args.smoke_conversation_limit is not None:
-        raise MemoryBenchmarkError(
-            "Use either --conversations or --smoke-conversation-limit, not both"
-        )
-    if (
-        args.questions_per_conversation is not None
-        and args.question_limit_per_conversation is not None
-    ):
-        raise MemoryBenchmarkError(
-            "Use either --questions-per-conversation or "
-            "--question-limit-per-conversation, not both"
-        )
-    if args.conversation_budget is not None and args.max_new_conversations is not None:
-        raise MemoryBenchmarkError(
-            "Use either --conversation-budget or --max-new-conversations, not both"
-        )
-
-
 def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
     """按 benchmark 校验 smoke 历史裁剪轴。"""
 
     if args.benchmark == "halumem":
         if (
             args.rounds is not None
-            or args.smoke_turn_limit is not None
             or args.turns is not None
             or args.sessions is not None
             or args.sources is not None
             or args.conversations is not None
-            or args.smoke_conversation_limit is not None
             or args.questions_per_conversation is not None
-            or args.question_limit_per_conversation is not None
         ):
             raise MemoryBenchmarkError(
                 "HaluMem smoke has a fixed shape and does not accept cropping parameters"

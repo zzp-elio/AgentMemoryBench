@@ -497,15 +497,15 @@ def test_main_help_lists_predict_evaluate_and_run(capsys) -> None:
     assert "calibrate-smoke" in output
 
 
-def test_prediction_help_describes_max_new_conversations(capsys) -> None:
-    """predict 子命令 help 应说明预算只属于本次命令，不属于实验 identity。"""
+def test_prediction_help_describes_conversation_budget(capsys) -> None:
+    """predict 子命令 help 应说明 conversation 预算只属于本次命令、不属于实验 identity。"""
 
     with pytest.raises(SystemExit) as raised:
         main_cli.main(["predict", "--help"])
 
     assert raised.value.code == 0
     output = capsys.readouterr().out
-    assert "--max-new-conversations" in output
+    assert "--conversation-budget" in output
     assert "per-command" in output
     assert "identity" in output
 
@@ -643,13 +643,13 @@ def test_main_maps_predict_arguments_to_command(
             "--run-id",
             "run-1",
             "--confirm-api",
-            "--smoke-turn-limit",
+            "--rounds",
             "3",
-            "--smoke-conversation-limit",
+            "--conversations",
             "10",
-            "--smoke-max-workers",
+            "--workers",
             "10",
-            "--max-new-conversations",
+            "--conversation-budget",
             "2",
             "--retry-failed",
         ]
@@ -669,6 +669,9 @@ def test_main_maps_predict_arguments_to_command(
             smoke_conversation_limit=10,
             smoke_max_workers=10,
             max_new_conversations=2,
+            # legacy `--profile smoke` 路径：未传 --questions-per-conversation 时
+            # cost-safety 默认取 1（smoke 只评 1 个问题），不再回退到 None。
+            question_limit_per_conversation=1,
             retry_failed_conversations=True,
             output_layout="hierarchical",
         )
@@ -872,6 +875,7 @@ def test_main_legacy_predict_smoke_locomo_defaults_round_limit_from_policy(
             run_id="run-1",
             confirm_api=True,
             smoke_turn_limit=1,
+            question_limit_per_conversation=1,
             output_layout="hierarchical",
         )
     ]
@@ -918,6 +922,7 @@ def test_main_legacy_predict_smoke_longmemeval_uses_registered_policy_default(
             run_id="run-1",
             confirm_api=True,
             smoke_turn_limit=1,
+            question_limit_per_conversation=1,
             output_layout="hierarchical",
         )
     ]
@@ -1060,9 +1065,6 @@ def test_main_maps_halumem_fixed_smoke_shape_to_command(
         ("--sessions", "2"),
         ("--conversations", "2"),
         ("--questions-per-conversation", "2"),
-        ("--smoke-turn-limit", "2"),
-        ("--smoke-conversation-limit", "2"),
-        ("--question-limit-per-conversation", "2"),
     ],
 )
 def test_main_rejects_all_cropping_parameters_for_halumem_smoke(
@@ -1369,8 +1371,9 @@ def test_main_maps_predict_efficiency_flag_to_command(
             run_id="run-1",
             confirm_api=True,
             # LoCoMo 注册了 BenchmarkSmokePolicy(default_history_limit=1)；未传
-            # --rounds/--smoke-turn-limit 时不再退回全局 legacy 默认值 20。
+            # --rounds 时不再退回全局 legacy 默认值 20。
             smoke_turn_limit=1,
+            question_limit_per_conversation=1,
             enable_efficiency_observability=True,
             output_layout="hierarchical",
         )
@@ -1419,6 +1422,7 @@ def test_main_maps_predict_disable_efficiency_flag_to_command(
             run_id="run-1",
             confirm_api=True,
             smoke_turn_limit=1,
+            question_limit_per_conversation=1,
             enable_efficiency_observability=False,
             output_layout="hierarchical",
         )
@@ -1470,6 +1474,7 @@ def test_main_maps_answer_prompt_arguments_to_predict_command(
             run_id="run-1",
             confirm_api=True,
             smoke_turn_limit=1,
+            question_limit_per_conversation=1,
             answer_prompt_file=Path("prompts/locomo.txt"),
             answer_prompt_profile="locomo-custom",
             output_layout="hierarchical",
@@ -1518,6 +1523,7 @@ def test_main_accepts_memoryos_as_registered_method_choice(
             run_id="memoryos-run",
             confirm_api=True,
             smoke_turn_limit=1,
+            question_limit_per_conversation=1,
             output_layout="hierarchical",
         )
     ]
@@ -1568,6 +1574,7 @@ def test_main_accepts_longmemeval_benchmark_and_free_string_variant(
             variant="unknown-yet-allowed-by-parser",
             confirm_api=True,
             smoke_turn_limit=1,
+            question_limit_per_conversation=1,
             output_layout="hierarchical",
         )
     ]
@@ -1705,15 +1712,15 @@ def test_main_maps_run_arguments_to_run_command(
             "--resume",
             "--confirm-api",
             "--confirm-full",
-            "--smoke-turn-limit",
+            "--rounds",
             "7",
-            "--smoke-conversation-limit",
+            "--conversations",
             "5",
-            "--smoke-max-workers",
+            "--workers",
             "10",
-            "--max-new-conversations",
+            "--conversation-budget",
             "3",
-            "--question-limit-per-conversation",
+            "--questions-per-conversation",
             "2",
             "--metric",
             "locomo-f1",
@@ -1955,3 +1962,158 @@ def test_main_debug_reraises_domain_error(
                 "locomo-f1",
             ]
         )
+
+
+# --- ws04 CLI dedup: legacy 别名已删 + smoke 默认问题帽=1 ---
+
+@pytest.mark.parametrize(
+    "legacy_flag",
+    [
+        "--smoke-turn-limit",
+        "--smoke-conversation-limit",
+        "--smoke-max-workers",
+        "--max-new-conversations",
+        "--question-limit-per-conversation",
+    ],
+)
+def test_predict_rejects_removed_legacy_alias(legacy_flag: str, capsys) -> None:
+    """删掉的旧 CLI 别名应被 argparse 报为 unrecognized argument。"""
+
+    with pytest.raises(SystemExit) as raised:
+        main_cli.main(
+            [
+                "predict",
+                "smoke",
+                "--root",
+                ".",
+                "--method",
+                "mem0",
+                "--benchmark",
+                "locomo",
+                "--allow-api",
+                legacy_flag,
+                "1",
+            ]
+        )
+
+    assert raised.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+
+
+def test_calibrate_smoke_still_keeps_max_new_conversations(capsys) -> None:
+    """calibrate-smoke 不是去重对象，--max-new-conversations 在该子命令仍保留。"""
+
+    with pytest.raises(SystemExit) as raised:
+        main_cli.main(["calibrate-smoke", "--help"])
+
+    assert raised.value.code == 0
+    output = capsys.readouterr().out
+    assert "--max-new-conversations" in output
+    assert "--smoke-turn-limit" in output
+
+
+def test_legacy_smoke_defaults_questions_to_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """legacy `predict --profile smoke` 未传问题时默认 question_limit_per_conversation=1。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--profile",
+            "smoke",
+            "--run-id",
+            "run-1",
+            "--confirm-api",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received[0].question_limit_per_conversation == 1
+
+
+def test_legacy_smoke_explicit_questions_overrides_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """显式 --questions-per-conversation 覆盖 smoke 默认帽 1。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--profile",
+            "smoke",
+            "--run-id",
+            "run-1",
+            "--confirm-api",
+            "--questions-per-conversation",
+            "7",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received[0].question_limit_per_conversation == 7
+
+
+def test_legacy_formal_questions_per_conversation_still_none(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """legacy `predict --profile official-full` 不设问题帽，默认仍为 None。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "mem0",
+            "--benchmark",
+            "locomo",
+            "--profile",
+            "official-full",
+            "--run-id",
+            "run-1",
+            "--confirm-api",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received[0].question_limit_per_conversation is None

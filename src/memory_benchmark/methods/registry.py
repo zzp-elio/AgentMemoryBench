@@ -104,7 +104,7 @@ class MethodRegistration:
         protocol_version: method 显式声明的 provider 协议版本，供 manifest 盖章与
             worker 运行时交叉校验使用。
         workload_estimator: 可选的公开工作量估算 hook。
-        allow_smoke_worker_override: 是否允许 `--smoke-max-workers` 覆盖配置值。
+        allow_smoke_worker_override: 是否允许 smoke worker 覆盖（CLI `--workers`）配置值。
         efficiency_model_inventory_getter: 启用效率观测时生成模型清单。
         efficiency_instrumentation_identity_getter: 启用观测时生成插桩身份。
         retrieval_observation_contract_getter: 启用观测时生成 retrieval 强契约。
