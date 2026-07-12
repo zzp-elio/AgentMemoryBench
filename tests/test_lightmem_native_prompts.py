@@ -60,7 +60,13 @@ def test_longmemeval_native_answer_matches_runtime_official_ast() -> None:
     official_messages = _official_longmemeval_answer_messages(item, related_memories)
     result = build_lightmem_longmemeval_native_answer_prompt(
         Question("q1", "c1", item["question"], question_time=item["question_date"]),
-        RetrievalResult(formatted_memory="\n".join(related_memories)),
+        RetrievalResult(
+            formatted_memory="reader-formatted-memory-must-not-be-used",
+            prompt_messages=tuple(
+                PromptMessage(role=message["role"], content=message["content"])
+                for message in official_messages
+            ),
+        ),
     )
 
     assert [message.to_dict() for message in result.prompt_messages] == official_messages

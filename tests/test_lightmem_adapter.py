@@ -22,12 +22,17 @@ from memory_benchmark.core import (
     Turn,
 )
 from memory_benchmark.core.provider_protocol import MemoryProvider
+from memory_benchmark.core.provider_protocol import RetrievalQuery
 from memory_benchmark.methods.lightmem_adapter import (
     LightMem,
     LightMemConfig,
     build_lightmem_source_identity,
     clean_lightmem_conversation_state,
     import_lightmem_classes,
+)
+from memory_benchmark.methods.lightmem_native_prompts import (
+    build_lightmem_locomo_native_answer_prompt,
+    build_lightmem_longmemeval_native_answer_prompt,
 )
 from memory_benchmark.methods.registry import MethodBuildContext, _build_lightmem_system
 from memory_benchmark.observability.efficiency import EfficiencyCollector
@@ -639,6 +644,64 @@ def test_lightmem_add_and_get_answer_with_fake_backend() -> None:
     assert first_message["speaker_id"] == "speaker_a"
     assert first_message["speaker_name"] == "Alice"
     assert first_message["role"] == "user"
+
+
+@pytest.mark.parametrize(
+    ("conversation_factory", "native_builder", "expected_message_count"),
+    (
+        (_locomo_style_lightmem_conversation, build_lightmem_locomo_native_answer_prompt, 1),
+        (
+            _longmemeval_style_lightmem_conversation,
+            build_lightmem_longmemeval_native_answer_prompt,
+            2,
+        ),
+    ),
+)
+def test_lightmem_native_builder_passes_through_adapter_prompt_messages(
+    conversation_factory,
+    native_builder,
+    expected_message_count: int,
+) -> None:
+    """真实 adapter retrieve 到 native builder 应逐字透传官方 prompt messages。"""
+
+    backend = FakeLightMemoryBackend()
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    conversation = conversation_factory()
+    method.add([conversation])
+    question = conversation.questions[0]
+    retrieval = method.retrieve(
+        RetrievalQuery(
+            query_text=question.text,
+            isolation_key=conversation.conversation_id,
+            question_time=question.question_time,
+            top_k=2,
+            purpose="qa",
+            source_question=question,
+        )
+    )
+
+    result = native_builder(question, retrieval)
+
+    assert len(retrieval.prompt_messages or ()) == expected_message_count
+    assert result.prompt_messages == list(retrieval.prompt_messages or ())
+    if expected_message_count == 2:
+        assert retrieval.formatted_memory not in result.prompt_messages[1].content
+        assert "2026-01-01T00:00:00.000 Thu Alice likes jasmine tea." in (
+            result.prompt_messages[1].content
+        )
 
 
 def test_lightmem_load_existing_conversation_state_rebuilds_backend() -> None:

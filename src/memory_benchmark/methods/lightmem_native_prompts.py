@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from memory_benchmark.core import AnswerPromptResult, ConfigurationError, PromptMessage, Question
+from memory_benchmark.core import AnswerPromptResult, ConfigurationError, Question
 from memory_benchmark.core.provider_protocol import RetrievalResult
 from memory_benchmark.evaluators.longmemeval_judge import LongMemEvalJudgeEvaluator
 
@@ -174,21 +174,26 @@ def build_lightmem_longmemeval_native_answer_prompt(
     question: Question,
     retrieval_result: RetrievalResult,
 ) -> AnswerPromptResult:
-    """按 LightMem LongMemEval 官方 system/user 两段逐字构造 native prompt。"""
+    """透传 LightMem adapter 按官方检索排版生成的 LongMemEval 两段 prompt。"""
 
-    user_prompt = LIGHTMEM_LONGMEMEVAL_NATIVE_USER_PROMPT.format(
-        question_date=question.question_time,
-        question=question.text,
-        formatted_memory=retrieval_result.formatted_memory,
-    )
-    messages = [
-        PromptMessage(role="system", content=LIGHTMEM_LONGMEMEVAL_NATIVE_SYSTEM_PROMPT),
-        PromptMessage(role="user", content=user_prompt),
-    ]
+    messages = retrieval_result.prompt_messages
+    if (
+        messages is None
+        or len(messages) != 2
+        or messages[0].role != "system"
+        or messages[1].role != "user"
+        or not messages[0].content.strip()
+        or not messages[1].content.strip()
+    ):
+        raise ConfigurationError(
+            "LightMem LongMemEval native answer requires adapter-produced "
+            "system/user prompt messages"
+        )
+    prompt_messages = list(messages)
     return AnswerPromptResult(
         question_id=question.question_id,
         conversation_id=question.conversation_id,
-        prompt_messages=messages,
+        prompt_messages=prompt_messages,
         metadata={
             **retrieval_result.metadata,
             "prompt_track": "native",
