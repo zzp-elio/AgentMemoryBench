@@ -26,7 +26,7 @@ from memory_benchmark.core.provider_protocol import (
     UnitRef,
 )
 from memory_benchmark.core.validators import validate_dataset, validate_no_private_keys
-from memory_benchmark.observability import RunContext
+from memory_benchmark.observability import RunContext, method_log_scope
 from memory_benchmark.observability.efficiency import (
     EfficiencyArtifactStore,
     EfficiencyCollector,
@@ -99,109 +99,110 @@ def run_operation_level_predictions(
         )
     validate_dataset(dataset)
     paths = ExperimentPaths.create(run_context.run_dir)
-    selected_conversations = _select_conversations(dataset, policy)
-    method_manifest = _operation_method_manifest(method_manifest)
-    manifest = _build_operation_manifest(
-        dataset=dataset,
-        run_context=run_context,
-        policy=policy,
-        method_manifest=method_manifest,
-        benchmark_variant=benchmark_variant,
-        run_scope=run_scope,
-        source_paths=tuple(Path(path) for path in source_paths),
-    )
-    if instrumentation_identity is not None:
-        manifest["instrumentation_identity"] = instrumentation_identity
-    _prepare_operation_run(paths=paths, manifest=manifest, resume=policy.resume)
-    _write_operation_input_artifacts(paths, selected_conversations)
+    with method_log_scope(paths.logs_dir):
+        selected_conversations = _select_conversations(dataset, policy)
+        method_manifest = _operation_method_manifest(method_manifest)
+        manifest = _build_operation_manifest(
+            dataset=dataset,
+            run_context=run_context,
+            policy=policy,
+            method_manifest=method_manifest,
+            benchmark_variant=benchmark_variant,
+            run_scope=run_scope,
+            source_paths=tuple(Path(path) for path in source_paths),
+        )
+        if instrumentation_identity is not None:
+            manifest["instrumentation_identity"] = instrumentation_identity
+        _prepare_operation_run(paths=paths, manifest=manifest, resume=policy.resume)
+        _write_operation_input_artifacts(paths, selected_conversations)
 
-    efficiency_store: EfficiencyArtifactStore | None = None
-    if efficiency_collector is not None and efficiency_collector.enabled:
-        if efficiency_collector.run_id != run_context.run_id:
-            raise ConfigurationError(
-                "EfficiencyCollector run_id must match RunContext run_id"
+        efficiency_store: EfficiencyArtifactStore | None = None
+        if efficiency_collector is not None and efficiency_collector.enabled:
+            if efficiency_collector.run_id != run_context.run_id:
+                raise ConfigurationError(
+                    "EfficiencyCollector run_id must match RunContext run_id"
+                )
+            efficiency_store = EfficiencyArtifactStore.for_prediction(paths)
+            efficiency_store.write_model_inventory(model_inventory)
+
+        conversation_status = _read_json_object(paths.conversation_status_path)
+        prediction_records = {
+            record["question_id"]: record
+            for record in read_jsonl(
+                paths.method_predictions_path,
+                recover_torn_tail=policy.resume,
             )
-        efficiency_store = EfficiencyArtifactStore.for_prediction(paths)
-        efficiency_store.write_model_inventory(model_inventory)
-
-    conversation_status = _read_json_object(paths.conversation_status_path)
-    prediction_records = {
-        record["question_id"]: record
-        for record in read_jsonl(
-            paths.method_predictions_path,
+        }
+        session_report_records = read_jsonl(
+            paths.session_memory_reports_path,
             recover_torn_tail=policy.resume,
         )
-    }
-    session_report_records = read_jsonl(
-        paths.session_memory_reports_path,
-        recover_torn_tail=policy.resume,
-    )
-    update_probe_records = read_jsonl(
-        _update_probe_results_path(paths),
-        recover_torn_tail=policy.resume,
-    )
-    answer_prompt_records = read_jsonl(
-        paths.answer_prompts_path,
-        recover_torn_tail=policy.resume,
-    )
+        update_probe_records = read_jsonl(
+            _update_probe_results_path(paths),
+            recover_torn_tail=policy.resume,
+        )
+        answer_prompt_records = read_jsonl(
+            paths.answer_prompts_path,
+            recover_torn_tail=policy.resume,
+        )
 
-    supports_extraction = type(provider).end_session is not MemoryProvider.end_session
-    for conversation in selected_conversations:
-        state = conversation_status.get(conversation.conversation_id, {})
-        if policy.resume and state.get("status") == "completed":
-            continue
-        conversation_observations = _run_operation_conversation(
-            conversation=conversation,
-            provider=provider,
+        supports_extraction = type(provider).end_session is not MemoryProvider.end_session
+        for conversation in selected_conversations:
+            state = conversation_status.get(conversation.conversation_id, {})
+            if policy.resume and state.get("status") == "completed":
+                continue
+            conversation_observations = _run_operation_conversation(
+                conversation=conversation,
+                provider=provider,
+                run_id=run_context.run_id,
+                answer_reader=answer_reader,
+                unified_prompt_builder=unified_prompt_builder,
+                supports_extraction=supports_extraction,
+                session_report_records=session_report_records,
+                update_probe_records=update_probe_records,
+                prediction_records=prediction_records,
+                answer_prompt_records=answer_prompt_records,
+                efficiency_collector=efficiency_collector,
+            )
+            if efficiency_store is not None:
+                efficiency_store.merge_observations(conversation_observations)
+            conversation_status[conversation.conversation_id] = {
+                "status": "completed",
+                "ingested": True,
+            }
+            atomic_write_json(paths.conversation_status_path, conversation_status)
+            _write_operation_output_artifacts(
+                paths=paths,
+                session_report_records=session_report_records,
+                update_probe_records=update_probe_records,
+                prediction_records=prediction_records,
+                answer_prompt_records=answer_prompt_records,
+                selected_conversations=selected_conversations,
+            )
+
+        completed_conversations = sum(
+            1
+            for conversation in selected_conversations
+            if conversation_status.get(conversation.conversation_id, {}).get("status")
+            == "completed"
+        )
+        selected_question_ids = _selected_operation_question_ids(selected_conversations)
+        summary = PredictionRunSummary(
             run_id=run_context.run_id,
-            answer_reader=answer_reader,
-            unified_prompt_builder=unified_prompt_builder,
-            supports_extraction=supports_extraction,
-            session_report_records=session_report_records,
-            update_probe_records=update_probe_records,
-            prediction_records=prediction_records,
-            answer_prompt_records=answer_prompt_records,
-            efficiency_collector=efficiency_collector,
+            dataset_name=dataset.dataset_name,
+            total_conversations=len(selected_conversations),
+            completed_conversations=completed_conversations,
+            total_questions=len(selected_question_ids),
+            completed_questions=sum(
+                1 for question_id in selected_question_ids if question_id in prediction_records
+            ),
+            prediction_path=str(paths.method_predictions_path),
+            private_label_path=str(paths.evaluator_private_labels_path),
+            summary_path=str(paths.summary_path),
+            metadata={"runner": "operation_level_prediction"},
         )
-        if efficiency_store is not None:
-            efficiency_store.merge_observations(conversation_observations)
-        conversation_status[conversation.conversation_id] = {
-            "status": "completed",
-            "ingested": True,
-        }
-        atomic_write_json(paths.conversation_status_path, conversation_status)
-        _write_operation_output_artifacts(
-            paths=paths,
-            session_report_records=session_report_records,
-            update_probe_records=update_probe_records,
-            prediction_records=prediction_records,
-            answer_prompt_records=answer_prompt_records,
-            selected_conversations=selected_conversations,
-        )
-
-    completed_conversations = sum(
-        1
-        for conversation in selected_conversations
-        if conversation_status.get(conversation.conversation_id, {}).get("status")
-        == "completed"
-    )
-    selected_question_ids = _selected_operation_question_ids(selected_conversations)
-    summary = PredictionRunSummary(
-        run_id=run_context.run_id,
-        dataset_name=dataset.dataset_name,
-        total_conversations=len(selected_conversations),
-        completed_conversations=completed_conversations,
-        total_questions=len(selected_question_ids),
-        completed_questions=sum(
-            1 for question_id in selected_question_ids if question_id in prediction_records
-        ),
-        prediction_path=str(paths.method_predictions_path),
-        private_label_path=str(paths.evaluator_private_labels_path),
-        summary_path=str(paths.summary_path),
-        metadata={"runner": "operation_level_prediction"},
-    )
-    atomic_write_json(paths.summary_path, summary.to_dict())
-    return summary
+        atomic_write_json(paths.summary_path, summary.to_dict())
+        return summary
 
 
 def _run_operation_conversation(

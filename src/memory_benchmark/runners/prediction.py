@@ -49,7 +49,11 @@ from memory_benchmark.core.provider_protocol import (
 )
 from memory_benchmark.core.validators import validate_dataset, validate_no_private_keys
 from memory_benchmark.methods.registry import MethodBuildContext
-from memory_benchmark.observability import ProgressReporter, RunContext
+from memory_benchmark.observability import (
+    ProgressReporter,
+    RunContext,
+    method_log_scope,
+)
 from memory_benchmark.observability.efficiency import (
     EfficiencyArtifactStore,
     EfficiencyCollector,
@@ -400,254 +404,255 @@ def run_predictions(
     if efficiency_collector is not None and efficiency_collector.enabled:
         efficiency_store = EfficiencyArtifactStore.for_prediction(paths)
         efficiency_store.write_model_inventory(model_inventory)
-    logger = RunLogger(paths.logs_dir)
-    atomic_write_json(paths.dataset_fingerprint_path, dataset_fingerprint)
-    _write_input_artifacts(
-        paths=paths,
-        conversations=selected_conversations,
-        selected_questions=selected_questions,
-    )
-
-    prediction_records = {
-        record["question_id"]: record
-        for record in read_jsonl(
-            paths.method_predictions_path,
-            recover_torn_tail=policy.resume,
-        )
-    }
-    conversation_status = _read_json_object(paths.conversation_status_path)
-    question_status = {
-        record["question_id"]: record
-        for record in read_jsonl(
-            paths.question_status_path,
-            recover_torn_tail=policy.resume,
-        )
-    }
-    question_order = [
-        question.question_id
-        for conversation in selected_conversations
-        for question in selected_questions[conversation.conversation_id]
-    ]
-    cleaned_failed_ingest_conversation_ids = _prepare_clean_failed_ingest_retries(
-        conversations=selected_conversations,
-        conversation_status=conversation_status,
-        policy=policy,
-        clean_failed_ingest_conversation=clean_failed_ingest_conversation,
-        paths=paths,
-        logger=logger,
-    )
-    use_isolated = (
-        system_factory is not None
-        and build_context_template is not None
-        and policy.max_workers > 1
-        and not supports_shared_instance_parallelism
-    )
-    if not use_isolated:
-        checkpoint_store = TurnIngestCheckpointStore(
-            paths.ingest_turn_checkpoints_dir
-        )
-        _preflight_ingest_checkpoints(
-            conversations=selected_conversations,
-            system=system,
-            policy=policy,
-            conversation_status=conversation_status,
-            checkpoint_store=checkpoint_store,
-        )
-        atomic_write_json(paths.conversation_status_path, conversation_status)
-    work_plan = _build_prediction_work_plan(
-        conversations=selected_conversations,
-        selected_questions=selected_questions,
-        conversation_status=conversation_status,
-        prediction_records=prediction_records,
-        policy=policy,
-    )
-    run_control_metadata = {
-        "max_new_conversations": policy.max_new_conversations,
-        "retry_failed_conversations": policy.retry_failed_conversations,
-        "skipped_failed_conversations": list(
-            work_plan.skipped_failed_conversation_ids
-        ),
-        "budget_exhausted": work_plan.budget_exhausted,
-    }
-    if cleaned_failed_ingest_conversation_ids:
-        run_control_metadata["cleaned_failed_ingest_conversations"] = list(
-            cleaned_failed_ingest_conversation_ids
-        )
-
-    _conversation_progress_total = (
-        len(work_plan.ingested_conversation_ids) + len(work_plan.items)
-    )
-    _question_progress_total = (
-        len(work_plan.completed_question_ids)
-        + sum(len(item.pending_questions) for item in work_plan.items)
-    )
-
-    logger.info(
-        "[bold]Prediction run[/bold] "
-        f"benchmark={dataset.dataset_name} method={run_context.method_name} "
-        f"conversations={_conversation_progress_total} questions={_question_progress_total}"
-    )
-    logger.log_event(
-        "run_started",
-        {
-            "run_id": run_context.run_id,
-            "benchmark": dataset.dataset_name,
-            "method": run_context.method_name,
-            "resume": policy.resume,
-            "run_control": run_control_metadata,
-        },
-    )
-
-    with ProgressReporter(
-        paths.progress_path,
-        enabled=policy.progress_enabled,
-    ) as progress:
-        progress.start_conversations(_conversation_progress_total)
-        progress.start_questions(_question_progress_total)
-        if use_isolated:
-            _run_isolated_worker_pipeline(
-                work_plan=work_plan,
-                system_factory=system_factory,
-                build_context_template=build_context_template,
-                run_id=run_context.run_id,
-                policy=policy,
-                paths=paths,
-                progress=progress,
-                logger=logger,
-                efficiency_collector=efficiency_collector,
-                efficiency_store=efficiency_store,
-                retrieval_observation_contract=retrieval_observation_contract,
-                prediction_records=prediction_records,
-                conversation_status=conversation_status,
-                question_status=question_status,
-                question_order=question_order,
-                answer_reader=answer_reader,
-                unified_prompt_builder=unified_prompt_builder,
-                prediction_transform=prediction_transform,
-                protocol_version=protocol_version,
-            )
-        else:
-            _validate_protocol_version(protocol_version, system)
-            ingest_conversations = [
-                item.conversation for item in work_plan.items if item.needs_ingest
-            ]
-            answer_conversations = [
-                item.conversation
-                for item in work_plan.items
-                if item.pending_questions
-            ]
-            pending_selected_questions = {
-                item.conversation.conversation_id: list(item.pending_questions)
-                for item in work_plan.items
-                if item.pending_questions
-            }
-            _ingest_pending_conversations(
-                conversations=ingest_conversations,
-                system=system,
-                run_id=run_context.run_id,
-                policy=policy,
-                conversation_status=conversation_status,
-                paths=paths,
-                progress=progress,
-                logger=logger,
-                efficiency_collector=efficiency_collector,
-                efficiency_store=efficiency_store,
-            )
-            _answer_pending_questions(
-                conversations=answer_conversations,
-                selected_questions=pending_selected_questions,
-                system=system,
-                run_id=run_context.run_id,
-                policy=policy,
-                prediction_records=prediction_records,
-                question_status=question_status,
-                question_order=question_order,
-                paths=paths,
-                progress=progress,
-                logger=logger,
-                efficiency_collector=efficiency_collector,
-                efficiency_store=efficiency_store,
-                retrieval_observation_contract=retrieval_observation_contract,
-                answer_reader=answer_reader,
-                unified_prompt_builder=unified_prompt_builder,
-                prediction_transform=prediction_transform,
-            )
-        progress.set_stage("Completed", step_index=3, step_count=3)
-        completed_conversation_count = sum(
-            1
-            for conversation in selected_conversations
-            if conversation_status.get(conversation.conversation_id, {}).get("status")
-            == "completed"
-        )
-        progress.update_conversations(
-            completed=completed_conversation_count,
-            total=_conversation_progress_total,
-            current_conversation_id=None,
-        )
-        progress.update_questions(
-            completed=len(prediction_records),
-            total=_question_progress_total,
-            current_conversation_id=None,
-            current_question_id=None,
-        )
-        progress.flush()
-
-    conversation_prompts = _build_conversation_prompts(prediction_records)
-    if conversation_prompts:
-        atomic_write_jsonl(
-            paths.conversation_prompts_path,
-            [
-                {"conversation_id": conv_id, **prompts}
-                for conv_id, prompts in conversation_prompts.items()
-            ],
-        )
-        _strip_conversation_metadata(prediction_records)
-        atomic_write_jsonl(
-            paths.method_predictions_path,
-            [
-                prediction_records[qid]
-                for qid in question_order
-                if qid in prediction_records
-            ],
-        )
-
-    if efficiency_store is not None:
-        _write_prediction_efficiency_summaries(
+    with method_log_scope(paths.logs_dir):
+        logger = RunLogger(paths.logs_dir)
+        atomic_write_json(paths.dataset_fingerprint_path, dataset_fingerprint)
+        _write_input_artifacts(
             paths=paths,
-            efficiency_store=efficiency_store,
+            conversations=selected_conversations,
+            selected_questions=selected_questions,
         )
 
-    summary = PredictionRunSummary(
-        run_id=run_context.run_id,
-        dataset_name=dataset.dataset_name,
-        total_conversations=len(selected_conversations),
-        completed_conversations=sum(
-            1
+        prediction_records = {
+            record["question_id"]: record
+            for record in read_jsonl(
+                paths.method_predictions_path,
+                recover_torn_tail=policy.resume,
+            )
+        }
+        conversation_status = _read_json_object(paths.conversation_status_path)
+        question_status = {
+            record["question_id"]: record
+            for record in read_jsonl(
+                paths.question_status_path,
+                recover_torn_tail=policy.resume,
+            )
+        }
+        question_order = [
+            question.question_id
             for conversation in selected_conversations
-            if conversation_status.get(conversation.conversation_id, {}).get("status")
-            == "completed"
-        ),
-        total_questions=len(question_order),
-        completed_questions=sum(
-            1 for question_id in question_order if question_id in prediction_records
-        ),
-        prediction_path=str(paths.method_predictions_path),
-        private_label_path=str(paths.evaluator_private_labels_path),
-        summary_path=str(paths.summary_path),
-        metadata={
-            "run_control": run_control_metadata,
-            "bridge_empty_memory_sentinel_count": _count_bridge_empty_memory_sentinel(
-                paths.answer_prompts_path
+            for question in selected_questions[conversation.conversation_id]
+        ]
+        cleaned_failed_ingest_conversation_ids = _prepare_clean_failed_ingest_retries(
+            conversations=selected_conversations,
+            conversation_status=conversation_status,
+            policy=policy,
+            clean_failed_ingest_conversation=clean_failed_ingest_conversation,
+            paths=paths,
+            logger=logger,
+        )
+        use_isolated = (
+            system_factory is not None
+            and build_context_template is not None
+            and policy.max_workers > 1
+            and not supports_shared_instance_parallelism
+        )
+        if not use_isolated:
+            checkpoint_store = TurnIngestCheckpointStore(
+                paths.ingest_turn_checkpoints_dir
+            )
+            _preflight_ingest_checkpoints(
+                conversations=selected_conversations,
+                system=system,
+                policy=policy,
+                conversation_status=conversation_status,
+                checkpoint_store=checkpoint_store,
+            )
+            atomic_write_json(paths.conversation_status_path, conversation_status)
+        work_plan = _build_prediction_work_plan(
+            conversations=selected_conversations,
+            selected_questions=selected_questions,
+            conversation_status=conversation_status,
+            prediction_records=prediction_records,
+            policy=policy,
+        )
+        run_control_metadata = {
+            "max_new_conversations": policy.max_new_conversations,
+            "retry_failed_conversations": policy.retry_failed_conversations,
+            "skipped_failed_conversations": list(
+                work_plan.skipped_failed_conversation_ids
             ),
-        },
-    )
-    atomic_write_json(paths.summary_path, summary.to_dict())
-    logger.log_event("run_completed", summary.to_dict())
-    logger.info(
-        "[green]Prediction run completed[/green] "
-        f"answers={summary.completed_questions}/{summary.total_questions}"
-    )
-    return summary
+            "budget_exhausted": work_plan.budget_exhausted,
+        }
+        if cleaned_failed_ingest_conversation_ids:
+            run_control_metadata["cleaned_failed_ingest_conversations"] = list(
+                cleaned_failed_ingest_conversation_ids
+            )
+
+        _conversation_progress_total = (
+            len(work_plan.ingested_conversation_ids) + len(work_plan.items)
+        )
+        _question_progress_total = (
+            len(work_plan.completed_question_ids)
+            + sum(len(item.pending_questions) for item in work_plan.items)
+        )
+
+        logger.info(
+            "[bold]Prediction run[/bold] "
+            f"benchmark={dataset.dataset_name} method={run_context.method_name} "
+            f"conversations={_conversation_progress_total} questions={_question_progress_total}"
+        )
+        logger.log_event(
+            "run_started",
+            {
+                "run_id": run_context.run_id,
+                "benchmark": dataset.dataset_name,
+                "method": run_context.method_name,
+                "resume": policy.resume,
+                "run_control": run_control_metadata,
+            },
+        )
+
+        with ProgressReporter(
+            paths.progress_path,
+            enabled=policy.progress_enabled,
+        ) as progress:
+            progress.start_conversations(_conversation_progress_total)
+            progress.start_questions(_question_progress_total)
+            if use_isolated:
+                _run_isolated_worker_pipeline(
+                    work_plan=work_plan,
+                    system_factory=system_factory,
+                    build_context_template=build_context_template,
+                    run_id=run_context.run_id,
+                    policy=policy,
+                    paths=paths,
+                    progress=progress,
+                    logger=logger,
+                    efficiency_collector=efficiency_collector,
+                    efficiency_store=efficiency_store,
+                    retrieval_observation_contract=retrieval_observation_contract,
+                    prediction_records=prediction_records,
+                    conversation_status=conversation_status,
+                    question_status=question_status,
+                    question_order=question_order,
+                    answer_reader=answer_reader,
+                    unified_prompt_builder=unified_prompt_builder,
+                    prediction_transform=prediction_transform,
+                    protocol_version=protocol_version,
+                )
+            else:
+                _validate_protocol_version(protocol_version, system)
+                ingest_conversations = [
+                    item.conversation for item in work_plan.items if item.needs_ingest
+                ]
+                answer_conversations = [
+                    item.conversation
+                    for item in work_plan.items
+                    if item.pending_questions
+                ]
+                pending_selected_questions = {
+                    item.conversation.conversation_id: list(item.pending_questions)
+                    for item in work_plan.items
+                    if item.pending_questions
+                }
+                _ingest_pending_conversations(
+                    conversations=ingest_conversations,
+                    system=system,
+                    run_id=run_context.run_id,
+                    policy=policy,
+                    conversation_status=conversation_status,
+                    paths=paths,
+                    progress=progress,
+                    logger=logger,
+                    efficiency_collector=efficiency_collector,
+                    efficiency_store=efficiency_store,
+                )
+                _answer_pending_questions(
+                    conversations=answer_conversations,
+                    selected_questions=pending_selected_questions,
+                    system=system,
+                    run_id=run_context.run_id,
+                    policy=policy,
+                    prediction_records=prediction_records,
+                    question_status=question_status,
+                    question_order=question_order,
+                    paths=paths,
+                    progress=progress,
+                    logger=logger,
+                    efficiency_collector=efficiency_collector,
+                    efficiency_store=efficiency_store,
+                    retrieval_observation_contract=retrieval_observation_contract,
+                    answer_reader=answer_reader,
+                    unified_prompt_builder=unified_prompt_builder,
+                    prediction_transform=prediction_transform,
+                )
+            progress.set_stage("Completed", step_index=3, step_count=3)
+            completed_conversation_count = sum(
+                1
+                for conversation in selected_conversations
+                if conversation_status.get(conversation.conversation_id, {}).get("status")
+                == "completed"
+            )
+            progress.update_conversations(
+                completed=completed_conversation_count,
+                total=_conversation_progress_total,
+                current_conversation_id=None,
+            )
+            progress.update_questions(
+                completed=len(prediction_records),
+                total=_question_progress_total,
+                current_conversation_id=None,
+                current_question_id=None,
+            )
+            progress.flush()
+
+        conversation_prompts = _build_conversation_prompts(prediction_records)
+        if conversation_prompts:
+            atomic_write_jsonl(
+                paths.conversation_prompts_path,
+                [
+                    {"conversation_id": conv_id, **prompts}
+                    for conv_id, prompts in conversation_prompts.items()
+                ],
+            )
+            _strip_conversation_metadata(prediction_records)
+            atomic_write_jsonl(
+                paths.method_predictions_path,
+                [
+                    prediction_records[qid]
+                    for qid in question_order
+                    if qid in prediction_records
+                ],
+            )
+
+        if efficiency_store is not None:
+            _write_prediction_efficiency_summaries(
+                paths=paths,
+                efficiency_store=efficiency_store,
+            )
+
+        summary = PredictionRunSummary(
+            run_id=run_context.run_id,
+            dataset_name=dataset.dataset_name,
+            total_conversations=len(selected_conversations),
+            completed_conversations=sum(
+                1
+                for conversation in selected_conversations
+                if conversation_status.get(conversation.conversation_id, {}).get("status")
+                == "completed"
+            ),
+            total_questions=len(question_order),
+            completed_questions=sum(
+                1 for question_id in question_order if question_id in prediction_records
+            ),
+            prediction_path=str(paths.method_predictions_path),
+            private_label_path=str(paths.evaluator_private_labels_path),
+            summary_path=str(paths.summary_path),
+            metadata={
+                "run_control": run_control_metadata,
+                "bridge_empty_memory_sentinel_count": _count_bridge_empty_memory_sentinel(
+                    paths.answer_prompts_path
+                ),
+            },
+        )
+        atomic_write_json(paths.summary_path, summary.to_dict())
+        logger.log_event("run_completed", summary.to_dict())
+        logger.info(
+            "[green]Prediction run completed[/green] "
+            f"answers={summary.completed_questions}/{summary.total_questions}"
+        )
+        return summary
 
 
 def _write_prediction_efficiency_summaries(
