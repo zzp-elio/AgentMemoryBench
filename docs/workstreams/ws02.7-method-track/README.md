@@ -15,6 +15,16 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**M0-9 验收合入（1130 passed）+ 架构师记录勘误**，Fable 5）：
+  ① M0-9 结论核实为真：**M0-7b 当时已把两个消息构建器全部打上 external_id**
+  （locomo 构建器 :1200,1208 + lme pair `_turn_to_role_message`:1263），v3
+  turn/pair 复用这两个构建器 = 天然全覆盖；四个 recall 类 evaluator 契约
+  逐家核查"确定对齐无 gap"。actor 因此**零生产代码改动**，只补测试（真实 id
+  形态 "17"/"p1:s1:t1"/lme pair）+ 取证文档——纪律加分。② **勘误**：架构师
+  此前断点与 integration-status 写"仅 locomo 路径附 id"是读 M0-7b diff 漏看
+  后半截所致，已改正（status 页已更）；教训=验收读 diff 必须读完整,不许
+  head 截断。③ **cost-probe 缓期（用户拍板）**：等 5 benchmark × 10 method
+  全矩阵 smoke 跑通后再议。④ 下一步照序：用户跑 lme par2 → 派 M0-8。
 - 2026-07-13（**通关冲刺：M0-8/M0-9 双卡写就，串行派发序定**，Fable 5，用户
   额度 23%）：目标=LightMem 五格通关。**派发序（两卡都动 adapter 必须串行）**：
   ① M0-9（小卡：external_id 铺开到 lme/membench/beam 注入路径 + 逐 benchmark

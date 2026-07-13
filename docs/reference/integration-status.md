@@ -61,9 +61,11 @@
 [integration/lightmem.md](integration/lightmem.md)，避免双源漂移）。
 
 **跨 method 横向事实（2026-07-13 取证）**
-- **provenance 现状（2026-07-13 更新）**：**LightMem 已升级 `"turn"` = 首个
-  provenance 生产者**（M0-7b external_id 透传，locomo 路径实证 recall n=1；
-  lme/membench/beam 注入路径暂未附 id、优雅回落 none，待扩）；其余四家仍
+- **provenance 现状（2026-07-13 更新，M0-9 修正）**：**LightMem 已升级 `"turn"` =
+  首个 provenance 生产者**（M0-7b external_id 透传，locomo 实证 recall n=1；
+  **全部注入路径已覆盖**——两个消息构建器即全集，v3 turn/pair 复用之，M0-9
+  离线测试用真实 id 形态钉死 lme/membench/beam 三家，四个 recall 类 evaluator
+  契约"确定对齐无 gap"，见 `ws02.7/notes/m0-9-provenance-breadth.md`）；其余四家仍
   `"none"`（mem0:279 / memoryos:448 / amem:239 / simplemem:163，B5+ 均已判
   "可无损改造"待排期）→ recall/ndcg/retrieval-rank 对这四家 N/A 是声明的事实。
 - **clean-retry 钩子覆盖**：A-Mem/LightMem/MemoryOS/SimpleMem 已挂
