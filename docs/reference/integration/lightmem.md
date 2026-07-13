@@ -27,7 +27,10 @@
 - **B1 来源锁与接口选择 ✅**：vendored 路径如上；只用 `retrieve+add_memory`，不用其
   chat 入口（公平性）。审查记录 `docs/workstreams/ws02.7-method-track/notes/lightmem-m0-audit.md`。
 - **B2 注入粒度 🟡**：locomo=turn/batch、longmemeval=pair；**HaluMem memory_point
-  支持待核**（add_memory 返回值有无本次产出条目）。
+  支持待核**（add_memory 返回值有无本次产出条目——M0-3 卡取证中）。**注册面缺口
+  （2026-07-13 一手）**：LightMem 注册 `task_families={CONVERSATION_QA}`
+  （registry.py:770），**HaluMem（operation-level）当前在 registry 层就进不去**——
+  待 M0-3 证据回来后走 checklist B5+ 无损改造评估（可改造/不可改造→N-A）。
 - **B3 隔离 ✅ 物理**：per-conversation Qdrant collection + 独立路径（adapter:388-390，
   summary 库另置 :390）；clean-retry = 删目录（:1660-1664），干净。并行安全。
 - **B4 formatted_memory+时间戳 🟡**：locomo 官方 speaker 分组 + `_format_lightmem_memory`；
@@ -52,12 +55,16 @@
 - **B10 双轨 ✅**：config-track 机制 M0-1b 验收（`methods/config_track.py`；unified 轨
   字节零回归）；native locomo answer=`ANSWER_PROMPT`（Task1 裁决，summary OFF 是
   headline）；native 格注册 `{("lightmem","locomo"),("lightmem","longmemeval")}`。
-- **B11 smoke+冻结 🟡**：unified flow-through smoke 已跑通两次。**空库悬案已关闭
-  （2026-07-13 diag-log1 复跑）**：1 round → force 刷洗 → 抽取 2 条记忆 → 检索命中
-  （`formatted_memory` 非空、`bridge_empty_memory_sentinel_count=0`、Qdrant 有数据；
-  产物 `outputs/runs/lightmem/locomo/smoke/lm-locomo-unified-diag-log1/`）。管道功能
-  完整；此前一次空库最可能是抽取 LLM 单次返 0 的波动，非结构性 bug。
-  剩余：native 轨 smoke、cost-probe（整条 conversation）、method-frozen-v1。
+- **B11 smoke+冻结 🟡**：**locomo 格双轨 smoke 全通（2026-07-13）**。
+  ① unified：空库悬案已关闭（diag-log1 复跑：1 round → force 刷洗 → 抽取 2 条
+  记忆 → 检索命中，sentinel=0；此前空库判为抽取 LLM 单次返 0 波动，非结构性 bug）。
+  ② native（lm-locomo-native-smoke1）：**产物级实锤读出分叉**——answer 用官方
+  ANSWER_PROMPT 经 prompt_messages（与 unified 模板逐字不同）、judge 用
+  `lightmem_locomo_paper_native_judge_v1` 返回官方 JSON 契约；manifest
+  config_track=native；且是 **M0-1c 新路径 `smoke/native/` 的首个实战验证**。
+  剩余：longmemeval 双轨 smoke → membench/beam unified smoke（先离线核 adapter
+  对第三人称/10M 形态的兼容）→ halumem（待 B5+ 改造评估）→ cost-probe →
+  method-frozen-v1。
 
 ## 特殊情况
 1. **StructMem（`--enable-summary`）是另一个实验**：换 build+检索+embedding

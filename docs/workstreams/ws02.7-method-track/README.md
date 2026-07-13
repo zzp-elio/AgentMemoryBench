@@ -15,6 +15,22 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**推进策略拍板 + native smoke 实锤 + 三份新政策/卡**，Fable 5）：
+  ① **用户拍板：method 深耕制**——一个 method 查透 + 5 benchmark 全 smoke 通才进
+  下一个（暂不并行开其他 method 的卡）。② **locomo native smoke 产物级验收通过**
+  （读出分叉实锤：官方 ANSWER_PROMPT 透传 + `lightmem_locomo_paper_native_judge_v1`
+  judge；M0-1c 新路径 `smoke/native/` 首战成功）→ **locomo 格双轨全通**。
+  ③ **checklist 升级**：B3 逻辑隔离四项等效判据（写入分区/检索过滤/单空间删除/
+  并行安全，任一证不了→物理兜底）；新增 **B5+ 无损改造评估**（导师建议：能力缺口
+  三态裁决，改造经实验验证后可提 upstream PR）。④ **指标扩展计划成文**
+  `docs/reference/metric-extension-plan.md`（分层纪律 metric_tier + 盘点→匹配两步走；
+  LoCoMo BLEU-1 是官方非 QA 面，加 BLEU 属 supplementary 不得称官方口径）。
+  ⑤ **注册面缺口一手**：LightMem task_families 只有 CONVERSATION_QA
+  （registry.py:770）→ HaluMem 现进不去，待 B5+ 评估。⑥ **两卡开出**：
+  [M0-3 LightMem API 契约详解](actor-prompt-m0-3-lightmem-api-contract.md)（参数/
+  返回值/自定义类逐字段，顺带取 memory_point 与 source id 两个能力证据）、
+  [MX-1 指标盘点](actor-prompt-metric-inventory.md)。**下一步：用户跑 longmemeval
+  双轨 smoke；两卡回来后架构师做 HaluMem 改造裁决 + 指标匹配矩阵。**
 - 2026-07-13（**M0-1c + M0.2 双卡验收 + 空库悬案关闭 + build 分叉裁决**，Fable 5 强验收）：
   ① **worktree 并行首战成功**（两 actor=codex+GPT-5.6，独立 worktree/分支，零冲突；
   合并=ff + cherry-pick 保线性）。② **M0-1c 通过**（`d014152`+`7879bb8`）：新布局

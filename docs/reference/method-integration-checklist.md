@@ -50,6 +50,12 @@
 - **判据**：method 原生给不给可靠 namespace → 给且过滤可信=逻辑（省资源、
   利并行）；不给或存疑=物理（安全兜底）。附一手证据 + 说明 clean-retry
   怎么做（reset 干净度）。**带着"未来并行安全"一起定**。
+- **逻辑隔离合格 = 与物理隔离全效等价，四项逐一取证**（用户 2026-07-13 细化）：
+  ① **写入分区**：add 带 namespace 且落库可查证；② **检索过滤**：retrieve 严格按
+  namespace 过滤、零跨空间泄漏（官方过滤实现一手锚，不信文档）；③ **单空间删除**：
+  能只删一个隔离空间（clean-retry/resume 复建的前提）；④ **并行安全**：多空间并发
+  读写无竞态。**任一项证不了 → 判物理隔离兜底**。判例：Mem0 是当前唯一逻辑隔离
+  候选，且缺 clean-retry 钩子（③ 存疑），见其实例文档 B8。
 
 ### B4. formatted_memory 完整性（含时间戳）
 - 检索返回是否覆盖官方全部有效记忆层 + 时间/地点字段。
@@ -62,6 +68,20 @@
 - retrieve 能否返回 source id（turn/session/step）→ 决定 recall/ndcg 类
   指标是否 N/A。一手核 retrieve 返回结构。`items=None`/`provenance="none"`
   要如实表达 method 能力，不假装有。
+
+### B5+. 能力缺口的无损改造评估（2026-07-13 新增，导师建议）
+B2/B5 及 HaluMem memory_point 这类**能力缺口**（method 接口不支持某 benchmark 的
+某类指标/流程）不是终点，逐缺口做**无损改造可行性评估**，三态结论：
+- **直接支持**：接口已够，正常接。
+- **可无损改造**：不动算法核心机制、只做"多一个字段/透传/包装"级别的改动即可支持
+  （例：retrieve 结果透传内部已有的条目 id → recall@k 可算；add 返回值透传本次产出
+  条目 → HaluMem memory_point 可评；MemoryOS pair 粒度对 MemBench 第三人称的
+  投递改造）。改造实现在 **adapter/包装层优先**；确需动 third_party 时走"最小
+  diff + 留档 + 不碰核心算法"审批（架构师裁决）。
+- **不可改造**：诚实记 N/A（如 HaluMem recall 判例），不硬造。
+评估证据与结论写进该 method 的 `integration/<m>.md` 实例文档。**改造经真实实验
+验证有效后，可向 method 官方仓库提 upstream PR**（贡献者收益，用户 2026-07-13
+提议）；PR 门槛 = 我们自己的实验数据先证明改造不劣化原行为。
 
 ### B6. flush / finalize 时机（correctness 关键）
 - 检索前是否需要显式 flush（end_session/end_conversation）记忆才建成？
