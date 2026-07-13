@@ -162,11 +162,17 @@
     测试文件 + compileall，并写明假失败原因免 actor 恐慌（M0-6 actor 曾自发
     symlink/复制主树资产把全量跑绿并在提交前清理——纪律无瑕但耗额度，不作要求）。
 19. **交给用户跑的命令一律 tee 落日志**（2026-07-13 用户提议后固化）。架构师
-    交付的每条终端命令预先包好 `2>&1 | tee outputs/terminal-logs/<名字>.log`；
-    用户跑完只说"跑完了"，架构师自己读日志 + run 产物，不再靠用户粘贴终端。
-    动机：run 产物(summaries/artifacts)本就可自读，但 **stderr 警告只活在终端**
-    （判例：BEAM smoke 的 transformers `531>512` 截断警告，产物里无痕）——
-    不 tee 就永久丢失。目录 `outputs/terminal-logs/` 不属受保护实验产物。
+    交付的每条终端命令预先包好 tee；用户跑完只说"跑完了"，架构师自己读日志 +
+    run 产物，不再靠用户粘贴终端。动机：run 产物(summaries/artifacts)本就可
+    自读，但 **stderr 警告只活在终端**（判例：BEAM smoke 的 transformers
+    `531>512` 截断警告，产物里无痕）——不 tee 就永久丢失。
+    **目录归属（用户 2026-07-13 二次细化：按 run 归档防散乱）**：
+    - `evaluate` 类命令：run 目录已存在 → tee **直接写进该 run 的
+      `<run_dir>/terminal-logs/`**，run 自包含；
+    - `predict` 类命令：run 目录尚不存在且 run_id 会追加 variant 后缀，无法
+      预知最终路径 → 先落 staging `outputs/terminal-logs/<run-id>.<阶段>.log`，
+      **架构师验收该 run 时把日志搬进 run 目录**（收尾清单项）；失败 run 的
+      日志留 staging 作现场。
 
 ## 4. 审查手艺（隐性知识核心）
 

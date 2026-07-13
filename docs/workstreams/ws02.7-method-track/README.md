@@ -15,6 +15,22 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**M0-7b 验收合入（首个 third_party diff 落地）+ datasets 依赖
+  治本 + beam judge 双过**，Fable 5 强验收）：① **M0-7b 通过并 cherry-pick 合入**：
+  external_id → `MemoryEntry.source_external_id`（可选默认 None，序列化条件写入
+  仿 bam_tags）→ payload → `RetrievedItem.source_turn_ids`；平行列表与时间戳同
+  循环构建保证索引一致；**all-or-nothing 语义**（任一命中缺 id 整次回落 none，
+  不造部分 recall）；provenance_granularity="turn"；离线 locomo recall 合成验证
+  n=1/score=1.0；**主树权威复跑 1128 passed**。当前只有 locomo 批次构建器附
+  external_id（lme pair 等路径优雅回落 none，后续扩）。**真实 API 验证
+  （locomo 新 predict → locomo-recall n>0）= upstream PR 前实验门,命令已交
+  用户**。② **beam-rubric-judge 双 variant 0.1/0.1 落盘**（用户跑）→ beam 差
+  ⑤（par2b 首跑因 datasets 被 uv sync 剪掉而失败——根因:从来不是声明依赖,
+  beam.md 已知限制#7 的病根；已 `uv add datasets` 治本,命令重发）。
+  ③ **tee 目录归属细化**（用户提议）：evaluate 日志直接进 run 目录,predict
+  日志 staging→验收时架构师搬运（playbook #19 更新,beam 两份 judge 日志已
+  归位示范）。④ 修复 lightmem.md B6 标题丢失（架构师前一日编辑事故,actor
+  如实保留未越权修）。
 - 2026-07-13（**BEAM smoke 双 variant 通过 + M0-7 停工裁决 + tee 日志纪律**，
   Fable 5）：① **BEAM smoke**：100k/10m predict 各 1/1、sentinel=0（用户跑）；
   免费评架构师跑完：100k f1=0.0 / 10m f1=0.4 / beam-recall 双双 n=0 条件 N/A
