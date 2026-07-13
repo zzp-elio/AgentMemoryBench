@@ -15,6 +15,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**M0-8 验收合入（1133 passed）+ lme ⑤ 收官 + M0-10 bug 卡**，
+  Fable 5，用户额度 14%）：① **M0-8 通过**：SessionBatch ingest → 整 session
+  一次 add_memory(force×2) → 只读旁听 `embedding_retriever.insert`（实例属性
+  影子+finally 恢复）→ `end_session` pop 出 `SessionMemoryReport`（capture_status
+  ok/empty 如实）；registry halumem 行 consume=session + session_memory_report
+  旗。**精准性不变量**：每 session 末 force 刷洗 ⇒ buffer 永不跨 session ⇒
+  捕获窗口=恰好本 session（不多不少），两 session 隔离有测试钉死。
+  **halumem smoke 命令已交用户**（memory-type 免费架构师评；extraction/update/
+  qa 付费）。② **lme par2 2/2 双 worker → lme 格⑤关闭**；f1 n=2 已评。
+  ③ **发现框架 bug（M0-10 卡待派）**：workers>1 路径 manifest 不 stamp
+  provenance_granularity（prediction.py:1209-1246 只在有 system 实例时写）→
+  lme par2 的 recall n=0 是 manifest 缺键所致（artifacts 里 items 带合法
+  source_turn_ids）；修复后需一次并行 run 复证。④ 日志已归档。
+  **格局：locomo ✅ membench ✅ beam ✅ lme ✅ halumem 差 smoke 实跑 = 通关线。**
 - 2026-07-13（**M0-9 验收合入（1130 passed）+ 架构师记录勘误**，Fable 5）：
   ① M0-9 结论核实为真：**M0-7b 当时已把两个消息构建器全部打上 external_id**
   （locomo 构建器 :1200,1208 + lme pair `_turn_to_role_message`:1263），v3
