@@ -5,6 +5,11 @@
 > 谁过了 checklist"。判据全文见 `docs/reference/method-integration-checklist.md`
 > （benchmark=A1-A8、method=B1-B11）。**每次接入/冻结/发现特殊情况,更新本文对应行。**
 > 状态图例：✅ 过并留痕 / 🟡 进行中或部分 / ⬜ 未开始 / N/A 不适用（附因）。
+>
+> **三层结构（2026-07-13 用户二次拍板补全）**：模板（checklist）→ 本文（勾选总表，
+> 一眼看谁过了哪项）→ **`integration/` 逐实体实例文档**（每 method / benchmark 一份，
+> 逐项展开证据 + `文件:行号` 锚 + method 的**接口调用面黑盒拆解**）。表中名字即链接；
+> 勾选变化与实例文档必须同步更新。
 
 ## 一、Benchmark 侧（A1-A8）
 
@@ -13,11 +18,11 @@
 
 | benchmark | A1 来源锁 | A2 数据契约 | A3 公私边界 | A4 canonical/GC-1 | A5 prompt/metric parity | A6 smoke/resume | A7 artifact/eff | A8 冻结门 | frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| LoCoMo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
-| LongMemEval | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
-| MemBench | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
-| HaluMem | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
-| BEAM | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
+| [LoCoMo](integration/locomo.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
+| [LongMemEval](integration/longmemeval.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
+| [MemBench](integration/membench.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
+| [HaluMem](integration/halumem.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
+| [BEAM](integration/beam.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
 
 **特殊情况（就地补全）**
 - **HaluMem**：retrieval recall = **N/A**（evidence 无 turn id，官方无 retrieval recall 指标，
@@ -36,42 +41,37 @@
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| **LightMem** | ✅ | ✅ | 🟡 | ✅物理 | 🟡 | ✅none | ✅offline | ✅ | 🟡 | 🟡 | ✅ | 🟡 | ⬜ |
-| Mem0 | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| MemoryOS | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| A-Mem | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| SimpleMem | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | 🟡 | ✅物理 | 🟡 | ✅none | ✅offline | ✅ | 🟡 | 🟡 | ✅ | 🟡 | ⬜ |
+| [Mem0](integration/mem0.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| [MemoryOS](integration/memoryos.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | MemOS | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | Letta/MemGPT | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | LangMem | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | Supermemory | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| EverOS | ✅vendored | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| [EverOS](integration/everos.md) | ✅vendored | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
 > "适配器 ✅" = 有 adapter 代码（旧 5 个在 ws02.5 前落地），**但未逐项走 B1-B11
 > method-frozen-v1 流程**；Mem0/MemoryOS/A-Mem/SimpleMem 的 B 列待各自 M 阶段一手补。
 > LightMem 是当前唯一在跑 M0 的 method。
 
-### LightMem 详情（当前 M0，🟡 进行中）
-- **B1 来源/接口**✅：vendored `third_party/methods/LightMem`；用 retrieve+add_memory，不用其 chat 入口。
-- **B2 注入粒度**🟡：locomo=turn/batch，longmemeval=pair；HaluMem memory_point 支持待核。
-- **B3 隔离**✅：物理（per-conversation Qdrant collection/path，adapter:388-390）。
-- **B4 formatted_memory+时间戳**🟡：locomo 用官方 speaker 分组 + `_format_lightmem_memory`；
-  longmemeval native 用 `_format_lightmem_memory_as_official_retrieve`（M0-1b 已透传对齐）。
-- **B5 provenance**✅ = **none**（adapter:304）→ recall/rank 类指标对 LightMem **全 N/A**。
-- **B6 flush**✅：offline_update（online 是 `return None` 空壳，唯一可用模式）；
-  force_segment/force_extract 已接（last-batch + end_conversation）。
-- **B7 api_usage**✅：build/answer/judge 三角色都记真实 token（2026-07-12 效率审计无缺口）。
-- **B8 副作用/清理**🟡：per-conversation 状态 + `clean_lightmem_conversation_state`；resume 复建。
-- **B9 模型口径**🟡：unified=gpt-4o-mini；native answer=gpt-4o-mini + (temp0/max2000/top_p0.8)；
-  embedding=all-MiniLM 两轨同；native 内部超参 vs repo 默认待 M0.2 核。
-- **B10 双轨**✅：unified+native config-track 机制（M0-1b 验收通过，unified 字节零回归）。
-- **B11 smoke+冻结**🟡：flow-through smoke 已跑通（1 conv/1 round/1 q，管道 OK）；
-  **⚠️ 空库待诊断**（1-round 抽取 0 条 entry，待卡 Y 日志落地后重跑读 `Created N`）；
-  cost-probe（整条 conversation）+ native 轨 smoke + method-frozen-v1 未做。
-- **特殊情况**：① StructMem 是独立实验（换 build+检索+embedding），native 不接；
-  ② 空库诊断悬而未决；③ 双轨政策见 `dual-track-config-policy.md`。
+**逐项证据与接口调用面**：全部收归各实体的实例文档（表中名字即链接），本文不再
+就地展开（2026-07-13 起，原"LightMem 详情"节已迁入
+[integration/lightmem.md](integration/lightmem.md)，避免双源漂移）。
+
+**跨 method 横向事实（2026-07-13 取证）**
+- **五个现有 adapter 全部 `provenance_granularity="none"`**（lightmem:304 /
+  mem0:279 / memoryos:448 / amem:239 / simplemem:163）→ recall/ndcg/retrieval-rank
+  类指标当前对**所有** method N/A；`longmemeval-retrieval-rank` 等 conditional
+  evaluator 暂无生产者，真实报告里按 N/A 声明，不是 bug。
+- **clean-retry 钩子覆盖**：A-Mem/LightMem/MemoryOS/SimpleMem 已挂
+  `clean_failed_ingest_state`（registry.py:736/796/827/858）；**Mem0 没挂**（且它是
+  唯一逻辑隔离的 method）——见 mem0 实例 B8。
 
 ## 三、维护约定
-- 接入推进 / 冻结 / 发现特殊情况 → 立即更新本文对应行 + 补"特殊情况"。
-- 本文是**状态实例**，判据模板仍以 `method-integration-checklist.md` 为准，不在此复制判据全文。
+- 接入推进 / 冻结 / 发现特殊情况 → **同步更新**本文对应行 + 该实体的
+  `integration/<entity>.md` 实例文档。
+- 本文是**勾选总表**，判据模板以 `method-integration-checklist.md` 为准、逐项证据以
+  实例文档为准，都不在此复制。
 - 与 ws02.7 README 断点区互补：README=时间线叙事，本文=**当前静态勾选状态**。

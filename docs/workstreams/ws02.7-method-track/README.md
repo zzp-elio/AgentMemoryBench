@@ -15,6 +15,17 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**实例化二次拍板补全：逐实体实例文档落盘**，Fable 5 回任执行）：用户
+  指出 `integration-status.md` 总表不够——每个 method/benchmark 还要各一份按 checklist
+  逐项展开的实例文档，尤其要拆开 method 接口调用黑盒。→ 新建
+  `docs/reference/integration/` **11 份**（lightmem/mem0/memoryos/amem/simplemem/
+  everos + locomo/longmemeval/membench/halumem/beam）：method 侧每份含**接口调用面
+  表**（框架钩子→adapter 行为→third_party 调用，带行号锚）+ B1-B11 逐项（LightMem
+  按 M0 实况勾选；其余四家为"代码取证预填"显式标注非验收结论）；benchmark 侧每份
+  = A1-A8 锚点索引 + **"对 method 接入的含义"**节。总表改三层结构索引。**取证两个
+  横向发现**：五 adapter 全 provenance=none（recall 类指标全员 N/A）；Mem0 未挂
+  `clean_failed_ingest_state` 且唯一逻辑隔离（B3×B8 风险，checklist B8 例子待勘误）。
+  下一步不变：空库诊断重跑（等用户批预算）→ M0-1c → M0.2 → 成本探针。
 - 2026-07-13（**卡 X + 卡 Y 验收通过 + 今日收尾**，Opus 4.8 强验收）：两卡由用户派
   cc+GLM5.2 并行跑，**两 agent 在同一 git 树打架**烧光额度中断、中途换 DeepSeek 续，
   但最终 git 树线性干净（3 commit 未坏）。架构师一手复核：cd86c81(卡X)/5438064+feaa161(卡Y)

@@ -95,7 +95,9 @@ open 项）。**method 侧已正式解冻**。
   ⑤ 逐格更新 `docs/reference/integration-status.md`（接入状态实例化落表）。
 - **关键长效文档**（接任先读，别重推）：`dual-track-config-policy.md`（双轨唯一政策源）、
   `method-integration-checklist.md`（A1-A8/B1-B11 判据）、`integration-status.md`（谁过了哪项，
-  当前静态勾选）。native 矩阵：Mem0=locomo+lme+beam、SimpleMem=locomo+lme+membench、
+  当前静态勾选）+ **`integration/` 逐实体实例文档**（2026-07-13 二次拍板补全：每
+  method/benchmark 一份，B/A 逐项证据 + method 接口调用面黑盒拆解；三层结构 =
+  模板→总表→实例）。native 矩阵：Mem0=locomo+lme+beam、SimpleMem=locomo+lme+membench、
   LightMem=locomo+lme、其余见 ws02.7 README；HaluMem 全员无。
 - **方法论血泪（playbook #18，2026-07-13 事故）**：并行派多 actor 会在同一 git 树"打架"→
   烧额度、无结果；**默认串行派卡**，要并行须 per-actor 独立 worktree/分支；收尾必一手复核 git。
@@ -152,3 +154,12 @@ R0 真实校准（用户批预算；lightmem 校准实验见原则 #16）。
   跑通（空库悬案待 method.log 诊断）；LightMem online=空壳、offline 唯一模式一手定论；
   新建 `integration-status.md`（接入状态实例化）；**playbook #18 记多 actor git 打架事故**
   （默认串行派卡）。在途状态节改写为"下一步=重跑诊断空库 + M0-1c + 成本探针"。
+- 2026-07-13（第八次更新，Fable 5 回任——Anthropic 延期至 07-19）：**实例化二次拍板
+  补全**：用户指出总表不够，需逐实体实例文档 → 新建 `docs/reference/integration/`
+  11 份（6 method + 5 benchmark），method 侧含**接口调用面黑盒拆解**（框架钩子→
+  adapter 行为→third_party 调用，全带 `文件:行号`）；`integration-status.md` 改为
+  三层结构中的勾选总表（名字即链接，LightMem 详情迁入实例文档）。取证顺带两个横向
+  发现：① 五 adapter 全 `provenance_granularity="none"`（recall/rank 类指标现阶段
+  全员 N/A、conditional evaluator 暂无生产者）；② **Mem0 是唯一没挂
+  `clean_failed_ingest_state` 的 method 且唯一逻辑隔离**（B3×B8 风险组合，其 M 阶段
+  第一优先，checklist B8 的 Mem0 例子与现状不符待勘误）。
