@@ -15,6 +15,16 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**两张 actor 卡开出待派发**，Fable 5）：用户明确"actor 充裕、架构师
+  额度珍贵，能下放的下放"。开卡：
+  [M0-1c track-aware 路径层](actor-prompt-m0-1c-track-paths.md)（实现+测试，裁决已
+  写死：新布局 `…/{mode}/{track}/{run_id}`、不迁移旧目录、evaluate 靠 `**` glob 兼容
+  两布局、unified manifest 字节纪律不变）、
+  [M0.2 LightMem native 配置三方取证](actor-prompt-m0-2-lightmem-config-threeway.md)
+  （纯 notes 取证卡：paper(vendored lightmem.pdf)/experiments 目录/configs 默认/我们
+  现用四列 × 7 轴，失配只陈述不裁决）。**并行前提 = per-actor 独立 worktree+分支**
+  （playbook #18；worktree 命令已交用户）。空库诊断命令（predict-only + 读
+  method.log，evaluate 非必需省 judge 钱）已交用户，等批预算执行。
 - 2026-07-13（**实例化二次拍板补全：逐实体实例文档落盘**，Fable 5 回任执行）：用户
   指出 `integration-status.md` 总表不够——每个 method/benchmark 还要各一份按 checklist
   逐项展开的实例文档，尤其要拆开 method 接口调用黑盒。→ 新建
