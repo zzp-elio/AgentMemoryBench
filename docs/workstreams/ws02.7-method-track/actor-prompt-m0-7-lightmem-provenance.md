@@ -84,4 +84,58 @@ upstream PR 候选。**架构师已批的改造边界**：
 - Phase A 歧义；diff 超边界；payload 写入路径随配置分叉到无法条件写入。
 
 ## 施工报告（actor 填写）
+Phase A 完成并触发停工（2026-07-13，取证全文
+`notes/m0-7-lightmem-provenance.md`）：source_id/sequence_number 每次
+extraction invocation 从 0 重置、short buffer 可跨多次 add_memory —— 仅透传
+sequence 无法映射公开 turn id。等待架构师裁定。
+
+---
+
+## 5. 架构师裁决增补（2026-07-13，二次派发按此施工）
+
+**裁决：采纳取证 note §4 方向 1 —— 消息随身携带公开 id 透传。** 方向 2
+（invocation 复合键）否决：需要复刻 short-buffer 边界语义，脆弱且更侵入。
+
+### 5.1 修订后的设计
+- **adapter 侧**：提交给 add_memory 的每条 message dict 附加可选键
+  `external_id` = 该 turn 的公开 canonical turn id（命名对上游中立：任何
+  harness 都可以放自己的 id，PR 素材友好）。
+- **third_party diff（边界扩至 ≤ ~25 行，性质不变=纯透传）**：
+  ① 在构建 timestamps_list/speaker_list 的同一处（利用同一 sequence 索引
+  体系）平行构建 external_ids 列表；② `convert_extraction_results_to_
+  memory_entries` / `_create_memory_entry_from_fact` 增加可选参数，在现有
+  `sid*2` 解析时间/说话人的同一位置读取 external_id；③ `MemoryEntry` 增可选
+  字段 `source_external_id: Optional[str] = None` + 条件写入序列化/payload
+  （bam_tags 先例）。**零行为变化的可测表达不变**：消息不带 `external_id`
+  时序列化逐键一致。
+- **Phase C 简化**：payload 直接携带公开 turn id，adapter 检索侧不再需要
+  顺序簿记——读 payload → 填 provenance items；字段缺失（旧库/未附 id 路径）
+  优雅回落 `provenance_granularity="none"`。
+
+### 5.2 前置验证（施工第一步，不通过即停工）
+- 一手核 `MessageNormalizer` 的复制路径**保留未知键**（取证 note 说"只复制
+  消息并补字段"，lightmem.py:59-104——用单测证实 `external_id` 穿过
+  normalizer→buffer→extract_list 全程存活）。若任一环节丢键 → 停工（回落
+  裁决选项 3：保持 none）。
+- pre_compress / topic_segment 开关路径是否会重建 message dict 丢键，同样
+  核（我们 unified 配置 pre_compress=true）。
+
+### 5.3 已知限制（写进 note 与实例文档，不修不掩饰）
+- **归因精度继承上游**：sid 解析本身的缺陷（取证 §2.4：多 batch invocation
+  的 prompt id 空间 vs max_source_ids 裁剪不一致）原样继承——我们透传不修复
+  （未授权动算法）；该发现本身是**上游 issue 报告候选**，单独留档。
+- 时间戳/说话人归因用的是同一 sid 体系：我们的 provenance 精度 = 方法自身
+  内部归因精度，如实声明。
+
+### 5.4 二次派发 Git 纪律
+```
+git -C /Users/wz/Desktop/memoryBenchmark worktree add ../mb-actor-m07b -b actor/m0-7b-lightmem-provenance
+cd /Users/wz/Desktop/mb-actor-m07b && uv sync
+```
+Phase A 已完成不重做（引用已合入 main 的取证 note）；从 §5.2 前置验证开工，
+然后 Phase B（修订边界）/C（简化版）/D 照旧。**只跑目标测试文件 +
+compileall**（worktree 全量 pytest 假失败判例见 playbook #18），全量回归由
+架构师合并后主树复跑。
+
+## 施工报告（M0-7b actor 填写）
 （待填）

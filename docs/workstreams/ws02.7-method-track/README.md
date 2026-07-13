@@ -15,6 +15,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**BEAM smoke 双 variant 通过 + M0-7 停工裁决 + tee 日志纪律**，
+  Fable 5）：① **BEAM smoke**：100k/10m predict 各 1/1、sentinel=0（用户跑）；
+  免费评架构师跑完：100k f1=0.0 / 10m f1=0.4 / beam-recall 双双 n=0 条件 N/A
+  正确 / par2 f1=0.4；效率+时间戳全绿——**100k 记忆时间戳 `15 March 2024` =
+  M0-6 月名转换产物级端到端验证**。待办：beam-rubric-judge（付费,命令已给用户）；
+  **⑤并行冒烟无效**（smoke 切片=1 conv,par2 第二个 worker 空转,架构师给命令时
+  的失误）→ 补 `--conversations 2` 的 par2b。已知观察：transformers `531>512`
+  截断警告（embedding 侧,产物无痕,全量前复查,tee 判例）。② **M0-7 Phase A
+  正确停工**（sid 每 invocation 重置+buffer 跨调用）→ **裁决=方向 1 消息携带
+  `external_id` 透传**（卡 §5 增补,边界 ≤~25 行,M0-7b 待派;上游 sid 多 batch
+  不一致=issue 候选）。③ **playbook #19 tee 纪律**（用户提议:不再粘贴终端,
+  命令预包 tee,架构师自读 outputs/terminal-logs/）+ #18 补 M0-6 actor 自发补
+  资产judgment。**smoke 全局格局：locomo ✅ membench ✅ beam 差 judge+⑤(par2b)
+  lme 差⑤ halumem 待 wrapper。**
 - 2026-07-13（**M0-6 验收合入 → BEAM 解封 + M0-7 provenance 改造卡派出**，
   Fable 5 强验收）：① **M0-6 通过**：月名→ISO 通用转换（无 BEAM 分支名）、
   缺时 fail-fast 保持、真实数据扫过无单数日不造 fixture、测试直达官方
