@@ -87,12 +87,12 @@ open 项）。**method 侧已正式解冻**。
   空记忆、judge=0，符合"smoke 只验管道不看答对率"）。**⚠️ 空库悬案**：1-round 抽取 0 条 entry，
   force_extract 已接且触发,因是 segmenter 空 buffer 还是抽取返 0 **静态判不了**——待用**卡 Y 的
   method.log** 重跑读 `Created N` 定论（**下一步第一件事**，需用户确认预算后跑真 API）。
-- **待你做**：① **重跑 1-round smoke 诊断空库**（method.log 已能落盘）；② **M0-1c**：
-  track-aware 路径层 `.../{mode}/{track}/{run_id}` + resume（现 native/unified 靠显式 run_id 分）；
-  ③ **M0.2**：核 LightMem native 内部超参 vs repo 默认（定 build 是否分叉、成本是否 ×2）；
-  ④ **成本探针**：逐格(method×benchmark)跑一整条 conversation/instance → `build_run_cost_report`
-  读实测 → 外推(locomo×10、lme×500)，"区间 vs 中位隔离空间"待真预算时按 token 量定；
-  ⑤ 逐格更新 `docs/reference/integration-status.md`（接入状态实例化落表）。
+- **待你做**（2026-07-13 晚更新：①②③已完成——空库关闭/M0-1c 生效/M0.2 裁决
+  build 分叉成本×2，见 ws02.7 断点）：① **LightMem native 轨 smoke**
+  （`--config-track native`，locomo 起步，需用户批预算）；② **cost-probe**：逐格跑
+  一整条 conversation/instance → `build_run_cost_report` 读实测 → 外推(locomo×10、
+  lme×500)；native 格成本记得 ×2（build 分叉）；③ LightMem method-frozen-v1；
+  ④ 其余 method 的 M0.1 审查/取证可开卡并行（worktree 隔离已有成功判例）。
 - **关键长效文档**（接任先读，别重推）：`dual-track-config-policy.md`（双轨唯一政策源）、
   `method-integration-checklist.md`（A1-A8/B1-B11 判据）、`integration-status.md`（谁过了哪项，
   当前静态勾选）+ **`integration/` 逐实体实例文档**（2026-07-13 二次拍板补全：每

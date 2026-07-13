@@ -40,22 +40,34 @@
   无拦截缺口）；LightMem add_memory 自带 token/api_call_nums 返回值可做交叉参照（待留档）。
 - **B8 副作用/clean-retry 🟡**：物理隔离 + 删目录清理已具备；「检索是否改内部状态」
   待 M 阶段核（LightMem 检索为向量查询，预期无写副作用，未锚死）。
-- **B9 模型口径 🟡**：unified=gpt-4o-mini；native answer=gpt-4o-mini + temp0/max2000/
-  top_p0.8（config_track.py）；embedding=all-MiniLM 两轨同 → **build 轴暂不分叉、记忆
-  可复用**；native 内部超参 vs repo 默认 = **M0.2 待核**（核出分叉则成本 ×2）。
+- **B9 模型口径 ✅（M0.2 三方取证 + 架构师裁决，2026-07-13）**：证据全表
+  `ws02.7/notes/lightmem-native-config-threeway.md`。**build 轴两轨分叉实锤**：
+  extract_threshold unified=0.5（repo 默认，ws02.5 方案 B）vs native=0.1（复现目录）；
+  compression rate 0.7 vs 0.6(locomo)/0.8(lme)；offline score 0.8 vs 0.9(locomo)。
+  embedding 两轨同为 all-MiniLM-L6-v2。→ **LightMem 两个 native 格记忆不可复用，
+  构建成本 ×2**（进成本表）。裁决：native 配置源=复现目录 README reported 命令
+  （作者当前背书）；paper (r,th) 网格与脚本单值的出入已留痕、不标 DISPUTED，
+  R0 校准达不到论文数字再升级。repo schema 默认**不可运行**（text_embedder=None、
+  compressor/topic 顶层 OFF），故"repo 默认超参"操作化以 toml 注释留痕为准。
 - **B10 双轨 ✅**：config-track 机制 M0-1b 验收（`methods/config_track.py`；unified 轨
   字节零回归）；native locomo answer=`ANSWER_PROMPT`（Task1 裁决，summary OFF 是
   headline）；native 格注册 `{("lightmem","locomo"),("lightmem","longmemeval")}`。
-- **B11 smoke+冻结 🟡**：unified flow-through smoke 已跑通（1conv/1round/1q，管道 OK）；
-  **⚠️ 空库悬案**：1-round 抽取 0 条 entry，force 已触发，segmenter 空 buffer vs 抽取
-  返 0 静态判不了——待用 `logs/method.log`（卡 Y）重跑读 `Created N` 定论（**需用户批
-  预算跑真 API**）。native 轨 smoke、cost-probe、method-frozen-v1 未做。
+- **B11 smoke+冻结 🟡**：unified flow-through smoke 已跑通两次。**空库悬案已关闭
+  （2026-07-13 diag-log1 复跑）**：1 round → force 刷洗 → 抽取 2 条记忆 → 检索命中
+  （`formatted_memory` 非空、`bridge_empty_memory_sentinel_count=0`、Qdrant 有数据；
+  产物 `outputs/runs/lightmem/locomo/smoke/lm-locomo-unified-diag-log1/`）。管道功能
+  完整；此前一次空库最可能是抽取 LLM 单次返 0 的波动，非结构性 bug。
+  剩余：native 轨 smoke、cost-probe（整条 conversation）、method-frozen-v1。
 
 ## 特殊情况
 1. **StructMem（`--enable-summary`）是另一个实验**：换 build+检索+embedding
    （text-embedding-3-small），非 paper headline，不接（政策判例锚
    `dual-track-config-policy.md` §10）。
-2. 空库悬案见 B11——**下一步第一件事**。
-3. 双轨政策全文 `dual-track-config-policy.md`；native prompt 资产
+2. 双轨政策全文 `dual-track-config-policy.md`；native prompt 资产
    `methods/lightmem_native_prompts.py`（longmemeval builder 透传 prompt_messages，
-   2-message 守卫）。
+   2-message 守卫）。track-aware 路径层已生效（M0-1c，2026-07-13）：新 run 落
+   `…/{mode}/{track}/{run_id}`，旧布局仅可 evaluate 不可 resume。
+3. **日志已知限制**：LightMem 内部诊断走 `self.logger`（`Created N`=INFO :372、
+   `No entries found`=WARNING :474/:554），INFO 级连它自己的内部日志文件都不落
+   （实测 0 字节）；框架 `logs/method.log` 亦未捕获。真需要内部 INFO 时再查其
+   logger 配置，当前不阻塞。

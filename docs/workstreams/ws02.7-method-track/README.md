@@ -15,6 +15,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**M0-1c + M0.2 双卡验收 + 空库悬案关闭 + build 分叉裁决**，Fable 5 强验收）：
+  ① **worktree 并行首战成功**（两 actor=codex+GPT-5.6，独立 worktree/分支，零冲突；
+  合并=ff + cherry-pick 保线性）。② **M0-1c 通过**（`d014152`+`7879bb8`）：新布局
+  `…/{mode}/{track}/{run_id}` 生效、旧布局仅可 evaluate 不可 resume、ambiguity 测试
+  钉死、unified manifest 字节纪律保持；架构师独立复跑 **1112 passed** + compileall。
+  ③ **M0.2 通过**（`8bfa404` → cherry-pick `f8344be`）：三方取证表全锚，抽锚 3 处
+  一致；**架构师裁决：LightMem build 轴两轨分叉实锤**（extract 0.5 vs 0.1 等）→
+  两个 native 格记忆不可复用、**构建成本 ×2**；native 源=复现目录 README reported
+  命令，paper 网格出入留痕不标 DISPUTED（R0 不达标再升级）；"来源待溯"5 项=repo
+  schema 无 readout 配置的结构性事实，正当。④ **空库悬案关闭**（用户跑 diag-log1）：
+  1 round 抽取 2 条记忆、检索命中、sentinel=0——管道功能完整，旧空库判为抽取 LLM
+  单次返 0 波动。⑤ 已知限制登记：LightMem 内部 INFO 诊断不落盘（连自家日志 0 字节）。
+  **下一步：native 轨 smoke（lightmem×locomo `--config-track native`）→ cost-probe
+  （整条 conversation）→ method-frozen-v1；并行可派其余 method 的 M0.1 审查取证卡。**
 - 2026-07-13（**两张 actor 卡开出待派发**，Fable 5）：用户明确"actor 充裕、架构师
   额度珍贵，能下放的下放"。开卡：
   [M0-1c track-aware 路径层](actor-prompt-m0-1c-track-paths.md)（实现+测试，裁决已
