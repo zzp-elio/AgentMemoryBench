@@ -30,6 +30,7 @@ class MemoryEntry:
     update_queue: List = field(default_factory=list)
     consolidated: bool = False
     bam_tags: List[Any] = field(default_factory=list)
+    source_external_id: Optional[str] = None
     
 def clean_response(response: str) -> List[Dict[str, Any]]:
     """
@@ -66,6 +67,7 @@ def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, 
     timestamps_list = []
     weekday_list = []
     speaker_list = []
+    external_ids = []
     message_refs = []
     
     for segments in extract_list:
@@ -120,6 +122,7 @@ def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, 
                     'speaker_name': message.get('speaker_name', 'Unknown')
                 }
                 speaker_list.append(speaker_info)
+                external_ids.append(message.get("external_id"))
                 current_index += 1
 
     sequence_to_topic = {}
@@ -131,7 +134,7 @@ def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, 
                     seq = msg.get("sequence_number")
                     sequence_to_topic[seq] = tid
 
-    return extract_list, timestamps_list, weekday_list, speaker_list, sequence_to_topic
+    return extract_list, timestamps_list, weekday_list, speaker_list, external_ids, sequence_to_topic
 
 # TODO：merge into context retriever
 def save_memory_entries(memory_entries, file_path="memory_entries.json"):
@@ -157,6 +160,8 @@ def save_memory_entries(memory_entries, file_path="memory_entries.json"):
         }
         if getattr(entry, "bam_tags", []):
             data["bam_tags"] = entry.bam_tags
+        if getattr(entry, "source_external_id", None) is not None:
+            data["source_external_id"] = entry.source_external_id
         return data
 
     if os.path.exists(file_path):
@@ -210,7 +215,8 @@ def convert_extraction_results_to_memory_entries(
     speaker_list: List = None,
     topic_id_map: Dict[int, int] = None,
     max_source_ids: List[int] = None, 
-    logger = None
+    logger = None,
+    external_ids: List[Optional[str]] = None,
 ) -> List[MemoryEntry]:
     """
     Convert extraction results to MemoryEntry objects.
@@ -278,6 +284,7 @@ def convert_extraction_results_to_memory_entries(
                     topic_id=resolved_topic_id,
                     topic_summary="",
                     logger=logger,
+                    external_ids=external_ids,
                 )
 
                 if mem_obj:
@@ -293,7 +300,8 @@ def _create_memory_entry_from_fact(
     speaker_list: List = None,
     topic_id: int = None,  
     topic_summary: str = "",
-    logger = None
+    logger = None,
+    external_ids: List[Optional[str]] = None,
 ) -> Optional[MemoryEntry]:
     """
     Helper function to create a MemoryEntry from a fact entry.
@@ -326,6 +334,7 @@ def _create_memory_entry_from_fact(
         speaker_info = speaker_list[sequence_n]
         speaker_id = speaker_info.get('speaker_id', 'unknown')
         speaker_name = speaker_info.get('speaker_name', 'Unknown')
+        source_external_id = external_ids[sequence_n] if external_ids else None
         
     except (IndexError, TypeError, ValueError) as e:
         if logger:
@@ -337,6 +346,7 @@ def _create_memory_entry_from_fact(
         weekday = None
         speaker_id = 'unknown'
         speaker_name = 'Unknown'
+        source_external_id = None
     
     mem_obj = MemoryEntry(
         time_stamp=time_stamp,
@@ -348,6 +358,7 @@ def _create_memory_entry_from_fact(
         topic_id=topic_id,
         topic_summary=topic_summary,
         consolidated=False, 
+        source_external_id=source_external_id,
     )
     
     return mem_obj

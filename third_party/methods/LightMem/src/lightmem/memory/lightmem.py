@@ -337,7 +337,7 @@ class LightMemory:
         self.logger.debug(f"topic_id_mapping: {topic_id_mapping}")
         self.logger.info(f"[{call_id}] Assigned global topic IDs: total={sum(len(x) for x in topic_id_mapping)}, mapping={topic_id_mapping}")
         self.logger.info(f"[{call_id}] Extraction triggered {extract_trigger_num} times, extract_list length: {len(extract_list)}")
-        extract_list, timestamps_list, weekday_list, speaker_list, topic_id_map = assign_sequence_numbers_with_timestamps(extract_list, offset_ms=500, topic_id_mapping=topic_id_mapping)
+        extract_list, timestamps_list, weekday_list, speaker_list, external_ids, topic_id_map = assign_sequence_numbers_with_timestamps(extract_list, offset_ms=500, topic_id_mapping=topic_id_mapping)
         self.logger.debug(f"[{call_id}] Extract list sample: {json.dumps(extract_list)}")
         max_source_ids = [sum(1 for seg in batch for msg in seg if msg.get("role") == "user") - 1 for batch in extract_list]
         self.logger.info(f"[{call_id}] Batch max_source_ids: {max_source_ids}")
@@ -367,7 +367,8 @@ class LightMemory:
             speaker_list=speaker_list,
             topic_id_map=topic_id_map,
             max_source_ids=max_source_ids,
-            logger=self.logger
+            logger=self.logger,
+            external_ids=external_ids,
         )
         self.logger.info(f"[{call_id}] Created {len(memory_entries)} MemoryEntry objects")
         if boundmem_tags is not None:
@@ -433,6 +434,9 @@ class LightMemory:
                 }
                 if bam_tags:
                     payload["bam_tags"] = bam_tags
+                source_external_id = getattr(mem_obj, "source_external_id", None)
+                if source_external_id is not None:
+                    payload["source_external_id"] = source_external_id
                 self.embedding_retriever.insert(
                     vectors = [embedding_vector],
                     payloads = [payload],

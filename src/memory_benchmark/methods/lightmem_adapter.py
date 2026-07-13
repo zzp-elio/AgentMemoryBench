@@ -46,6 +46,7 @@ from memory_benchmark.core.provider_protocol import (
     IngestResult,
     IngestUnit,
     MemoryProvider,
+    RetrievedItem,
     RetrievalQuery,
     RetrievalResult,
     TurnEvent,
@@ -301,7 +302,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     """使用官方 LightMemory 的统一 memory system。"""
 
     consume_granularity: ConsumeGranularity = "turn"
-    provenance_granularity = "none"
+    provenance_granularity = "turn"
 
     def __init__(
         self,
@@ -702,6 +703,15 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         if isinstance(question, RetrievalQuery):
             return self._retrieve_native(question)
 
+        retrieval, _items = self._retrieve_question(question)
+        return retrieval
+
+    def _retrieve_question(
+        self,
+        question: Question,
+    ) -> tuple[AnswerPromptResult, tuple[RetrievedItem, ...] | None]:
+        """检索公开问题，并同时保留 v3 provenance items。"""
+
         if question.conversation_id not in self._backends:
             raise ConfigurationError(
                 f"LightMem conversation has not been added: {question.conversation_id}"
@@ -730,7 +740,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                     self.config.llm_model,
                 ),
             )
-        return AnswerPromptResult(
+        retrieval = AnswerPromptResult(
             question_id=question.question_id,
             conversation_id=question.conversation_id,
             answer_prompt=answer_prompt,
@@ -751,6 +761,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 ),
             },
         )
+        return retrieval, self._retrieved_items_from_lightmem_memories(memories)
 
     def _retrieve_native(self, query: RetrievalQuery) -> RetrievalResult:
         """执行 v3 检索并返回不生成最终答案的 RetrievalResult。"""
@@ -769,16 +780,19 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             category=source_question.category,
             metadata=dict(source_question.metadata),
         )
-        retrieval = self.retrieve(native_question)
+        retrieval, items = self._retrieve_question(native_question)
         formatted_memory = (
             retrieval.metadata.get("answer_context")
             if isinstance(retrieval.metadata.get("answer_context"), str)
             else ""
         )
+        metadata = dict(retrieval.metadata)
+        metadata["provenance_granularity"] = "turn" if items is not None else "none"
         return RetrievalResult(
             formatted_memory=formatted_memory or "(No relevant memories found)",
             prompt_messages=tuple(retrieval.prompt_messages),
-            metadata=dict(retrieval.metadata),
+            items=items,
+            metadata=metadata,
         )
 
     def get_answer(self, question: Question) -> AnswerResult:
@@ -1100,6 +1114,46 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             "metadata": metadata,
         }
 
+    @staticmethod
+    def _retrieved_items_from_lightmem_memories(
+        memories: list[Any],
+    ) -> tuple[RetrievedItem, ...] | None:
+        """把带 external id 的 payload 转成 turn-level provenance items。
+
+        旧状态或未附 `external_id` 的调用路径没有无损来源信息；遇到任一此类
+        命中时整次检索回落为无 provenance，而不是返回部分来源制造假 recall。
+        """
+
+        items: list[RetrievedItem] = []
+        for memory in memories:
+            if not isinstance(memory, dict):
+                return None
+            payload = memory.get("payload")
+            if not isinstance(payload, dict):
+                return None
+            source_external_id = payload.get("source_external_id")
+            if not isinstance(source_external_id, str) or not source_external_id.strip():
+                return None
+            item_id = str(memory.get("id") or "").strip()
+            content = _format_lightmem_memory(memory)
+            if not item_id or not content.strip():
+                return None
+            raw_score = memory.get("score")
+            score = float(raw_score) if isinstance(raw_score, (int, float)) else None
+            raw_timestamp = payload.get("time_stamp")
+            timestamp = str(raw_timestamp) if raw_timestamp is not None else None
+            items.append(
+                RetrievedItem(
+                    item_id=item_id,
+                    content=content,
+                    score=score,
+                    timestamp=timestamp,
+                    source_turn_ids=(source_external_id,),
+                    metadata={"source": str(memory.get("source") or "vector")},
+                )
+            )
+        return tuple(items)
+
     def _conversation_to_lightmem_batches(
         self,
         conversation: Conversation,
@@ -1143,6 +1197,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                             "speaker_id": speaker_id,
                             "speaker_name": speaker_name,
                             "time_stamp": timestamp,
+                            "external_id": turn.turn_id,
                         },
                         {
                             "role": "assistant",
@@ -1150,6 +1205,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                             "speaker_id": speaker_id,
                             "speaker_name": speaker_name,
                             "time_stamp": timestamp,
+                            "external_id": turn.turn_id,
                         },
                     ]
                 )
@@ -1204,6 +1260,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             "speaker_id": turn.speaker,
             "speaker_name": turn.speaker,
             "time_stamp": timestamp,
+            "external_id": turn.turn_id,
         }
 
     def _locomo_metadata_prompt_if_needed(

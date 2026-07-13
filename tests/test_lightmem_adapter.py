@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -253,6 +255,7 @@ class FakeLightMemEmbeddingRetriever:
                     "memory": "Alice likes jasmine tea.",
                     "time_stamp": "2026-01-01T00:00:00.000",
                     "weekday": "Thu",
+                    "source_external_id": "D1:1",
                 },
             },
             {
@@ -263,6 +266,7 @@ class FakeLightMemEmbeddingRetriever:
                     "memory": "Bob remembered Alice's tea preference.",
                     "time_stamp": "2026-01-01T00:00:01.000",
                     "weekday": "Thu",
+                    "source_external_id": "D1:2",
                 },
             },
             {
@@ -273,6 +277,7 @@ class FakeLightMemEmbeddingRetriever:
                     "memory": "Alice dislikes noisy airports.",
                     "time_stamp": "2026-01-01T00:00:02.000",
                     "weekday": "Thu",
+                    "source_external_id": "D2:1",
                 },
             },
         ]
@@ -284,6 +289,19 @@ class FakeLightMemEmbeddingRetriever:
             {"with_vectors": with_vectors, "with_payload": with_payload}
         )
         return self.entries
+
+    def exists(self, item_id: str) -> bool:
+        """按 id 检查本地条目。"""
+
+        return any(entry["id"] == item_id for entry in self.entries)
+
+    def insert(self, *, vectors, payloads, ids) -> None:
+        """模拟官方 Qdrant 的本地向量插入。"""
+
+        self.entries.extend(
+            {"id": item_id, "vector": vector, "payload": payload}
+            for item_id, vector, payload in zip(ids, vectors, payloads)
+        )
 
     def search(
         self,
@@ -621,6 +639,340 @@ def test_lightmem_month_name_timestamp_is_accepted_by_official_normalizer(
     assert turn.turn_time == raw_timestamp
 
 
+def test_lightmem_external_id_survives_official_preprocessing_pipeline() -> None:
+    """公开 external_id 应穿过 normalizer、压缩和两级 buffer。"""
+
+    import_lightmem_classes(load_path_settings())
+    from lightmem.factory.memory_buffer.sensory_memory import SenMemBufferManager
+    from lightmem.factory.memory_buffer.short_term_memory import ShortMemBufferManager
+    from lightmem.factory.pre_compressor.llmlingua_2 import LlmLingua2Compressor
+
+    class _Tokenizer:
+        """为官方 buffer 提供稳定的离线 token 计数。"""
+
+        def encode(self, text: str) -> list[str]:
+            """按空白切分测试文本。"""
+
+            return text.split()
+
+    class _PromptCompressor:
+        """模拟 LLMLingua 内核，仅改变 content。"""
+
+        def compress_prompt(self, **kwargs):
+            """返回固定压缩文本。"""
+
+            return {"compressed_prompt": f"compressed {kwargs['context'][0]}"}
+
+    class _Segmenter:
+        """让 sensory buffer 以原消息字典切出单段。"""
+
+        def propose_cut(self, _buffer_texts):
+            """空边界触发官方整段 copy 路径。"""
+
+            return []
+
+    normalizer_class = sys.modules["lightmem.memory.lightmem"].MessageNormalizer
+    messages = [
+        {
+            "role": "user",
+            "content": "Alice likes tea.",
+            "time_stamp": "2026-01-01T00:00:00",
+            "external_id": "D1:1",
+        },
+        {
+            "role": "assistant",
+            "content": "Tea is noted.",
+            "time_stamp": "2026-01-01T00:00:00",
+            "external_id": "D1:2",
+        },
+    ]
+    normalized = normalizer_class(offset_ms=500).normalize_messages(messages)
+    compressor = LlmLingua2Compressor.__new__(LlmLingua2Compressor)
+    compressor.config = SimpleNamespace(compress_config={})
+    compressor._compressor = _PromptCompressor()
+    compressed = compressor.compress(normalized, _Tokenizer())
+    sensory = SenMemBufferManager(max_tokens=512, tokenizer=_Tokenizer())
+    assert sensory.add_messages(compressed, _Segmenter(), None) == []
+    segments = sensory.cut_with_segmenter(_Segmenter(), None, force_segment=True)
+    short = ShortMemBufferManager(max_tokens=2000, tokenizer=_Tokenizer())
+    trigger_count, extract_list = short.add_segments(
+        segments,
+        messages_use="user_only",
+        force_extract=True,
+    )
+
+    assert trigger_count == 1
+    assert [message["external_id"] for message in extract_list[0][0]] == [
+        "D1:1",
+        "D1:2",
+    ]
+
+
+def test_lightmem_external_id_survives_topic_segment_disabled_path() -> None:
+    """关闭 topic segmentation 时早退消息也必须保留 external_id。"""
+
+    classes = import_lightmem_classes(load_path_settings())
+
+    class _Logger:
+        """提供官方早退路径使用的无输出 logger。"""
+
+        def __getattr__(self, _name):
+            """所有日志级别都返回空操作。"""
+
+            return lambda *_args, **_kwargs: None
+
+    backend = classes["LightMemory"].__new__(classes["LightMemory"])
+    backend.config = SimpleNamespace(
+        extraction_mode="flat",
+        pre_compress=False,
+        topic_segment=False,
+    )
+    backend.logger = _Logger()
+
+    result = backend.add_memory(
+        [
+            {
+                "role": "user",
+                "content": "Alice likes tea.",
+                "time_stamp": "2026-01-01T00:00:00",
+                "external_id": "D1:1",
+            }
+        ]
+    )
+
+    assert result["emitted_messages"][0]["external_id"] == "D1:1"
+
+
+def test_lightmem_conversion_and_storage_conditionally_preserve_external_id(
+    tmp_path: Path,
+) -> None:
+    """抽取来源应进入 MemoryEntry；缺来源时旧序列化键集合保持不变。"""
+
+    import_lightmem_classes(load_path_settings())
+    utils = sys.modules["lightmem.memory.utils"]
+    extracted_results = [
+        {
+            "cleaned_result": [
+                [{"source_id": 0, "fact": "Alice likes tea."}],
+            ]
+        }
+    ]
+    common = {
+        "extracted_results": extracted_results,
+        "timestamps_list": [
+            "2026-01-01T00:00:00.000",
+            "2026-01-01T00:00:00.500",
+        ],
+        "weekday_list": ["Thu", "Thu"],
+        "speaker_list": [
+            {"speaker_id": "speaker_a", "speaker_name": "Alice"},
+            {"speaker_id": "speaker_a", "speaker_name": "Alice"},
+        ],
+        "topic_id_map": {0: 7, 1: 7},
+        "max_source_ids": [0],
+        "logger": SimpleNamespace(
+            warning=lambda *_args, **_kwargs: None,
+            error=lambda *_args, **_kwargs: None,
+        ),
+    }
+
+    with_source = utils.convert_extraction_results_to_memory_entries(
+        **common,
+        external_ids=["D1:1", "D1:1"],
+    )[0]
+    without_source = utils.convert_extraction_results_to_memory_entries(**common)[0]
+
+    assert with_source.source_external_id == "D1:1"
+    assert without_source.source_external_id is None
+    old_shape_path = tmp_path / "old-shape.json"
+    utils.save_memory_entries([without_source], old_shape_path)
+    old_shape = json.loads(old_shape_path.read_text(encoding="utf-8"))[0]
+    assert old_shape == {
+        "id": without_source.id,
+        "time_stamp": "2026-01-01T00:00:00.000",
+        "topic_id": 7,
+        "topic_summary": "",
+        "category": "",
+        "subcategory": "",
+        "memory_class": "",
+        "memory": "Alice likes tea.",
+        "original_memory": "",
+        "compressed_memory": "",
+        "hit_time": 0,
+        "update_queue": [],
+        "float_time_stamp": without_source.float_time_stamp,
+        "weekday": "Thu",
+        "speaker_id": "speaker_a",
+        "speaker_name": "Alice",
+        "consolidated": False,
+    }
+    with_source_path = tmp_path / "with-source.json"
+    utils.save_memory_entries([with_source], with_source_path)
+    assert json.loads(with_source_path.read_text(encoding="utf-8"))[0][
+        "source_external_id"
+    ] == "D1:1"
+
+
+def test_lightmem_offline_update_conditionally_writes_external_id_payload() -> None:
+    """embedding payload 仅在 MemoryEntry 有公开来源时新增来源键。"""
+
+    classes = import_lightmem_classes(load_path_settings())
+    utils = sys.modules["lightmem.memory.utils"]
+
+    class _Retriever:
+        """记录官方 offline_update 的本地向量写入 payload。"""
+
+        def __init__(self) -> None:
+            """初始化插入记录。"""
+
+            self.payloads: list[dict[str, object]] = []
+
+        def exists(self, _item_id: str) -> bool:
+            """测试 id 均不冲突。"""
+
+            return False
+
+        def insert(self, *, vectors, payloads, ids) -> None:
+            """记录条件 payload，不执行外部 I/O。"""
+
+            assert vectors and ids
+            self.payloads.extend(payloads)
+
+    retriever = _Retriever()
+    backend = classes["LightMemory"].__new__(classes["LightMemory"])
+    backend.config = SimpleNamespace(index_strategy="embedding")
+    backend.logger = SimpleNamespace(
+        info=lambda *_args, **_kwargs: None,
+        debug=lambda *_args, **_kwargs: None,
+    )
+    backend.text_embedder = SimpleNamespace(embed=lambda _text: [1.0, 0.0])
+    backend.embedding_retriever = retriever
+    entries = [
+        utils.MemoryEntry(memory="with source", source_external_id="D1:1"),
+        utils.MemoryEntry(memory="without source"),
+    ]
+
+    backend.offline_update(entries)
+
+    assert retriever.payloads[0]["source_external_id"] == "D1:1"
+    assert "source_external_id" not in retriever.payloads[1]
+
+
+def test_lightmem_local_retrieval_provenance_scores_locomo_recall(
+    tmp_path: Path,
+) -> None:
+    """MemoryEntry 经本地向量链检索后应产出可评分的 canonical turn id。"""
+
+    from memory_benchmark.core import GoldAnswerInfo
+    from memory_benchmark.evaluators.locomo_recall import (
+        LoCoMoRetrievalRecallEvaluator,
+    )
+    from memory_benchmark.storage import (
+        ExperimentPaths,
+        atomic_write_jsonl,
+        evaluator_private_label_record,
+        public_question_record,
+    )
+
+    classes = import_lightmem_classes(load_path_settings())
+    utils = sys.modules["lightmem.memory.utils"]
+    retriever = FakeLightMemEmbeddingRetriever()
+    retriever.entries.clear()
+    backend = classes["LightMemory"].__new__(classes["LightMemory"])
+    backend.config = SimpleNamespace(index_strategy="embedding")
+    backend.logger = SimpleNamespace(
+        info=lambda *_args, **_kwargs: None,
+        debug=lambda *_args, **_kwargs: None,
+    )
+    backend.text_embedder = FakeLightMemEmbedder()
+    backend.embedding_retriever = retriever
+    backend.offline_update(
+        [
+            utils.MemoryEntry(
+                id="memory-D1-1",
+                time_stamp="2026-01-01T00:00:00.000",
+                weekday="Thu",
+                memory="Alice likes tea.",
+                speaker_name="Alice",
+                source_external_id="D1:1",
+            )
+        ]
+    )
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=1,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda _conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    method._backends["conv-1"] = backend
+    method._conversation_metadata["conv-1"] = {
+        "source_path": "data/locomo/locomo10.json",
+        "speaker_a": "Alice",
+        "speaker_b": "Bob",
+    }
+    question = Question(
+        question_id="q-1",
+        conversation_id="conv-1",
+        text="What does Alice like?",
+        category="4",
+    )
+
+    retrieval = method.retrieve(
+        RetrievalQuery(
+            query_text=question.text,
+            isolation_key="conv-1",
+            question_time=question.question_time,
+            top_k=1,
+            purpose="qa",
+            source_question=question,
+        )
+    )
+
+    assert retrieval.items is not None
+    assert retrieval.items[0].source_turn_ids == ("D1:1",)
+    paths = ExperimentPaths.create(tmp_path / "run")
+    atomic_write_jsonl(
+        paths.answer_prompts_path,
+        [
+            {
+                "question_id": "q-1",
+                "conversation_id": "conv-1",
+                "retrieval_query_top_k": 1,
+                "retrieved_items": [asdict(item) for item in retrieval.items],
+            }
+        ],
+    )
+    atomic_write_jsonl(
+        paths.evaluator_private_labels_path,
+        [
+            evaluator_private_label_record(
+                GoldAnswerInfo(
+                    question_id="q-1",
+                    answer="tea",
+                    evidence=["D1:1"],
+                ),
+                question.category,
+            )
+        ],
+    )
+    atomic_write_jsonl(paths.public_questions_path, [public_question_record(question)])
+    result = LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(
+        paths=paths,
+        manifest={"method": {"provenance_granularity": "turn"}},
+    )
+
+    assert result["total_questions"] == 1
+    assert result["mean_score"] == 1.0
+
+
 def _tmp_path_settings(project_root) -> PathSettings:
     """构造只用于资源校验测试的临时项目路径配置。"""
 
@@ -767,12 +1119,54 @@ def test_lightmem_native_builder_passes_through_adapter_prompt_messages(
     result = native_builder(question, retrieval)
 
     assert len(retrieval.prompt_messages or ()) == expected_message_count
+    assert retrieval.metadata["provenance_granularity"] == "turn"
+    assert retrieval.items is not None
+    assert retrieval.items[0].source_turn_ids == ("D1:1",)
     assert result.prompt_messages == list(retrieval.prompt_messages or ())
     if expected_message_count == 2:
         assert retrieval.formatted_memory not in result.prompt_messages[1].content
         assert "2026-01-01T00:00:00.000 Thu Alice likes jasmine tea." in (
             result.prompt_messages[1].content
         )
+
+
+def test_lightmem_retrieve_missing_external_id_falls_back_without_error() -> None:
+    """旧 payload 缺来源字段时应整次回落 none，不返回部分 provenance。"""
+
+    backend = FakeLightMemoryBackend()
+    for entry in backend.embedding_retriever.entries:
+        entry["payload"].pop("source_external_id", None)
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda _conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    conversation = _locomo_style_lightmem_conversation()
+    method.add([conversation])
+    question = conversation.questions[0]
+
+    retrieval = method.retrieve(
+        RetrievalQuery(
+            query_text=question.text,
+            isolation_key=conversation.conversation_id,
+            question_time=question.question_time,
+            top_k=2,
+            purpose="qa",
+            source_question=question,
+        )
+    )
+
+    assert retrieval.items is None
+    assert retrieval.metadata["provenance_granularity"] == "none"
 
 
 def test_lightmem_load_existing_conversation_state_rebuilds_backend() -> None:
@@ -855,6 +1249,10 @@ def test_lightmem_add_uses_locomo_single_turn_incremental_feeding() -> None:
         "2026-01-01",
         "2026-01-01",
     ]
+    assert [message["external_id"] for message in first_call["messages"]] == [
+        "t-1",
+        "t-1",
+    ]
     assert [message["content"] for message in last_call["messages"]] == [
         "Jazz is noted.",
         "",
@@ -926,6 +1324,10 @@ def test_lightmem_add_uses_longmemeval_user_assistant_pair_feeding() -> None:
     assert [message["role"] for message in first_call["messages"]] == [
         "user",
         "assistant",
+    ]
+    assert [message["external_id"] for message in first_call["messages"]] == [
+        "t-1",
+        "t-2",
     ]
     assert backend.construct_update_calls == []
     assert backend.offline_update_calls == []
@@ -1201,6 +1603,11 @@ def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
         method_manifest={},
         protocol_version="v3",
     )["protocol_version"] == "v3"
+    assert _method_manifest_with_protocol(
+        method_manifest={},
+        protocol_version="v3",
+        system=locomo,
+    )["provenance_granularity"] == "turn"
 
 
 def test_lightmem_backend_config_uses_official_mini_profile_values() -> None:
