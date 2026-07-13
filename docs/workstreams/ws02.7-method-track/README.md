@@ -15,6 +15,17 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**membench 格五件套全齐（第二格）+ 逻辑隔离改造裁决=不做**，
+  Fable 5）：用户跑 predict 两条（s1 4/4 + par2 4/4，sentinel=0，run_id 带
+  `-0-10k` 后缀）；架构师跑免费五件套②③④：choice-accuracy 0.5 /
+  source-accuracy 0.5 / recall n=0 条件 N/A 正确；效率三类齐（api_usage 实证、
+  injected mean=108.25）；formatted_memory 4/4 带时间戳全真实记忆。
+  **隔离裁决**（用户问）：membench 每 tid 一个物理隔离空间=是；LightMem 原生无
+  namespace（MemoryEntry 字段表无此项、检索 filters=None）→ 逻辑隔离**不改造**
+  （零评测能力收益+红线级存储改动；向量总量两种隔离相同，真实代价是 per-conv
+  embedding 模型重载 ≈2s，full 若成瓶颈走 adapter 层 embedder 共享缓存，零
+  third_party）。详见 lightmem.md B11⑤/B3 附带裁决。**当前格局：locomo ✅
+  membench ✅ lme 差⑤ beam 卡 M0-6（未派）halumem 待 wrapper。**
 - 2026-07-13（**M0-4/M0-5 双卡验收 + HaluMem "牵强"裁决落定 + M0-6 派发**，
   Fable 5 强验收）：两卡均 codex 自建 worktree（新规矩入 playbook #18：卡 §0 写
   自建命令模板，架构师验收核基点/范围/未 push 三项），ff+cherry-pick 线性合入。
