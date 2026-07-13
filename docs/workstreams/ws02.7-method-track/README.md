@@ -22,7 +22,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   （用户）→ 裁决判据落档**（lightmem.md B2）：force=官方旋钮 + wrapper 只读不越
   红线，但使用节奏是否失真 → **前置取证 HaluMem 官方 harness 对无 session 概念
   method 的喂法**，同姿势=公平、做不到=N/A；裁决推迟到该格实施时。③ 交接更新 +
-  handover 瘦身方向记录（见 handover 更新记录）。**下一任第一件事：membench/beam
+  handover 瘦身方向记录（见 handover 更新记录）。④ **五件套②补全**（用户点出遗漏
+  ——smoke 要"全部适用指标"不只 judge）：架构师本地跑免费指标（requires_api=false
+  零成本）：locomo=locomo-f1/f1/locomo-recall、lme 双轨=f1/recall/retrieval-rank；
+  recall 类 n=0 = provenance=none 条件路径**正确**输出。**教训：开新认证口径的
+  同一轮就该把免费部分自己跑完，不留给用户发现（§14 三问的"横向信号"没扫自己）。**
+  **下一任第一件事：membench/beam
   × LightMem 离线兼容核查（不花钱）→ 给用户两格 smoke 命令；然后 B5+ 两项裁决
   （HaluMem 官方 harness 取证卡可派 actor）+ native build profile 实现。**
 - 2026-07-13（**lme 双轨 smoke 收官 + 注入 token 双轨口径 + smoke 五件套新门**，Fable 5）：
