@@ -10,9 +10,12 @@
 1. 读 `AGENTS.md`（跨模型硬规则总纲）；
 2. 读 `docs/reference/architect-playbook.md` **全文**（尤其 §3 十六条
    原则——每条都有本项目实战判例；§10 上任自检照做）；
-3. 读 `docs/workstreams/ws02.6-first-smoke-hardening/README.md` 断点区
-   （项目权威活状态）+ `plan-b5-halumem.md` §4（当前批次断点）；
-4. 读 `docs/reference/dataset-quirks.md`（五 benchmark 个性索引）；
+3. 读 `docs/workstreams/ws02.7-method-track/README.md` 断点区
+   （项目权威活状态，当前主线 = LightMem 深耕制）；
+4. 读 `docs/reference/integration-status.md`（能力总表，名字即实例文档链接）+
+   `docs/reference/dataset-quirks.md`（五 benchmark 个性索引）；另有
+   `docs/reference/framework-differentiators.md`（论文/资金申请内核，判例累积，
+   负面断言必须一手锚）；
 5. 然后才回复用户。第一句话应该是你对当前断点的复述与下一步行动，
    不是自我介绍。
 

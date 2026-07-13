@@ -15,6 +15,18 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**两卡待派发 + 框架差异化内核文档立档**，Fable 5）：用户重申
+  "能派 actor 就派、架构师只做裁决/验收；一个 method 深耕不着急开下一个"。
+  ① **M0-4 卡**（membench/beam × LightMem 离线兼容核查，纯取证零成本，产出
+  `notes/m0-4-membench-beam-lightmem-compat.md`）与 **M0-5 卡**（HaluMem 官方
+  harness 喂法取证，为 B2 "牵强"裁决供证，产出 `notes/m0-5-halumem-harness-feeding.md`）
+  已写好待用户派发；**两卡零文件交集，可 worktree 并行**。M0-4 验收通过后架构师
+  给 membench/beam 两格 smoke 命令（五件套口径，beam=100k+10m 两次 run）。
+  ② **`docs/reference/framework-differentiators.md` 立档**（用户提议：论文/资金
+  申请的"内核"）：D1 算法保真红线（MemoryData 绕管线判例）/ D2 评测元数据不进
+  被测系统 / D3 效率不混算不重复计数（对方五处 prompt_tokens+estimate 重复计数
+  实锚）/ D4 answer 口径统一 / D5 resume 工程 / D6 声明式能力矩阵；纪律=负面
+  断言必须一手锚，判例组累积式。
 - 2026-07-13（**MemoryData recall 改造判例取证**，Fable 5 压缩后续会话）：用户指路
   `第三方框架参考/MemoryData`（几乎全 method 支持 Recall@k）。架构师一手取证结论
   （全文 `notes/memorydata-recall-retrofit-survey.md`）：血缘 loader 侧 in-band
