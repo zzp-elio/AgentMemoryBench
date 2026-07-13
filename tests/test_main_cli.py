@@ -126,6 +126,45 @@ def test_resolve_run_dir_finds_track_aware_output_layout(tmp_path: Path) -> None
     assert commands._resolve_run_dir(tmp_path, "run-1") == run_dir.resolve()
 
 
+def test_resolve_run_dir_not_found_fails_fast_with_near_miss_hint(
+    tmp_path: Path,
+) -> None:
+    """三布局均未命中时应 fail-fast，并提示 variant 后缀等相近 run id。"""
+
+    real = (
+        tmp_path
+        / "outputs"
+        / "runs"
+        / "lightmem"
+        / "longmemeval"
+        / "s-cleaned"
+        / "smoke"
+        / "unified"
+        / "run-1-s-cleaned"
+    )
+    real.mkdir(parents=True)
+    (real / "manifest.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        commands._resolve_run_dir(tmp_path, "run-1")
+    message = str(excinfo.value)
+    assert "not found" in message
+    assert "run-1-s-cleaned" in message
+
+
+def test_resolve_run_dir_not_found_without_candidates_has_no_hint(
+    tmp_path: Path,
+) -> None:
+    """没有相近 run id 时报错不带建议，但仍列出两处查找位置。"""
+
+    (tmp_path / "outputs" / "runs").mkdir(parents=True)
+    with pytest.raises(ConfigurationError) as excinfo:
+        commands._resolve_run_dir(tmp_path, "totally-absent")
+    message = str(excinfo.value)
+    assert "not found" in message
+    assert "Closest run ids" not in message
+
+
 def test_resolve_run_dir_rejects_ambiguous_hierarchical_run_id(
     tmp_path: Path,
 ) -> None:

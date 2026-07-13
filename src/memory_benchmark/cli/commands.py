@@ -267,6 +267,10 @@ def _resolve_run_dir(project_root: Path, run_id: str) -> Path:
     - legacy: `outputs/{run_id}`
     - CLI v2 旧布局: `outputs/runs/{method}/{benchmark}/{mode}/{run_id}`
     - track-aware: `outputs/runs/{method}/{benchmark}/{mode}/{track}/{run_id}`
+
+    三处布局均未命中时 fail-fast，并提示 outputs/runs 下名字相近的 run id
+    （典型场景：multi-variant benchmark 会给 run_id 追加 variant 后缀，用
+    predict 时传入的原始 run_id 来 evaluate 会查不到）。
     """
 
     outputs_root = (project_root / "outputs").resolve()
@@ -278,10 +282,12 @@ def _resolve_run_dir(project_root: Path, run_id: str) -> Path:
             f"Evaluation run_id escapes outputs directory: {run_id}"
         ) from exc
 
-    hierarchical_matches = tuple(
+    all_hierarchical_run_dirs = tuple(
         manifest_path.parent
         for manifest_path in (outputs_root / "runs").glob("**/manifest.json")
-        if manifest_path.parent.name == run_id
+    )
+    hierarchical_matches = tuple(
+        run_dir for run_dir in all_hierarchical_run_dirs if run_dir.name == run_id
     )
     flat_exists = (flat_run_dir / "manifest.json").is_file()
     if flat_exists and hierarchical_matches:
@@ -300,7 +306,23 @@ def _resolve_run_dir(project_root: Path, run_id: str) -> Path:
             f"Evaluation run_id '{run_id}' is ambiguous under outputs/runs: "
             f"{rendered}"
         )
-    return flat_run_dir
+    near_misses = sorted(
+        {
+            run_dir.name
+            for run_dir in all_hierarchical_run_dirs
+            if run_id in run_dir.name or run_dir.name in run_id
+        }
+    )
+    hint = (
+        f" Closest run ids under outputs/runs: {', '.join(near_misses)}"
+        if near_misses
+        else ""
+    )
+    raise ConfigurationError(
+        f"Evaluation run_id '{run_id}' not found: no manifest at legacy "
+        f"'{flat_run_dir}' and no run directory with this name under "
+        f"'{outputs_root / 'runs'}'.{hint}"
+    )
 
 
 def _read_manifest(run_dir: Path) -> dict[str, Any]:

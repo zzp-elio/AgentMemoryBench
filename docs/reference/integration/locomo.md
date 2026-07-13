@@ -41,3 +41,10 @@
 6. **native 格**（双轨）：Mem0 / MemoryOS / A-Mem / LightMem / SimpleMem / MemOS /
    EverOS 都在 locomo 有 native 配置——locomo 是双轨最密集的 benchmark，逐格过
    policy §5 检查。
+7. **图片 turn 政策（2026-07-13 用户确认 + 一手核证）**：不要求 method 多模态。
+   数据实测 910 个 img turn；官方拼对话文本只用 `blip_caption`
+   （generate_conversations.py:424 `'[shares ' + blip_caption + ']'`），我们同款：
+   caption 拼入文本一次、URL 不下载不进文本（frozen 契约）。`query` 字段
+   （888 个 turn 带）= **数据集生成期的图片搜索关键词**（:399
+   `output['query'] = image_search_query`），官方 eval 不使用；我们收进
+   `metadata["query"]`（locomo.py:584）不进正文——**无需特殊对待**。

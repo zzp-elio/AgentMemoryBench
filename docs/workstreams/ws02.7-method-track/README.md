@@ -15,6 +15,25 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**M0-3 + MX-1 双卡验收 + 两能力硬答案 + evaluate UX 修复**，Fable 5，
+  基线 **1114 passed**）：① **M0-3 通过**（`9f6400e`）：LightMem 三接口契约逐参数/
+  逐返回分支/MemoryEntry 逐字段落进 lightmem.md §0.5；**actor 教科书级停工纠错**：
+  架构师 §0 原写"retrieve 落到 LightMemory.retrieve()"不准确——adapter 刻意复用其
+  内部路径 `text_embedder.embed + embedding_retriever.search(return_full=True)` 保
+  payload（一手核实后架构师已勘误 §0）。**两个能力硬答案**：add_memory 返回**无**
+  memory entries（HaluMem memory_point 缺口实锤）；MemoryEntry **无** source_id
+  字段（构造时丢弃，recall@k 缺口实锤）——两者均为"多一个字段"级 B5+ 改造候选
+  （前者可 adapter 层包装 offline_update 零侵入；后者需 third_party 最小 diff =
+  天然上游 PR 候选），裁决待排。② **MX-1 通过**（`6ff4d7c`→`e9e0319`）：三表全锚；
+  小缺口：membench-recall 未标 metric_tier（台账）。③ **LoCoMo query 字段核证**
+  （用户问）：生成期图片搜索关键词，官方 eval 不用，我们收 metadata 不进正文，
+  无需特殊对待（locomo 实例文档 §7 落档）。④ **lme 双轨 predict 通**；evaluate
+  因 multi-variant run_id 后缀（`…-s-cleaned`）查无而触发误导性报错 → **架构师直修**
+  `_resolve_run_dir`：三布局全未命中 fail-fast + 相近 run id 提示（+2 测试）。
+  ⑤ registry"减负/具体匹配"用户提议：架构师立场 = 不提前重构，LightMem 行打完后
+  以能力矩阵落 integration-status，攒 2-3 个 method 真实行再定重构（见断点下方
+  用户消息记录）。**下一步：用户跑 lme 两条 evaluate（用带后缀 run_id）→
+  membench/beam 离线兼容核查 → B5+ 两项裁决。**
 - 2026-07-13（**推进策略拍板 + native smoke 实锤 + 三份新政策/卡**，Fable 5）：
   ① **用户拍板：method 深耕制**——一个 method 查透 + 5 benchmark 全 smoke 通才进
   下一个（暂不并行开其他 method 的卡）。② **locomo native smoke 产物级验收通过**
