@@ -15,6 +15,22 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**lme 双轨 smoke 收官 + 注入 token 双轨口径 + smoke 五件套新门**，Fable 5）：
+  ① **lme judge 双轨 evaluate 通过** → locomo+lme 两格双轨 smoke 全通（旧口径）。
+  **lme 空记忆真相**：memory_build 输出 7 token≈空抽取、injected_tokens=0 为真实零
+  （1 round 任务型对话抽不出记忆点，合法；两轨 build 均 unified 配置故同空自洽）。
+  ② **注入 token 双轨口径成文** `docs/reference/efficiency-injected-tokens-policy.md`
+  （两轨统一记"记忆载荷 token"、native 模板开销不计入；四 run 实证 locomo 双轨
+  同 68 / lme 双轨 0；native 有效性审计项进 B7）。③ **HaluMem 方案被用户纠偏后
+  修正**：add_memory 不返回 entries 也无 session 概念 → 完整对齐 = session 级注入
+  （messages list 天然支持）+ session 末 force 刷洗 + 包装捕获，语义代价留档
+  （lightmem.md B2）。④ **checklist 三处升级**：B4 get_answer 拆分流程覆盖条款、
+  B7 native 注入 token 审计项、**B11 smoke 五件套认证**（predict/全指标 evaluate/
+  效率观测/formatted_memory 抽查/workers>1 并行冒烟）+ **resume 真实测试缓期至
+  预算批复**（用户拍板）。⑤ **playbook §14 硬化**：commit 前强制过三问+§13 清单
+  （用户第二次提醒判例 + "5h 压缩、磁盘唯一持久层"动机）。
+  **下一步：locomo 并行冒烟（2conv×workers2，用户跑）→ membench/beam 离线兼容
+  核查（架构师）→ B5+ 两项裁决落地方案。**
 - 2026-07-13（**M0-3 + MX-1 双卡验收 + 两能力硬答案 + evaluate UX 修复**，Fable 5，
   基线 **1114 passed**）：① **M0-3 通过**（`9f6400e`）：LightMem 三接口契约逐参数/
   逐返回分支/MemoryEntry 逐字段落进 lightmem.md §0.5；**actor 教科书级停工纠错**：
