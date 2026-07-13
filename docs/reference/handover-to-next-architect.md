@@ -87,12 +87,22 @@ open 项）。**method 侧已正式解冻**。
   空记忆、judge=0，符合"smoke 只验管道不看答对率"）。**⚠️ 空库悬案**：1-round 抽取 0 条 entry，
   force_extract 已接且触发,因是 segmenter 空 buffer 还是抽取返 0 **静态判不了**——待用**卡 Y 的
   method.log** 重跑读 `Created N` 定论（**下一步第一件事**，需用户确认预算后跑真 API）。
-- **待你做**（2026-07-13 晚更新：①②③已完成——空库关闭/M0-1c 生效/M0.2 裁决
-  build 分叉成本×2，见 ws02.7 断点）：① **LightMem native 轨 smoke**
-  （`--config-track native`，locomo 起步，需用户批预算）；② **cost-probe**：逐格跑
-  一整条 conversation/instance → `build_run_cost_report` 读实测 → 外推(locomo×10、
-  lme×500)；native 格成本记得 ×2（build 分叉）；③ LightMem method-frozen-v1；
-  ④ 其余 method 的 M0.1 审查/取证可开卡并行（worktree 隔离已有成功判例）。
+- **待你做**（2026-07-13 深夜二更，当日全录见 ws02.7 断点区五条）：
+  ① **membench/beam × LightMem 离线兼容核查**（不花钱，第三人称 str turn /
+  10M 形态）→ 通过后给用户两格 smoke 命令（五件套口径，见 checklist B11）；
+  ② **B5+ 两项裁决**：HaluMem memory_point（先派 actor 取证卡：HaluMem 官方
+  harness 对无 session 概念 method 的喂法——判据已写在 integration/lightmem.md
+  B2）、source_id 上游 PR 评估；③ **native build profile 实现**（config-track
+  目前只切 readout；build 侧超参分叉证据在 lightmem-native-config-threeway.md）；
+  ④ **cost-probe** 逐格整条 conversation → `build_run_cost_report` → 外推
+  （locomo×10、lme×500；LightMem native 格 build 分叉成本×2）；⑤ LightMem
+  method-frozen-v1（真实 resume 验证缓期至预算批复，已声明缺口）。
+  **推进模式 = method 深耕制**（用户拍板：一个 method 查透 + 5 benchmark 全
+  smoke 才进下一个）。当前进度：locomo 格五件套全齐、lme 格差并行冒烟。
+- **交接形态演进（用户 2026-07-13 提议）**：随"磁盘唯一持久层 + §14 commit-gate"
+  落实，本信计划**瘦身为纯导航页**（读文档顺序 + 硬规则指针），在途状态完全由
+  各 ws 断点区承载、不再双写。试运行判据：下一任若纯靠文档链能 5 分钟上手，
+  即正式瘦身。
 - **关键长效文档**（接任先读，别重推）：`dual-track-config-policy.md`（双轨唯一政策源）、
   `method-integration-checklist.md`（A1-A8/B1-B11 判据）、`integration-status.md`（谁过了哪项，
   当前静态勾选）+ **`integration/` 逐实体实例文档**（2026-07-13 二次拍板补全：每

@@ -15,6 +15,16 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**今日收官：locomo 格五件套全齐 + HaluMem 裁决判据 + 交接**，Fable 5，
+  额度告警下收尾）：① **并行冒烟通过**（`lm-locomo-unified-par2`：2 conv ×
+  workers=2，answers 2/2、judge 0.5 首个非零分）→ **locomo 格 = 首个五件套全齐
+  格**；lme 格差 ⑤（低风险，随 cost-probe 顺带补）。② **HaluMem "牵强"质疑
+  （用户）→ 裁决判据落档**（lightmem.md B2）：force=官方旋钮 + wrapper 只读不越
+  红线，但使用节奏是否失真 → **前置取证 HaluMem 官方 harness 对无 session 概念
+  method 的喂法**，同姿势=公平、做不到=N/A；裁决推迟到该格实施时。③ 交接更新 +
+  handover 瘦身方向记录（见 handover 更新记录）。**下一任第一件事：membench/beam
+  × LightMem 离线兼容核查（不花钱）→ 给用户两格 smoke 命令；然后 B5+ 两项裁决
+  （HaluMem 官方 harness 取证卡可派 actor）+ native build profile 实现。**
 - 2026-07-13（**lme 双轨 smoke 收官 + 注入 token 双轨口径 + smoke 五件套新门**，Fable 5）：
   ① **lme judge 双轨 evaluate 通过** → locomo+lme 两格双轨 smoke 全通（旧口径）。
   **lme 空记忆真相**：memory_build 输出 7 token≈空抽取、injected_tokens=0 为真实零
