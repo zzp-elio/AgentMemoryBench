@@ -15,6 +15,17 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**provenance 实验门通过 + beam 格五件套全齐（第三格）**，Fable 5）：
+  ① **locomo-recall n=1 首次点亮**（lm-locomo-unified-prov1）：score=0.0 产物级
+  核验=真实测量（source_turn_ids=[D1:2,D1:1,D1:2] vs evidence=[D1:3]，id 空间
+  逐字对齐，检索未覆盖 D1:3）——**LightMem=首个 provenance 生产者**，upstream
+  PR 素材+机制实证齐备；integration-status 横向事实已更新。② **beam ⑤ par2b
+  2conv×2workers 2/2 通过** → beam 格五件套全齐；观察：par2b 终端/日志尾缺
+  最终 JSON summary（artifacts 完整无损，疑 CLI 打印路径在 --conversations
+  覆盖+workers 组合下的小 UX 问题，低优先待查）。③ 日志归档就位：三份 run 日志
+  已入各自 run/terminal-logs/，staging 清空，失败残 log（datasets 事故一行）已
+  核内容后删除。**格局：locomo ✅(+prov) membench ✅ beam ✅ lme 差⑤(随
+  cost-probe) halumem 待 wrapper 施工。**
 - 2026-07-13（**M0-7b 验收合入（首个 third_party diff 落地）+ datasets 依赖
   治本 + beam judge 双过**，Fable 5 强验收）：① **M0-7b 通过并 cherry-pick 合入**：
   external_id → `MemoryEntry.source_external_id`（可选默认 None，序列化条件写入

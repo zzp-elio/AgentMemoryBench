@@ -61,10 +61,11 @@
 [integration/lightmem.md](integration/lightmem.md)，避免双源漂移）。
 
 **跨 method 横向事实（2026-07-13 取证）**
-- **五个现有 adapter 全部 `provenance_granularity="none"`**（lightmem:304 /
-  mem0:279 / memoryos:448 / amem:239 / simplemem:163）→ recall/ndcg/retrieval-rank
-  类指标当前对**所有** method N/A；`longmemeval-retrieval-rank` 等 conditional
-  evaluator 暂无生产者，真实报告里按 N/A 声明，不是 bug。
+- **provenance 现状（2026-07-13 更新）**：**LightMem 已升级 `"turn"` = 首个
+  provenance 生产者**（M0-7b external_id 透传，locomo 路径实证 recall n=1；
+  lme/membench/beam 注入路径暂未附 id、优雅回落 none，待扩）；其余四家仍
+  `"none"`（mem0:279 / memoryos:448 / amem:239 / simplemem:163，B5+ 均已判
+  "可无损改造"待排期）→ recall/ndcg/retrieval-rank 对这四家 N/A 是声明的事实。
 - **clean-retry 钩子覆盖**：A-Mem/LightMem/MemoryOS/SimpleMem 已挂
   `clean_failed_ingest_state`（registry.py:736/796/827/858）；**Mem0 没挂**（且它是
   唯一逻辑隔离的 method）——见 mem0 实例 B8。
