@@ -26,6 +26,7 @@ from memory_benchmark.core.provider_protocol import RetrievalQuery
 from memory_benchmark.methods.lightmem_adapter import (
     LightMem,
     LightMemConfig,
+    _turn_timestamp,
     build_lightmem_source_identity,
     clean_lightmem_conversation_state,
     import_lightmem_classes,
@@ -548,6 +549,76 @@ def _longmemeval_style_lightmem_conversation() -> Conversation:
             "variant": "s_cleaned",
         },
     )
+
+
+@pytest.mark.parametrize(
+    ("raw_timestamp", "expected"),
+    [
+        ("March-15-2024", "2024-03-15T00:00:00"),
+        ("July-01-2024", "2024-07-01T00:00:00"),
+        ("Smarch-15-2024", "Smarch-15-2024"),
+        ("1:56 pm on 8 May, 2023", "2023/05/08 (Mon) 13:56"),
+        ("2024-04-02T08:30:00", "2024-04-02T08:30:00"),
+    ],
+)
+def test_lightmem_turn_timestamp_adapts_month_name_dates_without_mutating_source(
+    raw_timestamp: str,
+    expected: str,
+) -> None:
+    """月名日期应在 adapter 消息侧转 ISO，原 canonical 时间仍可审计。"""
+
+    turn = Turn(
+        turn_id="s1:t1",
+        speaker="user",
+        content="Real BEAM-shaped turn.",
+        turn_time=raw_timestamp,
+    )
+    session = Session(session_id="s1", turns=[turn], session_time=raw_timestamp)
+
+    assert _turn_timestamp(turn, session) == expected
+    assert turn.turn_time == raw_timestamp
+    assert session.session_time == raw_timestamp
+
+
+def test_lightmem_turn_timestamp_keeps_missing_time_fail_fast() -> None:
+    """完全无时间时应维持既有 ConfigurationError，不伪造默认日期。"""
+
+    turn = Turn(turn_id="s1:t1", speaker="user", content="Missing timestamp.")
+    session = Session(session_id="s1", turns=[turn])
+
+    with pytest.raises(ConfigurationError, match="requires turn_time or session_time"):
+        _turn_timestamp(turn, session)
+
+
+@pytest.mark.parametrize("raw_timestamp", ["March-15-2024", "July-01-2024"])
+def test_lightmem_month_name_timestamp_is_accepted_by_official_normalizer(
+    raw_timestamp: str,
+) -> None:
+    """真实 BEAM anchor 转换后应通过官方 MessageNormalizer 的离线解析。"""
+
+    import_lightmem_classes(load_path_settings())
+    normalizer_class = sys.modules["lightmem.memory.lightmem"].MessageNormalizer
+    turn = Turn(
+        turn_id="s1:t1",
+        speaker="user",
+        content="Real BEAM-shaped turn.",
+        turn_time=raw_timestamp,
+    )
+    session = Session(session_id="s1", turns=[turn], session_time=raw_timestamp)
+
+    normalized = normalizer_class().normalize_messages(
+        [
+            {
+                "role": "user",
+                "content": turn.content,
+                "time_stamp": _turn_timestamp(turn, session),
+            }
+        ]
+    )
+
+    assert normalized[0]["time_stamp"].endswith("T00:00:00.000")
+    assert normalized[0]["session_time"] == _turn_timestamp(turn, session)
+    assert turn.turn_time == raw_timestamp
 
 
 def _tmp_path_settings(project_root) -> PathSettings:

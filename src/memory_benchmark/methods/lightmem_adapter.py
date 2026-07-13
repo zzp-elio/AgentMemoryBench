@@ -1412,7 +1412,9 @@ def _turn_timestamp(turn: Turn, session: Session) -> str:
 
     LightMem 的 MessageNormalizer 要求格式为 "2023/05/20 (Sat) 00:44" 或 ISO。
     LoCoMo 数据集的 session time 是 "1:56 pm on 8 May, 2023"，需要转换。
-    LongMemEval 已经是 ISO 或 compatible 格式，直接通过。
+    月名-日-年格式（例如 "April-02-2024"）转为 ISO；其余 compatible 格式透传。
+    转换只作用于发给 LightMem 的消息副本，原始 Turn/Session 时间字段保持不变，
+    并继续由公开 conversation 与 TurnEvent 的 original_* metadata 审计链保存。
     """
 
     raw_timestamp = turn.turn_time or session.session_time
@@ -1421,6 +1423,9 @@ def _turn_timestamp(turn: Turn, session: Session) -> str:
             f"LightMem requires turn_time or session_time for turn {turn.turn_id}"
         )
     converted = _locomo_time_to_lightmem(raw_timestamp)
+    if converted is not None:
+        return converted
+    converted = _month_name_date_to_iso(raw_timestamp)
     if converted is not None:
         return converted
     return raw_timestamp
@@ -1444,6 +1449,26 @@ def _locomo_time_to_lightmem(raw_time: str) -> str | None:
     except (ValueError, TypeError):
         return None
     return dt.strftime("%Y/%m/%d (%a) %H:%M")
+
+
+def _month_name_date_to_iso(raw_time: str) -> str | None:
+    """把英文月名-日-年时间转为 LightMem 可解析的 ISO 时间。
+
+    输入:
+        raw_time: 形如 ``April-02-2024`` 的原始日期字符串。
+
+    输出:
+        str | None: 午夜时刻的 ISO 字符串；格式或日期无效时返回 None，由调用方
+        保持原有透传行为。
+    """
+
+    if re.fullmatch(r"[A-Za-z]+-\d{1,2}-\d{4}", raw_time) is None:
+        return None
+    try:
+        dt = datetime.strptime(raw_time, "%B-%d-%Y")
+    except (ValueError, TypeError):
+        return None
+    return dt.isoformat()
 
 
 def _locomo_speaker_id(conversation: Conversation, turn: Turn) -> str:
