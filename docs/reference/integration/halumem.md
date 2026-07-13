@@ -35,6 +35,12 @@
    边界报告"本 session 产出了哪些记忆"。当前唯一现成通路 = Mem0 的 `end_session`
    →`SessionMemoryReport`（mem0 实例 §0）；LightMem/其他家待核 add 返回值。
    **没有该能力的 method 在 HaluMem 的提取/更新阶段怎么处理，是每个 M 阶段必答题**。
+   **官方 harness 喂法全景已取证（M0-5，2026-07-13）**：六 wrapper 全 session 级
+   批量注入；收集口径三型 = add 返回（Mem0/MemOS）、事后按 id/上下文读取
+   （Supermemory/Zep）、**force flush + 时间窗 DB 增量**（Memobase）；收集不完整
+   的官方先例 = Zep 照跑但声明指标不准。全表
+   `ws02.7/notes/m0-5-halumem-harness-feeding.md`——"无原生能力 method"的适配
+   姿势从此有官方对齐锚，LightMem 方案裁决见 lightmem.md B2（已判公平）。
 3. **native 格：全员无**（HaluMem 全 method 单轨 collapse，官方五脚本的 prompt 分叉
    已被统一 MEMZERO 严格语义取代；与官方 MemOS/Supermemory 数字对比须声明宽松
    prompt 偏差，冻结记录 §7.2）。

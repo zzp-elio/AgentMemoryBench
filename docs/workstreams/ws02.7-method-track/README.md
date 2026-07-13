@@ -15,6 +15,23 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**M0-4/M0-5 双卡验收 + HaluMem "牵强"裁决落定 + M0-6 派发**，
+  Fable 5 强验收）：两卡均 codex 自建 worktree（新规矩入 playbook #18：卡 §0 写
+  自建命令模板，架构师验收核基点/范围/未 push 三项），ff+cherry-pick 线性合入。
+  ① **M0-4 验收通过**（架构师独立复扫 BEAM 100K：90/5,732 非空 anchor、
+  `April-02-2024` 格式，与 note 分毫不差；首扫 0 是架构师自己的嵌套形态错误，
+  actor 对）——**MemBench 四源全绿可进真实 smoke**；**BEAM 两 variant 被
+  `%B-%d-%Y` 时间格式确定性阻断**（官方 normalizer 只收 regex/ISO）+ 10m
+  conv7/p1:s1 全无时间 + 33 万字符单 turn sensory buffer 无进展风险。
+  ② **M0-5 验收通过**（78 锚抽验 2 处全中）→ **B2 "牵强"裁决落定（lightmem.md
+  B2）：方案公平、采纳**——官方六 wrapper 全 session 级批量注入；Memobase 官方
+  自己就是 force `flush(sync=True)`+时间窗 DB 增量（比我们更深）；Zep 先例=收集
+  不完整照跑但声明指标不准（兜底政策官方背书）。halumem.md 同步。
+  ③ **M0-6 卡已写待派**（BEAM 时间适配层施工 + smoke 切片风险核查，代码卡，
+  缺时 fail-fast 保持、conv7 缺时政策 formal 前另裁）。④ **membench smoke 命令
+  已交用户**（见 lightmem.md B11 进度更新后的当前格局：locomo 全齐、lme 差⑤、
+  membench 待跑、beam 卡 M0-6、halumem 待 wrapper）。三指标全免费，predict
+  用户跑、evaluate 架构师跑。
 - 2026-07-13（**两卡待派发 + 框架差异化内核文档立档**，Fable 5）：用户重申
   "能派 actor 就派、架构师只做裁决/验收；一个 method 深耕不着急开下一个"。
   ① **M0-4 卡**（membench/beam × LightMem 离线兼容核查，纯取证零成本，产出

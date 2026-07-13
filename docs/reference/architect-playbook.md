@@ -149,6 +149,12 @@
     架构师负责最后合并。本次后果可控全靠最终 git 树恰好线性干净（3 commit 未坏）——
     是运气不是设计。收尾时**架构师必须一手复核 git 状态**（log/status/冲突标记/半提交），
     不能信 actor 报告，因为多 agent 抢提交时报告与实盘极易脱节。
+    **worktree 由谁建（2026-07-13 成功判例后定）**：actor **自建**可行且已两连成
+    （M0-4/M0-5：codex 各自 `git worktree add ../mb-actor-mNN -b actor/<卡名>`，
+    基点正确、单文件 commit、未 push、树干净）。规矩固化：**卡 §0 直接写自建命令
+    模板**（含 `-C` 主树路径 + worktree 目标目录 + 分支名），用户转派即可不需手工
+    建树；架构师验收时必核基点 commit、改动范围、未 push 三项；合并用
+    ff/cherry-pick 保线性，合并后 `git worktree remove` + 删分支由架构师做。
 
 ## 4. 审查手艺（隐性知识核心）
 
