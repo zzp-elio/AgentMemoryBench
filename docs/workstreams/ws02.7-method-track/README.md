@@ -15,6 +15,17 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**通关冲刺：M0-8/M0-9 双卡写就，串行派发序定**，Fable 5，用户
+  额度 23%）：目标=LightMem 五格通关。**派发序（两卡都动 adapter 必须串行）**：
+  ① M0-9（小卡：external_id 铺开到 lme/membench/beam 注入路径 + 逐 benchmark
+  recall evaluator 契约核查）→ 验收 → ② 用户跑 lme par2（`--conversations 2
+  --workers 2`，一箭双雕：关 lme ⑤ + 点亮 lme provenance）→ ③ M0-8（halumem
+  wrapper：session 注入+force 刷洗+只读捕获→SessionMemoryReport，方案已裁决，
+  Phase C 必须钉死增量语义测试）→ 验收 → ④ halumem smoke 五件套 → 通关。
+  **实验结果留档确认（用户关切）**：evaluate 是 artifact-only 设计——每 run 的
+  predictions/answer_prompts(含 formatted_memory+retrieved_items+provenance)/
+  private labels/answer_scores 全部落盘,未来接 BLEU 等新指标直接对旧 run 离线
+  评,零 API 重跑;M0-7b 之后的 run 才带 provenance items（旧 run 无法回填）。
 - 2026-07-13（**provenance 实验门通过 + beam 格五件套全齐（第三格）**，Fable 5）：
   ① **locomo-recall n=1 首次点亮**（lm-locomo-unified-prov1）：score=0.0 产物级
   核验=真实测量（source_turn_ids=[D1:2,D1:1,D1:2] vs evidence=[D1:3]，id 空间
