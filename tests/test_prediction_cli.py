@@ -2038,11 +2038,79 @@ def test_locomo_run_id_does_not_add_single_variant_suffix(
     assert result.runs[0].run_id == "exp1"
 
 
+@pytest.mark.parametrize(
+    ("config_track", "multi_variant", "expected_parts"),
+    (
+        ("unified", False, ("mem0", "locomo", "smoke", "unified")),
+        ("native", False, ("mem0", "locomo", "smoke", "native")),
+        (
+            "unified",
+            True,
+            ("mem0", "longmemeval", "s-cleaned", "smoke", "unified"),
+        ),
+        (
+            "native",
+            True,
+            ("mem0", "longmemeval", "s-cleaned", "smoke", "native"),
+        ),
+    ),
+)
+def test_track_aware_child_output_root_covers_variant_shapes(
+    tmp_path: Path,
+    config_track: str,
+    multi_variant: bool,
+    expected_parts: tuple[str, ...],
+) -> None:
+    """新分层布局必须按 track 隔离，且 variant 段保持原有位置。"""
+
+    benchmark = "longmemeval" if multi_variant else "locomo"
+    output_root = prediction_cli._resolve_child_output_root(
+        outputs_root=tmp_path / "outputs",
+        method_name="mem0",
+        benchmark_name=benchmark,
+        profile_name="smoke",
+        config_track=config_track,
+        variant="s_cleaned" if multi_variant else "locomo10",
+        multi_variant_registration=multi_variant,
+        output_layout="hierarchical",
+    )
+
+    assert output_root == (tmp_path / "outputs" / "runs").joinpath(
+        *expected_parts
+    ).resolve()
+
+
+def test_track_aware_resume_path_does_not_reuse_old_hierarchical_layout(
+    tmp_path: Path,
+) -> None:
+    """旧分层 run 存在时，新 prediction 仍只选择带 track 的 resume 路径。"""
+
+    old_run_dir = (
+        tmp_path / "outputs" / "runs" / "mem0" / "locomo" / "formal" / "run-1"
+    )
+    old_run_dir.mkdir(parents=True)
+    (old_run_dir / "manifest.json").write_text("{}", encoding="utf-8")
+
+    output_root = prediction_cli._resolve_child_output_root(
+        outputs_root=tmp_path / "outputs",
+        method_name="mem0",
+        benchmark_name="locomo",
+        profile_name="official-full",
+        config_track="unified",
+        variant="locomo10",
+        multi_variant_registration=False,
+        output_layout="hierarchical",
+    )
+
+    assert output_root / "run-1" == old_run_dir.parent / "unified" / "run-1"
+    assert output_root / "run-1" != old_run_dir
+
+
 def test_hierarchical_output_layout_groups_run_by_method_benchmark_and_mode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CLI v2 run 应落到 outputs/runs/{method}/{benchmark}/{mode}/{run_id}。"""
+    """CLI v2 run 应落到带 config track 的分层目录。"""
 
     config = Mem0Config.smoke()
     prepared_run = _build_prepared_run(
@@ -2139,7 +2207,16 @@ def test_hierarchical_output_layout_groups_run_by_method_benchmark_and_mode(
     assert result.runs[0].run_id == "exp1"
     assert hierarchical_prepare_requests[0].smoke_turn_limit == 6
     assert captured_run_dirs == [
-        (tmp_path / "outputs" / "runs" / "mem0" / "locomo" / "smoke" / "exp1").resolve()
+        (
+            tmp_path
+            / "outputs"
+            / "runs"
+            / "mem0"
+            / "locomo"
+            / "smoke"
+            / "unified"
+            / "exp1"
+        ).resolve()
     ]
 
 

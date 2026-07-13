@@ -79,10 +79,38 @@ def _write_manifest(tmp_path: Path, run_id: str, benchmark: str = "locomo") -> P
     return run_dir
 
 
-def test_resolve_run_dir_finds_hierarchical_output_layout(tmp_path: Path) -> None:
-    """evaluate 应能按 run_id 找到 CLI v2 的 method/benchmark/mode 分层目录。"""
+def test_resolve_run_dir_finds_old_hierarchical_output_layout(tmp_path: Path) -> None:
+    """evaluate 应继续找到不含 track 段的旧 CLI v2 分层目录。"""
 
     run_dir = tmp_path / "outputs" / "runs" / "mem0" / "locomo" / "smoke" / "run-1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run-1",
+                "benchmark_name": "locomo",
+                "method_name": "Mem0",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert commands._resolve_run_dir(tmp_path, "run-1") == run_dir.resolve()
+
+
+def test_resolve_run_dir_finds_track_aware_output_layout(tmp_path: Path) -> None:
+    """evaluate 应通过递归 manifest 查找带 track 段的新布局。"""
+
+    run_dir = (
+        tmp_path
+        / "outputs"
+        / "runs"
+        / "mem0"
+        / "locomo"
+        / "smoke"
+        / "unified"
+        / "run-1"
+    )
     run_dir.mkdir(parents=True)
     (run_dir / "manifest.json").write_text(
         json.dumps(
@@ -104,7 +132,7 @@ def test_resolve_run_dir_rejects_ambiguous_hierarchical_run_id(
     """同一个 run_id 出现在多个分层目录时，evaluate 必须要求用户消歧。"""
 
     first = tmp_path / "outputs" / "runs" / "mem0" / "locomo" / "smoke" / "run-1"
-    second = tmp_path / "outputs" / "runs" / "amem" / "locomo" / "smoke" / "run-1"
+    second = first.parent / "unified" / "run-1"
     for run_dir in (first, second):
         run_dir.mkdir(parents=True)
         (run_dir / "manifest.json").write_text(

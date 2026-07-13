@@ -24,6 +24,7 @@ from memory_benchmark.benchmark_adapters.locomo_prompt import (
     LOCOMO_UNIFIED_ANSWER_PROMPT_PROFILE,
 )
 from memory_benchmark.cli import run_prediction as run_prediction_module
+from memory_benchmark.cli.commands import EvaluateCommand, execute_evaluate
 from memory_benchmark.config import OpenAISettings
 from memory_benchmark.config.settings import PathSettings
 from memory_benchmark.core.validators import validate_no_private_keys
@@ -166,6 +167,16 @@ def test_locomo_registered_prediction_offline_probe_workflow(
 
     # ---- artifact 内容：unified prompt / top_k / provenance ----
     run_dir = Path(summary.prediction_path).resolve().parent.parent
+    assert run_dir == (
+        tmp_path
+        / "outputs"
+        / "runs"
+        / "mem0"
+        / "locomo"
+        / "smoke"
+        / "unified"
+        / "locomo-a6-probe-smoke"
+    ).resolve()
     paths = ExperimentPaths.create(run_dir)
 
     public_questions = read_jsonl(paths.public_questions_path)
@@ -204,6 +215,32 @@ def test_locomo_registered_prediction_offline_probe_workflow(
         run_dir, LoCoMoRetrievalRecallEvaluator(), "locomo"
     )
     assert recall_summary.total_questions == 1
+
+    command_f1_summary = execute_evaluate(
+        EvaluateCommand(
+            project_root=tmp_path,
+            run_id="locomo-a6-probe-smoke",
+            metrics=("f1",),
+        )
+    )
+    assert command_f1_summary[0].total_questions == 1
+
+    resumed = run_prediction_module.run_registered_conversation_qa_prediction(
+        project_root=PROJECT_ROOT,
+        method_name="mem0",
+        benchmark_name="locomo",
+        profile_name="smoke",
+        run_id="locomo-a6-probe-smoke",
+        resume=True,
+        confirm_api=True,
+        smoke_round_limit=1,
+        smoke_conversation_limit=1,
+        question_limit_per_conversation=1,
+        enable_efficiency_observability=False,
+        output_layout="hierarchical",
+    )
+    assert Path(resumed.runs[0].summary.prediction_path).resolve().parent.parent == run_dir
+    assert len(read_jsonl(paths.method_predictions_path)) == 1
 
     # ---- 私有键扫描：public questions / answer prompts / predictions ----
     # public questions 和 answer prompts 本身不应包含任何"answer"字段（那些是

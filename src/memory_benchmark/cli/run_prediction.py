@@ -390,6 +390,7 @@ def run_registered_conversation_qa_prediction(
             method_name=method_name,
             benchmark_name=benchmark_name,
             profile_name=config.profile_name,
+            config_track=config_track,
             variant=concrete_variant,
             multi_variant_registration=multi_variant_registration,
             output_layout=output_layout,
@@ -798,6 +799,7 @@ def _run_custom_conversation_qa_prediction(
             method_name="custom",
             benchmark_name=benchmark_name,
             profile_name=profile_name,
+            config_track="unified",
             variant=concrete_variant,
             multi_variant_registration=multi_variant_registration,
             output_layout=output_layout,
@@ -1292,6 +1294,7 @@ def _resolve_child_output_root(
     method_name: str,
     benchmark_name: str,
     profile_name: str,
+    config_track: str,
     variant: str,
     multi_variant_registration: bool,
     output_layout: str,
@@ -1299,7 +1302,8 @@ def _resolve_child_output_root(
     """根据 CLI 布局模式返回单个 child run 的 output_root。
 
     `RunContext.run_dir` 始终是 `output_root / run_id`。因此这里返回的是
-    run_id 上一级目录，而不是最终 run 目录。
+    run_id 上一级目录，而不是最终 run 目录。分层布局始终包含 config track；
+    resume 也只检查该新布局，不会查找或迁移缺少 track 段的旧分层目录。
     """
 
     canonical_outputs_root = Path(outputs_root).expanduser().resolve()
@@ -1308,6 +1312,10 @@ def _resolve_child_output_root(
     if output_layout != "hierarchical":
         raise ConfigurationError(
             f"Unknown prediction output_layout '{output_layout}'"
+        )
+    if config_track not in {"unified", "native"}:
+        raise ConfigurationError(
+            f"Unknown prediction config_track '{config_track}'"
         )
     mode_directory = "smoke" if profile_name == "smoke" else "formal"
     path_parts = [
@@ -1318,7 +1326,7 @@ def _resolve_child_output_root(
     ]
     if multi_variant_registration:
         path_parts.append(Path(normalize_variant_run_id_token(variant)))
-    path_parts.append(Path(mode_directory))
+    path_parts.extend((Path(mode_directory), Path(config_track)))
     return Path(*path_parts).resolve()
 
 

@@ -263,9 +263,10 @@ def execute_run(command: RunCommand) -> RunCommandResult:
 def _resolve_run_dir(project_root: Path, run_id: str) -> Path:
     """把 run id 安全解析到项目 outputs 目录内。
 
-    兼容两种目录布局：
+    兼容三种目录布局：
     - legacy: `outputs/{run_id}`
-    - CLI v2: `outputs/runs/{method}/{benchmark}/{mode}/{run_id}`
+    - CLI v2 旧布局: `outputs/runs/{method}/{benchmark}/{mode}/{run_id}`
+    - track-aware: `outputs/runs/{method}/{benchmark}/{mode}/{track}/{run_id}`
     """
 
     outputs_root = (project_root / "outputs").resolve()
