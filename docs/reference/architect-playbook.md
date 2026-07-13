@@ -155,6 +155,11 @@
     模板**（含 `-C` 主树路径 + worktree 目标目录 + 分支名），用户转派即可不需手工
     建树；架构师验收时必核基点 commit、改动范围、未 push 三项；合并用
     ff/cherry-pick 保线性，合并后 `git worktree remove` + 删分支由架构师做。
+    **worktree 全量 pytest 是假信号（2026-07-13 M0-6 验收判例）**：裸 worktree 缺
+    gitignored 资产（SimpleMem/MemOS 等 third_party 子目录、data），架构师在
+    worktree 里复跑全量挂 73 个全是资产缺失假失败，差点误判 actor 造假——**代码卡
+    的权威测试门 = 架构师合并进主树后在主树复跑全量**；卡里只要求 actor 跑目标
+    测试文件 + compileall，并写明假失败原因免 actor 恐慌。
 
 ## 4. 审查手艺（隐性知识核心）
 

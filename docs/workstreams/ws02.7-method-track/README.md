@@ -15,6 +15,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**M0-6 验收合入 → BEAM 解封 + M0-7 provenance 改造卡派出**，
+  Fable 5 强验收）：① **M0-6 通过**：月名→ISO 通用转换（无 BEAM 分支名）、
+  缺时 fail-fast 保持、真实数据扫过无单数日不造 fixture、测试直达官方
+  normalizer；**主树权威复跑 1122 passed**（架构师在裸 worktree 复跑挂 73 个
+  = gitignored 资产缺失假信号，判例入 playbook #18：代码卡权威测试门=合并后
+  主树复跑，actor 只跑目标测试）。10m smoke 不触达全缺时 conv7/p1:s1、smoke
+  切片最长 turn 694 tokens 无超长风险 → **BEAM 100k/10m 可进真实 smoke**
+  （命令已交用户：两 variant 各一 run + 100k par2；beam-rubric-judge 付费=用户，
+  f1/beam-recall 免费=架构师）；formal 缺时 session 政策仍待裁决。
+  ② **B5+ recall@k 改造批准 + M0-7 卡派出**（LightMem source_id 透传，
+  third_party 最小 diff 首例）：边界=可选字段默认 None（bam_tags 先例）、
+  零行为变化可测表达、diff 留档做 upstream PR 素材；sid 语义取证前置；
+  locomo-recall 契约对齐；无 API 测试链。真实 API 验证 = PR 前实验门。
+  其余四家 adapter 层改造（策略②③①）仍按深耕制排 LightMem 之后。
 - 2026-07-13（**membench 格五件套全齐（第二格）+ 逻辑隔离改造裁决=不做**，
   Fable 5）：用户跑 predict 两条（s1 4/4 + par2 4/4，sentinel=0，run_id 带
   `-0-10k` 后缀）；架构师跑免费五件套②③④：choice-accuracy 0.5 /
