@@ -380,8 +380,13 @@ def _build_lightmem_system(context: MethodBuildContext) -> BaseMemorySystem:
         path_settings=context.path_settings,
         efficiency_collector=context.efficiency_collector,
         consume_granularity=(
-            "pair" if context.benchmark_name == "longmemeval" else "turn"
+            "session"
+            if context.benchmark_name == "halumem"
+            else "pair"
+            if context.benchmark_name == "longmemeval"
+            else "turn"
         ),
+        session_memory_report=context.benchmark_name == "halumem",
     )
     for conversation in context.completed_conversations:
         system.load_existing_conversation_state(conversation)

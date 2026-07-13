@@ -19,12 +19,19 @@ from memory_benchmark.core import (
     AnswerResult,
     ConfigurationError,
     Conversation,
+    TaskFamily,
     Question,
     Session,
     Turn,
+    validate_compatibility,
 )
-from memory_benchmark.core.provider_protocol import MemoryProvider
-from memory_benchmark.core.provider_protocol import RetrievalQuery, UnitRef
+from memory_benchmark.core.provider_protocol import (
+    MemoryProvider,
+    RetrievalQuery,
+    SessionBatch,
+    SessionRef,
+    UnitRef,
+)
 from memory_benchmark.methods.lightmem_adapter import (
     LightMem,
     LightMemConfig,
@@ -37,9 +44,13 @@ from memory_benchmark.methods.lightmem_native_prompts import (
     build_lightmem_locomo_native_answer_prompt,
     build_lightmem_longmemeval_native_answer_prompt,
 )
-from memory_benchmark.methods.registry import MethodBuildContext, _build_lightmem_system
+from memory_benchmark.methods.registry import (
+    MethodBuildContext,
+    _build_lightmem_system,
+    get_method_registration,
+)
 from memory_benchmark.observability.efficiency import EfficiencyCollector
-from memory_benchmark.runners.event_stream import build_turn_events
+from memory_benchmark.runners.event_stream import GranularityAggregator, build_turn_events
 from memory_benchmark.runners.prediction import _method_manifest_with_protocol
 from tests.equivalence_utils import run_bridge_sequence, run_native_sequence
 
@@ -198,6 +209,28 @@ class FakeLightMemoryBackend:
         """记录官方 LoCoMo 离线更新调用。"""
 
         self.offline_update_calls.append(kwargs)
+
+
+class SessionCaptureFakeLightMemoryBackend(FakeLightMemoryBackend):
+    """在 force extraction 时模拟 LightMem 向量 payload 插入。"""
+
+    def add_memory(self, messages, **kwargs):
+        """记录调用，并把当前 session 的一条生成记忆写入 fake retriever。"""
+
+        result = super().add_memory(messages, **kwargs)
+        if kwargs.get("force_extract"):
+            session_number = len(self.added_messages)
+            self.embedding_retriever.insert(
+                vectors=[[1.0, 0.0]],
+                payloads=[
+                    {
+                        "memory": f"session-memory-{session_number}",
+                        "time_stamp": messages[0]["time_stamp"],
+                    }
+                ],
+                ids=[f"session-memory-id-{session_number}"],
+            )
+        return result
 
 
 class ThreadedUpdateFakeLightMemoryBackend(FakeLightMemoryBackend):
@@ -1623,6 +1656,193 @@ def test_native_lightmem_longmemeval_assistant_first_skips_orphan_like_official_
     assert [call["force_extract"] for call in add_calls] == [False, True]
 
 
+def test_lightmem_halumem_session_reports_are_incremental_and_force_flushed() -> None:
+    """HaluMem 两个 session 的报告必须只含各自窗口内新插入的记忆。"""
+
+    backend = SessionCaptureFakeLightMemoryBackend()
+    provider = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=20,
+            max_workers=1,
+            compression_rate=0.7,
+            stm_threshold=512,
+            profile_name="official-mini",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        consume_granularity="session",
+        session_memory_report=True,
+    )
+    conversation = Conversation(
+        conversation_id="halumem-user-1",
+        sessions=[
+            Session(
+                session_id="session-a",
+                session_time="2025-09-01T10:00:00",
+                turns=[
+                    Turn(
+                        turn_id="session-a:t1",
+                        speaker="user",
+                        normalized_role="user",
+                        content="First session user message.",
+                    ),
+                    Turn(
+                        turn_id="session-a:t2",
+                        speaker="assistant",
+                        normalized_role="assistant",
+                        content="First session assistant message.",
+                    ),
+                ],
+            ),
+            Session(
+                session_id="session-b",
+                session_time="2025-09-02T10:00:00",
+                turns=[
+                    Turn(
+                        turn_id="session-b:t1",
+                        speaker="user",
+                        normalized_role="user",
+                        content="Second session user message.",
+                    ),
+                    Turn(
+                        turn_id="session-b:t2",
+                        speaker="assistant",
+                        normalized_role="assistant",
+                        content="Second session assistant message.",
+                    ),
+                ],
+            ),
+        ],
+        metadata={"source_path": "data/halumem/HaluMem-Medium.jsonl"},
+    )
+    isolation_key = "halumem-run_halumem-user-1"
+    reports = []
+
+    for signal in GranularityAggregator("session").aggregate(
+        build_turn_events(conversation, isolation_key),
+        isolation_key=isolation_key,
+    ):
+        if isinstance(signal, SessionBatch):
+            provider.ingest(signal)
+        elif isinstance(signal, SessionRef):
+            reports.append(provider.end_session(signal))
+
+    assert [call["kwargs"] for call in backend.added_messages] == [
+        {"force_segment": True, "force_extract": True},
+        {"force_segment": True, "force_extract": True},
+    ]
+    assert [
+        [message["content"] for message in call["messages"]]
+        for call in backend.added_messages
+    ] == [
+        ["First session user message.", "First session assistant message."],
+        ["Second session user message.", "Second session assistant message."],
+    ]
+    assert [
+        [message["external_id"] for message in call["messages"]]
+        for call in backend.added_messages
+    ] == [
+        ["session-a:t1", "session-a:t2"],
+        ["session-b:t1", "session-b:t2"],
+    ]
+    assert [report.memories for report in reports if report is not None] == [
+        ["session-memory-1"],
+        ["session-memory-2"],
+    ]
+    assert reports[0] is not None
+    assert reports[0].metadata == {
+        "method": "lightmem",
+        "source": "embedding_insert_observer",
+        "capture_status": "ok",
+        "captured_memory_count": 1,
+        "force_segment": True,
+        "force_extract": True,
+    }
+    assert "insert" not in vars(backend.embedding_retriever)
+
+
+def test_lightmem_halumem_empty_capture_is_reported_without_fabrication() -> None:
+    """未插入 memory payload 时应返回带留痕的空报告，不补造候选。"""
+
+    backend = FakeLightMemoryBackend()
+    provider = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=20,
+            max_workers=1,
+            profile_name="official-mini",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        consume_granularity="session",
+        session_memory_report=True,
+    )
+    conversation = Conversation(
+        conversation_id="halumem-empty",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2025-09-01T10:00:00",
+                turns=[
+                    Turn(
+                        turn_id="s1:t1",
+                        speaker="user",
+                        normalized_role="user",
+                        content="No extracted memory in this fake.",
+                    )
+                ],
+            )
+        ],
+        metadata={"source_path": "data/halumem/HaluMem-Medium.jsonl"},
+    )
+    isolation_key = "halumem-run_halumem-empty"
+    event = next(build_turn_events(conversation, isolation_key))
+    batch = SessionBatch(
+        isolation_key=isolation_key,
+        session_id="s1",
+        events=(event,),
+        session_time=event.timestamp,
+    )
+
+    provider.ingest(batch)
+    report = provider.end_session(batch.ref)
+
+    assert report is not None
+    assert report.memories == []
+    assert report.metadata["capture_status"] == "empty"
+    assert report.metadata["captured_memory_count"] == 0
+
+
+def test_lightmem_end_session_is_inactive_outside_halumem() -> None:
+    """未启用 HaluMem report 能力时 end_session 必须保持默认空行为。"""
+
+    provider = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=20,
+            max_workers=1,
+            profile_name="official-mini",
+        ),
+        backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+    )
+
+    assert provider.end_session(SessionRef("locomo-run", "s1")) is None
+
+
 def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
     tmp_path: Path,
 ) -> None:
@@ -1666,11 +1886,32 @@ def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
             benchmark_name="longmemeval",
         )
     )
+    halumem = _build_lightmem_system(
+        MethodBuildContext(
+            config=config,
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=path_settings,
+            storage_root=tmp_path / "halumem",
+            benchmark_name="halumem",
+        )
+    )
 
     assert isinstance(locomo, MemoryProvider)
     assert locomo.consume_granularity == "turn"
+    assert locomo.session_memory_report is False
     assert isinstance(longmemeval, MemoryProvider)
     assert longmemeval.consume_granularity == "pair"
+    assert longmemeval.session_memory_report is False
+    assert isinstance(halumem, MemoryProvider)
+    assert halumem.consume_granularity == "session"
+    assert halumem.session_memory_report is True
+    registration = get_method_registration("lightmem")
+    validate_compatibility(
+        benchmark_task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(),
+        method_task_families=registration.task_families,
+        provided_capabilities=registration.provided_capabilities,
+    )
     assert _method_manifest_with_protocol(
         method_manifest={},
         protocol_version="v3",

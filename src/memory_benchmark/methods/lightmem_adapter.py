@@ -7,7 +7,7 @@ conversation 隔离、状态路径和统一接口；不重写 LightMem 的核心
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass
 from datetime import datetime
 import hashlib
@@ -49,6 +49,9 @@ from memory_benchmark.core.provider_protocol import (
     RetrievedItem,
     RetrievalQuery,
     RetrievalResult,
+    SessionBatch,
+    SessionMemoryReport,
+    SessionRef,
     TurnEvent,
     TurnPair,
     UnitRef,
@@ -314,6 +317,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         path_settings: PathSettings | None = None,
         efficiency_collector: EfficiencyCollector | None = None,
         consume_granularity: ConsumeGranularity | None = None,
+        session_memory_report: bool = False,
     ):
         """初始化 LightMem adapter。
 
@@ -327,6 +331,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             efficiency_collector: runner 管理的可选效率 observation collector。
             consume_granularity: v3 provider 实例级消费粒度；registry 按 benchmark
                 profile 设置，缺省为 LoCoMo turn 级。
+            session_memory_report: 是否在 session 边界报告本次强制刷洗新增的记忆。
         """
 
         self.config = config
@@ -353,6 +358,8 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             list[_BufferedMemoryManagerUsage],
         ] = {}
         self._native_pending_batches: dict[str, list[dict[str, object]]] = {}
+        self._session_report_memories: dict[tuple[str, str | None], list[str]] = {}
+        self.session_memory_report = session_memory_report
         if consume_granularity is not None:
             self.consume_granularity = consume_granularity
         if self._backend_factory is None:
@@ -531,8 +538,10 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             )
 
     def ingest(self, unit: IngestUnit) -> IngestResult:
-        """按 v3 协议缓冲一个 turn 或 pair 单元。"""
+        """按 v3 协议写入一个 turn、pair 或 HaluMem session 单元。"""
 
+        if isinstance(unit, SessionBatch):
+            return self._ingest_halumem_session(unit)
         if isinstance(unit, TurnEvent):
             namespace = unit.isolation_key
             batch = self._native_turn_batch(unit)
@@ -543,7 +552,8 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             self._ensure_native_metadata(unit.first)
         else:
             raise ConfigurationError(
-                "LightMem native provider only accepts TurnEvent or TurnPair ingest units"
+                "LightMem native provider only accepts TurnEvent, TurnPair, or enabled "
+                "SessionBatch ingest units"
             )
         self._get_or_create_backend(namespace)
         if batch is None:
@@ -553,6 +563,98 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             self._write_native_batch(namespace, pending, is_final=False)
         self._native_pending_batches[namespace] = batch
         return IngestResult(unit_ref=UnitRef(namespace))
+
+    def _ingest_halumem_session(self, batch: SessionBatch) -> IngestResult:
+        """整批写入 HaluMem session，并旁听本次实际插入的记忆。"""
+
+        if not self.session_memory_report:
+            raise ConfigurationError(
+                "LightMem SessionBatch ingest requires session_memory_report=True"
+            )
+        if not batch.events:
+            raise ConfigurationError("LightMem HaluMem session batch has no events")
+        self._ensure_native_metadata(batch.events[0])
+        backend = self._get_or_create_backend(batch.isolation_key)
+        messages = self._native_session_messages(batch)
+        with self._capture_inserted_memories(backend) as captured_memories:
+            self._suppress_stdout_if_needed(
+                backend.add_memory,
+                messages,
+                force_segment=True,
+                force_extract=True,
+            )
+        self._session_report_memories[(batch.isolation_key, batch.session_id)] = list(
+            captured_memories
+        )
+        self._flush_buffered_memory_manager_usages(batch.isolation_key)
+        return IngestResult(unit_ref=batch.ref)
+
+    @contextlib.contextmanager
+    def _capture_inserted_memories(self, backend: Any) -> Iterator[list[str]]:
+        """只读旁听 LightMem 本次成功插入向量库的 memory payload。"""
+
+        retriever = getattr(backend, "embedding_retriever", None)
+        original_insert = getattr(retriever, "insert", None)
+        if retriever is None or not callable(original_insert):
+            raise ConfigurationError(
+                "LightMem HaluMem capture requires embedding_retriever.insert"
+            )
+        instance_attributes = getattr(retriever, "__dict__", {})
+        had_instance_insert = "insert" in instance_attributes
+        previous_instance_insert = instance_attributes.get("insert")
+        captured: list[str] = []
+
+        def observed_insert(*args: Any, **kwargs: Any) -> Any:
+            """调用原 insert 后记录成功写入 payload 的记忆文本。"""
+
+            result = original_insert(*args, **kwargs)
+            payloads = kwargs.get("payloads")
+            if payloads is None and len(args) >= 2:
+                payloads = args[1]
+            if isinstance(payloads, (list, tuple)):
+                for payload in payloads:
+                    if not isinstance(payload, dict):
+                        continue
+                    memory = payload.get("memory")
+                    if isinstance(memory, str) and memory.strip():
+                        captured.append(memory)
+            return result
+
+        try:
+            setattr(retriever, "insert", observed_insert)
+        except (AttributeError, TypeError) as exc:
+            raise ConfigurationError(
+                "LightMem HaluMem capture cannot observe embedding_retriever.insert"
+            ) from exc
+        try:
+            yield captured
+        finally:
+            if had_instance_insert:
+                setattr(retriever, "insert", previous_instance_insert)
+            else:
+                delattr(retriever, "insert")
+
+    def end_session(self, ref: SessionRef) -> SessionMemoryReport | None:
+        """返回 HaluMem 当前 session 强制刷洗期间新增的记忆。"""
+
+        if not self.session_memory_report:
+            return None
+        memories = self._session_report_memories.pop(
+            (ref.isolation_key, ref.session_id),
+            [],
+        )
+        return SessionMemoryReport(
+            session_ref=ref,
+            memories=memories,
+            metadata={
+                "method": "lightmem",
+                "source": "embedding_insert_observer",
+                "capture_status": "ok" if memories else "empty",
+                "captured_memory_count": len(memories),
+                "force_segment": True,
+                "force_extract": True,
+            },
+        )
 
     def end_conversation(self, ref: UnitRef) -> None:
         """在 conversation 边界写出最后一批并执行 LoCoMo post-build update。"""
@@ -610,6 +712,13 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         if len(batches) != 1:
             raise ConfigurationError("LightMem native pair produced invalid batch count")
         return batches[0]
+
+    def _native_session_messages(self, batch: SessionBatch) -> list[dict[str, object]]:
+        """把 HaluMem SessionBatch 转成保留真实 role 的完整消息列表。"""
+
+        conversation = self._native_conversation_from_events(batch.events)
+        session = conversation.sessions[0]
+        return [self._turn_to_role_message(turn, session) for turn in session.turns]
 
     def _native_conversation_from_events(
         self,
@@ -1245,7 +1354,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         turn: Turn,
         session: Session,
     ) -> dict[str, object]:
-        """把 LongMemEval turn 转成保留真实 role 的 LightMem message。"""
+        """把 user/assistant turn 转成保留真实 role 的 LightMem message。"""
 
         role = turn.normalized_role or turn.metadata.get("role") or turn.speaker
         normalized_role = str(role).strip().lower()
