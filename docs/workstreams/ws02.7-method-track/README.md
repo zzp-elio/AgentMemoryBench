@@ -15,6 +15,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-13）
 
+- 2026-07-13（**MemoryData recall 改造判例取证**，Fable 5 压缩后续会话）：用户指路
+  `第三方框架参考/MemoryData`（几乎全 method 支持 Recall@k）。架构师一手取证结论
+  （全文 `notes/memorydata-recall-retrofit-survey.md`）：血缘 loader 侧 in-band
+  header 标注 + 三条 adapter 侧回收策略（①in-band 文本解析=LightMem/A-Mem/
+  SimpleMem；②原生 id 映射 sidecar=Mem0，LLM 改写不破坏；③文本反查表=MemoryOS），
+  全部零 third_party 改动。**关键真相**：其 LightMem 格 `ingest_mode: direct`
+  整条绕过抽取管线（verbatim chunk + offline_update）才换来 recall——真实管线下
+  他们也没解决 provenance，且 vendored 源码 diff 证实上游抽取本就产出 fact 级
+  source_id、构造 MemoryEntry 时丢弃（与 M0-3 一致）→ **维持原判：LightMem 走
+  third_party 最小 diff（两处 ~5 行）+ 上游 PR 候选，差异化价值获判例佐证**；
+  mem0/memoryos/amem/simplemem 四家初判"可无损改造"（策略②/③/①对应）。
+  顺带发现待核：我们 vendored 的 LightMem 多出 bam_tags/BoundMem utils，与
+  MemoryData 的副本版本分叉，PR 基准分支选择前需核 pristine 上游。已更新
+  lightmem.md B5、checklist B5+ 判例库引用。
 - 2026-07-13（**今日收官：locomo 格五件套全齐 + HaluMem 裁决判据 + 交接**，Fable 5，
   额度告警下收尾）：① **并行冒烟通过**（`lm-locomo-unified-par2`：2 conv ×
   workers=2，answers 2/2、judge 0.5 首个非零分）→ **locomo 格 = 首个五件套全齐

@@ -33,7 +33,9 @@
   时间戳回带待核。
 - **B5**：`provenance_granularity="none"`（adapter:163）→ recall/ndcg 预计 N/A。
   注意 native 格含 membench/locomo（recall 类 conditional evaluator 存在的 benchmark），
-  确认 none 后这些格 recall=N/A 要在报告显式标。
+  确认 none 后这些格 recall=N/A 要在报告显式标。**B5+ 初判（2026-07-13 MemoryData
+  判例）：可无损改造**——dialogue content 保存原文，同 A-Mem 走策略①或 id 映射。
+  见 `ws02.7/notes/memorydata-recall-retrofit-survey.md`。
 - **B6**：⬜ 初判**已接对**：滑窗设计下 finalize() 处理残余窗口，end_conversation
   已挂且幂等。M 阶段锚官方 finalize 实现确认语义。
 - **B7**：⬜。配置强校验含 api_timeout/retries（:123-125）；usage 观测路径待审。

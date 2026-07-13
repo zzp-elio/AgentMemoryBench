@@ -68,6 +68,11 @@
 - **clean-retry 钩子覆盖**：A-Mem/LightMem/MemoryOS/SimpleMem 已挂
   `clean_failed_ingest_state`（registry.py:736/796/827/858）；**Mem0 没挂**（且它是
   唯一逻辑隔离的 method）——见 mem0 实例 B8。
+- **B5+ provenance 无损改造初判（2026-07-13，MemoryData 判例取证）**：mem0（id 映射
+  sidecar）/ memoryos（文本反查）/ amem、simplemem（in-band 或 id 映射）四家
+  **可无损改造**（adapter 层零 third_party）；**lightmem 需 third_party 最小 diff**
+  （上游抽取已产出 fact 级 source_id、构造时丢弃）= 上游 PR 候选。三策略全景 +
+  反面判例（绕管线换指标不可取）：`ws02.7/notes/memorydata-recall-retrofit-survey.md`。
 
 ## 三、维护约定
 - 接入推进 / 冻结 / 发现特殊情况 → **同步更新**本文对应行 + 该实体的

@@ -33,6 +33,9 @@
 - **B4**：⬜。formatted_memory 组装短/中/长期 + user/assistant knowledge 全层
   （:748-757）；时间戳随 add_memory 注入，检索回带情况待核。
 - **B5**：`provenance_granularity="none"`（adapter:448）→ recall/ndcg 预计 N/A。
+  **B5+ 初判（2026-07-13 MemoryData 判例）：可无损改造**——检索层返回原文
+  （retrieval_queue 的 user_input），adapter 存储时记 `normalized_text→source_ids`
+  反查表即可。见 `ws02.7/notes/memorydata-recall-retrofit-survey.md` 策略③。
 - **B6**：⬜。end_conversation=no-op 的**初判依据**：retrieve 读全部层含 short_term
   （get_all），未迁移到中长期的内容也检索得到 → 无 flush 需求。M 阶段用官方源码锚死
   这个论证（短期→中期迁移触发条件）。

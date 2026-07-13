@@ -30,6 +30,9 @@
 - **B4**：⬜ **有前科**：checklist B4 的"禁止 `str(context)` 不可审计塞法"判例主角
   就是 A-Mem——M 阶段必须核现 formatted_memory 构造是否已是结构化拼装 + 时间戳回带。
 - **B5**：`provenance_granularity="none"`（adapter:239）→ recall/ndcg 预计 N/A。
+  **B5+ 初判（2026-07-13 MemoryData 判例）：可无损改造**——note content 近 verbatim
+  保存，可走 in-band header 或（更干净）adapter 侧 note id→source_ids 映射。见
+  `ws02.7/notes/memorydata-recall-retrofit-survey.md` 策略①及其 embedding 污染注意。
 - **B6**：⬜。end_conversation 只做持久化；add_note 是否同步完成 evolution/链接
   （无异步尾巴）待官方源码锚。
 - **B7**：⬜。usage 经 chat.completions 包装拦截（:1187-1203），embedding 观测待审。

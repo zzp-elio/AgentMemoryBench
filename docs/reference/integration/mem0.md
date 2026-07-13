@@ -33,7 +33,11 @@
 - **B4**：⬜。add 时带 observation_time prompt + session_time（:493-499），检索侧时间戳
   能否拿回待核。
 - **B5**：`provenance_granularity="none"`（adapter:279）→ recall/ndcg 预计 N/A；M 阶段
-  确认 search 返回结构确实无 source id 后正式定。
+  确认 search 返回结构确实无 source id 后正式定。**B5+ 初判（2026-07-13 MemoryData
+  判例）：可无损改造**——add() 返回 results 带 memory_id、search() 返回带 id，
+  adapter 层维护 `memory_id→source_ids` 映射即可（LLM 改写不破坏映射；需配套
+  sidecar 持久化 + 旧 run fail-fast）。判例详见
+  `ws02.7/notes/memorydata-recall-retrofit-survey.md` 策略②。
 - **B6**：⬜。初判**无 flush 需求**（add 即抽取写入，无 offline 缓冲），M 阶段锚官方
   add 实现确认无异步/批处理尾巴。
 - **B7**：⬜。adapter 内有 OpenAI usage 包装（:23 import OpenAI），三角色观测完整性待审。
