@@ -24,7 +24,7 @@ from memory_benchmark.core import (
     Turn,
 )
 from memory_benchmark.core.provider_protocol import MemoryProvider
-from memory_benchmark.core.provider_protocol import RetrievalQuery
+from memory_benchmark.core.provider_protocol import RetrievalQuery, UnitRef
 from memory_benchmark.methods.lightmem_adapter import (
     LightMem,
     LightMemConfig,
@@ -39,6 +39,7 @@ from memory_benchmark.methods.lightmem_native_prompts import (
 )
 from memory_benchmark.methods.registry import MethodBuildContext, _build_lightmem_system
 from memory_benchmark.observability.efficiency import EfficiencyCollector
+from memory_benchmark.runners.event_stream import build_turn_events
 from memory_benchmark.runners.prediction import _method_manifest_with_protocol
 from tests.equivalence_utils import run_bridge_sequence, run_native_sequence
 
@@ -1383,6 +1384,11 @@ def test_native_lightmem_locomo_matches_bridge_force_and_update_sequence() -> No
         False,
         True,
     ]
+    add_calls = [call for call in native_result.calls if call["op"] == "add_memory"]
+    assert [message["external_id"] for message in add_calls[0]["messages"]] == [
+        "t-1",
+        "t-1",
+    ]
     assert [call["op"] for call in native_result.calls[-4:]] == [
         "construct_update",
         "offline_update",
@@ -1439,6 +1445,72 @@ def test_native_lightmem_longmemeval_matches_bridge_pair_sequence() -> None:
         False,
         True,
     ]
+    add_calls = [call for call in native_result.calls if call["op"] == "add_memory"]
+    assert [message["external_id"] for message in add_calls[0]["messages"]] == [
+        "t-1",
+        "t-2",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source_path", "turn_id"),
+    [
+        ("data/membench/locomo/trajectory.jsonl", "17"),
+        ("data/BEAM/beam_dataset", "p1:s1:t1"),
+    ],
+)
+def test_native_lightmem_turn_path_preserves_public_external_id(
+    source_path: str,
+    turn_id: str,
+) -> None:
+    """MemBench/BEAM 共用的 v3 turn 路径应透传公开 canonical turn id。"""
+
+    backend = FakeLightMemoryBackend()
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=20,
+            max_workers=1,
+            compression_rate=0.7,
+            stm_threshold=512,
+            profile_name="official-mini",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    conversation = Conversation(
+        conversation_id="conv-v3-turn",
+        sessions=[
+            Session(
+                session_id="p1:s1",
+                session_time="2024-04-02",
+                turns=[
+                    Turn(
+                        turn_id=turn_id,
+                        speaker="user",
+                        normalized_role="user",
+                        content="Remember this public turn.",
+                    )
+                ],
+            )
+        ],
+        metadata={"source_path": source_path},
+    )
+    isolation_key = "run_conv-v3-turn"
+    event = next(build_turn_events(conversation, isolation_key))
+
+    method.ingest(event)
+    method.end_conversation(UnitRef(isolation_key))
+
+    assert len(backend.added_messages) == 1
+    assert [
+        message["external_id"]
+        for message in backend.added_messages[0]["messages"]
+    ] == [turn_id, turn_id]
 
 
 def test_native_lightmem_longmemeval_assistant_first_skips_orphan_like_official_trim() -> None:
