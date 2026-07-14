@@ -15,6 +15,27 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**mem0 五格 predict 全通 + 开箱验收三发现 + 全框架首个非零
+  recall**，Fable 5）：① 五格 predict 零报错,但**开箱验货**（playbook #22
+  新原则,用户拍板"稳扎稳打"落档）查出三处:(a) **lme/beam 空检索结案=
+  官方语义**——store 层验尸(sidecar 有记忆+qdrant 点在+run_id 匹配+自查
+  filter 命中 score=1.0)→ 根因=mem0 `_search_vector_store` 把 threshold=
+  None 强制回落 **0.1 相关性门槛**（main.py:1343-1346),官方 harness 同样
+  不传 threshold=同姿势,声明性语义非缺陷;locomo 空=抽取真 0 条(sidecar
+  空,诚实);(b) **B4 真缺陷**:formatted_memory 无对话时间,
+  item.timestamp=实验墙钟 created_at,而 payload 里 session_time 明明在,
+  规范化丢弃——**M3-mem0 卡写就**（先取证官方上下文时间口径再修,禁自造
+  格式）;(c) **operation-level manifest 不盖 provenance 章**（M0-10 只修了
+  generic 路径)——**M0-13 小卡写就**。② **免费评九项落盘**：
+  **membench-recall=0.167(n=4)=全框架首个非零 recall,sidecar 首战即中**;
+  membench choice/source 0.5;locomo f1 0.4/recall 0.0(n=1 真实);lme
+  recall/rank 0.0(n=1);beam-recall n=0——**beam 与 lme evaluator 对
+  "空检索问题"计数语义不一致(n=0 vs n=1),登记待查**。③ **UserWarning
+  结案**：qdrant 本地模式 payload index 无效告警——replay 实证无索引时
+  filter 仍正确生效(自查命中),纯性能层提示,零正确性影响,不动。
+  ④ 日志全归位(9 份 evaluate 进 run 目录,5 份 predict 从 staging 搬入)。
+  ⑤ 待办:M3+M0-13 可并行派(文件不相交);付费评命令交用户(locomo-judge/
+  lme-judge/beam-rubric-judge×2 + halumem 三件+memory-type 后评)。
 - 2026-07-14（**🧊 LightMem method-frozen-v1 + M2-mem0 验收合入（1151
   passed）**，Fable 5，批处理回合）：① **M2 通过 ff 合入**（559d7c9）：
   BEAM→pair、halumem→整 session 单次 add（判别键=session_memory_report
