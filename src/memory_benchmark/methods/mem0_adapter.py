@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import importlib.util
+import json
 import os
 import sys
 import threading
@@ -67,6 +68,8 @@ from memory_benchmark.observability.efficiency import (
 MEM0_METHOD_DIRECTORY = "mem0-main"
 MEM0_ADAPTER_VERSION = "conversation-qa-v1"
 MEM0_READER_PROMPT_VERSION = "mem0-memory-benchmarks-reader-v2"
+MEM0_PROVENANCE_SIDECAR_SCHEMA_VERSION = 1
+MEM0_PROVENANCE_SIDECAR_FILENAME = "provenance-sidecar.json"
 VALID_MESSAGE_ROLES = {"user", "assistant"}
 LONGMEMEVAL_QUESTION_TYPES = {
     "temporal-reasoning",
@@ -276,7 +279,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
     """使用官方 Mem0 OSS `Memory` 算法的统一 memory system。"""
 
     consume_granularity: ConsumeGranularity = "turn"
-    provenance_granularity = "none"
+    provenance_granularity = "turn"
 
     def __init__(
         self,
@@ -328,6 +331,9 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         self.storage_root = selected_storage_root.expanduser().resolve()
 
         creates_production_backend = memory_backend is None
+        self._provenance_persistence_enabled = (
+            storage_root is not None or creates_production_backend
+        )
         if creates_production_backend:
             if settings is None:
                 raise ConfigurationError("Mem0 production backend requires OpenAI settings")
@@ -346,12 +352,27 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         self._conversation_metadata: dict[str, dict[str, Any]] = {}
         self._native_speaker_roles: dict[str, dict[str, str]] = {}
         self._session_report_memories: dict[tuple[str, str | None], list[str]] = {}
+        self._provenance_sidecar_path = (
+            self.storage_root / MEM0_PROVENANCE_SIDECAR_FILENAME
+        )
+        self._provenance_namespaces: set[str] = set()
+        self._provenance_by_memory_id = self._load_provenance_sidecar()
+        self._added_conversation_ids.update(self._provenance_namespaces)
         self.session_memory_report = session_memory_report
         if consume_granularity is not None:
             self.consume_granularity = consume_granularity
         if any(not conversation_id.strip() for conversation_id in self._added_conversation_ids):
             raise ConfigurationError(
                 "Mem0 existing_conversation_ids cannot contain empty ids"
+            )
+        if (
+            self._provenance_persistence_enabled
+            and self._added_conversation_ids
+            and not self._provenance_sidecar_path.is_file()
+        ):
+            raise ConfigurationError(
+                "Mem0 resume state predates the required provenance sidecar; "
+                "start a new run instead of resuming this state"
             )
         self._configure_backend_openai_clients()
         self._install_efficiency_observers()
@@ -490,8 +511,9 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 "user" if len(speaker_roles) % 2 == 0 else "assistant"
             )
         session_time = self._session_time_from_event(event)
-        self._memory.add(
+        self._add_with_provenance(
             [self._turn_to_message(turn, speaker_roles, session_time=session_time)],
+            source_turn_ids=(event.turn_id,),
             run_id=event.isolation_key,
             metadata=self._native_turn_metadata(event),
             infer=self.config.infer,
@@ -513,7 +535,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         session_time = self._session_time_from_event(first)
         conversation = self._native_conversation_from_event(first)
         session = self._native_session_from_event(first)
-        self._memory.add(
+        self._add_with_provenance(
             [
                 self._turn_to_message(
                     turn,
@@ -522,6 +544,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 )
                 for turn in turns
             ],
+            source_turn_ids=tuple(event.turn_id for event in pair.turns),
             run_id=first.isolation_key,
             metadata=self._turn_batch_metadata(conversation, session, turns),
             infer=self.config.infer,
@@ -529,7 +552,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         )
 
     def _ingest_native_session(self, batch: SessionBatch) -> None:
-        """按 Mem0 官方 LongMemEval `CHUNK_SIZE=2` 写入一个 v3 session 单元。
+        """按 benchmark 特化写入一个 v3 session 单元。
 
         官方脚本对 session 消息按位置两两切块、不裁剪开头非 user 消息；
         该口径保留在 adapter 内部，避免框架级 user 锚定配对改变官方分组
@@ -551,9 +574,11 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         report_key = (batch.isolation_key, session.session_id)
         if self.session_memory_report:
             self._session_report_memories[report_key] = []
-        for start in range(0, len(turns), 2):
-            chunk = turns[start : start + 2]
-            add_result = self._memory.add(
+        chunks = [turns] if self.session_memory_report else [
+            turns[start : start + 2] for start in range(0, len(turns), 2)
+        ]
+        for chunk in chunks:
+            add_result = self._add_with_provenance(
                 [
                     self._turn_to_message(
                         turn,
@@ -562,6 +587,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                     )
                     for turn in chunk
                 ],
+                source_turn_ids=tuple(turn.turn_id for turn in chunk),
                 run_id=batch.isolation_key,
                 metadata=self._turn_batch_metadata(conversation, session, chunk),
                 infer=self.config.infer,
@@ -780,8 +806,9 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 session_time=session.session_time,
             )
             metadata = self._turn_metadata(conversation, session, turn)
-            self._memory.add(
+            self._add_with_provenance(
                 [message],
+                source_turn_ids=(turn.turn_id,),
                 run_id=conversation.conversation_id,
                 metadata=metadata,
                 infer=self.config.infer,
@@ -834,8 +861,9 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 )
                 for turn in turns
             ]
-            self._memory.add(
+            self._add_with_provenance(
                 messages,
+                source_turn_ids=tuple(turn.turn_id for turn in turns),
                 run_id=conversation.conversation_id,
                 metadata=self._turn_batch_metadata(conversation, session, turns),
                 infer=self.config.infer,
@@ -995,12 +1023,13 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
             prompt_messages=tuple(_prompt_messages_from_dicts(reader_messages)),
             items=tuple(
                 RetrievedItem(
-                    item_id=f"mem0:{index}",
+                    item_id=memory["id"],
                     content=memory["memory"],
                     score=memory.get("score"),
                     timestamp=memory.get("created_at"),
+                    source_turn_ids=self._source_turn_ids_for_memory(memory["id"]),
                 )
-                for index, memory in enumerate(memories)
+                for memory in memories
             ),
             metadata={
                 "method": "mem0",
@@ -1517,12 +1546,143 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 continue
             normalized.append(
                 {
+                    "id": str(item.get("id") or "").strip(),
                     "memory": str(memory).strip(),
                     "score": item.get("score"),
                     "created_at": item.get("created_at"),
                 }
             )
         return normalized
+
+    def _add_with_provenance(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        source_turn_ids: tuple[str, ...],
+        **kwargs: Any,
+    ) -> Any:
+        """调用 Mem0 add，并把官方 memory id 映射到公开 turn id。"""
+
+        result = self._memory.add(messages, **kwargs)
+        isolation_key = str(kwargs["run_id"])
+        memory_ids = self._memory_ids_from_add_result(result)
+        with self._namespace_lock:
+            self._provenance_namespaces.add(isolation_key)
+            for memory_id in memory_ids:
+                self._provenance_by_memory_id[memory_id] = {
+                    "isolation_key": isolation_key,
+                    "source_turn_ids": list(source_turn_ids),
+                }
+            self._persist_provenance_sidecar()
+        return result
+
+    @staticmethod
+    def _memory_ids_from_add_result(raw_result: Any) -> tuple[str, ...]:
+        """从 Mem0 add 返回值读取官方生成的 memory id。"""
+
+        results = raw_result.get("results") if isinstance(raw_result, dict) else raw_result
+        if not isinstance(results, list):
+            return ()
+        return tuple(
+            str(item["id"])
+            for item in results
+            if isinstance(item, dict) and item.get("id")
+        )
+
+    def _source_turn_ids_for_memory(self, memory_id: str) -> tuple[str, ...]:
+        """返回一个官方 memory id 对应的公开 turn ids，缺映射时拒绝伪造。"""
+
+        if not memory_id:
+            raise ConfigurationError("Mem0 search result is missing its official memory id")
+        record = self._provenance_by_memory_id.get(memory_id)
+        if record is None:
+            raise ConfigurationError(
+                "Mem0 provenance sidecar has no mapping for retrieved memory id: "
+                f"{memory_id}"
+            )
+        source_turn_ids = record.get("source_turn_ids")
+        if not isinstance(source_turn_ids, list) or not all(
+            isinstance(item, str) and item for item in source_turn_ids
+        ):
+            raise ConfigurationError(
+                f"Mem0 provenance sidecar entry is invalid: {memory_id}"
+            )
+        return tuple(source_turn_ids)
+
+    def _load_provenance_sidecar(self) -> dict[str, dict[str, Any]]:
+        """读取持久化 provenance sidecar；格式损坏时 fail-fast。"""
+
+        if not self._provenance_persistence_enabled:
+            return {}
+        path = self._provenance_sidecar_path
+        if not path.is_file():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ConfigurationError(f"Invalid Mem0 provenance sidecar: {path}") from exc
+        memories = payload.get("memories") if isinstance(payload, dict) else None
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != MEM0_PROVENANCE_SIDECAR_SCHEMA_VERSION
+            or not isinstance(memories, dict)
+            or not isinstance(payload.get("namespaces"), list)
+            or not all(
+                isinstance(item, str) and item for item in payload.get("namespaces", [])
+            )
+            or not all(
+                isinstance(memory_id, str)
+                and memory_id
+                and isinstance(record, dict)
+                and isinstance(record.get("isolation_key"), str)
+                and bool(record["isolation_key"])
+                and isinstance(record.get("source_turn_ids"), list)
+                and all(
+                    isinstance(turn_id, str) and turn_id
+                    for turn_id in record["source_turn_ids"]
+                )
+                for memory_id, record in (memories or {}).items()
+            )
+        ):
+            raise ConfigurationError(f"Invalid Mem0 provenance sidecar schema: {path}")
+        self._provenance_namespaces = set(payload["namespaces"])
+        return dict(memories)
+
+    def _persist_provenance_sidecar(self) -> None:
+        """以原子替换持久化 provenance sidecar。"""
+
+        if not self._provenance_persistence_enabled:
+            return
+        self.storage_root.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": MEM0_PROVENANCE_SIDECAR_SCHEMA_VERSION,
+            "namespaces": sorted(self._provenance_namespaces),
+            "memories": self._provenance_by_memory_id,
+        }
+        temporary_path = self._provenance_sidecar_path.with_suffix(".tmp")
+        temporary_path.write_text(
+            json.dumps(payload, ensure_ascii=True, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary_path, self._provenance_sidecar_path)
+
+    def clean_failed_ingest_state(self, isolation_key: str) -> None:
+        """清理一个失败 namespace 的向量、recent messages 与 sidecar。"""
+
+        if not isolation_key.strip():
+            raise ConfigurationError("Mem0 clean requires a non-empty isolation key")
+        session_scope = f"run_id={isolation_key}"
+        self._memory.delete_all(run_id=isolation_key)
+        self._memory.db.delete_messages(session_scope)
+        with self._namespace_lock:
+            self._provenance_by_memory_id = {
+                memory_id: record
+                for memory_id, record in self._provenance_by_memory_id.items()
+                if record.get("isolation_key") != isolation_key
+            }
+            self._added_conversation_ids.discard(isolation_key)
+            self._provenance_namespaces.discard(isolation_key)
+            self._persist_provenance_sidecar()
 
     @staticmethod
     def _memory_texts_from_add_result(raw_result: Any) -> list[str]:

@@ -8,22 +8,35 @@ vendored 源码身份、逐 turn 写入、conversation namespace 隔离和回复
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import importlib
 from pathlib import Path
+import sys
 from types import SimpleNamespace
+import uuid
 
 import pytest
 
+import memory_benchmark.methods.registry as method_registry
 from memory_benchmark.config.settings import OpenAISettings, load_path_settings
 from memory_benchmark.core import Conversation, Question, Session, Turn
 from memory_benchmark.core.exceptions import ConfigurationError
-from memory_benchmark.core.provider_protocol import MemoryProvider
-from memory_benchmark.core.provider_protocol import SessionBatch, SessionRef
+from memory_benchmark.core.provider_protocol import (
+    MemoryProvider,
+    RetrievalQuery,
+    SessionBatch,
+    SessionRef,
+    TurnPair,
+)
 from memory_benchmark.methods.mem0_adapter import (
     Mem0,
     Mem0Config,
     build_mem0_source_identity,
 )
-from memory_benchmark.methods.registry import MethodBuildContext, _build_mem0_system
+from memory_benchmark.methods.registry import (
+    MethodBuildContext,
+    _build_mem0_system,
+    get_method_registration,
+)
 from memory_benchmark.observability.efficiency import EfficiencyCollector
 from memory_benchmark.runners.event_stream import (
     GranularityAggregator,
@@ -253,6 +266,50 @@ class OpenAIClientBackend(FakeMemoryBackend):
         self.embedding_model = SimpleNamespace(
             client=OptionTrackingOpenAIClient(),
         )
+
+
+class FakeRecentMessageStore:
+    """按 Mem0 session_scope 保存和清理 recent messages。"""
+
+    def __init__(self) -> None:
+        """初始化空的 scope 映射和删除记录。"""
+
+        self.messages: dict[str, list[dict[str, str]]] = {}
+        self.deleted_scopes: list[str] = []
+
+    def delete_messages(self, session_scope: str) -> None:
+        """删除一个 scope，并记录 adapter 使用的精确 scope。"""
+
+        self.deleted_scopes.append(session_scope)
+        self.messages.pop(session_scope, None)
+
+
+class CleanableFakeMemoryBackend(FakeMemoryBackend):
+    """模拟 recent-message 污染、namespace 删除和再次提取。"""
+
+    def __init__(self) -> None:
+        """初始化 recent-message store、删除记录和提取上下文。"""
+
+        super().__init__()
+        self.db = FakeRecentMessageStore()
+        self.deleted_run_ids: list[str] = []
+        self.extraction_contexts: list[list[str]] = []
+
+    def add(self, messages, **kwargs):
+        """记录 add 前可见的历史消息，再保存本批消息。"""
+
+        scope = f"run_id={kwargs['run_id']}"
+        self.extraction_contexts.append(
+            [item["content"] for item in self.db.messages.get(scope, [])]
+        )
+        self.db.messages.setdefault(scope, []).extend(messages)
+        return super().add(messages, **kwargs)
+
+    def delete_all(self, *, run_id: str):
+        """记录按 run_id 清理向量的生产调用形态。"""
+
+        self.deleted_run_ids.append(run_id)
+        return {"message": "Memories deleted successfully!"}
 
 
 def _snapshot_mem0_backend_calls(system: Mem0) -> list[dict[str, object]]:
@@ -829,13 +886,13 @@ def test_mem0_halumem_session_report_returns_current_session_add_results() -> No
     assert reports[0] is not None
     assert reports[0].memories == [
         "[Session time: Sep 01, 2025, 10:00:00] user: session a message 0",
-        "[Session time: Sep 01, 2025, 10:00:00] user: session a message 2",
     ]
     assert reports[1] is not None
     assert reports[1].memories == [
         "[Session time: Sep 02, 2025, 10:00:00] user: session b message 0",
     ]
     assert provider.session_memory_report is True
+    assert [len(call["messages"]) for call in provider._memory.add_calls] == [3, 1]
 
 
 def test_mem0_registry_specializes_consume_granularity_by_benchmark(
@@ -873,6 +930,15 @@ def test_mem0_registry_specializes_consume_granularity_by_benchmark(
             benchmark_name="longmemeval",
         )
     )
+    beam = _build_mem0_system(
+        MethodBuildContext(
+            config=Mem0Config.smoke(),
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=load_path_settings(),
+            storage_root=tmp_path / "beam",
+            benchmark_name="beam",
+        )
+    )
     halumem = _build_mem0_system(
         MethodBuildContext(
             config=Mem0Config.smoke(),
@@ -889,6 +955,8 @@ def test_mem0_registry_specializes_consume_granularity_by_benchmark(
     assert isinstance(longmemeval, MemoryProvider)
     assert longmemeval.consume_granularity == "session"
     assert longmemeval.session_memory_report is False
+    assert isinstance(beam, MemoryProvider)
+    assert beam.consume_granularity == "pair"
     assert isinstance(halumem, MemoryProvider)
     assert halumem.consume_granularity == "session"
     assert halumem.session_memory_report is True
@@ -896,6 +964,246 @@ def test_mem0_registry_specializes_consume_granularity_by_benchmark(
         method_manifest={},
         protocol_version="v3",
     )["protocol_version"] == "v3"
+
+
+def test_mem0_beam_pair_ingest_keeps_official_two_turn_chunk() -> None:
+    """BEAM 的 v3 pair 路径应一次 add 两条规范 user/assistant 消息。"""
+
+    backend = FakeMemoryBackend()
+    provider = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        consume_granularity="pair",
+    )
+    events = tuple(build_turn_events(_build_conversation(), "beam-run_conv-1"))
+    pair = TurnPair(first=events[0], second=events[1], metadata={"pair_index": 0})
+
+    provider.ingest(pair)
+
+    assert len(backend.add_calls) == 1
+    assert [message["role"] for message in backend.add_calls[0]["messages"]] == [
+        "user",
+        "assistant",
+    ]
+    assert backend.add_calls[0]["metadata"]["turn_ids"] == ["t1", "t2"]
+
+
+def test_mem0_clean_removes_vectors_messages_and_failed_attempt_context(
+    tmp_path: Path,
+) -> None:
+    """clean 后同 namespace 再 add 不得看到失败尝试的 recent messages。"""
+
+    backend = CleanableFakeMemoryBackend()
+    provider = Mem0(
+        config=Mem0Config.smoke(),
+        storage_root=tmp_path,
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+    )
+    failed = _build_named_conversation(
+        "run-1_conv-failed",
+        "Alice",
+        "FAILED_CONTEXT",
+    )
+    provider.add(failed)
+
+    provider.clean_failed_ingest_state("run-1_conv-failed")
+    provider.add(
+        _build_named_conversation("run-1_conv-failed", "Alice", "CLEAN_RETRY")
+    )
+
+    assert backend.deleted_run_ids == ["run-1_conv-failed"]
+    assert backend.db.deleted_scopes == ["run_id=run-1_conv-failed"]
+    assert backend.extraction_contexts == [[], []]
+    assert get_method_registration("mem0").clean_failed_ingest_state is not None
+
+
+def test_mem0_registry_clean_hook_reconstructs_v3_isolation_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """clean hook 应从 run state 路径恢复与 ingest 完全相同的 isolation key。"""
+
+    backend = CleanableFakeMemoryBackend()
+    provider = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+    )
+    build_contexts: list[MethodBuildContext] = []
+
+    def _fake_build(context: MethodBuildContext) -> Mem0:
+        build_contexts.append(context)
+        return provider
+
+    monkeypatch.setattr(method_registry, "_build_mem0_system", _fake_build)
+    hook = get_method_registration("mem0").clean_failed_ingest_state
+    assert hook is not None
+    context = MethodBuildContext(
+        config=Mem0Config.smoke(),
+        openai_settings=OpenAISettings(api_key="sk-test"),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path / "run-123" / "method_state",
+        benchmark_name="locomo",
+    )
+
+    hook(
+        context,
+        _build_named_conversation("conv-1", "Alice", "failed"),
+        {"worker_idx": 2},
+    )
+
+    assert build_contexts[0].storage_root == context.storage_root / "worker_2"
+    assert backend.deleted_run_ids == ["run-123_conv-1"]
+    assert backend.db.deleted_scopes == ["run_id=run-123_conv-1"]
+
+
+def test_vendored_sqlite_delete_messages_is_scoped(tmp_path: Path) -> None:
+    """vendored SQLite API 只删除目标 session_scope 的 recent messages。"""
+
+    mem0_root = load_path_settings().resolve_third_party_method_path("mem0-main")
+    root_text = str(mem0_root)
+    if root_text not in sys.path:
+        sys.path.insert(0, root_text)
+    storage_module = importlib.import_module("mem0.memory.storage")
+    manager = storage_module.SQLiteManager(str(tmp_path / "history.db"))
+    manager.save_messages([{"role": "user", "content": "alpha"}], "run_id=a")
+    manager.save_messages([{"role": "user", "content": "beta"}], "run_id=b")
+
+    manager.delete_messages("run_id=a")
+
+    assert manager.get_last_messages("run_id=a") == []
+    assert [item["content"] for item in manager.get_last_messages("run_id=b")] == [
+        "beta"
+    ]
+
+
+def test_production_qdrant_filters_two_mem0_namespaces(tmp_path: Path) -> None:
+    """生产 Qdrant filter 层必须阻止两个 run_id namespace 交叉读取。"""
+
+    mem0_root = load_path_settings().resolve_third_party_method_path("mem0-main")
+    root_text = str(mem0_root)
+    if root_text not in sys.path:
+        sys.path.insert(0, root_text)
+    qdrant_module = importlib.import_module("mem0.vector_stores.qdrant")
+    store = qdrant_module.Qdrant(
+        collection_name="mem0-isolation-test",
+        embedding_model_dims=2,
+        path=str(tmp_path / "qdrant"),
+    )
+    store._has_bm25_slot = False
+    ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    store.insert(
+        vectors=[[1.0, 0.0], [1.0, 0.0]],
+        ids=ids,
+        payloads=[
+            {"data": "ALPHA_ONLY", "run_id": "run-a"},
+            {"data": "BETA_ONLY", "run_id": "run-b"},
+        ],
+    )
+
+    alpha = store.search("alpha", [1.0, 0.0], top_k=10, filters={"run_id": "run-a"})
+    beta = store.search("beta", [1.0, 0.0], top_k=10, filters={"run_id": "run-b"})
+
+    assert [point.payload["data"] for point in alpha] == ["ALPHA_ONLY"]
+    assert [point.payload["data"] for point in beta] == ["BETA_ONLY"]
+
+
+def test_mem0_provenance_sidecar_maps_turn_and_chunk_ids(tmp_path: Path) -> None:
+    """官方 memory id 应持久映射到单 turn 或完整 chunk 的公开 turn ids。"""
+
+    turn_backend = FakeMemoryBackend()
+    turn_provider = Mem0(
+        config=Mem0Config.smoke(),
+        storage_root=tmp_path / "turn",
+        memory_backend=turn_backend,
+        reader_client=FakeReaderClient(),
+    )
+    turn_event = tuple(build_turn_events(_build_conversation(), "run_conv-1"))[0]
+    turn_provider.ingest(turn_event)
+    turn_result = turn_provider.retrieve(
+        RetrievalQuery(
+            isolation_key="run_conv-1",
+            query_text="tea",
+            question_time=None,
+            top_k=20,
+            purpose="qa",
+        )
+    )
+    assert turn_result.items[0].item_id == "m1"
+    assert turn_result.items[0].source_turn_ids == ("t1",)
+
+    pair_backend = FakeMemoryBackend()
+    pair_provider = Mem0(
+        config=Mem0Config.smoke(),
+        storage_root=tmp_path / "pair",
+        memory_backend=pair_backend,
+        reader_client=FakeReaderClient(),
+        consume_granularity="pair",
+    )
+    events = tuple(build_turn_events(_build_conversation(), "run_conv-1"))
+    pair_provider.ingest(TurnPair(first=events[0], second=events[1]))
+    pair_result = pair_provider.retrieve(
+        RetrievalQuery(
+            isolation_key="run_conv-1",
+            query_text="tea",
+            question_time=None,
+            top_k=20,
+            purpose="qa",
+        )
+    )
+    assert pair_result.items[0].item_id == "m1"
+    assert pair_result.items[0].source_turn_ids == ("t1", "t2")
+    assert get_method_registration("mem0").provenance_granularity == "turn"
+
+
+def test_mem0_resume_requires_persisted_provenance_sidecar(tmp_path: Path) -> None:
+    """旧 state 没有 sidecar 时必须 fail-fast，禁止 rank-index 伪造来源。"""
+
+    with pytest.raises(ConfigurationError, match="predates.*provenance sidecar"):
+        Mem0(
+            config=Mem0Config.smoke(),
+            storage_root=tmp_path,
+            memory_backend=FakeMemoryBackend(),
+            reader_client=FakeReaderClient(),
+            existing_conversation_ids={"conv-old"},
+        )
+
+
+def test_mem0_provenance_sidecar_survives_resume(tmp_path: Path) -> None:
+    """新 state 的 sidecar 应在 conversation-level resume 后恢复。"""
+
+    first_backend = FakeMemoryBackend()
+    first = Mem0(
+        config=Mem0Config.smoke(),
+        storage_root=tmp_path,
+        memory_backend=first_backend,
+        reader_client=FakeReaderClient(),
+    )
+    event = tuple(build_turn_events(_build_conversation(), "run_conv-1"))[0]
+    first.ingest(event)
+
+    resumed_backend = FakeMemoryBackend()
+    resumed = Mem0(
+        config=Mem0Config.smoke(),
+        storage_root=tmp_path,
+        memory_backend=resumed_backend,
+        reader_client=FakeReaderClient(),
+        existing_conversation_ids={"run_conv-1"},
+    )
+    result = resumed.retrieve(
+        RetrievalQuery(
+            isolation_key="run_conv-1",
+            query_text="tea",
+            question_time=None,
+            top_k=20,
+            purpose="qa",
+        )
+    )
+
+    assert result.items[0].item_id == "m1"
+    assert result.items[0].source_turn_ids == ("t1",)
 
 
 def test_mem0_turn_level_resume_is_disabled_for_all_benchmarks() -> None:

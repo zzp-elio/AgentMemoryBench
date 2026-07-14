@@ -323,6 +323,21 @@ class SQLiteManager:
             for r in rows
         ]
 
+    def delete_messages(self, session_scope: str) -> None:
+        """Delete all recent messages stored for one session scope."""
+        with self._lock:
+            try:
+                self.connection.execute("BEGIN")
+                self.connection.execute(
+                    "DELETE FROM messages WHERE session_scope = ?",
+                    (session_scope,),
+                )
+                self.connection.execute("COMMIT")
+            except Exception as e:
+                self.connection.execute("ROLLBACK")
+                logger.error(f"Failed to delete messages for session scope: {e}")
+                raise
+
     def reset(self) -> None:
         """Drop and recreate the history and messages tables."""
         with self._lock:

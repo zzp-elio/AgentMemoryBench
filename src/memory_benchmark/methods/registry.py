@@ -182,6 +182,8 @@ def _build_mem0_system(context: MethodBuildContext) -> BaseMemorySystem:
         consume_granularity=(
             "session"
             if context.benchmark_name in {"longmemeval", "halumem"}
+            else "pair"
+            if context.benchmark_name == "beam"
             else "turn"
         ),
         session_memory_report=context.benchmark_name == "halumem",
@@ -576,6 +578,29 @@ def _clean_amem_failed_ingest_state(
     )
 
 
+def _clean_mem0_failed_ingest_state(
+    context: MethodBuildContext,
+    conversation: Conversation,
+    failed_state: dict[str, Any],
+) -> None:
+    """清理 Mem0 failed_ingest namespace 的全部算法可见状态。"""
+
+    storage_root = _resolve_clean_retry_storage_root(context, failed_state)
+    clean_context = MethodBuildContext(
+        config=context.config,
+        openai_settings=context.openai_settings,
+        path_settings=context.path_settings,
+        storage_root=storage_root,
+        benchmark_name=context.benchmark_name,
+    )
+    system = _build_mem0_system(clean_context)
+    if not isinstance(system, Mem0):
+        raise ConfigurationError("Mem0 clean hook failed to build Mem0 adapter")
+    run_id = context.storage_root.parent.name
+    isolation_key = f"{run_id}_{conversation.conversation_id}"
+    system.clean_failed_ingest_state(isolation_key)
+
+
 def _clean_lightmem_failed_ingest_state(
     context: MethodBuildContext,
     conversation: Conversation,
@@ -770,6 +795,8 @@ _REGISTRATIONS = {
             _mem0_efficiency_instrumentation_identity
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
+        provenance_granularity="turn",
+        clean_failed_ingest_state=_clean_mem0_failed_ingest_state,
         supports_shared_instance_parallelism=False,
     ),
     "lightmem": MethodRegistration(
