@@ -15,6 +15,28 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**🏁 LightMem 五格通关**（halumem ② 四指标收口）+ 三问答复
+  落档，Fable 5）：① **通关达成**：halumem 四指标全落盘（extraction 0.0/108、
+  update 0/7、qa **1.0**（Memory Boundary 题不知为不知=真金）、memory-type
+  0.0/3;score 记录逐条核过=真实测量,judge 实读捕获记忆）,B11 smoke 半场
+  五格全绿（详 lightmem.md B11 ⑧）。**下一件事=frozen-v1 note 专场**
+  （B2/B4/B8 残留 🟡 收口核对 + 声明缺口清单：真实 resume 缓期/native build
+  profile 未实现/halumem ⑤ N/A/op-level 并行化待设计）。② **@k 前缀答复
+  （用户问）**：可行且已是现役做法——longmemeval-retrieval-rank 就是单次
+  检索排序的离线前缀评（k∈[1,3,5,10,30,50]，3000 例官方零失配）;顺序不变
+  是天然的（评测不重跑检索,只切一次落盘的有序 items）;**唯一预算前置=
+  predict 时 top_k ≥ 未来最大 k**;真排序是前提,LLM 重组散文式记忆的
+  method 对 @k = N/A（provenance items 为 ordered tuple 的原因）。
+  ③ **smoke evaluate 精准性答复**：结构性保证——裁剪在 predict 前的
+  Dataset 层,gold 与 prediction 是同一次裁剪的双生子同落 run 目录
+  （private labels），evaluate artifact-only 按 id join,从不回原始数据集
+  找子集。④ **命名瑕疵登记**：evaluate summary 的 total_questions/
+  correct_count 对非 QA 指标是术语复用（extraction 的"question"=gold memory
+  point,update 的=probe;correct_count=null=非二值指标）——cosmetic
+  backlog（total_items 更贴切）,不动行为。⑤ **op-level 并行保障线**：
+  halumem full 今天结构上只能串行（CLI+runner 双层硬校验）,不存在未冒烟
+  并行进 full 的可能;将来立 op-level 并行化设计卡时,M0-12 固定 2-user
+  形状复活为该设计的验收件;是否做,等 cost-probe 给出串行 wall-clock 再定。
 - 2026-07-14（**M0-10 验收合入（1143 passed）+ M0-12 停工裁决（⑤=N/A）+
   halumem s2 流通 + 三项用户拍板落档**，Fable 5）：① **M0-10 通过 ff 合入**
   （e0af293）：MethodRegistration 加可选 provenance_granularity（LightMem=
