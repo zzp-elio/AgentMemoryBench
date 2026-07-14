@@ -46,6 +46,8 @@ from memory_benchmark.runners.prediction import (
     PredictionRunSummary,
     _count_answer_context_tokens,
     _elapsed_ms,
+    _manifests_match_for_resume,
+    _method_manifest_with_protocol,
     _record_framework_answer_llm_call,
 )
 from memory_benchmark.storage import (
@@ -74,6 +76,8 @@ def run_operation_level_predictions(
     efficiency_collector: EfficiencyCollector | None = None,
     model_inventory: tuple[ModelDescriptor, ...] = (),
     instrumentation_identity: dict[str, object] | None = None,
+    protocol_version: str = "",
+    provenance_granularity: str | None = None,
 ) -> PredictionRunSummary:
     """运行 HaluMem operation-level prediction。
 
@@ -88,6 +92,8 @@ def run_operation_level_predictions(
         answer_reader: framework-owned answer reader。
         unified_prompt_builder: benchmark 官方 prompt builder。
         source_paths: 可选原始源文件路径，用于数据指纹。
+        protocol_version: method 注册级 provider 协议版本声明。
+        provenance_granularity: method 注册级 provenance 粒度声明。
 
     输出:
         PredictionRunSummary: 标准 prediction 摘要。
@@ -101,7 +107,13 @@ def run_operation_level_predictions(
     paths = ExperimentPaths.create(run_context.run_dir)
     with method_log_scope(paths.logs_dir):
         selected_conversations = _select_conversations(dataset, policy)
-        method_manifest = _operation_method_manifest(method_manifest)
+        method_manifest = _method_manifest_with_protocol(
+            method_manifest=method_manifest,
+            protocol_version=protocol_version,
+            prompt_track="unified",
+            system=provider,
+            provenance_granularity=provenance_granularity,
+        )
         manifest = _build_operation_manifest(
             dataset=dataset,
             run_context=run_context,
@@ -719,15 +731,6 @@ def _selected_operation_question_ids(conversations: list[Conversation]) -> list[
     return question_ids
 
 
-def _operation_method_manifest(method_manifest: dict[str, object]) -> dict[str, object]:
-    """补齐 operation-level manifest 的协议字段。"""
-
-    manifest = dict(method_manifest)
-    manifest.setdefault("protocol_version", "v3")
-    manifest.setdefault("prompt_track", "unified")
-    return manifest
-
-
 def _build_operation_manifest(
     *,
     dataset: Dataset,
@@ -778,7 +781,7 @@ def _prepare_operation_run(
             raise ConfigurationError(
                 f"Run directory already has a manifest; use resume or a new run_id: {paths.run_dir}"
             )
-        if existing != manifest:
+        if not _manifests_match_for_resume(existing, manifest):
             raise ConfigurationError("Operation-level resume manifest mismatch")
         return
     if resume:

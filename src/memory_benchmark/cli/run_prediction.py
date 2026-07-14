@@ -680,6 +680,12 @@ def run_registered_conversation_qa_prediction(
                 efficiency_collector=child.efficiency_collector,
                 model_inventory=child.model_inventory,
                 instrumentation_identity=child.instrumentation_identity,
+                protocol_version=getattr(
+                    method_registration, "protocol_version", ""
+                ),
+                provenance_granularity=getattr(
+                    method_registration, "provenance_granularity", None
+                ),
             )
         else:
             summary = run_predictions(

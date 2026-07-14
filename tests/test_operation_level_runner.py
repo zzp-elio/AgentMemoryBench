@@ -319,6 +319,8 @@ def test_operation_level_runner_drives_three_stages_and_writes_artifacts(
         run_scope=RunScope.SMOKE,
         answer_reader=_reader(),
         unified_prompt_builder=build_halumem_unified_answer_prompt,
+        protocol_version="v3",
+        provenance_granularity="turn",
     )
 
     artifacts = _context(tmp_path).artifacts_dir
@@ -411,6 +413,7 @@ def test_operation_level_runner_drives_three_stages_and_writes_artifacts(
     assert "s1 | s-generated | s-no-question | s2" in update_results[1]["formatted_memory"]
     assert manifest["runner"] == "operation_level_prediction"
     assert manifest["method"]["protocol_version"] == "v3"
+    assert manifest["method"]["provenance_granularity"] == "turn"
     assert manifest["method"]["prompt_track"] == "unified"
 
 
@@ -490,6 +493,17 @@ def test_operation_level_resume_skips_completed_user(tmp_path: Path) -> None:
         run_scope=RunScope.SMOKE,
         answer_reader=_reader(),
         unified_prompt_builder=build_halumem_unified_answer_prompt,
+        protocol_version="v3",
+        provenance_granularity="turn",
+    )
+
+    manifest_path = _context(tmp_path).run_dir / "manifest.json"
+    old_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    old_manifest["method"].pop("provenance_granularity")
+    old_manifest["method"].pop("profile")
+    manifest_path.write_text(
+        json.dumps(old_manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
 
     second_provider = OperationFakeProvider()
@@ -503,6 +517,8 @@ def test_operation_level_resume_skips_completed_user(tmp_path: Path) -> None:
         run_scope=RunScope.SMOKE,
         answer_reader=_reader(),
         unified_prompt_builder=build_halumem_unified_answer_prompt,
+        protocol_version="v3",
+        provenance_granularity="turn",
     )
 
     assert second_provider.calls == []
