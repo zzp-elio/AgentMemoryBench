@@ -30,6 +30,7 @@ from memory_benchmark.core.provider_protocol import (
 from memory_benchmark.methods.mem0_adapter import (
     Mem0,
     Mem0Config,
+    _load_mem0_benchmark_prompt_module,
     build_mem0_source_identity,
 )
 from memory_benchmark.methods.registry import (
@@ -950,14 +951,18 @@ def test_mem0_registry_specializes_consume_granularity_by_benchmark(
     )
 
     assert isinstance(locomo, MemoryProvider)
+    assert locomo.benchmark_name == "locomo"
     assert locomo.consume_granularity == "turn"
     assert locomo.session_memory_report is False
     assert isinstance(longmemeval, MemoryProvider)
+    assert longmemeval.benchmark_name == "longmemeval"
     assert longmemeval.consume_granularity == "session"
     assert longmemeval.session_memory_report is False
     assert isinstance(beam, MemoryProvider)
+    assert beam.benchmark_name == "beam"
     assert beam.consume_granularity == "pair"
     assert isinstance(halumem, MemoryProvider)
+    assert halumem.benchmark_name == "halumem"
     assert halumem.consume_granularity == "session"
     assert halumem.session_memory_report is True
     assert _method_manifest_with_protocol(
@@ -1519,6 +1524,95 @@ def test_get_answer_uses_mem0_longmemeval_official_answer_prompt() -> None:
     assert "--- Monday, May 08, 2023 ---" in prompt
     assert "- Alice likes jasmine tea." in prompt
     assert "Question: What kind of tea does the user prefer?" in prompt
+
+
+def test_mem0_beam_native_messages_match_official_builder() -> None:
+    """显式 BEAM 身份必须生成官方 memory-benchmarks answer prompt。"""
+
+    backend = FakeMemoryBackend()
+    backend.search_results = [
+        {
+            "id": "m1",
+            "memory": "Alice likes jasmine tea.",
+            "score": 0.91,
+            "created_at": "2024-04-02T00:00:00",
+        }
+    ]
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        benchmark_name="beam",
+    )
+    system.add([_build_conversation()])
+    question = Question(
+        question_id="conv-1:q1",
+        conversation_id="conv-1",
+        text="What tea does Alice like?",
+        category="temporal_reasoning",
+    )
+
+    retrieval = system.retrieve(question)
+    prompt_module = _load_mem0_benchmark_prompt_module(
+        system.path_settings,
+        "beam",
+        prompt_builder_name="get_beam_answer_generation_prompt",
+    )
+    expected = prompt_module.get_beam_answer_generation_prompt(
+        question=question.text,
+        memories=system._normalize_search_results(backend.search_results),
+        top_k=None,
+    )
+
+    assert [message.role for message in retrieval.prompt_messages] == ["user"]
+    assert retrieval.prompt_messages[0].content == expected
+    assert retrieval.metadata["answer_prompt_profile"] == "beam"
+
+
+def test_mem0_explicit_benchmark_identity_precedes_shape_heuristics() -> None:
+    """显式 benchmark 身份必须压过 category 与 question_time 启发式。"""
+
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+        benchmark_name="beam",
+    )
+    misleading_question = Question(
+        question_id="q1",
+        conversation_id="c1",
+        text="Question?",
+        question_time="2024-01-01",
+        category="1",
+    )
+
+    assert system._reader_prompt_kind(misleading_question) == "beam"
+
+
+def test_mem0_beam_unified_prompt_ignores_native_provider_messages() -> None:
+    """BEAM unified builder 只读 formatted_memory，native messages 不得改字节。"""
+
+    from memory_benchmark.benchmark_adapters.beam import (
+        build_beam_unified_answer_prompt,
+    )
+    from memory_benchmark.core import PromptMessage
+    from memory_benchmark.core.provider_protocol import RetrievalResult
+
+    question = Question("q1", "c1", "What happened?")
+    formatted_memory = "2024-04-02: Alice changed her preference."
+    generic = RetrievalResult(
+        formatted_memory=formatted_memory,
+        prompt_messages=(PromptMessage(role="system", content="generic"),),
+    )
+    native = RetrievalResult(
+        formatted_memory=formatted_memory,
+        prompt_messages=(PromptMessage(role="user", content="official native"),),
+    )
+
+    assert (
+        build_beam_unified_answer_prompt(question, generic).answer_prompt
+        == build_beam_unified_answer_prompt(question, native).answer_prompt
+    )
 
 
 def test_get_answer_records_efficiency_observations_when_collector_enabled() -> None:

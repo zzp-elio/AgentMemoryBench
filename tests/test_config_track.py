@@ -53,6 +53,39 @@ def test_native_config_track_rejects_unregistered_grid_cell() -> None:
         resolve_config_track("lightmem", "beam", "native")
 
 
+@pytest.mark.parametrize("benchmark", ("locomo", "longmemeval", "beam"))
+def test_mem0_native_config_track_resolves_registered_bundle(benchmark: str) -> None:
+    """Mem0 三个官方 harness 格应解析为完整 native bundle。"""
+
+    bundle = resolve_config_track("mem0", benchmark, "native")
+
+    assert bundle is not None
+    assert bundle.answer_prompt_source == "provider_prompt_messages"
+    assert bundle.answer_llm_settings.model == "gpt-4o-mini"
+    assert bundle.answer_llm_settings.to_manifest_dict() == {
+        "message_role": "user",
+        "temperature": 0.0,
+        "max_tokens": 4096,
+        "top_p": None,
+        "timeout_seconds": 60.0,
+        "max_retries": 8,
+    }
+    assert bundle.judge_profile.profile_name.startswith(f"mem0_{benchmark}")
+    assert bundle.judge_profile.prompt_template
+    assert bundle.embedding_ref == "mem0.repo_default.openai.text-embedding-3-small"
+    assert bundle.hyperparam_ref == "mem0.memory-benchmarks.repo_default"
+
+
+@pytest.mark.parametrize("benchmark", ("membench", "halumem"))
+def test_mem0_native_config_track_rejects_single_track_grid(
+    benchmark: str,
+) -> None:
+    """Mem0 无官方 harness 的两格必须继续 fail-fast。"""
+
+    with pytest.raises(ConfigurationError, match="No native config-track bundle"):
+        resolve_config_track("mem0", benchmark, "native")
+
+
 def test_config_track_rejects_unknown_track() -> None:
     """配置轨名称只接受政策定义的两个值。"""
 

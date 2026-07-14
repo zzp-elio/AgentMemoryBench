@@ -67,7 +67,7 @@ from memory_benchmark.observability.efficiency import (
 
 MEM0_METHOD_DIRECTORY = "mem0-main"
 MEM0_ADAPTER_VERSION = "conversation-qa-v1"
-MEM0_READER_PROMPT_VERSION = "mem0-memory-benchmarks-reader-v3"
+MEM0_READER_PROMPT_VERSION = "mem0-memory-benchmarks-reader-v4"
 MEM0_PROVENANCE_SIDECAR_SCHEMA_VERSION = 1
 MEM0_PROVENANCE_SIDECAR_FILENAME = "provenance-sidecar.json"
 VALID_MESSAGE_ROLES = {"user", "assistant"}
@@ -293,6 +293,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         efficiency_collector: EfficiencyCollector | None = None,
         consume_granularity: ConsumeGranularity | None = None,
         session_memory_report: bool = False,
+        benchmark_name: str | None = None,
     ):
         """初始化 Mem0 adapter。
 
@@ -308,6 +309,8 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
             consume_granularity: v3 provider 实例级消费粒度；registry 会按 benchmark
                 profile 设置，缺省为 LoCoMo 官方 turn 级。
             session_memory_report: 是否在 session 边界公开 Mem0 本 session 新增记忆。
+            benchmark_name: registry 显式传入的 benchmark 身份；为空时保持旧版
+                数据形态启发式路由。
 
         输出:
             None。构造生产 backend 时不会调用 API，但会初始化本地 Qdrant 和客户端。
@@ -316,6 +319,11 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         self.config = config or Mem0Config.smoke()
         self._efficiency_collector = efficiency_collector
         self.path_settings = path_settings or load_path_settings()
+        self.benchmark_name = (
+            benchmark_name.strip().lower()
+            if isinstance(benchmark_name, str) and benchmark_name.strip()
+            else None
+        )
         settings = openai_settings
         if memory_backend is None or reader_client is None:
             settings = settings or load_settings(
@@ -1774,6 +1782,9 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         if prompt_kind == "longmemeval":
             prompt = self._build_mem0_longmemeval_prompt(question, memories)
             return [{"role": "user", "content": prompt}]
+        if prompt_kind == "beam":
+            prompt = self._build_mem0_beam_prompt(question, memories)
+            return [{"role": "user", "content": prompt}]
 
         memory_text = Mem0._memory_context_text(memories)
         if not memory_text:
@@ -1792,6 +1803,8 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
     def _reader_prompt_kind(self, question: Question) -> str:
         """选择 Mem0 官方 benchmark prompt；未知数据集保持通用 fallback。"""
 
+        if self.benchmark_name in {"locomo", "longmemeval", "beam"}:
+            return self.benchmark_name
         metadata = self._conversation_metadata.get(question.conversation_id, {})
         source_text = " ".join(
             str(value)
@@ -1861,6 +1874,25 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
             search_results=memories,
             question_date=question.question_time,
             user_profile=None,
+        )
+
+    def _build_mem0_beam_prompt(
+        self,
+        question: Question,
+        memories: list[dict[str, Any]],
+    ) -> str:
+        """调用 Mem0 memory-benchmarks 的 BEAM answer prompt。"""
+
+        prompt_module = _load_mem0_benchmark_prompt_module(
+            self.path_settings,
+            "beam",
+            prompt_builder_name="get_beam_answer_generation_prompt",
+        )
+        prompt_builder = getattr(prompt_module, "get_beam_answer_generation_prompt")
+        return prompt_builder(
+            question=question.text,
+            memories=memories,
+            top_k=None,
         )
 
     @staticmethod
@@ -1997,6 +2029,8 @@ def _messages_to_text(messages: list[Any]) -> str:
 def _load_mem0_benchmark_prompt_module(
     path_settings: PathSettings,
     benchmark_name: str,
+    *,
+    prompt_builder_name: str = "get_answer_generation_prompt",
 ) -> Any:
     """从 vendored Mem0 memory-benchmarks 加载指定 benchmark 的 prompt 模块。"""
 
@@ -2015,9 +2049,9 @@ def _load_mem0_benchmark_prompt_module(
         raise ConfigurationError(f"Mem0 prompt module cannot be loaded: {prompt_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    if not hasattr(module, "get_answer_generation_prompt"):
+    if not hasattr(module, prompt_builder_name):
         raise ConfigurationError(
-            f"Mem0 prompt module missing get_answer_generation_prompt: {prompt_path}"
+            f"Mem0 prompt module missing {prompt_builder_name}: {prompt_path}"
         )
     return module
 

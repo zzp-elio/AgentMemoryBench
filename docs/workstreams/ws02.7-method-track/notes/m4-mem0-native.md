@@ -1,7 +1,7 @@
 # M4 Mem0 native config-track 取证与停工断点
 
-> 取证日期：2026-07-14。状态：**停工，等待架构师裁决**。本卡没有调用真实
-> API，也没有修改生产代码、测试或 `third_party/`。
+> 取证日期：2026-07-14。状态：**架构师裁决后已完成**。全程没有调用真实
+> API，也没有修改 `third_party/`。
 
 ## 1. Phase A 调用点核证
 
@@ -63,14 +63,65 @@ run/registration 上下文确定 benchmark 为 BEAM，并调用 vendored
 轨执行它。这会修改本卡禁止触碰的 runner，且改变共享 config-track 契约，影响面
 明显大于方案 A。
 
-## 4. 施工报告
+## 4. 初次停工施工报告
 
 - worktree：`/Users/wz/Desktop/mb-actor-m4mem0`
 - branch：`actor/m4-mem0-native`
-- 已完成：`uv sync`；三格 answer/judge 实际调用点核证；BEAM native answer
-  路径断点取证。
-- 未完成：native profile 文件、bundle 注册、parity 测试。
-- 未运行 pytest/compileall：停工发生在任何代码改动之前；运行完成门会制造“本卡
-  已施工”的错误信号。
-- 偏离：无自行变更裁定；按“ConfigTrackBundle 字段与 Mem0 场景不匹配”停工条件
-  上报。
+- 初次断点提交：`082aa00 docs(ws02.7): record Mem0 native BEAM prompt blocker`。
+- 偏离：无自行变更裁定；初次按“ConfigTrackBundle 字段与 Mem0 场景不匹配”
+  停工，随后严格按 §5 架构师裁决恢复。
+
+## 5. 架构师裁决后的实现
+
+### 5.1 显式 benchmark identity 与 BEAM reader
+
+- registry 把 `MethodBuildContext.benchmark_name` 显式传给 Mem0：
+  `src/memory_benchmark/methods/registry.py:165-190`；失败清理重建路径也保留该
+  identity（`:582-597`）。
+- adapter 构造参数保存规范化 benchmark identity；reader 路由优先识别
+  `locomo/longmemeval/beam`，为空才执行原启发式：
+  `src/memory_benchmark/methods/mem0_adapter.py:284-327,1803-1827`。
+- BEAM 路由调用 vendored `get_beam_answer_generation_prompt`，不复制其运行时
+  排版逻辑：`mem0_adapter.py:1771-1801,1879-1898`。reader 版本升为
+  `mem0-memory-benchmarks-reader-v4`（`mem0_adapter.py:70`）。
+- unified 防泄漏：BEAM unified builder 仍只使用 `formatted_memory`，测试
+  `test_mem0_beam_unified_prompt_ignores_native_provider_messages` 证明 provider
+  native messages 改变时 unified answer prompt 字节不变。
+
+### 5.2 三格 profile 与注册面
+
+`src/memory_benchmark/methods/mem0_native_prompts.py` 静态保存三格 answer/judge
+模板；测试运行时加载 vendored `prompts.py` 全文比对。answer harness 的实际
+调用都省略采样参数，因此采用 `LLMClient.generate` 默认
+`temperature=0,max_tokens=4096`（
+`memory-benchmarks/benchmarks/common/llm_client.py:136-156`），`top_p` 未传。
+
+`src/memory_benchmark/methods/config_track.py` 注册：
+
+- native：`mem0 × {locomo,longmemeval,beam}`；
+- single-track collapse：`mem0 × {membench,halumem}` 继续 fail-fast；
+- answer/judge model 均继续使用框架 `gpt-4o-mini`；
+- `embedding_ref=mem0.repo_default.openai.text-embedding-3-small`，依据 Mem0
+  embedder 默认 provider 与模型：`mem0/configs/embeddings/base.py:6-11`、
+  `mem0/embeddings/openai.py:11-19`；
+- `hyperparam_ref=mem0.memory-benchmarks.repo_default`。
+
+### 5.3 native judge 与框架现役 judge 差异
+
+| benchmark | Mem0 native | 框架现役 | 差异 |
+|---|---|---|---|
+| LoCoMo | Mem0 自研统一 JSON rubric（`memory-benchmarks/benchmarks/locomo/prompts.py:202-292`） | LightMem 参考 prompt（`src/memory_benchmark/evaluators/locomo_judge.py:27-63`） | 非逐字相同；Mem0 版新增 partial credit、14 天日期容忍等规则 |
+| LongMemEval | Mem0 单一统一 yes/no prompt（`memory-benchmarks/benchmarks/longmemeval/prompts.py:262-359`） | benchmark 官方按 question type/abstention 分派（`src/memory_benchmark/evaluators/longmemeval_judge.py:58-87`） | 非逐字相同；native 是单模板，unified 是官方多模板 |
+| BEAM | Mem0 重写的 rubric nugget prompt（`memory-benchmarks/benchmarks/beam/prompts.py:161-233`） | BEAM 官方模板 parity（`src/memory_benchmark/evaluators/beam_rubric_judge.py:20-96`） | 非逐字相同；两者均为 0/0.5/1 rubric，但文案与结构不同 |
+
+### 5.4 完成门实际输出
+
+```text
+$ uv run pytest -q tests/test_config_track.py tests/test_mem0_native_prompts.py tests/test_mem0_adapter.py
+53 passed in 67.69s (0:01:07)
+
+$ uv run python -m compileall -q src/memory_benchmark tests
+(exit 0, no output)
+```
+
+真实 native 三格 smoke 未执行，按任务卡留给用户确认 API 预算后运行。

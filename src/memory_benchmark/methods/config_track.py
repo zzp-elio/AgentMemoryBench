@@ -15,6 +15,11 @@ from memory_benchmark.methods.lightmem_native_prompts import (
     LIGHTMEM_NATIVE_JUDGE_PROFILES,
     LightMemNativeJudgeProfile,
 )
+from memory_benchmark.methods.mem0_native_prompts import (
+    MEM0_NATIVE_ANSWER_PROFILES,
+    MEM0_NATIVE_JUDGE_PROFILES,
+    Mem0NativeJudgeProfile,
+)
 
 
 @dataclass(frozen=True)
@@ -23,7 +28,7 @@ class ConfigTrackBundle:
 
     answer_prompt_source: str
     answer_llm_settings: AnswerLLMSettings
-    judge_profile: LightMemNativeJudgeProfile
+    judge_profile: LightMemNativeJudgeProfile | Mem0NativeJudgeProfile
     embedding_ref: str
     hyperparam_ref: str
 
@@ -47,10 +52,35 @@ def _lightmem_bundle(benchmark: str) -> ConfigTrackBundle:
     )
 
 
+def _mem0_bundle(benchmark: str) -> ConfigTrackBundle:
+    """由 Mem0 memory-benchmarks 静态 profile 构造 native bundle。"""
+
+    settings = MEM0_NATIVE_ANSWER_PROFILES[benchmark].settings
+    return ConfigTrackBundle(
+        answer_prompt_source="provider_prompt_messages",
+        answer_llm_settings=AnswerLLMSettings(
+            model=DEFAULT_OPENAI_MODEL,
+            message_role="user",
+            temperature=settings.temperature,
+            max_tokens=settings.max_tokens,
+            top_p=settings.top_p,
+        ),
+        judge_profile=MEM0_NATIVE_JUDGE_PROFILES[benchmark],
+        embedding_ref="mem0.repo_default.openai.text-embedding-3-small",
+        hyperparam_ref="mem0.memory-benchmarks.repo_default",
+    )
+
+
 _NATIVE_CONFIG_TRACK_BUNDLES = {
     ("lightmem", benchmark): _lightmem_bundle(benchmark)
     for benchmark in ("locomo", "longmemeval")
 }
+_NATIVE_CONFIG_TRACK_BUNDLES.update(
+    {
+        ("mem0", benchmark): _mem0_bundle(benchmark)
+        for benchmark in ("locomo", "longmemeval", "beam")
+    }
+)
 
 
 def resolve_config_track(

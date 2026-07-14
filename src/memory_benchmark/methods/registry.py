@@ -187,6 +187,7 @@ def _build_mem0_system(context: MethodBuildContext) -> BaseMemorySystem:
             else "turn"
         ),
         session_memory_report=context.benchmark_name == "halumem",
+        benchmark_name=context.benchmark_name,
     )
 
 
