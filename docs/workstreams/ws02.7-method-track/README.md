@@ -15,6 +15,29 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**mem0 对表缺项清单（对表仪式首次正式执行）+ M5 取证卡
+  派发**，Fable 5）：① **对表输出（frozen 前置件,B11 冻结门仪式）**——
+  重读 checklist B 项原文+status 行后的缺项清单:
+  (a) B1 快照上游 commit 来源:用户提供 or frozen note 声明
+  content-hash 为准(仍待用户一句话);(b) B7 native 注入 token 审计
+  (三格 native builder 落地后现在可查)→ **M5 卡**;(c) B8+ 韧性
+  清单未列 → **M5 卡**;(d) native 格评测路由(judge profile 走 bundle
+  还是注册默认)事实待锚 → **M5 卡**,取证后架构师裁口径;
+  (e) frozen 声明项预登记:真实 resume 缓期(LightMem 同款)/top_k=20
+  vs @k≤50 截断(full 前裁)/transformers>512 警告(full 前复查)/检索缺
+  sidecar 映射 fail-fast 观察项(六格+par2×4+native×3 全程未绊,转正式
+  声明)。② **M5-mem0 纯取证卡写就待派**(零生产代码,三节锚表:B8+
+  调用点韧性/B7 token 审计/评测路由;embedding 已初核=本地 huggingface
+  零网络)。③ **native 参数口径确认(用户问)**:native=作者**复现目录**
+  的 repo 默认(mem0=memory-benchmarks/ 目录),非产品 repo 默认、非
+  paper 正文;三者失配走 dual-track-config-policy §5 检查,失配无作者
+  指引标 DISPUTED。**memoryos 前瞻(用户考题)**:其复现目录 eval/ 是
+  **改过代码的专用评测副本**(非纯参数目录)——ws02.5 接口保真裁决=
+  代码必须 pypi 产品版,故 memoryos 的 native 只能是"eval/ 超参嫁接
+  产品版接口",嫁接等价性=memoryos M-1 取证核心考点(assembly-line
+  预告的"超参三岔口"坑,paper/eval/repo default 三份配置对比必做)。
+  ④ M5 回卡验收后:frozen note(含对表清单终态+assembly-line 校准
+  回填)→ mem0 收官 → 架构师转移窗口。
 - 2026-07-14（**native 三格 smoke 通过（B10 收口）+ ⑤轨别口径裁决 +
   额度战略（剩 25%,架构师转移临近）**，Fable 5）：① **native 三格开箱
   全绿**（用户跑,各 1/1）：manifest `prompt_track=native`;prompt_messages
