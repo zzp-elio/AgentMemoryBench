@@ -15,6 +15,29 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**M0-10 验收合入（1143 passed）+ M0-12 停工裁决（⑤=N/A）+
+  halumem s2 流通 + 三项用户拍板落档**，Fable 5）：① **M0-10 通过 ff 合入**
+  （e0af293）：MethodRegistration 加可选 provenance_granularity（LightMem=
+  "turn"），并行协调路径按 system_factory 身份静态解析盖章，实例回退与
+  fail-fast 保持;resume 兼容有测试钉死。实况修正：并行路径 system 实为
+  `_UnusedRootSystem` sentinel 非字面 None，根因不变。**真实复证挂账：下一次
+  任意 workers>1 predict 后 manifest 抽查**（lme par2 recall 假阴性平反同步）。
+  ② **M0-12 停工裁决（卡 §5 已写）**：operation-level runner 设计上单
+  worker（入口硬校验+串行循环）→ **halumem 五件套⑤=N/A（声明）**;
+  operation-level 并行化=full 阶段前独立设计项。actor 停工 note=教科书级
+  （1 分钟精准停工+完整证据链）。③ **halumem s2 predict 流通**（M0-11 解封
+  后）：五件套①③④已验（详录 lightmem.md B11 ⑦），session report 真实数据
+  首秀（s4 捕 3 条 ok/s1-s3 empty 如实）;**评测依赖序实锤：memory-type
+  （免费合成指标）必须后于 halumem-extraction+update**——付费三项命令已交
+  用户，跑完架构师补评 memory-type =通关线。④ **用户拍板×3 落档**：
+  (a) native answer/judge **模型不 native**（第一阶段只复现官方结果本就是
+  gpt-4o-mini 的实验;模型 native 留未来）;(b) hook 已装
+  （`.claude/settings.json` PreToolUse/Bash：git commit 时注入 §14+显式路径
+  提醒，管道实测双向通过）;(c) 派发经济学+actor"新人标准"入 playbook
+  #20/#21。⑤ **隔离 id 映射裁决（用户提议序号别名）**：产物/checkpoint 层
+  **不做映射**——原始 conversation_id 是 resume 键、跨 artifact join 键、
+  provenance id 空间的载体,二套命名=对账事故温床;**展示层可加序号**
+  （progress/summary 顺带 conversation_index），登记低优先 UX 项,不阻通关。
 - 2026-07-14（**M0-11 验收合入（1139 passed）+ offline_update 覆盖面核证 +
   TOML 双轨归属核证 + playbook #20**，Fable 5）：① **M0-11 通过 ff 合入**
   （77ec269,actor 5min 交卡）：collector 容忍变体在 question scope 委托原

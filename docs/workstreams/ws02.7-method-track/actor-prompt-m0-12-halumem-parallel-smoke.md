@@ -50,4 +50,13 @@ workers>1 且 ≥2 conversations）对 halumem 无法执行——单 user 下第
   ⑤ 对 halumem 记 N/A 的裁决权在架构师）。
 
 ## 施工报告（actor 填写）
-（待填）
+2026-07-14 停工（§4 第二项触发），证据链见
+`notes/m0-12-halumem-par-smoke.md`，未改生产代码。
+
+## §5 架构师裁决（2026-07-14，卡关闭）
+停工成立且证据链完整。裁决：**halumem 五件套⑤ = N/A（声明）**——
+operation-level runner 设计上单 worker（runner 入口硬校验 + conversation
+串行循环，operation_level.py:62-100,128-181），并行冒烟没有可验证的协调
+路径,不是缺测而是无此路径。**operation-level 并行化**（workers 进
+prepare 契约、provider 隔离、artifact/checkpoint 确定性合并）= full 阶段
+预算批复前的独立设计项,届时另立设计卡,本卡不复活。
