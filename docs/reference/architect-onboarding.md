@@ -9,6 +9,20 @@
 > 架构师角色跨模型交接（Claude ↔ GPT ↔ …）。**新架构师读不到上一任的私有
 > memory（`~/.claude/...`），所以一切必须在仓库里；你也要持续维护本文。**
 
+## -1. 非 Claude 架构师注意项（2026-07-14 为 GPT 试任预置）
+
+Claude Code 给 Claude 系架构师三样本机增强,**换模型全部失效,本体都在
+仓库里**——你不缺信息,只是没有自动化:
+1. **无私有 memory 自动召回**:全部 9 条 memory 已镜像进仓库（分工=
+   AGENTS 协作模式;用户画像/额度纪律=playbook §7;全局意识=§12;
+   lightmem 校准=原则 #16+judge-config-audit;EverOS 队列=ws02.7 README;
+   git 隔离=playbook #18;落盘自查=§14;显式路径=AGENTS 硬规则）。
+   按本文读序走即零信息损失。
+2. **无 commit hook 提醒**:commit 纪律（只加显式路径/§14 三问）本体在
+   AGENTS 硬规则与 playbook §14,自查执行。
+3. **无 CLAUDE.md 自动加载**:你的第一入口=手动读 `AGENTS.md`（CLAUDE.md
+   只是 Claude Code 的命令速查投影,内容以 AGENTS 为准）。
+
 ## 0. 你的第一个会话（按序执行，不要跳）
 
 1. 读 `AGENTS.md`（跨模型硬规则总纲，唯一事实源）；

@@ -86,7 +86,12 @@
 - `outputs/` 是实验资产，`outputs/memoryos-locomo-full-20260603/` 受保护；
   `data/`、`models/`、`outputs/`、`third_party/benchmarks/` 不入 git。
 - 所有 Python 文件必须有中文模块 docstring；类/函数需要中文 docstring。
-- 未经用户要求不自动 commit / push。
+- 未经用户要求不自动 commit / push（架构师验收后 commit+push 是既定例外
+  模式）。**commit 只 add 显式路径,禁 `-A`/`.`**,commit 前
+  `git status --short` 过目（2026-07-14 事故:`add -A` 把用户私人文件推进
+  公开 repo,force-with-lease 整改;Claude 架构师本机有 hook 提醒,
+  **其他模型架构师无 hook,纪律以本行为准**）。Co-Authored-By 用当前
+  模型真名。
 - resume 逻辑、隐私边界、metric 正确性、公开协议变更必须经架构师 review。
 
 ## 文档规则

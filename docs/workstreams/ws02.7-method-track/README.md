@@ -15,6 +15,21 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**跨模型可移植审计 + memoryos M-1 取证卡写就（三号煎饼
+  起步）**，Fable 5）：① 用户拍板:暂不交接,但可能先让 GPT5.6 sol 试任
+  架构师 → **`.claude` 专属内容内化审计**:9 条私有 memory 逐条核镜像
+  (8 条已有仓库锚,**1 条真洞=commit 显式路径纪律只在 memory/本机 hook/
+  onboarding,AGENTS 与 playbook 均无**)→ 补 AGENTS 硬规则(含事故背景
+  +"其他模型架构师无 hook,纪律以文档为准");onboarding 新增 **§-1 非
+  Claude 架构师注意项**(无 memory 召回/无 commit hook/无 CLAUDE.md
+  自动加载的三项替代路径)。② **M1-memoryos 取证卡写就待派**:纯取证
+  七节(eval/ 代码副本差距/超参三岔口/粒度/隔离 clean/检索副作用+B5+
+  落点/B8+ 调用点清单(新模板节)/native 预研),格式标杆=m1-mem0;
+  架构师预锚:adapter 已接 memoryos-pypi(ws02.5 迁移)、TOML=pypi 默认
+  且与 eval/ 调参不同(注释自述)、受保护 outputs 提醒进卡。③ 下一步:
+  用户派 M1-memoryos → 回卡验收+裁决 → M2 施工卡(含 native bundle,
+  新模板);mem0 已 🧊,其待办只剩 R0 前置包+upstream drift 对比
+  (都在日程,不阻塞)。
 - 2026-07-14（**🧊 mem0 method-frozen-v1（二号煎饼收官）+ M5 验收 +
   四项裁决 + B1 用户拍板**，Fable 5）：① **M5 验收合入**（3772b73→
   1ae7e2b,纯 note,三节锚表全一手复核质量高）。② **四项裁决**：
