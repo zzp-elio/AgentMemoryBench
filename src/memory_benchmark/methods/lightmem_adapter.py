@@ -842,7 +842,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             f"[{message.role}]\n{message.content}" for message in prompt_messages
         )
         if collector is not None and collector.enabled:
-            collector.record_retrieval_result(
+            collector.record_retrieval_result_if_question_scope(
                 latency_ms=_elapsed_ms(retrieval_started_ns),
                 injected_memory_context_tokens=_count_openai_tokens(
                     memory_context,

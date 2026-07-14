@@ -201,6 +201,24 @@ class EfficiencyCollector:
         state.retrieval_latency_ms = latency_ms
         state.injected_memory_context_tokens = injected_memory_context_tokens
 
+    def record_retrieval_result_if_question_scope(
+        self,
+        *,
+        latency_ms: float,
+        injected_memory_context_tokens: int | None,
+    ) -> None:
+        """仅在 question scope 记录精确检索结果，其他活动 scope 静默跳过。"""
+
+        state = self._active_state_or_none()
+        if state is None:
+            return
+        if state.scope_type != "question":
+            return
+        self.record_retrieval_result(
+            latency_ms=latency_ms,
+            injected_memory_context_tokens=injected_memory_context_tokens,
+        )
+
     def record_retrieval_result_if_missing(
         self,
         *,

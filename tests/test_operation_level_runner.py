@@ -29,10 +29,14 @@ from memory_benchmark.core.provider_protocol import (
     UnitRef,
 )
 from memory_benchmark.observability import RunContext
+from memory_benchmark.observability.efficiency import (
+    EfficiencyArtifactStore,
+    EfficiencyCollector,
+)
 from memory_benchmark.readers.answer import FakeAnswerLLMClient, FrameworkAnswerReader
 from memory_benchmark.runners.operation_level import run_operation_level_predictions
 from memory_benchmark.runners.prediction import PredictionRunPolicy
-from memory_benchmark.storage import read_jsonl
+from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 
 pytestmark = pytest.mark.integration
@@ -111,6 +115,26 @@ class NoSessionReportProvider(OperationFakeProvider):
     """不覆写 end_session 的 fake provider，用于 extraction N/A 路径。"""
 
     end_session = MemoryProvider.end_session
+
+
+class SelfRecordingOperationProvider(OperationFakeProvider):
+    """模拟 adapter 自记 retrieval 效率的 operation-level provider。"""
+
+    def __init__(self, collector: EfficiencyCollector) -> None:
+        """保存 runner 共用 collector。"""
+
+        super().__init__()
+        self.collector = collector
+
+    def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
+        """返回 fake 结果，并按 adapter 姿势尝试自记 retrieval。"""
+
+        result = super().retrieve(query)
+        self.collector.record_retrieval_result_if_question_scope(
+            latency_ms=1.0,
+            injected_memory_context_tokens=3,
+        )
+        return result
 
 
 def _operation_dataset(*, include_generated_question: bool = True) -> Dataset:
@@ -388,6 +412,40 @@ def test_operation_level_runner_drives_three_stages_and_writes_artifacts(
     assert manifest["runner"] == "operation_level_prediction"
     assert manifest["method"]["protocol_version"] == "v3"
     assert manifest["method"]["prompt_track"] == "unified"
+
+
+def test_operation_level_update_probe_tolerates_self_recording_provider(
+    tmp_path: Path,
+) -> None:
+    """conversation scope 的 update probe 不应触发 question 效率断言。"""
+
+    context = _context(tmp_path)
+    collector = EfficiencyCollector(run_id=context.run_id, enabled=True)
+    provider = SelfRecordingOperationProvider(collector)
+
+    run_operation_level_predictions(
+        dataset=_operation_dataset(include_generated_question=False),
+        provider=provider,
+        run_context=context,
+        policy=PredictionRunPolicy(max_workers=1, progress_enabled=False),
+        method_manifest={"adapter": "self-recording-v3", "protocol_version": "v3"},
+        benchmark_variant="medium",
+        run_scope=RunScope.SMOKE,
+        answer_reader=_reader(),
+        unified_prompt_builder=build_halumem_unified_answer_prompt,
+        efficiency_collector=collector,
+    )
+
+    observations = EfficiencyArtifactStore.for_prediction(
+        ExperimentPaths.create(context.run_dir)
+    ).read_observations()
+    question_records = [
+        observation
+        for observation in observations
+        if observation.to_dict()["observation_type"] == "question_efficiency"
+    ]
+    assert len(provider.update_write_counts) == 2
+    assert len(question_records) == 2
 
 
 def test_operation_level_runner_writes_extraction_na_when_no_session_report(

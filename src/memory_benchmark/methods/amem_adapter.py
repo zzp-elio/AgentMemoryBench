@@ -487,7 +487,7 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             answer_prompt=answer_prompt,
         )
         if collector is not None and collector.enabled:
-            collector.record_retrieval_result(
+            collector.record_retrieval_result_if_question_scope(
                 latency_ms=retrieval_latency_ms,
                 injected_memory_context_tokens=_count_openai_tokens(
                     memory_context,

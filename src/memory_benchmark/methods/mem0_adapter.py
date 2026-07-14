@@ -899,7 +899,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         reader_messages = self._reader_messages(question, memories)
         answer_prompt = _messages_to_answer_prompt(reader_messages)
         if collector is not None and collector.enabled:
-            collector.record_retrieval_result(
+            collector.record_retrieval_result_if_question_scope(
                 latency_ms=_elapsed_ms(retrieval_started_ns),
                 injected_memory_context_tokens=(
                     self._count_tokens(injected_memory_text, self.config.reader_model)
@@ -978,7 +978,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         injected_memory_text = self._memory_context_text(memories)
         reader_messages = self._reader_messages(native_question, memories)
         if collector is not None and collector.enabled:
-            collector.record_retrieval_result(
+            collector.record_retrieval_result_if_question_scope(
                 latency_ms=_elapsed_ms(retrieval_started_ns),
                 injected_memory_context_tokens=(
                     self._count_tokens(injected_memory_text, self.config.reader_model)

@@ -36,6 +36,88 @@ def test_question_scope_builds_one_question_observation() -> None:
     assert payload["answer_generation_latency_ms"] == 2.5
 
 
+def test_scope_tolerant_retrieval_matches_strict_method_in_question_scope() -> None:
+    """question scope 内，容忍变体应与严格方法生成逐字段相同的 observation。"""
+
+    def collect(*, tolerant: bool) -> dict[str, object]:
+        collector = EfficiencyCollector(run_id="run-equivalent", enabled=True)
+        with collector.question_scope("conv-1", "q-1") as scope:
+            record = (
+                collector.record_retrieval_result_if_question_scope
+                if tolerant
+                else collector.record_retrieval_result
+            )
+            record(latency_ms=1.5, injected_memory_context_tokens=17)
+            collector.record_answer_generation(latency_ms=2.5)
+        return scope.records[0].to_dict()
+
+    assert collect(tolerant=True) == collect(tolerant=False)
+
+
+def test_scope_tolerant_retrieval_rejects_duplicate_in_question_scope() -> None:
+    """容忍变体在 question scope 内仍应拒绝重复 retrieval 声明。"""
+
+    collector = EfficiencyCollector(run_id="run-1", enabled=True)
+
+    with pytest.raises(ConfigurationError, match="already recorded"):
+        with collector.question_scope("conv-1", "q-1"):
+            collector.record_retrieval_result_if_question_scope(
+                latency_ms=1.0,
+                injected_memory_context_tokens=3,
+            )
+            collector.record_retrieval_result_if_question_scope(
+                latency_ms=2.0,
+                injected_memory_context_tokens=4,
+            )
+
+
+def test_scope_tolerant_retrieval_is_noop_in_conversation_scope() -> None:
+    """conversation scope 内的 probe retrieval 不应写 question 记录或抛错。"""
+
+    collector = EfficiencyCollector(run_id="run-1", enabled=True)
+
+    with collector.conversation_scope("conv-1") as scope:
+        collector.record_retrieval_result_if_question_scope(
+            latency_ms=1.0,
+            injected_memory_context_tokens=3,
+        )
+        collector.record_memory_build_total_latency(latency_ms=2.0)
+
+    assert len(scope.records) == 1
+    assert scope.records[0].to_dict()["observation_type"] == "conversation_efficiency"
+
+
+def test_scope_tolerant_retrieval_is_noop_in_judge_scope() -> None:
+    """judge scope 内的 retrieval 上报不应产生记录或抛错。"""
+
+    collector = EfficiencyCollector(run_id="run-1", enabled=True)
+
+    with collector.judge_scope("conv-1", "q-1") as scope:
+        collector.record_retrieval_result_if_question_scope(
+            latency_ms=1.0,
+            injected_memory_context_tokens=3,
+        )
+
+    assert scope.records == ()
+
+
+def test_scope_tolerant_retrieval_preserves_outside_scope_semantics() -> None:
+    """无 scope 时，启用 collector 仍 fail-fast，关闭 collector 仍静默跳过。"""
+
+    enabled = EfficiencyCollector(run_id="run-1", enabled=True)
+    disabled = EfficiencyCollector(run_id="run-1", enabled=False)
+
+    with pytest.raises(ConfigurationError, match="active scope"):
+        enabled.record_retrieval_result_if_question_scope(
+            latency_ms=1.0,
+            injected_memory_context_tokens=3,
+        )
+    disabled.record_retrieval_result_if_question_scope(
+        latency_ms=1.0,
+        injected_memory_context_tokens=3,
+    )
+
+
 def test_question_scope_records_explicit_unsupported_retrieval() -> None:
     """无法精确拆分检索时 collector 应保存 null 和原因。"""
 
