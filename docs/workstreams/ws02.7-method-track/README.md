@@ -15,6 +15,21 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**流水线文档落成 + M1-mem0 取证卡写就 + 额度战略**，Fable 5，
+  用户周额度已用 54%）：① **`docs/reference/method-onboarding-assembly-line.md`
+  新建**：LightMem M0 蒸馏——一次性资产白嫖清单（协议/provenance 链/
+  halumem 样板/容忍变体/五件套判据/纪律件）、方法论泛化四则（B6=镜像官方
+  复现脚本;B2=抄官方 wrapper 喂法;B9=模型统一;B3=逻辑隔离须过等价性
+  三项）、标准卡序（M-1 取证→裁决→M-2 施工→验收→五格 smoke→frozen,
+  架构师动作/method ≤6）、额度经济学（9×~4%+14% 缓冲;**mem0=二号煎饼
+  校准 run,计量外推,超预算先报告不闷头烧**）。② **M1-mem0 取证卡待派**
+  （零生产代码;核心=逻辑隔离等价性三项取证（用户点名,B8 clean-retry 缺口
+  并案）+ B5 id-sidecar 落点 + halumem end_session 差距清单）。③ **halumem
+  full 并行化设计裁决=继续缓行**：设计必要性取决于 cost-probe 的串行
+  wall-clock 数字,full 本身在预算门后,预算批复前设计=可能白干的架构师
+  额度。④ 用户战略拍板落档：**剩余 ~50% 周额度目标=接完其余 9 method**;
+  frozen-v1 专场仍是 LightMem 收尾件（B2/B4/B8 🟡 收口）,可与 mem0 M-1
+  并行推进（互不动同文件）。
 - 2026-07-14（**🏁 LightMem 五格通关**（halumem ② 四指标收口）+ 三问答复
   落档，Fable 5）：① **通关达成**：halumem 四指标全落盘（extraction 0.0/108、
   update 0/7、qa **1.0**（Memory Boundary 题不知为不知=真金）、memory-type
