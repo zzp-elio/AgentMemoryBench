@@ -15,6 +15,28 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**native 三格 smoke 通过（B10 收口）+ ⑤轨别口径裁决 +
+  额度战略（剩 25%,架构师转移临近）**，Fable 5）：① **native 三格开箱
+  全绿**（用户跑,各 1/1）：manifest `prompt_track=native`;prompt_messages
+  =各自官方模板（BEAM 格=M4 刚接的官方 builder 实弹生效）;items=0 与
+  unified s2 姿势一致（同切片同 0.1 门槛,非回归）;双口径并存落盘
+  （answer_prompt unified 版同存,供对照）。**native 语义答复（用户问）**：
+  native 改三样=answer prompt（官方模板）+ answer 采样配置
+  （temperature 0.0/max_tokens 4096/top_p None,官方 harness 值,对照
+  unified 的 benchmark 统一配置）+ judge prompt/采样;**不改**模型名
+  （统一 gpt-4o-mini,R3）与 ingest/检索/embedding 运行时（embedding_ref
+  仅声明引用,build 侧仍统一=LightMem 同款已声明缺口）。② **⑤并行轨别
+  口径裁决**（用户问 native 要不要 par2——该架构师主动想到,记自省）：
+  ⑤在 unified 轨执行,native 由正交性声明覆盖（track 只切 answer 阶段,
+  锚已入 checklist B11⑤;失效条件=native build 侧运行时切换落地时必补）。
+  ③ **mem0 B10 收口**;B11 predict 面全齐（unified 六格+par2 四格+
+  native 三格）。frozen 前剩:对表缺项清单（B1 快照来源/B7 效率审计项/
+  B8+ 韧性清单/native 格评测口径裁决）→ frozen note+assembly-line 回填
+  （校准诚实结论:mem0 实耗超 4% 预算模型,但含大量一次性资产——
+  M0-11/13 框架债、B8+/对表/时刻表机制、native bundle 样板,后续 method
+  不重复付费）。④ **额度战略**：周额度剩 25%,9 method 不现实,架构师
+  转移临近;建议=Fable 5 用余量收 mem0 frozen+刷新交接,继任者从
+  memoryos 起步(人选裁量权在用户,架构师建议见断点区本条时点的会话)。
 - 2026-07-14（**par2 三格全绿（B11⑤ 收口）+ M4 复工验收合入 + 防线分层
   答复**，Fable 5）：① **locomo/lme/beam-100k par2 开箱全绿**（用户跑,
   各 2/2;workers=2+provenance 章+双 worker sidecar 三格齐）——**B11⑤
