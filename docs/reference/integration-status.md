@@ -42,7 +42,7 @@
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅ | ✅turn | ✅offline | ✅ | ✅ | ✅分叉 | ✅ | ✅ | **v1** |
-| [Mem0](integration/mem0.md) | ✅ | 🟡 | ✅ | ✅混合 | 🟡时间待修M3 | ✅turn(首个非零recall) | ✅零flush | 🟡 | 🟡 | ✅ | ⬜ | 🟡五格predict通 | ⬜ |
+| [Mem0](integration/mem0.md) | ✅ | 🟡 | ✅ | ✅混合 | ✅M3对话时间(s2复证待跑) | ✅turn(首个非零recall) | ✅零flush | 🟡 | 🟡 | ✅ | ⬜ | 🟡五格predict通 | ⬜ |
 | [MemoryOS](integration/memoryos.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |

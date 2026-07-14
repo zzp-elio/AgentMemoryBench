@@ -15,6 +15,32 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**M3-mem0 + M0-13 验收合入（1153 passed）+ timestamp
+  Platform-only 疑问结案**，Fable 5，批处理回合）：① **M3 ff 合入**
+  （37640ef）：Phase A 硬答案=官方三套 benchmark 的 answer 上下文**全带
+  时间**、读取字段均为 `created_at`（locomo 渲染 `(weekday, Month DD,
+  YYYY)`/lme 按日期分组标题/beam `[YYYY-MM-DD]` 前缀）,其值=ingest 时
+  显式传入的对话 epoch;修复=adapter 边界把 metadata 对话时间提升进
+  created_at 槽（session_time→first_turn_time→turn_time→timestamp→
+  created_at 回落链+timestamp_source 标记,墙钟另存 storage_created_at）,
+  formatted_memory 取旧论文 `- {timestamp}: {memory}` 格式、无时间行为
+  字节不变,reader prompt v2→v3。② **M0-13 cherry-pick 合入**（c5ba750）：
+  op-level 复用 `_method_manifest_with_protocol` 盖章 +
+  `_manifests_match_for_resume` 兼容旧 halumem run;真实复证挂账=下次
+  halumem predict 后抽 manifest。**主树 1153 passed（基线+2）;文档标准
+  盲点第四例未出现（两卡新函数全带中文 docstring,actor 已内化）。**
+  ③ **timestamp 疑问结案（用户带 GPT 调查来问）**：GPT 方向正确且比其
+  结论更彻底——OSS Python `Memory.add()` 无 timestamp 参数
+  （mem0/memory/main.py:573 签名实锚）;**OSS REST server 的 MemoryCreate
+  schema 也无该字段（server/main.py:178-187）→ 官方 harness OSS 模式发的
+  timestamp 被 Pydantic 静默丢弃,真正消费它的只有 Cloud V3**
+  （mem0_client.py:189-191 注释自证）——即官方 OSS 模式自己也丢对话时间,
+  **登记 upstream issue 候选第 3 件**。我们的解=add 侧对话时间进
+  metadata（OSS add 原生支持,M2 已在）+ M3 检索侧提升,零 third_party
+  diff 达成官方 Cloud/论文语义,比官方 OSS 模式更完整。④ s2 五格
+  predict 命令交用户（复证 M3 时间口径 + halumem manifest 盖章）;付费评
+  按既定序推迟到 s2 后一次性做。⑤ assembly-line §五回填中期校准数
+  （架构师批处理回合 5/计划 ≤6,意外 3 件均在缓冲带宽内）。
 - 2026-07-14（**mem0 五格 predict 全通 + 开箱验收三发现 + 全框架首个非零
   recall**，Fable 5）：① 五格 predict 零报错,但**开箱验货**（playbook #22
   新原则,用户拍板"稳扎稳打"落档）查出三处:(a) **lme/beam 空检索结案=
