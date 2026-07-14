@@ -210,7 +210,11 @@ def execute_evaluate(command: EvaluateCommand) -> tuple[Any, ...]:
                 model=profile.model,
                 project_root=str(root),
             )
-            if native_bundle is not None and metric_name == "locomo-judge":
+            if (
+                native_bundle is not None
+                and native_bundle.judge_profile is not None
+                and metric_name == "locomo-judge"
+            ):
                 native_judge = native_bundle.judge_profile
                 evaluator = LoCoMoJudgeEvaluator(
                     mode=profile.mode,

@@ -408,6 +408,50 @@ def test_execute_evaluate_rejects_unconfirmed_judge_before_profile_or_api(
         )
 
 
+def test_memoryos_native_evaluate_falls_back_to_framework_default_judge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MemoryOS 无 native judge profile 时应保留 create_evaluator 默认实例。"""
+
+    run_dir = _write_manifest(tmp_path, "memoryos-native")
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["method_name"] = "MemoryOS"
+    manifest["method"] = {"config_track": "native"}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    default_evaluator = object()
+    observed: list[object] = []
+    monkeypatch.setattr(
+        commands,
+        "load_evaluator_profile",
+        lambda **kwargs: SimpleNamespace(mode="compact", model="gpt-4o-mini"),
+    )
+    monkeypatch.setattr(
+        commands,
+        "create_evaluator",
+        lambda *args, **kwargs: default_evaluator,
+    )
+    monkeypatch.setattr(
+        commands,
+        "run_artifact_evaluation",
+        lambda run_dir, evaluator, benchmark, max_workers=1: (
+            observed.append(evaluator) or SimpleNamespace(metric_name="locomo_judge")
+        ),
+    )
+
+    execute_evaluate(
+        EvaluateCommand(
+            project_root=tmp_path,
+            run_id="memoryos-native",
+            metrics=("locomo-judge",),
+            confirm_api=True,
+        )
+    )
+
+    assert observed == [default_evaluator]
+
+
 def test_execute_run_stops_when_prediction_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

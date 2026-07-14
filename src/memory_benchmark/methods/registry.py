@@ -560,6 +560,7 @@ def _build_memoryos_system(context: MethodBuildContext) -> BaseMemorySystem:
         consume_granularity=(
             "pair" if context.benchmark_name == "longmemeval" else "session"
         ),
+        benchmark_name=context.benchmark_name,
     )
     for conversation in context.completed_conversations:
         system.load_existing_conversation_state(conversation)
@@ -853,6 +854,7 @@ _REGISTRATIONS = {
         max_workers_getter=_memoryos_max_workers,
         display_name="MemoryOS",
         protocol_version="v3",
+        provenance_granularity="turn",
         allow_smoke_worker_override=True,
         workload_estimator=_estimate_memoryos_update_batches,
         efficiency_model_inventory_getter=_memoryos_efficiency_model_inventory,

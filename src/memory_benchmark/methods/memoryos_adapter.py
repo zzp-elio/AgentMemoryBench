@@ -27,6 +27,7 @@ import importlib.util
 import io
 import json
 import math
+import os
 import re
 import shutil
 import sys
@@ -52,6 +53,7 @@ from memory_benchmark.core import (
     AnswerResult,
     ConfigurationError,
     Conversation,
+    ImageRef,
     Question,
     AnswerPromptResult,
     PromptMessage,
@@ -67,6 +69,7 @@ from memory_benchmark.core.provider_protocol import (
     MemoryProvider,
     RetrievalQuery,
     RetrievalResult,
+    RetrievedItem,
     SessionBatch,
     TurnEvent,
     TurnPair,
@@ -79,6 +82,7 @@ from memory_benchmark.observability.efficiency import (
     extract_api_token_usage,
     resolve_token_usage,
 )
+from memory_benchmark.methods.image_text import turn_text_with_images
 from memory_benchmark.utils.logger import get_logger
 
 
@@ -95,6 +99,8 @@ MEMORYOS_READER_PROMPT_VERSION = "memoryos-pypi-retrieve-v1"
 MEMORYOS_MEMORY_LLM_MODEL_ID = "memoryos-chat-llm"
 MEMORYOS_EMBEDDING_MODEL_ID = "memoryos-embedding"
 MEMORYOS_DEFAULT_ASSISTANT_ID = "default_assistant_profile"
+MEMORYOS_PROVENANCE_SIDECAR_SCHEMA_VERSION = 1
+MEMORYOS_PROVENANCE_SIDECAR_FILENAME = "memory-benchmark-sidecar.json"
 
 # pypi 官方默认参数（memoryos.py:30-44），与旧 eval/ LoCoMo 调参不同。
 _MEMORYOS_PYPI_DEFAULT_SHORT_TERM_CAPACITY = 10
@@ -445,7 +451,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     """
 
     consume_granularity: ConsumeGranularity = "pair"
-    provenance_granularity = "none"
+    provenance_granularity = "turn"
 
     def __init__(
         self,
@@ -460,6 +466,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         openai_settings: OpenAISettings | None = None,
         path_settings: PathSettings | None = None,
         consume_granularity: ConsumeGranularity | None = None,
+        benchmark_name: str | None = None,
     ):
         """初始化 MemoryOS adapter。
 
@@ -479,12 +486,15 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 ``"pair"``。LongMemEval 数据 role=user/assistant 适合 pair 聚合；
                 LoCoMo 数据 role=speaker 名，pair 聚合失效，用 session 粒度由
                 adapter 内部按 speaker 配对。与 LightMem/A-Mem 既有模式一致。
+            benchmark_name: registry 显式注入的 benchmark identity；用于只在
+                LoCoMo 出口恢复真实 speaker 名和 native prompt。
         """
 
         self.config = config or MemoryOSPaperConfig()
         self._efficiency_collector = efficiency_collector
         self._backend_factory = backend_factory
         self._answer_client = answer_client
+        self.benchmark_name = benchmark_name.strip().lower() if benchmark_name else None
         self.path_settings = path_settings or load_path_settings()
         if consume_granularity is not None:
             self.consume_granularity = consume_granularity
@@ -525,6 +535,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         self._backends: dict[str, Any] = {}
         self._conversation_metadata: dict[str, dict[str, Any]] = {}
         self._native_isolation_to_conversation_id: dict[str, str] = {}
+        self._sidecars: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------ #
     # bridge 路径：add / get_answer / load_existing_conversation_state
@@ -558,7 +569,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 )
             backend = self._get_or_create_backend(conversation.conversation_id)
             self._register_conversation_metadata(conversation)
-            pages = self.conversation_to_memory_pages(conversation)
+            pages = self._conversation_to_memory_pages_with_sources(conversation)
             with self._suppress_stdout_if_needed():
                 for page in pages:
                     backend.add_memory(
@@ -566,6 +577,13 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                         agent_response=page["agent_response"],
                         timestamp=page["timestamp"],
                     )
+                    self._record_page_provenance(
+                        conversation.conversation_id,
+                        page,
+                        tuple(page["source_turn_ids"]),
+                        persist=False,
+                    )
+            self._persist_sidecar(conversation.conversation_id)
             conversation_ids.append(conversation.conversation_id)
 
         return AddResult(
@@ -594,6 +612,12 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             return
         state_dir = self.storage_root / _safe_path_name(conversation.conversation_id)
         _validate_existing_pypi_state(state_dir)
+        sidecar = self._load_required_sidecar(conversation.conversation_id)
+        if self._is_locomo_metadata(conversation.metadata) and not sidecar.get("speaker_map"):
+            raise ConfigurationError(
+                "MemoryOS resume state is missing the required LoCoMo speaker_map: "
+                f"{conversation.conversation_id}"
+            )
         self._register_conversation_metadata(conversation)
         self._get_or_create_backend(conversation.conversation_id)
 
@@ -670,6 +694,11 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 agent_response=agent_response,
                 timestamp=timestamp,
             )
+        self._record_page_provenance(
+            conversation_id,
+            {"user_input": user_input, "agent_response": agent_response},
+            tuple(event.turn_id for event in pair.turns),
+        )
         return IngestResult(unit_ref=UnitRef(isolation_key))
 
     def _ingest_session_batch(self, batch: SessionBatch) -> IngestResult:
@@ -686,7 +715,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         self._native_isolation_to_conversation_id[batch.isolation_key] = conversation_id
         self._register_conversation_metadata(conversation)
         backend = self._get_or_create_backend(conversation_id)
-        pages = self.conversation_to_memory_pages(conversation)
+        pages = self._conversation_to_memory_pages_with_sources(conversation)
         with self._suppress_stdout_if_needed():
             for page in pages:
                 backend.add_memory(
@@ -694,6 +723,13 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                     agent_response=page["agent_response"],
                     timestamp=page["timestamp"],
                 )
+                self._record_page_provenance(
+                    conversation_id,
+                    page,
+                    tuple(page["source_turn_ids"]),
+                    persist=False,
+                )
+        self._persist_sidecar(conversation_id)
         return IngestResult(unit_ref=UnitRef(batch.isolation_key))
 
     def _conversation_from_session_batch(self, batch: SessionBatch) -> Conversation:
@@ -728,8 +764,27 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             content=MemoryOS._original_content_from_event(event),
             normalized_role=event.role if event.role in {"user", "assistant"} else None,
             turn_time=MemoryOS._optional_event_text(event, "original_turn_time"),
+            images=MemoryOS._images_from_event(event),
             metadata=dict(event.metadata.get("turn_metadata") or {}),
         )
+
+    @staticmethod
+    def _images_from_event(event: TurnEvent) -> list[ImageRef]:
+        """从事件公开 metadata 恢复图片引用，忽略非字典病态项。"""
+
+        raw_images = event.metadata.get("turn_images")
+        if not isinstance(raw_images, list):
+            return []
+        return [
+            ImageRef(
+                image_id=item.get("image_id"),
+                path=item.get("path"),
+                caption=item.get("caption"),
+                metadata=dict(item.get("metadata") or {}),
+            )
+            for item in raw_images
+            if isinstance(item, dict)
+        ]
 
     @staticmethod
     def _optional_event_text(event: TurnEvent, field_name: str) -> str | None:
@@ -766,6 +821,15 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         if isinstance(question, RetrievalQuery):
             return self._retrieve_native(question)
 
+        retrieval, _ = self._retrieve_question_with_context(question)
+        return retrieval
+
+    def _retrieve_question_with_context(
+        self,
+        question: Question,
+    ) -> tuple[AnswerPromptResult, dict[str, Any]]:
+        """执行一次 question 检索，并同时保留内部结构化命中供 v3 出口使用。"""
+
         conversation_id = question.conversation_id
         backend = self._backends.get(conversation_id)
         if backend is None:
@@ -781,7 +845,12 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 retrieval_results = self._retrieve_context(backend, effective_text)
         else:
             retrieval_results = self._retrieve_context(backend, effective_text)
-        formatted_memory = _assemble_memoryos_formatted_memory(backend, retrieval_results)
+        speaker_map = self._speaker_map_for_conversation(conversation_id)
+        formatted_memory = _assemble_memoryos_formatted_memory(
+            backend,
+            retrieval_results,
+            speaker_map=speaker_map,
+        )
         prompt_messages = _build_memoryos_prompt_messages(question, formatted_memory)
         answer_prompt = "\n\n".join(
             f"[{message.role}]\n{message.content}" for message in prompt_messages
@@ -795,7 +864,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 ),
             )
 
-        return AnswerPromptResult(
+        result = AnswerPromptResult(
             question_id=question.question_id,
             conversation_id=question.conversation_id,
             answer_prompt=answer_prompt,
@@ -812,8 +881,18 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 ),
                 "retrieval_profile": "memoryos_pypi_retrieve",
                 "answer_prompt_profile": MEMORYOS_READER_PROMPT_VERSION,
+                "degraded_retrieval": bool(
+                    retrieval_results.get("_degraded_retrieval")
+                ),
+                "degraded_retrieval_count": len(
+                    retrieval_results.get("_degraded_retrieval_stages") or []
+                ),
+                "degraded_retrieval_stages": list(
+                    retrieval_results.get("_degraded_retrieval_stages") or []
+                ),
             },
         )
+        return result, retrieval_results
 
     def _retrieve_native(self, query: RetrievalQuery) -> RetrievalResult:
         """执行 v3 检索并返回不生成最终答案的 RetrievalResult。"""
@@ -836,16 +915,116 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             category=source_question.category,
             metadata=dict(source_question.metadata),
         )
-        retrieval = self.retrieve(native_question)
+        retrieval, retrieval_results = self._retrieve_question_with_context(native_question)
         formatted_memory = (
             retrieval.metadata.get("answer_context")
             if isinstance(retrieval.metadata.get("answer_context"), str)
             else ""
         )
+        speaker_map = self._speaker_map_for_conversation(conversation_id)
+        prompt_messages = tuple(retrieval.prompt_messages)
+        if self.benchmark_name == "locomo" and speaker_map is not None:
+            prompt_messages = self._build_locomo_native_prompt_messages(
+                backend=self._backends[conversation_id],
+                retrieval_results=retrieval_results,
+                query_text=query.query_text,
+                speaker_map=speaker_map,
+            )
+        items = self._retrieved_items(conversation_id, retrieval_results)
         return RetrievalResult(
             formatted_memory=formatted_memory or "(No relevant memories found)",
-            prompt_messages=tuple(retrieval.prompt_messages),
+            prompt_messages=prompt_messages,
+            items=items,
             metadata=dict(retrieval.metadata),
+        )
+
+    def _retrieved_items(
+        self,
+        conversation_id: str,
+        retrieval_results: dict[str, Any],
+    ) -> tuple[RetrievedItem, ...]:
+        """把 pypi 精确 page 命中转换为带公开 turn provenance 的条目。"""
+
+        sidecar = self._sidecars.get(conversation_id)
+        if sidecar is None:
+            sidecar = self._load_required_sidecar(conversation_id)
+        items: list[RetrievedItem] = []
+        for page in retrieval_results.get("retrieved_pages") or []:
+            if not isinstance(page, dict):
+                continue
+            key = _memoryos_page_key(page)
+            source_turn_ids = sidecar["pages"].get(key)
+            if not isinstance(source_turn_ids, list) or not source_turn_ids:
+                raise ConfigurationError(
+                    "MemoryOS provenance sidecar has no exact mapping for retrieved page"
+                )
+            content = _memoryos_page_content(page)
+            page_id = str(page.get("page_id") or "").strip()
+            item_id = page_id or f"memoryos-page-{hashlib.sha256(key.encode()).hexdigest()[:16]}"
+            items.append(
+                RetrievedItem(
+                    item_id=item_id,
+                    content=content,
+                    score=None,
+                    timestamp=_metadata_text(page.get("timestamp")),
+                    source_turn_ids=tuple(source_turn_ids),
+                    metadata={"provenance_match": "exact_page_text"},
+                )
+            )
+        return tuple(items)
+
+    @staticmethod
+    def _build_locomo_native_prompt_messages(
+        *,
+        backend: Any,
+        retrieval_results: dict[str, Any],
+        query_text: str,
+        speaker_map: dict[str, str],
+    ) -> tuple[PromptMessage, ...]:
+        """从 MemoryOS 四层原始结构构造官方 LoCoMo native messages。"""
+
+        from memory_benchmark.methods.memoryos_native_prompts import (
+            build_memoryos_locomo_native_answer_prompt,
+        )
+
+        speaker_a = speaker_map["speaker_a"]
+        speaker_b = speaker_map["speaker_b"]
+        history_text = "\n".join(
+            f"{speaker_a}: {page.get('user_input', '')}\n{speaker_b}: {page.get('agent_response', '')}\nTime: ({page.get('timestamp', '')})"
+            for page in backend.short_term_memory.get_all()
+        )
+        retrieval_text = "\n".join(
+            f"【Historical Memory】 {speaker_a}: {page.get('user_input', '')}\n{speaker_b}: {page.get('agent_response', '')}\nTime:({page.get('timestamp', '')})\nConversation chain overview:({page.get('meta_info', '')})\n"
+            for page in retrieval_results.get("retrieved_pages") or []
+            if isinstance(page, dict)
+        )
+        profile_obj = backend.user_long_term_memory.get_raw_user_profile(backend.user_id)
+        profile_text = str(profile_obj or "None")
+        background = f"【User Profile】\n{profile_text}\n\n"
+        for knowledge in retrieval_results.get("retrieved_user_knowledge") or []:
+            if isinstance(knowledge, dict):
+                background += f"{knowledge.get('knowledge', '')}\n"
+            else:
+                background += f"{knowledge}\n"
+        background = re.sub(r"(?i)\buser\b", speaker_a, background)
+        background = re.sub(r"(?i)\bassistant\b", speaker_b, background)
+        assistant_knowledge = "【Assistant Knowledge】\n"
+        for entry in backend.assistant_long_term_memory.get_assistant_knowledge():
+            if isinstance(entry, dict):
+                assistant_knowledge += (
+                    f"- {entry.get('knowledge', '')} ({entry.get('timestamp', '')})\n"
+                )
+            else:
+                assistant_knowledge += f"- {entry}\n"
+        assistant_knowledge = re.sub(r"\bI\b", speaker_b, assistant_knowledge)
+        return build_memoryos_locomo_native_answer_prompt(
+            query_text=query_text,
+            speaker_a=speaker_a,
+            speaker_b=speaker_b,
+            history_text=history_text,
+            retrieval_text=retrieval_text,
+            background=background,
+            assistant_knowledge=assistant_knowledge,
         )
 
     def _retrieve_context(self, backend: Any, query: str) -> dict[str, Any]:
@@ -858,16 +1037,50 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         非 add_memory 写副作用。
         """
 
-        with self._suppress_stdout_if_needed():
-            return backend.retriever.retrieve_context(
-                user_query=query,
-                user_id=backend.user_id,
-                segment_similarity_threshold=self.config.segment_similarity_threshold,
-                page_similarity_threshold=self.config.page_similarity_threshold,
-                knowledge_threshold=self.config.knowledge_threshold,
-                top_k_sessions=self.config.top_k_sessions,
-                top_k_knowledge=self.config.top_k_knowledge,
-            )
+        retriever = backend.retriever
+        failures: list[str] = []
+        failure_lock = threading.Lock()
+        wrapped_methods: dict[str, Any] = {}
+
+        for method_name in (
+            "_retrieve_mid_term_context",
+            "_retrieve_user_knowledge",
+            "_retrieve_assistant_knowledge",
+        ):
+            original = getattr(retriever, method_name, None)
+            if not callable(original):
+                continue
+
+            def _observed(*args: Any, _name: str = method_name, _call=original, **kwargs: Any):
+                """记录被官方并发聚合吞掉的检索分支异常后原样重抛。"""
+
+                try:
+                    return _call(*args, **kwargs)
+                except Exception:
+                    with failure_lock:
+                        failures.append(_name)
+                    raise
+
+            wrapped_methods[method_name] = original
+            setattr(retriever, method_name, _observed)
+        try:
+            with self._suppress_stdout_if_needed():
+                result = retriever.retrieve_context(
+                    user_query=query,
+                    user_id=backend.user_id,
+                    segment_similarity_threshold=self.config.segment_similarity_threshold,
+                    page_similarity_threshold=self.config.page_similarity_threshold,
+                    knowledge_threshold=self.config.knowledge_threshold,
+                    top_k_sessions=self.config.top_k_sessions,
+                    top_k_knowledge=self.config.top_k_knowledge,
+                )
+        finally:
+            for method_name, original in wrapped_methods.items():
+                setattr(retriever, method_name, original)
+        normalized_result = dict(result)
+        normalized_result["_degraded_retrieval"] = bool(failures)
+        normalized_result["_degraded_retrieval_stages"] = sorted(failures)
+        return normalized_result
 
     # ------------------------------------------------------------------ #
     # backend 构造与隔离
@@ -1018,13 +1231,31 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             list[dict[str, str]]: 每条含 user_input、agent_response、timestamp。
         """
 
-        pages: list[dict[str, str]] = []
+        pages_with_sources = MemoryOS._conversation_to_memory_pages_with_sources(
+            conversation
+        )
+        return [
+            {
+                "user_input": page["user_input"],
+                "agent_response": page["agent_response"],
+                "timestamp": page["timestamp"],
+            }
+            for page in pages_with_sources
+        ]
+
+    @staticmethod
+    def _conversation_to_memory_pages_with_sources(
+        conversation: Conversation,
+    ) -> list[dict[str, Any]]:
+        """转换 MemoryOS page，并保留每页对应的公开 turn ids。"""
+
+        pages: list[dict[str, Any]] = []
         for session in conversation.sessions:
             timestamp = (
                 session.session_time or session.start_time or session.end_time or ""
             )
             for turn in session.turns:
-                content = _turn_text_with_image_captions(turn)
+                content = turn_text_with_images(turn)
                 role = _turn_normalized_role(turn)
                 if role == "user":
                     pages.append(
@@ -1032,17 +1263,20 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                             "user_input": content,
                             "agent_response": "",
                             "timestamp": timestamp,
+                            "source_turn_ids": [turn.turn_id],
                         }
                     )
                 elif role == "assistant":
                     if pages and pages[-1]["agent_response"] == "":
                         pages[-1]["agent_response"] = content
+                        pages[-1]["source_turn_ids"].append(turn.turn_id)
                     else:
                         pages.append(
                             {
                                 "user_input": "",
                                 "agent_response": content,
                                 "timestamp": timestamp,
+                                "source_turn_ids": [turn.turn_id],
                             }
                         )
                 else:
@@ -1054,17 +1288,20 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                                 "user_input": content,
                                 "agent_response": "",
                                 "timestamp": timestamp,
+                                "source_turn_ids": [turn.turn_id],
                             }
                         )
                     elif turn.speaker == speaker_b:
                         if pages and pages[-1]["agent_response"] == "":
                             pages[-1]["agent_response"] = content
+                            pages[-1]["source_turn_ids"].append(turn.turn_id)
                         else:
                             pages.append(
                                 {
                                     "user_input": "",
                                     "agent_response": content,
                                     "timestamp": timestamp,
+                                    "source_turn_ids": [turn.turn_id],
                                 }
                             )
                     else:
@@ -1119,12 +1356,12 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         - second None + first.role!="user"：orphan assistant → user_input=""。
         """
 
-        first_content = self._original_content_from_event(pair.first)
+        first_content = turn_text_with_images(self._turn_from_event(pair.first))
         if pair.second is None:
             if pair.first.role == "user":
                 return first_content, ""
             return "", first_content
-        second_content = self._original_content_from_event(pair.second)
+        second_content = turn_text_with_images(self._turn_from_event(pair.second))
         return first_content, second_content
 
     @staticmethod
@@ -1167,6 +1404,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         metadata = dict(raw) if isinstance(raw, dict) else {}
         metadata["conversation_id"] = conversation_id
         self._conversation_metadata[conversation_id] = metadata
+        self._ensure_sidecar(conversation_id, metadata)
 
     def _register_conversation_metadata(self, conversation: Conversation) -> None:
         """登记 bridge conversation 的公开 metadata。"""
@@ -1174,6 +1412,160 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         self._conversation_metadata[conversation.conversation_id] = {
             **conversation.metadata,
             "conversation_id": conversation.conversation_id,
+        }
+        self._ensure_sidecar(conversation.conversation_id, conversation.metadata)
+
+    def _sidecar_path(self, conversation_id: str) -> Path:
+        """返回单 conversation 的 provenance/speaker sidecar 路径。"""
+
+        return (
+            self.storage_root
+            / _safe_path_name(conversation_id)
+            / MEMORYOS_PROVENANCE_SIDECAR_FILENAME
+        )
+
+    @staticmethod
+    def _is_locomo_metadata(metadata: dict[str, Any]) -> bool:
+        """按公开 speaker_a/speaker_b 字段识别 LoCoMo 身份映射。"""
+
+        return bool(_metadata_text(metadata.get("speaker_a"))) and bool(
+            _metadata_text(metadata.get("speaker_b"))
+        )
+
+    def _ensure_sidecar(
+        self,
+        conversation_id: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        """创建或更新当前 conversation 的 sidecar，并持久化 speaker map。"""
+
+        sidecar = self._sidecars.get(conversation_id)
+        if sidecar is None:
+            path = self._sidecar_path(conversation_id)
+            sidecar = self._read_sidecar(path) if path.is_file() else {
+                "schema_version": MEMORYOS_PROVENANCE_SIDECAR_SCHEMA_VERSION,
+                "speaker_map": None,
+                "pages": {},
+            }
+            self._sidecars[conversation_id] = sidecar
+        if self._is_locomo_metadata(metadata):
+            speaker_map = {
+                "speaker_a": _metadata_text(metadata.get("speaker_a")),
+                "speaker_b": _metadata_text(metadata.get("speaker_b")),
+            }
+            existing = sidecar.get("speaker_map")
+            if existing not in (None, speaker_map):
+                raise ConfigurationError(
+                    "MemoryOS speaker_map conflicts with persisted state: "
+                    f"{conversation_id}"
+                )
+            sidecar["speaker_map"] = speaker_map
+        self._persist_sidecar(conversation_id)
+        return sidecar
+
+    def _load_required_sidecar(self, conversation_id: str) -> dict[str, Any]:
+        """加载 resume 必需 sidecar；旧 state 缺失时 fail-fast。"""
+
+        path = self._sidecar_path(conversation_id)
+        if not path.is_file():
+            raise ConfigurationError(
+                "MemoryOS resume state predates the required provenance sidecar; "
+                "start a new run instead of resuming this state"
+            )
+        sidecar = self._read_sidecar(path)
+        self._sidecars[conversation_id] = sidecar
+        return sidecar
+
+    @staticmethod
+    def _read_sidecar(path: Path) -> dict[str, Any]:
+        """读取并强校验 MemoryOS sidecar。"""
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ConfigurationError(f"Invalid MemoryOS sidecar: {path}") from exc
+        pages = payload.get("pages") if isinstance(payload, dict) else None
+        speaker_map = payload.get("speaker_map") if isinstance(payload, dict) else None
+        valid_speaker_map = speaker_map is None or (
+            isinstance(speaker_map, dict)
+            and all(
+                isinstance(speaker_map.get(key), str) and speaker_map[key]
+                for key in ("speaker_a", "speaker_b")
+            )
+        )
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version")
+            != MEMORYOS_PROVENANCE_SIDECAR_SCHEMA_VERSION
+            or not isinstance(pages, dict)
+            or not valid_speaker_map
+            or not all(
+                isinstance(key, str)
+                and key
+                and isinstance(ids, list)
+                and all(isinstance(turn_id, str) and turn_id for turn_id in ids)
+                for key, ids in pages.items()
+            )
+        ):
+            raise ConfigurationError(f"Invalid MemoryOS sidecar schema: {path}")
+        return payload
+
+    def _persist_sidecar(self, conversation_id: str) -> None:
+        """通过同目录临时文件原子替换 MemoryOS sidecar。"""
+
+        sidecar = self._sidecars[conversation_id]
+        path = self._sidecar_path(conversation_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = path.with_suffix(".tmp")
+        temporary_path.write_text(
+            json.dumps(sidecar, ensure_ascii=True, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary_path, path)
+
+    def _record_page_provenance(
+        self,
+        conversation_id: str,
+        page: dict[str, Any],
+        source_turn_ids: tuple[str, ...],
+        *,
+        persist: bool = True,
+    ) -> None:
+        """把精确 page 文本映射到全部公开来源 turn ids。"""
+
+        sidecar = self._sidecars.get(conversation_id)
+        if sidecar is None:
+            metadata = self._conversation_metadata.get(conversation_id, {})
+            sidecar = self._ensure_sidecar(conversation_id, metadata)
+        key = _memoryos_page_key(page)
+        existing = sidecar["pages"].setdefault(key, [])
+        for turn_id in source_turn_ids:
+            if turn_id not in existing:
+                existing.append(turn_id)
+        if persist:
+            self._persist_sidecar(conversation_id)
+
+    def _speaker_map_for_conversation(
+        self,
+        conversation_id: str,
+    ) -> dict[str, str] | None:
+        """返回持久化 speaker map；LoCoMo 缺失时拒绝静默降级。"""
+
+        metadata = self._conversation_metadata.get(conversation_id, {})
+        is_locomo = self.benchmark_name == "locomo" or self._is_locomo_metadata(metadata)
+        if not is_locomo:
+            return None
+        sidecar = self._sidecars.get(conversation_id)
+        if sidecar is None:
+            sidecar = self._load_required_sidecar(conversation_id)
+        speaker_map = sidecar.get("speaker_map")
+        if not isinstance(speaker_map, dict):
+            raise ConfigurationError(
+                f"MemoryOS LoCoMo speaker_map is missing: {conversation_id}"
+            )
+        return {
+            "speaker_a": str(speaker_map["speaker_a"]),
+            "speaker_b": str(speaker_map["speaker_b"]),
         }
 
     def _call_answer_client(self, prompt: str, question: Question) -> str:
@@ -1220,6 +1612,8 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 def _assemble_memoryos_formatted_memory(
     backend: Any,
     retrieval_results: dict[str, Any],
+    *,
+    speaker_map: dict[str, str] | None = None,
 ) -> str:
     """把短期/中期/长期各层记忆组装成 formatted_memory。
 
@@ -1241,24 +1635,36 @@ def _assemble_memoryos_formatted_memory(
         str: 覆盖短/中/长各层的 formatted_memory。
     """
 
+    speaker_a = speaker_map["speaker_a"] if speaker_map else "User"
+    speaker_b = speaker_map["speaker_b"] if speaker_map else "Assistant"
+
     # 步骤2：短期 history（:269-273）
     short_term_history = backend.short_term_memory.get_all()
-    history_text = "\n".join(
-        [
+    if speaker_map:
+        history_text = "\n".join(
+            f"{speaker_a}: {qa.get('user_input', '')}\n{speaker_b}: {qa.get('agent_response', '')}\nTime:({qa.get('timestamp', '')})"
+            for qa in short_term_history
+        )
+    else:
+        history_text = "\n".join(
             f"User: {qa.get('user_input', '')}\nAssistant: {qa.get('agent_response', '')} (Time: {qa.get('timestamp', '')})"
             for qa in short_term_history
-        ]
-    )
+        )
 
     # 步骤3：中期 retrieved_pages（:276-279）
     retrieved_pages = retrieval_results.get("retrieved_pages") or []
-    retrieval_text = "\n".join(
-        [
+    if speaker_map:
+        retrieval_text = "\n".join(
+            f"【Historical Memory】 {speaker_a}: {page.get('user_input', '')}\n{speaker_b}: {page.get('agent_response', '')}\nTime:({page.get('timestamp', '')})\nConversation chain overview:({page.get('meta_info', '')})\n"
+            for page in retrieved_pages
+            if isinstance(page, dict)
+        )
+    else:
+        retrieval_text = "\n".join(
             f"【Historical Memory】\nUser: {page.get('user_input', '')}\nAssistant: {page.get('agent_response', '')}\nTime: {page.get('timestamp', '')}\nConversation chain overview: {page.get('meta_info', 'N/A')}"
             for page in retrieved_pages
             if isinstance(page, dict)
-        ]
-    )
+        )
 
     # 步骤4：长期 profile（:282-284）
     user_profile_text = backend.user_long_term_memory.get_raw_user_profile(backend.user_id)
@@ -1278,6 +1684,11 @@ def _assemble_memoryos_formatted_memory(
             else:
                 user_knowledge_background += f"- {kn_entry}\n"
     background_context = f"【User Profile】\n{user_profile_text}\n{user_knowledge_background}"
+    if speaker_map:
+        background_context = re.sub(r"(?i)\buser\b", speaker_a, background_context)
+        background_context = re.sub(
+            r"(?i)\bassistant\b", speaker_b, background_context
+        )
 
     # 步骤6：长期 assistant knowledge（:297-302）
     retrieved_assistant_knowledge = (
@@ -1294,6 +1705,10 @@ def _assemble_memoryos_formatted_memory(
                 assistant_knowledge_text += f"- {ak_entry}\n"
     else:
         assistant_knowledge_text += "- No relevant assistant knowledge found for this query.\n"
+    if speaker_map:
+        assistant_knowledge_text = re.sub(
+            r"\bI\b", speaker_b, assistant_knowledge_text
+        )
 
     parts = [history_text, retrieval_text, background_context, assistant_knowledge_text]
     return "\n\n".join(text for text in parts if text and text.strip())
@@ -1360,17 +1775,6 @@ def _turn_normalized_role(turn: Any) -> str | None:
     return None
 
 
-def _turn_text_with_image_captions(turn: Any) -> str:
-    """拼接 turn 文本和可选图片 caption。"""
-
-    content = turn.content or ""
-    captions = [image.caption for image in turn.images if image.caption]
-    if captions:
-        caption_text = "; ".join(captions)
-        return f"{content} (image description: {caption_text})"
-    return content
-
-
 def _metadata_text(value: Any) -> str | None:
     """把 metadata 字段转成非空文本。"""
 
@@ -1378,6 +1782,29 @@ def _metadata_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _memoryos_page_key(page: dict[str, Any]) -> str:
+    """以 pypi 保留的 page 原文生成无损稳定查表键。"""
+
+    return json.dumps(
+        {
+            "agent_response": str(page.get("agent_response") or ""),
+            "user_input": str(page.get("user_input") or ""),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _memoryos_page_content(page: dict[str, Any]) -> str:
+    """把结构化 page 转成 RetrievedItem 可读内容。"""
+
+    return (
+        f"User: {page.get('user_input', '')}\n"
+        f"Assistant: {page.get('agent_response', '')}"
+    )
 
 
 def _safe_path_name(value: str) -> str:

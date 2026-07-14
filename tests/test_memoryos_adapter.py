@@ -21,6 +21,7 @@ from memory_benchmark.config.settings import PathSettings, load_path_settings
 from memory_benchmark.core import (
     Conversation,
     GoldAnswerInfo,
+    ImageRef,
     Question,
     Session,
     Turn,
@@ -36,6 +37,7 @@ from memory_benchmark.core.provider_protocol import (
 from memory_benchmark.methods import build_memoryos_source_identity
 from memory_benchmark.methods import memoryos_adapter as memoryos_adapter_module
 from memory_benchmark.methods.memoryos_adapter import (
+    MEMORYOS_PROVENANCE_SIDECAR_FILENAME,
     MemoryOS,
     MemoryOSPaperConfig,
     clean_memoryos_conversation_state,
@@ -490,6 +492,7 @@ def test_registry_builds_native_v3_provider(tmp_path: Path) -> None:
     assert isinstance(provider, MemoryProvider)
     # registry 按 benchmark 设：locomo→session（speaker 数据），longmemeval→pair
     assert provider.consume_granularity == "session"
+    assert provider.provenance_granularity == "turn"
 
 
 # ---------------------------------------------------------------------- #
@@ -703,10 +706,10 @@ def test_retrieve_assembles_all_memory_layers(
     # 中期层（retrieved_pages）
     assert "Conversation chain overview" in formatted
     # 长期 profile 层
-    assert "【User Profile】" in formatted
+    assert "【Alice Profile】" in formatted
     assert "Alice is a hiking enthusiast." in formatted
     # 长期 user knowledge 层
-    assert "【Relevant User Knowledge Entries】" in formatted
+    assert "【Relevant Alice Knowledge Entries】" in formatted
     assert "Alice works as a software engineer." in formatted
     # 长期 assistant knowledge 层
     assert "【Assistant Knowledge Base】" in formatted
@@ -920,6 +923,158 @@ def test_load_existing_conversation_state_requires_state_directory(tmp_path: Pat
     system = _build_system(tmp_path)
     with pytest.raises(ConfigurationError):
         system.load_existing_conversation_state(conversation)
+
+
+def test_image_ingest_uses_shared_caption_text_and_ignores_query(tmp_path: Path) -> None:
+    """MemoryOS 注入应使用共享 photo tag，且不读取数据构造 query。"""
+
+    conversation = build_small_conversation()
+    conversation.sessions[0].turns[0].images = [ImageRef(caption="a blue bicycle")]
+    conversation.sessions[0].turns[0].metadata["query"] = "hidden construction hint"
+    system = _build_system(tmp_path)
+
+    system.add(conversation)
+
+    page = system.get_debug_state("conv-test").short_term_memory.get_all()[0]
+    assert page["user_input"] == (
+        "I moved to Seattle. [Sharing image that shows: a blue bicycle]"
+    )
+    assert "hidden construction hint" not in page["user_input"]
+
+
+def test_locomo_formatted_memory_and_native_prompt_restore_speaker_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LoCoMo 检索出口与 native prompt 应从持久化映射恢复真实 speaker。"""
+
+    _stub_pypi_embedding(monkeypatch)
+    conversation = build_small_conversation()
+    system = _build_system(
+        tmp_path,
+        consume_granularity="session",
+        benchmark_name="locomo",
+    )
+    _drive_native_ingest(system, conversation, granularity="session")
+    query = memoryos_adapter_module.RetrievalQuery(
+        query_text="Where did Alice move?",
+        isolation_key=default_isolation_key("memoryos-test", "conv-test"),
+        question_time=None,
+        top_k=5,
+        purpose="qa",
+        source_question=conversation.questions[0],
+    )
+
+    result = system.retrieve(query)
+
+    assert "Alice: I moved to Seattle." in result.formatted_memory
+    assert "Bob: Seattle sounds great." in result.formatted_memory
+    assert result.prompt_messages is not None
+    assert "role-playing as Bob" in result.prompt_messages[0].content
+    assert "Recent conversation between Alice and Bob" in result.prompt_messages[1].content
+
+
+def test_non_locomo_formatted_memory_keeps_generic_roles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """非 LoCoMo benchmark 不得引入真实 speaker 身份替换。"""
+
+    _stub_pypi_embedding(monkeypatch)
+    conversation = build_longmemeval_conversation()
+    system = _build_system(tmp_path, benchmark_name="longmemeval")
+    system.add(conversation)
+
+    result = system.retrieve(conversation.questions[0])
+
+    assert "User: I prefer jasmine tea." in result.metadata["answer_context"]
+    assert "Assistant: I will remember that." in result.metadata["answer_context"]
+
+
+def test_retrieved_page_maps_exactly_to_all_duplicate_source_turn_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """重复 page 文本必须返回全部公开来源 id，不能按 rank 任选一条。"""
+
+    _stub_pypi_embedding(monkeypatch)
+    conversation = build_small_conversation()
+    conversation.sessions[0].turns[2].content = "I moved to Seattle."
+    conversation.sessions[0].turns[3].content = "Seattle sounds great."
+    system = _build_system(
+        tmp_path,
+        consume_granularity="session",
+        benchmark_name="locomo",
+    )
+    _drive_native_ingest(system, conversation, granularity="session")
+    backend = system.get_debug_state("conv-test")
+    backend.mid_term_memory.add_session(
+        summary="Seattle",
+        details=[
+            {
+                "user_input": "I moved to Seattle.",
+                "agent_response": "Seattle sounds great.",
+                "timestamp": "2024-01-01",
+            }
+        ],
+    )
+    query = memoryos_adapter_module.RetrievalQuery(
+        query_text="Seattle",
+        isolation_key=default_isolation_key("memoryos-test", "conv-test"),
+        question_time=None,
+        top_k=5,
+        purpose="qa",
+        source_question=conversation.questions[0],
+    )
+
+    result = system.retrieve(query)
+
+    assert result.items
+    assert result.items[0].source_turn_ids == ("D1:1", "D1:2", "D1:3", "D1:4")
+    assert result.items[0].metadata["provenance_match"] == "exact_page_text"
+
+
+def test_resume_rejects_state_without_required_sidecar(tmp_path: Path) -> None:
+    """旧状态缺 sidecar 时必须 fail-fast，不能伪造 provenance 或 speaker。"""
+
+    conversation = build_small_conversation()
+    storage_root = tmp_path / "state"
+    first = _build_system(storage_root)
+    first.add(conversation)
+    sidecar = storage_root / "conv-test" / MEMORYOS_PROVENANCE_SIDECAR_FILENAME
+    sidecar.unlink()
+    resumed = _build_system(storage_root)
+
+    with pytest.raises(ConfigurationError, match="predates the required provenance sidecar"):
+        resumed.load_existing_conversation_state(conversation)
+
+
+def test_retrieval_branch_exception_is_audited_as_degraded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """被 pypi 吞掉的检索分支异常必须进入公开降级 metadata。"""
+
+    _stub_pypi_embedding(monkeypatch)
+    conversation = build_small_conversation()
+    system = _build_system(tmp_path)
+    system.add(conversation)
+    backend = system.get_debug_state("conv-test")
+
+    def fail_mid_term(*args: object, **kwargs: object) -> list[object]:
+        """模拟 embedding 检索分支异常。"""
+
+        raise RuntimeError("embedding failed")
+
+    backend.retriever._retrieve_mid_term_context = fail_mid_term
+
+    result = system.retrieve(conversation.questions[0])
+
+    assert result.metadata["degraded_retrieval"] is True
+    assert result.metadata["degraded_retrieval_count"] == 1
+    assert result.metadata["degraded_retrieval_stages"] == [
+        "_retrieve_mid_term_context"
+    ]
 
 
 if __name__ == "__main__":

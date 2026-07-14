@@ -86,6 +86,22 @@ def test_mem0_native_config_track_rejects_single_track_grid(
         resolve_config_track("mem0", benchmark, "native")
 
 
+def test_memoryos_native_config_track_is_locomo_only_without_native_judge() -> None:
+    """MemoryOS 只注册 LoCoMo readout-native，官方无 LLM judge 用 None 表达。"""
+
+    bundle = resolve_config_track("memoryos", "locomo", "native")
+
+    assert bundle is not None
+    assert bundle.answer_prompt_source == "provider_prompt_messages"
+    assert bundle.answer_llm_settings.model == "gpt-4o-mini"
+    assert bundle.answer_llm_settings.temperature == 0.7
+    assert bundle.answer_llm_settings.max_tokens == 2000
+    assert bundle.judge_profile is None
+    assert bundle.hyperparam_ref == "memoryos.paper.locomo.disputed-build-profile-v1"
+    with pytest.raises(ConfigurationError, match="No native config-track bundle"):
+        resolve_config_track("memoryos", "longmemeval", "native")
+
+
 def test_config_track_rejects_unknown_track() -> None:
     """配置轨名称只接受政策定义的两个值。"""
 
