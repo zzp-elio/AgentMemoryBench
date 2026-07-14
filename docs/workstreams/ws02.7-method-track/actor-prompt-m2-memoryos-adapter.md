@@ -18,14 +18,32 @@ cd /Users/wz/Desktop/mb-actor-m2mos && uv sync
 
 ## 1. 架构师裁决（R1-R6,2026-07-14,与用户对齐后定）
 
-- **R1 locomo speaker 注入**:维持 session 粒度 adapter 自配对
-  (speaker_a→user_input 侧,官方 eval 同构,M1 §3);**新增:两侧 content
-  一律加身份前缀 `{speaker}: {text}`**(mem0 官方同款姿势;身份从 prompt
-  层的角色扮演移到数据层内化——unified 轨没有角色扮演,记忆文本必须
-  自带归属)。native 轨随之偏离官方 eval 的裸文本,**在 note 与 native
-  bundle 注释里声明该偏差及理由**。"只喂 user_input 侧+改 STM→MTM
-  闸口"方案**驳回**:要改 third_party 算法核心(红线)、assistant KB 恒空、
-  两名 speaker 画像混一。
+- **R1 locomo speaker 注入(2026-07-14 二次修订,用户方案胜出)**:
+  **ingest 裸文本 + 检索出口身份映射**,完全镜像官方 eval 姿势
+  (`main_loco_parse.py` 架构师逐段核过):
+  1. ingest:维持 session 粒度 adapter 自配对(speaker_a→user_input 槽/
+     另一 speaker→agent_response 回填,官方 :159-200 同构);content
+     **不加任何 speaker 前缀**(官方裸文本);image caption 按官方拼
+     `{text} (image description: {caption})`(官方 :180-181)。
+  2. speaker 映射持久化:locomo conversation metadata 已有 speaker_a/
+     speaker_b(`benchmark_adapters/locomo.py:160-161`);映射须随
+     method state 持久化(建议并入 R4 sidecar 同文件加 `speaker_map`
+     字段),resume 后缺失 **fail-fast**——检索时才用得到它,不能靠
+     ingest 期内存缓存。
+  3. formatted_memory 出口映射(改造点=M1 §7 锚的 :1244-1299 构造处):
+     STM/检索 page 按官方 `{speaker_a}: {user_input}\n{speaker_b}:
+     {agent_response}\nTime:({timestamp})` 拼法(官方 :88-96);
+     profile/knowledge 段按**官方三正则**回写身份:
+     `re.sub(r'(?i)\buser\b', speaker_a, ...)`、
+     `(?i)\bassistant\b→speaker_b`、`\bI\b→speaker_b`(官方 :105-113)。
+     非 locomo benchmark(真 user/assistant 身份)formatted_memory 维持
+     现状文本,不引入映射。
+  4. native prompt_messages:R6 资产化的官方 answer prompt 本就带
+     speaker 占位(system 角色扮演),运行时用同一份映射填充。
+  历史记录:上版 R1(content 前缀 `{speaker}: {text}`)**作废**——前缀会
+  进抽取/摘要/embedding 改变方法内部行为;官方自己就是"槽位隐含身份+
+  出口拼名字",无须发明。"只喂 user_input 侧+改 STM→MTM 闸口"方案
+  维持驳回(third_party 算法红线、assistant KB 恒空、画像混一)。
 - **R2 unified prompt 不动**:公平性=同一把尺子,角色扮演只存在于 native
   轨的官方 answer prompt 资产里。
 - **R3 超参**:unified 轨维持 pypi 默认(现 TOML 不动);**native LoCoMo
@@ -54,10 +72,19 @@ cd /Users/wz/Desktop/mb-actor-m2mos && uv sync
   注册配置(mem0 M4 判例:factory 传 context.benchmark_name),禁数据形态
   启发式。
 
+- **R7 image 注入口径(2026-07-14 新增,用户提案裁定)**:
+  **各 method 抄各自官方姿势,框架不发明统一格式**;memoryos=官方
+  `(image description: {caption})`(并入 R1 第 1 点);**`query` 字段
+  全局禁用**(locomo 数据构造副产物、非对话可观测内容,用户裁定)。
+  本卡外登记:mem0 现状裸拼 caption=B2 缺口(官方有
+  `[Sharing image that shows: {blip}]` 包装),属 mem0 解冻件另办;
+  lightmem 官方 image 姿势待核。
+
 ## 2. 施工顺序建议
-①R1 前缀(两条 ingest 路径:_ingest_pair 与 session 配对处)+既有测试
-调整;②R4 sidecar+items+注册声明;③R5 标记;④R6 prompts 资产+bundle+
-parity 锁;⑤新老测试全绿。
+①R1(裸文本确认+speaker_map 持久化+出口映射三处:page 拼法/三正则/
+image 官方格式)+既有测试调整;②R4 sidecar+items+注册声明;③R5 标记;
+④R6 prompts 资产+bundle+parity 锁(角色扮演 system 的 speaker 占位
+运行时填充);⑤新老测试全绿(出口映射需 locomo 与非 locomo 双形态测试)。
 
 ## 3. 完成门
 目标测试+compileall 全绿(报数字);note=裁决执行记录+锚表+native 偏差

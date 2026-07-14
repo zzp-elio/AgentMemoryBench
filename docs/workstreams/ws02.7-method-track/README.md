@@ -15,6 +15,22 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**R1 二次修订(用户方案胜出)+ R7 image 裁决,M2 卡定稿
+  待派**，Fable 5,周额度剩 11%）：① **R1 推翻重裁**:用户提出"ingest
+  裸文本+检索出口身份映射"方案,架构师逐段核 `main_loco_parse.py`
+  证实=**官方 eval 姿势的忠实迁移**(ingest :159-200 裸文本+槽位配对;
+  出口 :88-96 拼 `{speaker_a}: {user_input}...`;**profile/knowledge 段
+  官方用三正则回写身份** :105-113——user→speaker_a/assistant→speaker_b/
+  I→speaker_b,金子级发现照抄)。旧 R1(content 前缀)作废:前缀会进
+  抽取/摘要/embedding 改变方法内部行为,官方槽位方案无须发明。新增
+  要求:speaker_map 随 state 持久化(并入 sidecar),resume 缺失
+  fail-fast。② **R7 image 裁决(用户提案)**:各 method 抄各自官方
+  姿势(memoryos=`(image description: {caption})`),框架不发明统一
+  格式;**query 字段全局禁用**(数据构造副产物非对话内容);
+  **mem0 image 现状=B2 缺口登记**(裸拼 caption,官方有 `[Sharing
+  image that shows: {blip}]` 包装)→ mem0 解冻件待办(改+locomo 格
+  重跑);lightmem image 官方姿势待核=登记。③ M2 卡定稿
+  (R1 修订版+R7 内嵌),**用户尚未派发,下一动作=派卡→回卡强验收**。
 - 2026-07-14（**M2-memoryos 裁决 R1-R6 + 施工卡写就**，Fable 5,用户 5h
   额度剩 10%,单批处理收束）：① **R1 speaker 内化**:维持 session 粒度
   adapter 自配(官方同构;框架不做通用 speaker 配对的理由=配对规则是
