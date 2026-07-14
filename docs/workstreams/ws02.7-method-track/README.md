@@ -15,6 +15,28 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**M0-11 验收合入（1139 passed）+ offline_update 覆盖面核证 +
+  TOML 双轨归属核证 + playbook #20**，Fable 5）：① **M0-11 通过 ff 合入**
+  （77ec269,actor 5min 交卡）：collector 容忍变体在 question scope 委托原
+  严格方法（等价性测试逐字段断言）,五处机械替换,operation-level 回归测试
+  真实走 update probe 路径。架构师补一行嵌套 helper 中文 docstring
+  （文档标准测试不在 actor 定向范围,worktree 盲点又一例）→ **主树权威复跑
+  1139 passed 全绿**;worktree/分支已清。**s1 现在解封,用户可重跑（换新
+  run_id 避开残留 run 目录）**。② **offline_update 覆盖面核证（用户追问
+  问出来的,结论=无缺口,姿态是官方镜像）**：locomo 官方主流程集成
+  offline update（add_locomo.py:445-451,官方 0.9 论文值）,lme 官方主管线
+  **不含**（run_lightmem_gpt.py=complete pipeline;offline_update.py=官方
+  自称 utility script 演示件）→ 我们 locomo 跑/lme 不跑=镜像官方;
+  membench/beam 无官方实验采 lme 轻姿态;已写进 lightmem.md B2。
+  ③ **TOML 双轨归属核证**：configs/methods/lightmem.toml 头注释即证据
+  （ws02.5 方案 B:extract 0.5/offline 0.8 = repo 默认,旧 paper 硬编码
+  0.1/0.9 已弃用;retrieve_limit=60 是 LoCoMo 报告口径=混合,留档
+  method-interface-inventory）;native bundle 显式声明
+  hyperparam_ref="lightmem.repo_default"（config_track.py:45-46）→ 已跑的
+  native run = 口径面 native + build 面 repo 默认,**声明过的缺口非疏漏**。
+  ④ playbook **#20 派发经济学**落盘（用户叮嘱:必留=裁决/强验收/跨切面
+  设计,其余写卡派出）。⑤ hook 机械化提案待用户拍板（commit 前 §14 三问
+  提醒 hook,见会话讨论）。
 - 2026-07-14（**halumem smoke 双失败取证 + M0-11/M0-12 双卡写就 + 双轨政策
   议程登记**，Fable 5，压缩后新会话）：① **s1 失败根因实锤（M0-11 卡待派，
   通关线阻塞项）**：halumem 走 operation-level runner，update probe 在

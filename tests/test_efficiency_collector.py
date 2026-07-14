@@ -40,6 +40,8 @@ def test_scope_tolerant_retrieval_matches_strict_method_in_question_scope() -> N
     """question scope 内，容忍变体应与严格方法生成逐字段相同的 observation。"""
 
     def collect(*, tolerant: bool) -> dict[str, object]:
+        """用指定记录方法跑一遍 question scope 并返回首条 observation。"""
+
         collector = EfficiencyCollector(run_id="run-equivalent", enabled=True)
         with collector.question_scope("conv-1", "q-1") as scope:
             record = (
