@@ -42,7 +42,7 @@
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅ | ✅turn | ✅offline | ✅ | ✅ | ✅分叉 | ✅ | ✅ | **v1** |
-| [Mem0](integration/mem0.md) | ✅ | 🟡 | ✅ | ✅混合(par2实弹) | ✅M3对话时间(s2实弹复证) | ✅turn(首个非零recall) | ✅零flush | 🟡 | 🟡韧性清单B8+待列 | ✅ | 🟡M4施工中(BEAM裁决A) | 🟡六格全指标评完;par2 membench✅,余3条已交用户;native待M4 | ⬜ |
+| [Mem0](integration/mem0.md) | ✅ | 🟡 | ✅ | ✅混合(par2×4实弹) | ✅M3对话时间(s2实弹复证) | ✅turn(首个非零recall) | ✅零flush | 🟡 | 🟡韧性清单B8+待列 | ✅ | 🟡M4合入,native三格smoke待跑 | 🟡六格全指标评完+par2四格✅;余native三格 | ⬜ |
 | [MemoryOS](integration/memoryos.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |

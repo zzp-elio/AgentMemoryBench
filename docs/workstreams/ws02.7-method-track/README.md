@@ -15,6 +15,26 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**par2 三格全绿（B11⑤ 收口）+ M4 复工验收合入 + 防线分层
+  答复**，Fable 5）：① **locomo/lme/beam-100k par2 开箱全绿**（用户跑,
+  各 2/2;workers=2+provenance 章+双 worker sidecar 三格齐）——**B11⑤
+  并行冒烟四格全齐**（membench/locomo/lme/beam-100k;halumem N/A 判例;
+  10m 由 100k 覆盖声明）。插曲:用户忘贴三条结果,架构师直接读 tee 日志
+  完成开箱=**tee 纪律的结构性价值现场证明**（防线不靠人记性）。
+  ② **M4 复工验收合入**（082aa00+3c00a0c cherry-pick → e9adeeb/181328d）:
+  identity 显式优先+启发式回落零回归;`_mem0_bundle` 三格注册,模型统一
+  （R3）,judge parity 测试锁**实际调用 builder**（陷阱#1 意识内化）;
+  BEAM builder `top_k=None` 疑点架构师核官方源结案（builder 内 top_k 只做
+  切片不进文本,框架检索已截,None=正确）;文档标准盲点第四例又未出现。
+  reader v3→v4。unified 字节不变有测试钉死。③ **native 三格 smoke 命令
+  交用户**（mem0-{locomo,lme,beam}-native-s1）;跑通后 B10 收口,然后
+  对表输出缺项清单→frozen note。④ **"用户不能提醒一辈子"答复落档**:
+  防线分层=**产物驱动**（对表输出是 frozen note 必要组成,不填不成文）>
+  时刻表（使用时重读）> 用户抓漏（最后防线,不该是常用防线）;错误代价
+  分级=流程漏项（漏跑一格）天然可逆、补跑即愈,会让项目"完蛋"的数据
+  正确性错误已全部压在代码级硬校验上（私有数据 4 层/manifest 严格比对/
+  fail-fast/parity 锁）——体系设计目标从来不是"架构师不犯错",是"可逆
+  错误廉价暴露、不可逆错误结构性拦截"。
 - 2026-07-14（**par2 通过（M0-10 挂账清）+ M4 停工裁决（方案 A 扩卡）+
   时刻表机制**，Fable 5）：① **membench par2 开箱全绿**（用户跑,4/4,
   两 worker 各自加载模型=真并行）：manifest `max_workers=2` + provenance=
