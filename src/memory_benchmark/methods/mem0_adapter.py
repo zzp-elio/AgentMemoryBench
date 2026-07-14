@@ -67,7 +67,7 @@ from memory_benchmark.observability.efficiency import (
 
 MEM0_METHOD_DIRECTORY = "mem0-main"
 MEM0_ADAPTER_VERSION = "conversation-qa-v1"
-MEM0_READER_PROMPT_VERSION = "mem0-memory-benchmarks-reader-v2"
+MEM0_READER_PROMPT_VERSION = "mem0-memory-benchmarks-reader-v3"
 MEM0_PROVENANCE_SIDECAR_SCHEMA_VERSION = 1
 MEM0_PROVENANCE_SIDECAR_FILENAME = "provenance-sidecar.json"
 VALID_MESSAGE_ROLES = {"user", "assistant"}
@@ -1028,6 +1028,14 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                     score=memory.get("score"),
                     timestamp=memory.get("created_at"),
                     source_turn_ids=self._source_turn_ids_for_memory(memory["id"]),
+                    metadata={
+                        "timestamp_source": memory["timestamp_source"],
+                        **(
+                            {"storage_created_at": memory["storage_created_at"]}
+                            if memory.get("storage_created_at")
+                            else {}
+                        ),
+                    },
                 )
                 for memory in memories
             ),
@@ -1528,7 +1536,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
 
     @staticmethod
     def _normalize_search_results(raw_result: Any) -> list[dict[str, Any]]:
-        """把 Mem0 不同版本的 search 返回值归一化为记忆字典列表。"""
+        """归一化 search 结果，并把写入 metadata 的对话时间提升给 reader。"""
 
         if isinstance(raw_result, dict):
             results = raw_result.get("results", [])
@@ -1544,12 +1552,62 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
             memory = item.get("memory") or item.get("content")
             if memory is None or not str(memory).strip():
                 continue
+            metadata = item.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+            payload = item.get("payload")
+            if not isinstance(payload, dict):
+                payload = {}
+
+            def _time_value(field_name: str) -> str | None:
+                """按 search 顶层、metadata、payload 顺序读取非空时间文本。"""
+
+                for source in (item, metadata, payload):
+                    value = source.get(field_name)
+                    if value is not None and str(value).strip():
+                        return str(value).strip()
+                return None
+
+            storage_created_at = _time_value("created_at")
+            timestamp_source = "none"
+            dialogue_timestamp = None
+            for field_name in (
+                "session_time",
+                "first_turn_time",
+                "turn_time",
+                "timestamp",
+            ):
+                dialogue_timestamp = _time_value(field_name)
+                if dialogue_timestamp is not None:
+                    timestamp_source = field_name
+                    break
+            if dialogue_timestamp is None and storage_created_at is not None:
+                dialogue_timestamp = storage_created_at
+                timestamp_source = "created_at"
+
+            preserved_times = {
+                field_name: value
+                for field_name in (
+                    "session_time",
+                    "first_turn_time",
+                    "last_turn_time",
+                    "turn_time",
+                    "timestamp",
+                )
+                if (value := _time_value(field_name)) is not None
+            }
             normalized.append(
                 {
                     "id": str(item.get("id") or "").strip(),
                     "memory": str(memory).strip(),
                     "score": item.get("score"),
-                    "created_at": item.get("created_at"),
+                    # 官方三套 benchmark answer prompt 都从 created_at 读取对话
+                    # 时间；本地 OSS 的 created_at 是存储墙钟，因此在 adapter
+                    # 边界提升写入 metadata 的对话时间，并另存墙钟供审计。
+                    "created_at": dialogue_timestamp,
+                    "storage_created_at": storage_created_at,
+                    "timestamp_source": timestamp_source,
+                    **preserved_times,
                 }
             )
         return normalized
@@ -1809,7 +1867,16 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
     def _memory_context_text(memories: list[dict[str, Any]]) -> str:
         """返回实际注入 reader prompt 的记忆文本；无记忆时为空串。"""
 
-        return "\n".join(f"- {memory['memory']}" for memory in memories)
+        lines: list[str] = []
+        for memory in memories:
+            timestamp = memory.get("created_at")
+            if timestamp:
+                # Mem0 旧论文评测路径使用 "timestamp: memory"；保留项目既有
+                # bullet 外壳，使无时间记忆的文本字节保持不变。
+                lines.append(f"- {timestamp}: {memory['memory']}")
+            else:
+                lines.append(f"- {memory['memory']}")
+        return "\n".join(lines)
 
     @staticmethod
     def _extract_reader_answer(response: Any) -> str:

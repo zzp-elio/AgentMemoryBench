@@ -1160,6 +1160,96 @@ def test_mem0_provenance_sidecar_maps_turn_and_chunk_ids(tmp_path: Path) -> None
     assert get_method_registration("mem0").provenance_granularity == "turn"
 
 
+def test_mem0_retrieve_promotes_dialogue_time_from_search_metadata(
+    tmp_path: Path,
+) -> None:
+    """检索应优先用对话 session_time，并保留存储墙钟供审计。"""
+
+    backend = FakeMemoryBackend()
+    backend.search_results = [
+        {
+            "id": "m1",
+            "memory": "Alice planned a trip.",
+            "score": 0.91,
+            "created_at": "2026-07-14T07:39:30Z",
+            "metadata": {
+                "session_time": "2024-03-15T00:00:00",
+                "first_turn_time": "2024-03-15T09:30:00",
+            },
+        }
+    ]
+    provider = Mem0(
+        config=Mem0Config.smoke(),
+        storage_root=tmp_path,
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+    )
+    event = tuple(build_turn_events(_build_conversation(), "run_conv-1"))[0]
+    provider.ingest(event)
+
+    result = provider.retrieve(
+        RetrievalQuery(
+            isolation_key="run_conv-1",
+            query_text="trip",
+            question_time=None,
+            top_k=20,
+            purpose="qa",
+        )
+    )
+
+    assert result.formatted_memory == (
+        "- 2024-03-15T00:00:00: Alice planned a trip."
+    )
+    assert result.items[0].timestamp == "2024-03-15T00:00:00"
+    assert result.items[0].metadata == {
+        "timestamp_source": "session_time",
+        "storage_created_at": "2026-07-14T07:39:30Z",
+    }
+
+
+def test_mem0_retrieve_falls_back_to_created_at_for_legacy_memory(
+    tmp_path: Path,
+) -> None:
+    """旧记忆没有对话时间时应回退 created_at，并显式标记来源。"""
+
+    backend = FakeMemoryBackend()
+    backend.search_results = [
+        {
+            "id": "m1",
+            "memory": "Alice planned a trip.",
+            "score": 0.91,
+            "created_at": "2023-05-08T13:56:00",
+        }
+    ]
+    provider = Mem0(
+        config=Mem0Config.smoke(),
+        storage_root=tmp_path,
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+    )
+    event = tuple(build_turn_events(_build_conversation(), "run_conv-1"))[0]
+    provider.ingest(event)
+
+    result = provider.retrieve(
+        RetrievalQuery(
+            isolation_key="run_conv-1",
+            query_text="trip",
+            question_time=None,
+            top_k=20,
+            purpose="qa",
+        )
+    )
+
+    assert result.formatted_memory == (
+        "- 2023-05-08T13:56:00: Alice planned a trip."
+    )
+    assert result.items[0].timestamp == "2023-05-08T13:56:00"
+    assert result.items[0].metadata == {
+        "timestamp_source": "created_at",
+        "storage_created_at": "2023-05-08T13:56:00",
+    }
+
+
 def test_mem0_resume_requires_persisted_provenance_sidecar(tmp_path: Path) -> None:
     """旧 state 没有 sidecar 时必须 fail-fast，禁止 rank-index 伪造来源。"""
 
@@ -1361,7 +1451,8 @@ def test_get_answer_uses_mem0_locomo_official_answer_prompt() -> None:
             "id": "m1",
             "memory": "Alice likes jasmine tea.",
             "score": 0.91,
-            "created_at": "2023-05-08T13:56:00",
+            "created_at": "2026-07-14T07:39:30Z",
+            "metadata": {"session_time": "2023-05-08T13:56:00"},
         }
     ]
     reader = FakeReaderClient(answer="ANSWER: jasmine tea")
@@ -1388,6 +1479,7 @@ def test_get_answer_uses_mem0_locomo_official_answer_prompt() -> None:
     assert "## Step 1: SCAN ALL MEMORIES" in prompt
     assert "These conversations took place around 2023-05-10T10:00:00" in prompt
     assert "(Monday, May 08, 2023) Alice likes jasmine tea." in prompt
+    assert "2026-07-14" not in prompt
     assert "Question: What kind of tea does Alice like?" in prompt
 
 
