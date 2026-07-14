@@ -48,7 +48,10 @@ from memory_benchmark.core.provider_protocol import (
     UnitRef,
 )
 from memory_benchmark.core.validators import validate_dataset, validate_no_private_keys
-from memory_benchmark.methods.registry import MethodBuildContext
+from memory_benchmark.methods.registry import (
+    MethodBuildContext,
+    resolve_registered_factory_provenance_granularity,
+)
 from memory_benchmark.observability import (
     ProgressReporter,
     RunContext,
@@ -376,11 +379,17 @@ def run_predictions(
 
     system = _normalize_memory_system(system)
     prompt_track = "unified" if unified_prompt_builder is not None else "native"
+    declared_provenance_granularity = (
+        resolve_registered_factory_provenance_granularity(system_factory)
+        if system_factory is not None
+        else None
+    )
     method_manifest = _method_manifest_with_protocol(
         method_manifest=method_manifest,
         protocol_version=protocol_version,
         prompt_track=prompt_track,
         system=system,
+        provenance_granularity=declared_provenance_granularity,
     )
     dataset_fingerprint, manifest = _build_prediction_resume_artifacts(
         dataset=dataset,
@@ -1212,11 +1221,13 @@ def _method_manifest_with_protocol(
     protocol_version: str = "",
     prompt_track: str = "native",
     system: BaseMemorySystem | MemoryProvider | None = None,
+    provenance_granularity: str | None = None,
 ) -> dict[str, object]:
     """按注册声明协议版本补充 manifest 协议身份字段。
 
     首选路径：显式 protocol_version（来自 MethodRegistration.protocol_version），
     保证 workers>1 路径中不需要真实 method 实例也能正确盖章。
+    provenance_granularity 同样优先使用注册级静态声明；未声明时才读取实例。
     回退路径：当 protocol_version 为空且 system 可用时，沿用旧 isinstance 推断，
     用于未通过注册表的测试/自定义路径向后兼容。
     """
@@ -1234,8 +1245,9 @@ def _method_manifest_with_protocol(
     normalized.setdefault("protocol_version", protocol_version)
     normalized.setdefault("prompt_track", prompt_track)
     normalized.setdefault("profile", {})
-    if isinstance(system, MemoryProvider):
+    if provenance_granularity is None and isinstance(system, MemoryProvider):
         provenance_granularity = system.provenance_granularity
+    if provenance_granularity is not None:
         if provenance_granularity not in ("none", "session", "turn"):
             raise ConfigurationError(
                 f"Provider declares unknown provenance_granularity="

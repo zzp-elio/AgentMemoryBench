@@ -13,7 +13,11 @@ from memory_benchmark.core import Conversation, Session, Turn
 from memory_benchmark.methods.amem_adapter import AMemConfig
 from memory_benchmark.methods.lightmem_adapter import LightMemConfig
 from memory_benchmark.methods import registry as method_registry_module
-from memory_benchmark.methods.registry import MethodBuildContext, get_method_registration
+from memory_benchmark.methods.registry import (
+    MethodBuildContext,
+    get_method_registration,
+    resolve_registered_factory_provenance_granularity,
+)
 
 
 def test_amem_is_registered_for_conversation_qa() -> None:
@@ -57,6 +61,13 @@ def test_lightmem_is_registered_for_conversation_qa() -> None:
     assert "smoke" in registration.profile_names
     assert "official-full" in registration.profile_names
     assert registration.requires_api is True
+    assert registration.provenance_granularity == "turn"
+    assert (
+        resolve_registered_factory_provenance_granularity(
+            registration.system_factory
+        )
+        == "turn"
+    )
 
 
 def test_lightmem_registration_exposes_efficiency_contract() -> None:

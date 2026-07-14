@@ -103,6 +103,7 @@ class MethodRegistration:
         display_name: 用于 CLI、manifest 和报错的人类可读 method 名称。
         protocol_version: method 显式声明的 provider 协议版本，供 manifest 盖章与
             worker 运行时交叉校验使用。
+        provenance_granularity: 可选静态 provenance 粒度；为空时沿用实例声明。
         workload_estimator: 可选的公开工作量估算 hook。
         allow_smoke_worker_override: 是否允许 smoke worker 覆盖（CLI `--workers`）配置值。
         efficiency_model_inventory_getter: 启用效率观测时生成模型清单。
@@ -125,6 +126,7 @@ class MethodRegistration:
     max_workers_getter: Callable[[Any], int]
     display_name: str
     protocol_version: str
+    provenance_granularity: str | None = None
     workload_estimator: Callable[[Conversation, Any], int] | None = None
     allow_smoke_worker_override: bool = False
     efficiency_model_inventory_getter: (
@@ -792,6 +794,7 @@ _REGISTRATIONS = {
         max_workers_getter=_lightmem_max_workers,
         display_name="LightMem",
         protocol_version="v3",
+        provenance_granularity="turn",
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_lightmem_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(
@@ -883,6 +886,17 @@ def get_method_registration(method_name: str) -> MethodRegistration:
         ) from exc
 
 
+def resolve_registered_factory_provenance_granularity(
+    system_factory: Callable[[MethodBuildContext], BaseMemorySystem],
+) -> str | None:
+    """按注册 factory 身份返回静态 provenance 粒度，未注册时返回 None。"""
+
+    for registration in _REGISTRATIONS.values():
+        if registration.system_factory is system_factory:
+            return registration.provenance_granularity
+    return None
+
+
 def load_method_profile(
     method_name: str,
     profile_name: str,
@@ -923,4 +937,5 @@ __all__ = [
     "get_method_registration",
     "list_methods",
     "load_method_profile",
+    "resolve_registered_factory_provenance_granularity",
 ]

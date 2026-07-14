@@ -58,6 +58,7 @@ from memory_benchmark.methods.mock import MockMemoryProvider
 from memory_benchmark.runners.ingest_resume import TurnIngestCheckpointStore
 from memory_benchmark.runners.prediction import (
     PredictionRunPolicy,
+    _manifests_match_for_resume,
     _method_manifest_with_protocol,
     _validate_protocol_version,
     run_predictions,
@@ -3476,6 +3477,65 @@ def test_method_manifest_with_protocol_setdefault_preserves_caller_values() -> N
     assert result["protocol_version"] == "v2-bridged"
     assert result["prompt_track"] == "unified"
     assert result["profile"] == {"checkpointing": False}
+
+
+def test_parallel_manifest_uses_lightmem_registration_provenance() -> None:
+    """system=None 的并行协调路径应从 LightMem 注册声明盖 provenance 章。"""
+
+    from memory_benchmark.methods.registry import get_method_registration
+
+    registration = get_method_registration("lightmem")
+    result = _method_manifest_with_protocol(
+        method_manifest={},
+        protocol_version=registration.protocol_version,
+        system=None,
+        provenance_granularity=registration.provenance_granularity,
+    )
+
+    assert result["provenance_granularity"] == "turn"
+
+
+def test_serial_manifest_keeps_provider_provenance_fallback() -> None:
+    """串行路径未传静态声明时仍应读取 provider 实例的 provenance。"""
+
+    result = _method_manifest_with_protocol(
+        method_manifest={},
+        protocol_version="v3",
+        system=RecordingV3TurnProvider(),
+    )
+
+    assert result["provenance_granularity"] == "turn"
+
+
+def test_declared_manifest_provenance_rejects_unknown_value() -> None:
+    """注册级 provenance 非法值仍应 fail-fast。"""
+
+    with pytest.raises(ConfigurationError, match="unknown provenance_granularity"):
+        _method_manifest_with_protocol(
+            method_manifest={},
+            protocol_version="v3",
+            system=None,
+            provenance_granularity="paragraph",
+        )
+
+
+def test_resume_manifest_compare_accepts_new_provenance_field() -> None:
+    """旧 run 缺 provenance 字段时应与新代码生成的 manifest 兼容。"""
+
+    old_manifest = {
+        "schema_version": 2,
+        "method": {"protocol_version": "v3", "profile": {}},
+    }
+    new_manifest = {
+        "schema_version": 2,
+        "method": {
+            "protocol_version": "v3",
+            "profile": {},
+            "provenance_granularity": "turn",
+        },
+    }
+
+    assert _manifests_match_for_resume(old_manifest, new_manifest) is True
 
 
 # ---- _validate_protocol_version (cross-validation in worker) ----
