@@ -15,6 +15,25 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**M2-memoryos 裁决 R1-R6 + 施工卡写就**，Fable 5,用户 5h
+  额度剩 10%,单批处理收束）：① **R1 speaker 内化**:维持 session 粒度
+  adapter 自配(官方同构;框架不做通用 speaker 配对的理由=配对规则是
+  method 身份,memoryos 官方是回填式非严格交替,框架强加一种语义反而
+  失真)+**两侧 content 加 `{speaker}: {text}` 前缀**(mem0 官方同款;
+  unified 无角色扮演,身份必须数据层内化);native 轨随之偏离官方裸文本,
+  声明之。**用户"只喂 user 侧+改闸口"方案驳回**(third_party 算法红线+
+  assistant KB 恒空+两人画像混一)。② **R2 unified prompt 不动**(同一
+  把尺子;角色扮演只进 native 资产)。③ **R3 超参**:unified=pypi 默认
+  不动;native LoCoMo bundle=paper 值(作者 issue paper 优先;MTM 语义
+  歧义与 filter 阈值标 DISPUTED+注释);**澄清用户"直接改 eval/ 参数"
+  提议:eval/ 不被运行(native 跑 adapter+pypi 引擎),bundle 配置即
+  "用论文参数"的落地点,third_party 保持零 diff**。④ R4=provenance
+  升 turn(page 文本反查 sidecar,mem0 M2 样板);R5=embedding 降级
+  可审计标记;R6=native bundle 并入本卡(角色扮演 system 逐字资产化;
+  **judge=无→native 评测=免费 f1**;identity 显式配置判例复用)。
+  ⑤ **M2-memoryos 施工卡写就待派**(`actor-prompt-m2-memoryos-adapter.md`,
+  裁决块内嵌);A-mem 前瞻已知:官方姿势=`Speaker {X} says : {text}`
+  content 内化(用户一手核),其 M 阶段照抄自家姿势即可。
 - 2026-07-14（**M1-memoryos 验收合入 + 三项用户疑问硬答案落档**，
   Fable 5）：① **M1 note 验收合入**（2785f00→160e38b,七节全锚质量高:
   eval/ vs pypi 八维代码差距、超参三岔口表(STM 7/1/10 三岔、queue
