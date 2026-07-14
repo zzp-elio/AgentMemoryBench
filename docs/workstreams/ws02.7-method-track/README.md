@@ -15,6 +15,33 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**M1-memoryos 验收合入 + 三项用户疑问硬答案落档**，
+  Fable 5）：① **M1 note 验收合入**（2785f00→160e38b,七节全锚质量高:
+  eval/ vs pypi 八维代码差距、超参三岔口表(STM 7/1/10 三岔、queue
+  10/10/7 pypi 失配、eval α/β/γ 失配论文、filter 阈值 DISPUTED)、
+  官方 LoCoMo native 面=单格+answer gpt-4o-mini/0.7/2000+**无 judge=
+  本地 token-set F1(native 格评测免费!)**、B5+ page 文本反查三步落点、
+  B8+ gap=embedding 下载韧性+**retrieve embedding 异常静默降级空列表
+  无 manifest 痕(比 mem0 BM25 降级更重,M2 须给可审计信号)**）。
+  ② **缺时间戳答复(用户忘了当初处理)**:dataset-quirks.md 统一约定=
+  **turn 无时间→session 时间兜底**;membench 原生无 session 级时间→
+  100% 派生自首个带时间 turn,noise 消息 72-96% 无时间→兜底,
+  2026-07-11 全量扫描证实**零时间戳 trajectory=0 兜底永不落空**;
+  beam probing question 无时间=官方 prompt 无时间槽,parity 不注入——
+  即"不传"只发生在官方本来就不用的位置。③ **locomo speaker A/B 三家
+  姿势硬答案(用户尖锐问)**:mem0=role 仅 API 结构标记(首现=user 交替),
+  **身份保留在 content 前缀 `{speaker}: `**(adapter:1391-1421,官方
+  harness 同款)零丢失;lightmem=speaker 字段全程透传+检索侧
+  `_retrieved_speaker` 分组;memoryos=官方硬编码 user_input/
+  agent_response 二元,adapter 镜像官方 eval 姿势(speaker_a→user 侧,
+  unknown fail-fast,adapter:1049-1072),**官方 eval answer prompt 的
+  角色扮演(system 定义 speaker 角色)已锚**(main_loco_parse.py:83-142),
+  M2 native 资产化逐字含之。④ **畸形对话形态答复**:框架 pair 聚合
+  orphan/dangling 标记不丢弃(v3 协议);memoryos 现状=lme 用 pair、
+  locomo 用 session 粒度 adapter 内自配(与官方"speaker_a 开 page 另
+  speaker 回填"同构且 session 边界更严,M1 §3)。⑤ 下一步=M2-memoryos
+  裁决+施工卡(裁决方向预告:超参维持 pypi 默认+DISPUTED 标记落 status;
+  native LoCoMo 单格资产化;B5+ sidecar;降级信号可审计化)。
 - 2026-07-14（**跨模型可移植审计 + memoryos M-1 取证卡写就（三号煎饼
   起步）**，Fable 5）：① 用户拍板:暂不交接,但可能先让 GPT5.6 sol 试任
   架构师 → **`.claude` 专属内容内化审计**:9 条私有 memory 逐条核镜像
