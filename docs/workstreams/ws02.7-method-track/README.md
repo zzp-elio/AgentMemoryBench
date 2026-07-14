@@ -15,6 +15,17 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**R7 改判:image 框架统一(用户三次对峙胜出),M2 卡
+  终稿待派**，Fable 5,周额度剩 10%）：**R7 v2**=image→文本是**数据
+  表示问题非喂法问题**,框架级统一、同一把尺子(与 unified prompt 同
+  哲学);击穿点=用户论点"多数 method 无 locomo image 官方姿势可抄,
+  框架默认不可避免→默认取语义最优"。统一格式=
+  `[Sharing image that shows: {caption}]`(恰=mem0 官方 blip-only 分支
+  原文,mem0 零偏差;"sharing"语义准确表达对话中图片分享行为);
+  query 全局禁用不变。落地=新共享 helper `methods/image_text.py`,
+  memoryos M2 用之(与官方 eval `(image description:...)` 的偏差声明);
+  mem0/lightmem 解冻件后续用同一 helper。**前一条记录中"各家抄各家
+  官方"的 R7 v1 作废**。M2 卡终稿=R1 v2+R7 v2+R2-R6,待用户派发。
 - 2026-07-14（**R1 二次修订(用户方案胜出)+ R7 image 裁决,M2 卡定稿
   待派**，Fable 5,周额度剩 11%）：① **R1 推翻重裁**:用户提出"ingest
   裸文本+检索出口身份映射"方案,架构师逐段核 `main_loco_parse.py`

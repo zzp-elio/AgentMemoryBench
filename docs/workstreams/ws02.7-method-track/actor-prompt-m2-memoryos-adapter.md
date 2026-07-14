@@ -2,7 +2,8 @@
 
 > 派发日 2026-07-14。取证底=`notes/m1-memoryos-evidence.md`(七节锚表,先读)。
 > 允许修改:`src/memory_benchmark/methods/memoryos_adapter.py`、新建
-> `src/memory_benchmark/methods/memoryos_native_prompts.py`、
+> `src/memory_benchmark/methods/memoryos_native_prompts.py`、新建
+> `src/memory_benchmark/methods/image_text.py`(R7 共享 helper)、
 > `src/memory_benchmark/methods/config_track.py`、
 > `src/memory_benchmark/methods/registry.py`、tests、新建
 > `notes/m2-memoryos-adapter.md`。**禁改 third_party**(本卡零例外,含
@@ -72,13 +73,22 @@ cd /Users/wz/Desktop/mb-actor-m2mos && uv sync
   注册配置(mem0 M4 判例:factory 传 context.benchmark_name),禁数据形态
   启发式。
 
-- **R7 image 注入口径(2026-07-14 新增,用户提案裁定)**:
-  **各 method 抄各自官方姿势,框架不发明统一格式**;memoryos=官方
-  `(image description: {caption})`(并入 R1 第 1 点);**`query` 字段
-  全局禁用**(locomo 数据构造副产物、非对话可观测内容,用户裁定)。
-  本卡外登记:mem0 现状裸拼 caption=B2 缺口(官方有
-  `[Sharing image that shows: {blip}]` 包装),属 mem0 解冻件另办;
-  lightmem 官方 image 姿势待核。
+- **R7 image 注入口径(2026-07-14 三次对峙后改判,用户方案胜出)**:
+  **image→文本=数据表示问题,框架级统一,同一把尺子**(与 unified
+  prompt 同哲学;改判依据:多数 method 无 locomo image 官方姿势可抄,
+  框架默认不可避免,默认取语义最优——"sharing"准确表达对话中图片的
+  分享行为)。统一格式=**`[Sharing image that shows: {caption}]`**
+  (恰为 mem0 官方 blip-only 分支原文,`memory-benchmarks/benchmarks/
+  locomo/run.py` session_to_chunks;mem0 零偏差);**`query` 字段全局
+  禁用**(数据构造副产物,非对话可观测内容)。落地:
+  1. 新建共享 helper(建议 `src/memory_benchmark/methods/image_text.py`,
+     函数如 `turn_text_with_images(turn) -> str`:text 与逐图
+     `[Sharing image that shows: {caption}]` 以空格拼接,无 caption 的
+     图跳过,纯图 turn 允许只有 photo_tag;中文 docstring+独立测试);
+  2. memoryos ingest(R1 第 1 点)改用该 helper——**不用官方
+     `(image description:...)` 格式**,该处与官方 eval 的偏差在 note 与
+     native bundle 注释里声明;
+  3. mem0/lightmem 改造=解冻件,后续用同一 helper(不在本卡,已登记)。
 
 ## 2. 施工顺序建议
 ①R1(裸文本确认+speaker_map 持久化+出口映射三处:page 拼法/三正则/
