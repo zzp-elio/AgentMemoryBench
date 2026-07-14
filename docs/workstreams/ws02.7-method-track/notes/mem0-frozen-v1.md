@@ -1,0 +1,80 @@
+# Mem0 method-frozen-v1 冻结记录
+
+> 冻结日 2026-07-14(Fable 5)。**冻结语义**:自本记录起,改
+> `mem0_adapter.py` / `mem0_native_prompts.py` / registry 的 mem0 注册行 /
+> 两个已批 third_party 最小 diff,须在 ws02.7 README 断点区写解冻理由,
+> 并重跑受影响格的 smoke。B1-B11 勾选终态见
+> `docs/reference/integration-status.md`,逐项证据见
+> `docs/reference/integration/mem0.md` 与 M1-M5 notes。
+
+## 1. 冻结时点的证据面(13 格 predict + 全指标)
+
+- **unified 六格**:locomo / lme(s-cleaned) / membench(0-10k) /
+  beam(100k) / beam(10m) / halumem(medium),run id `mem0-*-unified-s2*`
+  (10m 架构师跑,余用户跑)。
+- **par2 四格**:membench / locomo / lme / beam-100k(workers=2,
+  per-worker sidecar 分立=物理隔离实弹);halumem ⑤=N/A(op-level 单
+  worker 判例);10m 由 100k 覆盖(并行面与数据结构正交)。
+- **native 三格**:locomo / lme / beam-100k(M4 bundle,prompt_track=
+  native 实弹,BEAM 官方 builder 接入)。⑤轨别口径=unified 执行、native
+  正交性声明覆盖(checklist B11⑤,2026-07-14 裁决)。
+- **指标数字(smoke 只验管道,不看答对率)**:membench choice/source
+  0.5、**membench-recall 0.167(全框架首个非零 recall)**;locomo f1 0.4
+  /judge 0.0;lme recall/rank/judge 0.0(0.1 门槛空检索=官方声明语义);
+  beam-100k f1 0.1/rubric 0.0、**beam-10m f1 0.4/rubric 0.1**(10m=
+  beam 首个非空检索格);halumem extraction f1 **0.0192(mem0 非零抽取
+  首秀)**/update 1/7/qa 1.0/memory-type 0.095;native 格免费六项落盘
+  (locomo f1 0.014/beam f1 0.16/recall 类与 unified 同姿势)。
+- 主树基线 **1164 passed**(2026-07-14,含 M3/M4/M0-13 全部测试)。
+
+## 2. 方法身份要点(一手锚见各 note)
+
+- 隔离形态=**worker 间物理、worker 内逻辑**(run_id namespacing=官方
+  姿势=方法身份,M1 §3);clean 三件套=delete_all+批准 diff
+  `SQLiteManager.delete_messages(session_scope)`+sidecar 清除。
+- provenance="turn":原生 id → sidecar 映射(M2),检索命中缺映射
+  **fail-fast**——13 格全程未绊,观察项转正式行为。
+- 时间口径:add 侧对话时间进 metadata(OSS `add()` 无 timestamp 参数,
+  Platform-only;官方 OSS server 甚至静默丢弃该字段=upstream issue 候选
+  #3),retrieve 侧提升进 created_at 槽(M3,官方 Cloud/论文语义)。
+- 注入粒度:locomo/lme=turn 对齐官方、BEAM=pair(官方 2-turn chunk)、
+  halumem=整 session 单次 add(M2,R 裁决)。
+- B8+ 韧性:业务两 API 点(抽取 LLM/answer LLM)60s timeout+8 retries
+  实锚到客户端;ingest 失败=failed_ingest 隔离+显式 retry 前全清理
+  (M5 §1)。
+
+## 3. 声明缺口清单(frozen-v1 携带,九项)
+
+1. **B1 快照上游 commit 不可溯**(用户压缩包下载,2026-07-14 拍板):
+   版本锁以 source_identity content-hash 为准(package 2.0.4,
+   sha256 debda89…,146 文件);**5×10 矩阵完工后 git clone 最新
+   upstream 对比 drift**(提上日程,目的=看漂移/上游修复,不改版本锁)。
+2. **native 效率计量违规待修(R0 前置包)**:三格 injected tokens 统计
+   串序列化≠官方 builder 实际嵌入段(政策要求"统计跟随实际嵌入段",
+   M5 §2 三格对照表);记忆正文集合无漏,失配仅在时间/分组/编号排版。
+3. **lme/beam native judge profile 未被 evaluate 消费(R0 前置包)**:
+   `commands.py:213` 只认 locomo-judge;M4 profile 已注册为资产。
+4. **B8+ 两个模型下载点无项目级韧性**(SentenceTransformer/FastEmbed
+   BM25 首次缓存填充,M5 §1);BM25 下载失败=静默降级 sparse 检索且
+   run 不留痕。缓解=本机缓存已热;**新机器/full 前必须预热预检**。
+5. 真实 resume 验证缓期至预算批复(离线测试已钉,LightMem 同款)。
+6. **top_k=20 vs retrieval-rank k≤50**:@30/@50 为截断语义,full 前
+   裁决(声明子集有效 vs top_k 提 50 留痕偏离)。
+7. mem0 官方 **0.1 相关性门槛**:空检索=声明语义非缺陷(store 层验尸
+   结案,threshold None→0.1,官方 harness 同姿势)。
+8. halumem 五件套⑤=N/A(op-level runner 单 worker 硬校验)。
+9. embedding >512 token 截断警告风险 full 前复查(MiniLM 序列上限,
+   与 LightMem 同款风险面)。
+
+## 4. R0 前置包(mem0 份)
+
+R0(论文数字校准)启动前须修:缺口 2(计量跟随实际段)+缺口 3(judge
+路由泛化)+旧论文 LoCoMo 路径(gpt-4o-mini)校准配置注册。与 LightMem
+的 R0 前置包(lightmem judge profile 降级件)同批施工。
+
+## 5. 校准回填指针
+
+流水线实测数字已回填 `method-onboarding-assembly-line.md` §五(mem0=
+二号煎饼终账:架构师批处理回合约 10,超计划 ≤6 约六成;超额部分主要是
+一次性资产——M0-11/M0-13 框架债、对表/时刻表/B8+ 机制、native bundle
+样板、五个用户深度问答落档——后续 method 不重复付费)。

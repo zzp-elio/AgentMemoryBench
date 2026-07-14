@@ -15,6 +15,27 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**🧊 mem0 method-frozen-v1（二号煎饼收官）+ M5 验收 +
+  四项裁决 + B1 用户拍板**，Fable 5）：① **M5 验收合入**（3772b73→
+  1ae7e2b,纯 note,三节锚表全一手复核质量高）。② **四项裁决**：
+  (a) B7 native 计量=**政策违规确认**（政策原文"统计跟随实际嵌入段",
+  M5 三格对照=序列化失配、正文集合无漏）→ 不阻塞 frozen,**进 R0
+  前置包**(native 效率数字唯一消费方=R0 校准);(b) lme/beam native
+  judge 路由缺口(commands.py:213 只认 locomo-judge)→ 同进 R0 前置包;
+  (c) B8+ 两下载点(SentenceTransformer/FastEmbed BM25 首次缓存,BM25
+  失败静默降级)→ 声明+新机器/full 前预热预检;(d) **B1 用户拍板**:
+  commit 号不可溯(压缩包下载),content-hash 为准,**5×10 完工后 git
+  clone 最新 upstream 对比 drift(提上日程,进待办堆;不改版本锁)**。
+  ③ **native 三格免费评六项落盘**(架构师跑,locomo f1 0.014/beam f1
+  0.16/recall 类与 unified 同姿势;五件套②对 native 格闭环=免费面)。
+  ④ **`notes/mem0-frozen-v1.md` 落档**:13 格证据面+方法身份要点+
+  **九项声明缺口**+R0 前置包(mem0 份)+校准回填指针;status 行 mem0
+  全绿 **frozen=v1**。⑤ **assembly-line 终账回填**:实际 ≈10 回合
+  (超计划六成,半数为一次性资产),**memoryos 边际预期 5-6 回合**,
+  两条教训入模板(M-1 自带 B8+ 节/native bundle 并入 M-2)。⑥ 下一步=
+  **架构师转移**:建议 Fable 5 余量做交接刷新,继任者(人选用户裁量,
+  架构师建议 Opus 4.8 见 playbook §9.5+断点区)从 memoryos M-1 起步;
+  memoryos 考点已预告(eval/ 代码副本嫁接+超参三岔口)。
 - 2026-07-14（**mem0 对表缺项清单（对表仪式首次正式执行）+ M5 取证卡
   派发**，Fable 5）：① **对表输出（frozen 前置件,B11 冻结门仪式）**——
   重读 checklist B 项原文+status 行后的缺项清单:
