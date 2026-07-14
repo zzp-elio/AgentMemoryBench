@@ -15,6 +15,35 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**用户三连抓漏（对表失守/交接双源/韧性判据缺失）+ 付费评
+  全落盘 = mem0 全指标齐**，Fable 5）：① **收口漏项认账**：checklist B11
+  白纸黑字"两轨 smoke + ⑤并行冒烟",架构师宣布"付费评完=frozen 专场"时
+  漏 par2+native 三格,被用户抓住——**playbook #23（收口宣言前先对表）+
+  checklist B11 冻结门"对表仪式"固化**;par2 命令交用户（membench 4 conv
+  天然多对话,workers=2,兼 M0-10 的 workers>1 manifest 抽查挂账）;
+  native 三格=真施工缺口（`config_track.py` `_NATIVE_CONFIG_TRACK_BUNDLES`
+  只有 lightmem 条目,mem0 走 native 会 fail-fast;adapter prompt_messages
+  已供货 mem0_adapter.py:943,1023）→ **M4-mem0 卡写就待派**（模型不
+  native,只 prompt/超参引用,R3 拍板原样）。② **付费评读数**：
+  locomo-judge 0.0(n=1,零抽取格)、lme-judge 0.0(0.1 门槛)、beam-rubric
+  100k 0.0 / 10m 0.1;halumem extraction f1 **0.0192**（recall(all)
+  0.0097,**mem0 非零抽取首秀** vs lightmem 0.0）、update **1/7**
+  (lightmem 0/7)、qa 1.0、memory-type 0.095（架构师跑,依赖序后评）。
+  **extraction 分母 106 vs lightmem 108 结案**：gold=103、interference=2、
+  update_routed=7 两家全同,差在 target 配对数（mem0 1/lightmem 3）=
+  accuracy 侧分母 method 依赖,官方结构使然非 bug。③ **tee 事故**：
+  halumem 三份付费日志因 run 目录 terminal-logs/ 不存在而静默丢失
+  （evaluate 本体与分数 artifacts 无损）——已 mkdir+按用户终端粘贴回填
+  并加注;纪律并入 #23（评测命令预包 mkdir）。④ **交接文档合并**（用户
+  点破双源）：handover-to-next-architect.md 并入 architect-onboarding.md
+  后删除（执行 2026-07-13 既定瘦身:只承载长效内容,在途状态只看 ws
+  断点区）,AGENTS.md/playbook §9.5 引用同步。⑤ **checklist B8+ 外部
+  调用韧性判据新增**（用户提议）：全调用点清单+超时+重试+失败不留半写
+  state;mem0 现状 api_timeout_seconds=60/api_max_retries=8 已走 TOML,
+  完整清单挂 B8+ 待列。⑥ **NDCG 答复**：框架 NDCG 只有 lme
+  retrieval-rank（官方口径,已评 0.0）;其余四家官方无 NDCG,免费指标已
+  全覆盖无漏。⑦ 下一步：par2（用户跑）→ M4 派发施工 → native 三格
+  smoke（用户跑）→ **对表输出缺项清单** → mem0 frozen note。
 - 2026-07-14（**s2 六格复证全绿 + BEAM 10m 首跑 + 免费评十一项落盘**，
   Fable 5）：① **五格 s2 开箱**（用户跑 predict）：manifest 五格全带
   provenance=turn 章（**含 halumem=M0-13 实弹复证 ✅**）、reader v3;

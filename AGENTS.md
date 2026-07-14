@@ -38,8 +38,10 @@
 
 - **架构师 = 写 spec/plan、裁定断点冲突、审查验收、把控方向与结构**（跨模型轮换：
   Claude → GPT-5.6 → …）。**新架构师冷启动第一入口：
-  `docs/reference/architect-onboarding.md`**（上岗手册：你是谁、怎么工作、当前
-  状态、下一步、陷阱与硬规则），再配 `docs/reference/architect-playbook.md`
+  `docs/reference/architect-onboarding.md`**（唯一交接文档：角色、读序、铁律、
+  决策、陷阱;**在途状态一律看活跃 ws README 断点区**,该文不双写;原
+  handover-to-next-architect.md 已于 2026-07-14 并入并删除），再配
+  `docs/reference/architect-playbook.md`
   （历任踩坑与纪律，供"上任自检"，也是不可用时的备份机制）。
 - **执行者（actor）= 轮换池**（2026-07-07 起）：Codex / OpenCode+DeepSeek /
   WorkBuddy(GLM-5.2) / Claude Sonnet 等，可能随时换人、新开会话，**一律视为
