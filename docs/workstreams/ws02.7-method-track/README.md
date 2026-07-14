@@ -13,8 +13,35 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 **接入顺序（用户 2026-07-12 拍板）**：LightMem 首（外部校准器，原则 #16）
 → 其余按 method-interface-inventory 排 → **EverOS 最后**。
 
-## 当前断点（2026-07-13）
+## 当前断点（2026-07-14）
 
+- 2026-07-14（**halumem smoke 双失败取证 + M0-11/M0-12 双卡写就 + 双轨政策
+  议程登记**，Fable 5，压缩后新会话）：① **s1 失败根因实锤（M0-11 卡待派，
+  通关线阻塞项）**：halumem 走 operation-level runner，update probe 在
+  conversation scope 内调 retrieve（operation_level.py:364-374），而 LightMem
+  adapter `_retrieve_question` 无条件 `record_retrieval_result`（question-scope
+  专用断言，adapter:844-851 → collector.py:437-441）→ 崩。**跨 method 通用
+  陷阱**：amem:490/memoryos:790/mem0:902,981 同姿势,谁上 halumem 谁炸。裁决=
+  collector 新增 scope 容忍变体 + 五处机械替换（卡 §2，runner 编排不动）。
+  ② **par2 拒绝 = 固定形状 by design（用户设计正确）**；裁决=不开放自由裁剪，
+  增加**第二个固定形状**（workers>1 → 恰好前 2 user，M0-12 卡写就,前置
+  M0-11 合入）。③ **halumem × offline_update 姿态裁决已进 lightmem.md B2**：
+  offline_update 只在 locomo 路径跑（adapter:512/:668 有 `_is_native_locomo`
+  守卫）,halumem 不跑=在线姿态测量,声明语义非缺陷（逐 session 全库 update =
+  O(n²) 且更失真）。④ **extraction 精准性复核（用户三问三答）**：捕获窗口=
+  恰好一次 add_memory 调用（adapter:579-585）,两端 force 刷洗保证 buffer 空;
+  session 超 buffer 阈值 → 该次调用内部自然多轮抽取仍在窗口内,不足 → force
+  兜底,两向不多不少。⑤ **双轨政策议程登记（用户 2026-07-14 提出,待办勿忘）**：
+  (a) native answer/judge **模型**是否 native（simplemem 论文用 gpt-4.1/4o）——
+  架构师建议=模型统一、参数/prompt native,论文数字校准是第三种一次性用途
+  （lightmem 校准先例）,**待用户拍板**; (b) simplemem native 范围=仓库有啥算
+  啥（现状仅 locomo,默认 SimpleMem text 版）; (c) memoryos native=论文超参
+  （作者说法）,adapter 现状待一手核对; (d) prompt 文件组织收敛
+  （lightmem_native_prompts.py 在 methods/、judge prompt 在 evaluators/ 太平
+  铺）→ 提议 `src/memory_benchmark/prompts/` 统一包,ws03 清理项; (e) evaluator
+  可复用化（recall@k/llm-judge 去 per-benchmark 文件化）,ws03; (f) 根 README
+  门面化更新,挂 LightMem 通关里程碑。⑥ **派发序**：M0-11 →合入→ 用户重跑
+  s1 → M0-10（并行 manifest）→ M0-12 → par2 → halumem 五件套 → 通关。
 - 2026-07-13（**M0-8 验收合入（1133 passed）+ lme ⑤ 收官 + M0-10 bug 卡**，
   Fable 5，用户额度 14%）：① **M0-8 通过**：SessionBatch ingest → 整 session
   一次 add_memory(force×2) → 只读旁听 `embedding_retriever.insert`（实例属性
