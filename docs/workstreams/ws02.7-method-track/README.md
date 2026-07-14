@@ -15,6 +15,27 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**s2 六格复证全绿 + BEAM 10m 首跑 + 免费评十一项落盘**，
+  Fable 5）：① **五格 s2 开箱**（用户跑 predict）：manifest 五格全带
+  provenance=turn 章（**含 halumem=M0-13 实弹复证 ✅**）、reader v3;
+  membench 4/4 检索带对话时间 `2024-10-01 08:00` + timestamp_source=
+  session_time + src_turns 命中 sidecar（**M3 实弹复证 ✅**）;locomo/lme/
+  beam-100k/halumem 空检索姿势与 s1 一致（0.1 门槛/真零抽取判例不变）。
+  ② **BEAM 10m 首跑**（用户点名 10m 数据结构不同,架构师亲跑+剪裁哨兵
+  盯防：conversations=1 questions=1、sentinel=0）：**检索非空 items=2**、
+  对话时间 `July-01-2024`（M0-6 月名产物）、src_turns 三段形态
+  `p1:s1:t1`、sidecar 3 条映射——10m id 形态与 100k（`s1:t1`）不同但
+  provenance 链全通。③ **免费评十一项**：membench 0.5/0.5/**0.167**、
+  locomo f1 0.4/recall 0.0、lme recall/rank 0.0、beam-100k f1 0.1、
+  **beam-10m f1 0.4**——与 s1 可比项逐项一致=M3 改动零扰动。
+  **beam-recall 双 n=0 结案**：两格 smoke 首题均为 abstention 题
+  （evidence=[]，evaluator 正确跳过 "no matchable gold evidence"），与
+  检索空不空无关;s1 登记的 beam/lme 空检索计数语义差异待办**降级结案**
+  （lme 题有 evidence 检索空→n=1 计 0 分;beam 题无 evidence→n=0 跳过;
+  两 evaluator 行为各自正确,差异源于题目本身）。④ 付费评全套命令交
+  用户（locomo-judge/lme-judge/beam-rubric-judge×2 + halumem 三件）;
+  halumem-memory-type（免费,依赖 extraction+update）随后架构师跑;
+  全套落盘后 mem0 frozen note 专场。
 - 2026-07-14（**M3-mem0 + M0-13 验收合入（1153 passed）+ timestamp
   Platform-only 疑问结案**，Fable 5，批处理回合）：① **M3 ff 合入**
   （37640ef）：Phase A 硬答案=官方三套 benchmark 的 answer 上下文**全带
