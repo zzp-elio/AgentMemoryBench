@@ -15,6 +15,27 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**M1-mem0 取证验收合入 + 六项裁决 + M2-mem0 施工卡写就**，
+  Fable 5）：① M1 note 验收=流水线首张标准取证卡,质量标杆（七节硬答案+
+  严格反证）。② **裁决 R1-R6**：native 注册面=locomo/lme/beam
+  （memory-benchmarks harness;membench/halumem 无 native 格）;**当前
+  harness answer/judge 默认 gpt-5→第一阶段不做其榜单校准复现,旧论文
+  LoCoMo 路径（4o-mini）=未来校准候选**;B2 修 BEAM(turn→官方 2-turn
+  chunk)+HaluMem(切块→整 session 一次 add),locomo/lme 已对齐不动;
+  **B3=保留 worker 内逻辑隔离**（run_id namespacing 是官方复现自身姿势=
+  方法身份,mem0 无本地大模型物理化收益小）,"清得干净"缺口走第二个
+  B5+ third_party 最小 diff（SQLiteManager 增 `delete_messages(session_scope)`
+  纯新增 API）+clean hook 挂接+污染场景测试;补生产 Qdrant 零 API 泄漏
+  测试;并行维持 worker 间物理;history tombstone 声明无害;B5=id 映射
+  sidecar 按 M1 §4 原案;B6=五格零 flush;**capability 枚举缺 session-report
+  项=框架 backlog**（registry 无法静态拒绝,不阻运行,另立小卡）。
+  ③ **M2-mem0 施工卡写就待派**（B2×2+B3 修复+B5 sidecar+测试,含批准的
+  第二个 third_party diff）。④ **upstream 更新焦虑答复（用户问 mem0 官方
+  repo 持续更新咋办）**：vendored 快照无嵌套 .git,source_identity=package
+  version+文件列表+聚合 SHA-256（mem0_adapter.py:203-217）=内容寻址版本锁,
+  上游更新与我们无关;**唯一遗留=快照的上游 commit 来源待溯**,请用户
+  提供当初下载的 release/commit 号,提供不了则声明 content-hash 为准;
+  接入顺序不因更新频率改变。
 - 2026-07-14（**流水线文档落成 + M1-mem0 取证卡写就 + 额度战略**，Fable 5，
   用户周额度已用 54%）：① **`docs/reference/method-onboarding-assembly-line.md`
   新建**：LightMem M0 蒸馏——一次性资产白嫖清单（协议/provenance 链/
