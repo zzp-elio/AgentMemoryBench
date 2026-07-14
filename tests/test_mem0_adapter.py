@@ -1034,6 +1034,8 @@ def test_mem0_registry_clean_hook_reconstructs_v3_isolation_key(
     build_contexts: list[MethodBuildContext] = []
 
     def _fake_build(context: MethodBuildContext) -> Mem0:
+        """记录 clean hook 传入的构建上下文并返回共享 fake provider。"""
+
         build_contexts.append(context)
         return provider
 

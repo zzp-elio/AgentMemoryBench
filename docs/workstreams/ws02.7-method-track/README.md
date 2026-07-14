@@ -15,6 +15,24 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**🧊 LightMem method-frozen-v1 + M2-mem0 验收合入（1151
+  passed）**，Fable 5，批处理回合）：① **M2 通过 ff 合入**（559d7c9）：
+  BEAM→pair、halumem→整 session 单次 add（判别键=session_memory_report
+  旗）、clean hook 三件套（delete_all+新 third_party `delete_messages`+
+  sidecar 清除,scope 格式 `run_id=<key>` 一手锚 `_build_session_scope`）、
+  provenance sidecar（原子写+schema 校验+旧 state fail-fast）;**偏差接受
+  并留观察项**：检索命中缺 sidecar 映射=fail-fast（严于 M1 §4 的逐项回落,
+  真实 smoke 若绊住再放宽为回落+计数）。架构师补一行 docstring（worktree
+  盲点第三例）→ 主树 **1151 passed**。upstream PR 素材第二件已备
+  （m2 note §4）。② **LightMem 冻结**：B2/B4/B8/B11 收口（B8=检索纯读
+  锚死 lightmem.py:648-710;B4 带 lme 无非零样本例外声明）,
+  `notes/lightmem-frozen-v1.md` 落档（冻结语义+七项声明缺口）,status 总表
+  LightMem 行全绿 method-frozen=**v1**;mem0 行同步（B1 🟡 upstream commit
+  待溯）。③ **scope 命名答复（用户问为啥不是 conversation_scope）**：
+  `session_scope` 是 mem0 messages 表自己的列名（storage.py schema）,
+  第三方 diff 须随上游命名以利 PR;我们塞进去的值=isolation_key（=隔离
+  空间级）,删的正是隔离空间,名与实的错位来自 mem0 的词汇表不是我们的。
+  ④ 下一步:mem0 五格 smoke 命令交用户（`mem0-<bench>-unified-s1` 系列）。
 - 2026-07-14（**M1-mem0 取证验收合入 + 六项裁决 + M2-mem0 施工卡写就**，
   Fable 5）：① M1 note 验收=流水线首张标准取证卡,质量标杆（七节硬答案+
   严格反证）。② **裁决 R1-R6**：native 注册面=locomo/lme/beam
