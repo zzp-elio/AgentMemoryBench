@@ -15,6 +15,31 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-14）
 
+- 2026-07-14（**par2 通过（M0-10 挂账清）+ M4 停工裁决（方案 A 扩卡）+
+  时刻表机制**，Fable 5）：① **membench par2 开箱全绿**（用户跑,4/4,
+  两 worker 各自加载模型=真并行）：manifest `max_workers=2` + provenance=
+  turn 章 = **M0-10 的 workers>1 manifest 抽查挂账清账**;sidecar 按
+  worker_0/worker_1 分立=worker 间物理隔离实弹验证;items/时间戳与 s2
+  单 worker 完全一致。**B11⑤ 并行冒烟剩余**:locomo/lme/beam-100k 三条
+  par2 命令已交用户（各带 `--conversations 2` 防单 conv 空转,2026-07-13
+  判例）;10m 声明由 100k 覆盖（同 runner 同隔离机制,10m 数据结构差异在
+  ingest 层,与并行正交）;halumem ⑤=N/A（既定判例）。② **M4 停工裁决**：
+  actor 教科书级停工（BEAM 落 adapter generic reader 而非官方 prompt,
+  五步证据链架构师一手复核属实,adapter:1771-1775 只有 locomo/lme 分支)
+  → **采纳方案 A**：扩允许 mem0_adapter.py;**benchmark identity=显式
+  配置禁扩启发式**（镜像 halumem `session_memory_report` 先例,factory 传
+  `context.benchmark_name`,显式优先+无值回落旧启发式零回归）;BEAM 官方
+  builder 接入;reader v3→v4;unified 字节不变测试钉死。裁决块=卡 §5,
+  原 worktree 续工。③ **top_k vs NDCG@k 前置冲突登记**：lme
+  retrieval-rank k∈[1,3,5,10,30,50]（官方全集）,而 mem0 repo 默认
+  top_k=20 → @30/@50 是截断语义（gold 落在 21+ 位则必 miss）。full 前
+  须裁决：a) 声明 k≤top_k 子集有效;b) top_k 提至 ≥50 并留痕偏离 repo
+  默认（可做对照）。LightMem 及后续 method 接入时同项必查（进 B8+/@k
+  取证面）。④ **"看"的机制升级（用户提议碰撞后固化）**：上任通读=全局
+  地图缓存,但**会话压缩清缓存且不自知**——onboarding 新增 §5.5
+  **文档使用时刻表**（七个动作时刻 × 必重读文档,含压缩后第一件事=断点区
+  +时刻表本身）;"缓存"与"使用时重读"分层,后者才是保险。⑤ 交接质量
+  改进持续项：瘦身试运行判据=下一任纯靠文档链 5 分钟上手,届时实测。
 - 2026-07-14（**用户三连抓漏（对表失守/交接双源/韧性判据缺失）+ 付费评
   全落盘 = mem0 全指标齐**，Fable 5）：① **收口漏项认账**：checklist B11
   白纸黑字"两轨 smoke + ⑤并行冒烟",架构师宣布"付费评完=frozen 专场"时

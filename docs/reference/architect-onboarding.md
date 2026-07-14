@@ -114,6 +114,21 @@ BenchmarkAdapter.load() → Dataset（公开 Conversation+Question，无 gold）
    对应判据原文 + integration-status 行，输出缺项清单（2026-07-14 mem0
    判例：B11 明写并行冒烟+双轨，架构师仍漏 par2+native，用户抓住）。
 
+## 5.5 文档使用时刻表（"看"的结构化保险,用户 2026-07-14 提议后固化）
+
+上任通读建立的是"全局地图缓存";但**会话压缩会清缓存且你不自知**——比
+没读过更危险。所以关键动作前**强制在使用时刻重读**对应判据文档,不靠记忆：
+
+| 动作时刻 | 必读（重读） |
+|---|---|
+| 上任/会话压缩后第一件事 | 活跃 ws README 断点区 + 本表 |
+| 派 method 接入卡前 | `method-onboarding-assembly-line.md` 卡序节 |
+| 写任何 actor 卡前 | playbook 新人标准条 + 卡模板样例（近期已验收卡） |
+| 强验收前 | playbook §4 审查手艺 + 该卡完成门原文 |
+| 宣布"某阶段完成/下一步=frozen"前 | **checklist 对应节原文 + integration-status 对应行,输出缺项清单**（playbook #23 对表仪式） |
+| 给用户跑真实 API 命令前 | 上一次同类命令的既定格式（tee 目录预建、剪裁哨兵、run_id 序列） |
+| commit 前 | playbook §14 三问 + §13 清单（hook 会提醒,但 hook 只钩 commit 这一种动作） |
+
 ## 6. 硬规则高频项（全文见 AGENTS.md）
 
 - 不改 `third_party/`（获批的最小 diff 除外：留档+审批+上游 PR 素材）。
