@@ -638,18 +638,19 @@ def _conversation_from_trajectory(
         tid=tid,
     )
 
-    # session_time 兜底取首个带时间戳的 turn（用户细节#11：turn 无自身时间戳则回退
-    # session 时间戳），保证 LightMem `turn.turn_time or session.session_time` 不落空。
-    session_time = next(
-        (turn.turn_time for turn in turns if turn.turn_time is not None),
-        None,
-    )
+    # MemBench trajectory 没有原生 session 时间：这里的单 Session 只是统一 schema 的
+    # 包装，不是官方时间单元，不存在可供无时间 turn 继承的真实 session time。显式保持
+    # session_time=None——缺失就诚实保持缺失，绝不用兄弟 turn 的时间、QA.time、运行墙钟
+    # 或递增序号伪造。message 自身内嵌时间仍逐 turn 结构化为 Turn.turn_time；无内嵌
+    # 时间的 message（含官方 NoiseData distractor）保持 turn_time=None。时间语义裁决见
+    # docs/workstreams/ws02.7-method-track/branches/membench-time-semantics/notes/
+    # membench-100k-time-ruling.md §5。
     return Conversation(
         conversation_id=conversation_id,
         sessions=[
             Session(
                 session_id="s1",
-                session_time=session_time,
+                session_time=None,
                 turns=turns,
                 metadata={
                     "source_format": "membench_trajectory",

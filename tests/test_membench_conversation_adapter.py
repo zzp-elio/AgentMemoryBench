@@ -15,6 +15,13 @@ import pytest
 from memory_benchmark.benchmark_adapters.membench import MemBenchAdapter
 from memory_benchmark.core.exceptions import DataLeakageError, DatasetValidationError
 from memory_benchmark.core.validators import validate_no_private_keys
+from memory_benchmark.runners.event_stream import build_turn_events
+
+
+# 强反例的固定常量：message 内嵌一个过去时刻，QA.time 用明显不同的未来日期。
+# 二者必须始终分居不同字段，绝不能串到一起。
+_MSG_EMBEDDED_TIME = "2025-06-30 14:00"
+_QA_FUTURE_TIME_RAW = "'2099-12-31 23:59' Sunday"
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,26 +127,157 @@ def test_synthetic_fixture_maps_ps_and_os_steps(tmp_path: Path) -> None:
     assert "ps_user" not in os_turn.metadata
 
 
-def test_membench_extracts_embedded_turn_time_and_session_fallback(
-    tmp_path: Path,
-) -> None:
-    """step 文本内嵌 time 应结构化到 turn_time；session_time 兜底取首个带时间戳的 turn。
+def _future_time_counterexample_payload(*, first_person: bool) -> dict[str, Any]:
+    """构造时间语义强反例 payload：首条 message 无时间、次条内嵌一个过去时刻、
+    QA.time 用明显不同的未来日期。
 
-    时间戳原样保留在 content（其它 method 仍能从文本读到），只是额外结构化，让
-    LightMem 等时间感知 method 的 `turn.turn_time or session.session_time` 不落空。
+    first_person=True 时 message 为 {user, agent} dict（FirstAgent 源）；否则为
+    纯字符串 step（ThirdAgent 源）。两种 step 形态必须产出完全一致的时间语义。
     """
 
+    if first_person:
+        message_list: list[Any] = [
+            {"user": "No timestamp noise here.", "agent": "Still nothing."},
+            {
+                "user": (
+                    f"I watched it. (place: Boston, MA; time: '{_MSG_EMBEDDED_TIME}' Monday)"
+                ),
+                "agent": (
+                    f"Noted. (place: Boston, MA; time: '{_MSG_EMBEDDED_TIME}' Monday)"
+                ),
+            },
+        ]
+    else:
+        message_list = [
+            "No timestamp noise here.",
+            f"They watched it. (place: Boston, MA; time: '{_MSG_EMBEDDED_TIME}' Monday)",
+        ]
+    return {
+        "simple": {
+            "roles": [
+                {
+                    "tid": "t-future",
+                    "message_list": message_list,
+                    "QA": {
+                        "qid": 1,
+                        "question": "q?",
+                        "answer": "a",
+                        "target_step_id": [1],
+                        "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
+                        "ground_truth": "A",
+                        "time": _QA_FUTURE_TIME_RAW,
+                    },
+                }
+            ]
+        }
+    }
+
+
+def test_membench_missing_message_time_stays_none_without_session_smear(
+    tmp_path: Path,
+) -> None:
+    """无时间 message 保持 turn_time=None，session_time 显式为 None，QA.time 不串字段。
+
+    强反例覆盖 first-person dict 与 third-person str 两种 step：首条无时间 noise、
+    次条内嵌过去时刻、QA.time 为未来日期。断言单向时间流——message 内嵌时间 →
+    该 turn.turn_time；message 无时间 → None；MemBench 无原生 session 时间 →
+    session_time=None（不取兄弟 turn）；QA.time 只进入 question_time。
+    """
+
+    for first_person, filename in (
+        (True, "FirstAgentDataLowLevel_multiple_0.json"),
+        (False, "ThirdAgentDataHighLevel_multiple_0.json"),
+    ):
+        source = tmp_path / "data2test" / "0-10k" / filename
+        _write_fixture(
+            source, _future_time_counterexample_payload(first_person=first_person)
+        )
+        dataset = MemBenchAdapter(
+            tmp_path,
+            variant="0_10k",
+            source_relative_paths=(source.relative_to(tmp_path),),
+        ).load()
+
+        conversation = dataset.conversations[0]
+        session = conversation.sessions[0]
+        # 无时间 noise 未被过滤：两条 turn 都在
+        assert len(session.turns) == 2
+        first_turn, second_turn = session.turns
+
+        # 首条无时间 noise：turn_time=None，content 逐字保留，不含 message 时间或 QA 时间
+        assert first_turn.turn_time is None
+        assert "No timestamp noise here." in first_turn.content
+        assert _MSG_EMBEDDED_TIME not in first_turn.content
+        assert "2099" not in first_turn.content
+
+        # 次条：turn_time 只等于自身内嵌时间；原文 place/time 一并保留
+        assert second_turn.turn_time == _MSG_EMBEDDED_TIME
+        assert f"time: '{_MSG_EMBEDDED_TIME}'" in second_turn.content
+        assert "place: Boston, MA" in second_turn.content
+        assert "2099" not in second_turn.content
+
+        # MemBench 无原生 session 时间：显式 None，绝不取兄弟 turn 时间伪造
+        assert session.session_time is None
+
+        # QA.time 单向流入 question_time，原样保留，且与 message 时间明显不同
+        question = conversation.questions[0]
+        assert question.question_time == _QA_FUTURE_TIME_RAW
+        assert question.question_time != second_turn.turn_time
+
+
+def test_membench_build_turn_events_keeps_missing_timestamp_none(
+    tmp_path: Path,
+) -> None:
+    """对强反例调用 build_turn_events：无时间 turn 的 event.timestamp 与
+    original_turn_time 均为 None，有时间 turn 只取自身 turn_time；两条 event 的
+    original_session_time 都为 None；任何 event 字段都不出现 QA 的未来日期。
+    """
+
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, _future_time_counterexample_payload(first_person=True))
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+    conversation = dataset.conversations[0]
+
+    events = list(build_turn_events(conversation, isolation_key="run_t-future"))
+    assert len(events) == 2
+    first_event, second_event = events
+
+    # 首条无时间 event：timestamp 与 original_turn_time 都 None，没继承任何 session 时间
+    assert first_event.timestamp is None
+    assert first_event.metadata["original_turn_time"] is None
+
+    # 次条只取自身 turn_time
+    assert second_event.timestamp == _MSG_EMBEDDED_TIME
+    assert second_event.metadata["original_turn_time"] == _MSG_EMBEDDED_TIME
+
+    for event in events:
+        # 无 session smear：original_session_time 保持 None
+        assert event.metadata["original_session_time"] is None
+        # QA 的未来日期不得进入任何 event 字段（timestamp/content/metadata）
+        assert "2099" not in repr(event)
+
+
+def test_membench_parses_both_embedded_time_formats_and_keeps_content(
+    tmp_path: Path,
+) -> None:
+    """两种官方内嵌时间格式（`time: '…'` 与无冒号 `time'…'`）都能解析到 turn_time，
+    且原 content 中完整 message、place、time 子串逐字保留，不做去重删除。
+    """
+
+    colon_user = "I loved the show. (place: Boston, MA; time: '2024-10-01 08:00' Tuesday)"
+    nocolon_user = "They loved it. (place: Austin, TX; time'2024-10-02 09:30' Wednesday)"
     payload = {
         "simple": {
             "roles": [
                 {
-                    "tid": "t-time",
+                    "tid": "t-formats",
                     "message_list": [
-                        {
-                            "user": "I love this film. (place: Boston, MA; time: '2024-10-01 08:00' Tuesday)",
-                            "agent": "Nice! (place: Boston, MA; time: '2024-10-01 08:00' Tuesday)",
-                        },
-                        {"user": "No timestamp here.", "agent": "Still none."},
+                        {"user": colon_user, "agent": "ok"},
+                        {"user": nocolon_user, "agent": "ok"},
                     ],
                     "QA": {
                         "qid": 1,
@@ -148,7 +286,7 @@ def test_membench_extracts_embedded_turn_time_and_session_fallback(
                         "target_step_id": [0],
                         "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
                         "ground_truth": "A",
-                        "time": "'2024-10-01 08:00' Tuesday",
+                        "time": _QA_FUTURE_TIME_RAW,
                     },
                 }
             ]
@@ -163,11 +301,22 @@ def test_membench_extracts_embedded_turn_time_and_session_fallback(
     ).load()
 
     session = dataset.conversations[0].sessions[0]
-    first_turn, second_turn = session.turns
-    assert first_turn.turn_time == "2024-10-01 08:00"
-    assert "time: '2024-10-01 08:00'" in first_turn.content  # 双写：文本仍保留
-    assert second_turn.turn_time is None  # 无内嵌时间戳
-    assert session.session_time == "2024-10-01 08:00"  # 兜底取首个带时间戳的 turn
+    colon_turn, nocolon_turn = session.turns
+
+    # 有冒号格式
+    assert colon_turn.turn_time == "2024-10-01 08:00"
+    assert "I loved the show." in colon_turn.content
+    assert "place: Boston, MA" in colon_turn.content
+    assert "time: '2024-10-01 08:00'" in colon_turn.content
+
+    # 无冒号格式
+    assert nocolon_turn.turn_time == "2024-10-02 09:30"
+    assert "They loved it." in nocolon_turn.content
+    assert "place: Austin, TX" in nocolon_turn.content
+    assert "time'2024-10-02 09:30'" in nocolon_turn.content
+
+    # 结构化只是 additive：session_time 仍为 None，不因存在 turn 时间而被兜底填充
+    assert session.session_time is None
 
 
 def test_question_public_fields_and_private_gold_are_split(tmp_path: Path) -> None:
