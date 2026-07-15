@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, get_args
 
 from .entities import PromptMessage, Question
 from .validators import validate_no_private_keys
@@ -17,6 +17,8 @@ ConsumeGranularity: TypeAlias = Literal["turn", "pair", "session", "conversation
 ProvenanceGranularity: TypeAlias = Literal["none", "session", "turn"]
 RetrievalPurpose: TypeAlias = Literal["qa", "memory_update_probe", "extraction_probe"]
 RetrievalEvidenceStatus: TypeAlias = Literal["valid", "n_a", "pending"]
+# runtime 合法 status 集合，直接从 Literal 派生，避免与静态类型两处漂移。
+_RETRIEVAL_EVIDENCE_STATUSES: frozenset[str] = frozenset(get_args(RetrievalEvidenceStatus))
 BRIDGE_EMPTY_MEMORY_SENTINEL = "[bridge] legacy provider exposed no memory context"
 
 
@@ -273,8 +275,14 @@ class EvidenceAssertion:
     reason: str | None = None
 
     def __post_init__(self) -> None:
-        """校验 valid 不带原因、非 valid 必带非空原因。"""
+        """先拒绝非法 status，再校验 valid 不带原因、非 valid 必带非空原因。"""
 
+        if self.status not in _RETRIEVAL_EVIDENCE_STATUSES:
+            allowed = ", ".join(sorted(_RETRIEVAL_EVIDENCE_STATUSES))
+            raise ValueError(
+                f"EvidenceAssertion status must be one of: {allowed}; got "
+                f"{self.status!r}"
+            )
         if self.status == "valid":
             if self.reason_code is not None or self.reason is not None:
                 raise ValueError(

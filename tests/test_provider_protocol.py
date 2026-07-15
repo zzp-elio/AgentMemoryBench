@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, is_dataclass
+from typing import Any, cast
 
 import pytest
 
@@ -336,6 +337,30 @@ def test_evidence_assertion_non_valid_requires_reason(status: str) -> None:
         EvidenceAssertion(status=status, reason_code="code")
     ok = EvidenceAssertion(status=status, reason_code="code", reason="human readable")
     assert ok.status == status
+
+
+@pytest.mark.parametrize(
+    "bad_status",
+    ["bogus", "", "   ", "VALID", "N_A", None, 3],
+)
+def test_evidence_assertion_rejects_unknown_status(bad_status: object) -> None:
+    """status 必须严格属于 valid/n_a/pending；非法值 runtime 拒绝，不正规化大小写/空格。
+
+    带完整 reason 的 "bogus" 是首轮会真实漏过的强反例；空串、None、非字符串等也一并
+    拒绝，证明不是只特判 "bogus"。
+    """
+
+    with pytest.raises(ValueError, match="status must be one of"):
+        EvidenceAssertion(
+            status=cast(Any, bad_status), reason_code="x", reason="y"
+        )
+
+
+def test_evidence_assertion_illegal_status_checked_before_reason() -> None:
+    """非法 status 即便缺 reason，也应先报 status 非法，而不是误报 reason 缺失。"""
+
+    with pytest.raises(ValueError, match="status must be one of"):
+        EvidenceAssertion(status=cast(Any, "bogus"))
 
 
 def test_retrieval_evidence_valid_provenance_requires_turn_or_session() -> None:
