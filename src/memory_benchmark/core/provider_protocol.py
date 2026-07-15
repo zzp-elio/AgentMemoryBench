@@ -277,7 +277,10 @@ class EvidenceAssertion:
     def __post_init__(self) -> None:
         """先拒绝非法 status，再校验 valid 不带原因、非 valid 必带非空原因。"""
 
-        if self.status not in _RETRIEVAL_EVIDENCE_STATUSES:
+        if (
+            not isinstance(self.status, str)
+            or self.status not in _RETRIEVAL_EVIDENCE_STATUSES
+        ):
             allowed = ", ".join(sorted(_RETRIEVAL_EVIDENCE_STATUSES))
             raise ValueError(
                 f"EvidenceAssertion status must be one of: {allowed}; got "

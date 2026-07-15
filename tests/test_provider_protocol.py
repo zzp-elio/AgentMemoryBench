@@ -341,13 +341,13 @@ def test_evidence_assertion_non_valid_requires_reason(status: str) -> None:
 
 @pytest.mark.parametrize(
     "bad_status",
-    ["bogus", "", "   ", "VALID", "N_A", None, 3],
+    ["bogus", "", "   ", "VALID", "N_A", None, 3, [], {}],
 )
 def test_evidence_assertion_rejects_unknown_status(bad_status: object) -> None:
     """status 必须严格属于 valid/n_a/pending；非法值 runtime 拒绝，不正规化大小写/空格。
 
-    带完整 reason 的 "bogus" 是首轮会真实漏过的强反例；空串、None、非字符串等也一并
-    拒绝，证明不是只特判 "bogus"。
+    带完整 reason 的 "bogus" 是首轮会真实漏过的强反例；空串、None、普通非字符串与
+    list/dict 等不可哈希值也一并拒绝，证明不是只特判 "bogus"，且不会泄漏 TypeError。
     """
 
     with pytest.raises(ValueError, match="status must be one of"):

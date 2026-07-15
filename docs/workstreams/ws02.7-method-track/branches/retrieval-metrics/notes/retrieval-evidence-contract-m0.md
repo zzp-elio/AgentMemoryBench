@@ -151,3 +151,14 @@ status，不误报 reason 缺失。
 测试（`tests/test_provider_protocol.py`）：带完整 reason 的 `"bogus"` 强反例被拒；
 空串/纯空格/错误大小写/`None`/非字符串也拒绝（证明非只特判 `"bogus"`）；缺 reason 的
 非法 status 仍先报 status 非法；既有 valid/n_a/pending 用例不变。
+
+## 8. 架构师强验收 hardening：不可哈希 status 也统一 ValueError
+
+架构师复跑 R1 后追加反例发现：首轮 R1 直接执行
+`self.status not in frozenset(...)`，list/dict 等不可哈希越界值会先泄漏 Python
+`TypeError: unhashable type`，没有兑现“非法 status 统一 ValueError”的协议边界。
+
+验收微修在集合 membership 前增加 `isinstance(self.status, str)` 短路；静态 annotation、
+Literal 单源集合与三种合法值语义均不变。参数化测试补 `[]`/`{}`，要求两者与其他非法值
+同样稳定抛 `ValueError`。该修复由架构师以独立 follow-up commit 留痕，不 amend actor 的
+`5fd5ac1` / `1999f56` 历史。
