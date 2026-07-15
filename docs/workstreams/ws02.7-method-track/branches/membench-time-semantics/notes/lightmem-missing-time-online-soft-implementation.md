@@ -103,3 +103,38 @@ tests/test_method_registry.py`：
   native parity**。报告披露必须携带 `missing_timestamp_policy=preserve_none` 与
   framework-extended 声明。
 - 未使用 subagent。
+
+## 8. 架构师 R1 验收返工
+
+架构师复核 `e1cfb75` 后指出三处边界未锁实，本轮（follow-up commit，不 amend）修复，不重做
+Phase B、不改 online-soft 算法：
+
+1. **R1-1 只扩展 explicit None**：首轮 `normalize_messages` 用 `msg.get("time_stamp")`
+   把“缺 `time_stamp` 键”和“显式 `None`”混成同一状态，等于把缺键也当缺失时间。改为
+   `"time_stamp" in msg and raw_ts is None` 才走 preserve 分支；缺键与空字符串继续落
+   `if not raw_ts: raise`，保持 upstream 拒绝语义。同步订正 docstring（只接受
+   dict/list[dict]，str 是拒绝而非“不推荐接受”）与 else 分支错误信息。修复位置：
+   `lightmem.py::MessageNormalizer.normalize_messages`。
+2. **R1-2 adapter 不洗空串**：首轮 `_turn_timestamp` 的 `preserve_none` 只判
+   `not raw_timestamp`，会把 `turn_time=""`/`session_time=""` 这类非法空串（无可用非空
+   fallback）静默正规化成 None。改为 preserve_none 仅在 `turn.turn_time is None and
+   session.session_time is None` 时返回 None；出现空串且无非空 fallback 时无论 policy 都
+   抛 `ConfigurationError`。既有优先级（非空 turn 优先、否则非空 session）与 require 行为
+   不变。修复位置：`lightmem_adapter.py::_turn_timestamp`。
+3. **R1-3 类型说真话**：`MemoryEntry` 在缺失时间时真实存 None，但 annotation 仍是
+   `str`/`float`。改为 `time_stamp: Optional[str]`、`float_time_stamp: Optional[float]`、
+   `weekday: Optional[str]`，默认值保持原样（不改未显式传参的 runtime 行为），未重排
+   import 或改其它字段。修复位置：`utils.py::MemoryEntry`。
+
+新增强反例：normalizer 缺键/空串分别 raise；`_turn_timestamp` preserve_none 双 None→None、
+含空串无 fallback→raise、空 turn+合法 session→回落 session；`get_type_hints(MemoryEntry)`
+断言三字段 Optional。既有 missing-time lineage 测试保留，证明 runtime 仍存 None 与 source id。
+
+R1 定向测试尾行（`uv run pytest -q tests/test_lightmem_adapter.py
+tests/test_amem_lightmem_registry.py tests/test_method_registry.py`）：
+
+```
+91 passed, 1 warning in 7.27s
+```
+
+首轮 §6 的历史尾行不改写。

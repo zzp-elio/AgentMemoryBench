@@ -1693,12 +1693,19 @@ def _turn_timestamp(
 
     缺失 timestamp 时按 `missing_timestamp_policy` 分流：`require`（默认，严格值）
     维持既有 `ConfigurationError` fail-fast，绝不伪造默认日期；`preserve_none`
-    返回 None，把缺失时间原样透传给 online-soft direct insert。
+    只在 `turn.turn_time` 与 `session.session_time` **都严格为 None** 时返回 None，
+    把显式缺失时间原样透传给 online-soft direct insert。既有优先级不变：有非空
+    turn time 用 turn，否则有非空 session time 用 session。若来源字段出现空字符串
+    等非法值且没有可用的非空 fallback，无论 policy 都抛错，不把坏数据静默正规化。
     """
 
     raw_timestamp = turn.turn_time or session.session_time
     if not raw_timestamp:
-        if missing_timestamp_policy == "preserve_none":
+        if (
+            missing_timestamp_policy == "preserve_none"
+            and turn.turn_time is None
+            and session.session_time is None
+        ):
             return None
         raise ConfigurationError(
             f"LightMem requires turn_time or session_time for turn {turn.turn_id}"

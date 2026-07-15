@@ -750,6 +750,32 @@ def test_lightmem_turn_timestamp_preserve_none_returns_none_for_missing_time() -
     )
 
 
+def test_lightmem_turn_timestamp_preserve_none_rejects_empty_string_without_fallback() -> None:
+    """R1-2：preserve_none 只对双 None 返回 None；来源含空字符串且无可用非空 fallback
+    时仍抛错，不把坏数据静默正规化成缺失值。"""
+
+    # turn_time="" 空串 + session_time=None：无可用非空 fallback → 抛错
+    turn_empty = Turn(turn_id="s1:t1", speaker="user", content="x", turn_time="")
+    session_none = Session(session_id="s1", turns=[turn_empty], session_time=None)
+    with pytest.raises(ConfigurationError, match="requires turn_time or session_time"):
+        _turn_timestamp(turn_empty, session_none, "preserve_none")
+
+    # turn_time=None + session_time="" 空串：同样抛错
+    turn_none = Turn(turn_id="s1:t2", speaker="user", content="y")
+    session_empty = Session(session_id="s1", turns=[turn_none], session_time="")
+    with pytest.raises(ConfigurationError, match="requires turn_time or session_time"):
+        _turn_timestamp(turn_none, session_empty, "preserve_none")
+
+
+def test_lightmem_turn_timestamp_preserve_none_uses_session_fallback_for_empty_turn() -> None:
+    """R1-2：空 turn_time + 合法 session_time 仍按既有优先级回落到 session。"""
+
+    turn = Turn(turn_id="s1:t1", speaker="user", content="x", turn_time="")
+    session = Session(session_id="s1", turns=[turn], session_time="2023-05-20")
+
+    assert _turn_timestamp(turn, session, "preserve_none") == "2023-05-20"
+
+
 def _missing_time_config(
     *,
     lifecycle_profile: str = "online_soft",
@@ -861,6 +887,33 @@ def test_lightmem_normalizer_preserves_none_alongside_timestamped_message() -> N
     assert normalized[1]["external_id"] == "e2"
 
 
+def test_lightmem_normalizer_rejects_missing_key_and_empty_string() -> None:
+    """R1-1：只有显式 time_stamp=None 走 preserve 分支；缺键与空字符串仍按 upstream
+    原逻辑报错，不被静默当成缺失时间。"""
+
+    import_lightmem_classes(load_path_settings())
+    normalizer_class = sys.modules["lightmem.memory.lightmem"].MessageNormalizer
+
+    # 根本没有 time_stamp 键 → 拒绝
+    with pytest.raises(ValueError):
+        normalizer_class().normalize_messages(
+            [{"role": "user", "content": "no time_stamp key", "external_id": "e1"}]
+        )
+
+    # time_stamp 为空字符串 → 拒绝
+    with pytest.raises(ValueError):
+        normalizer_class().normalize_messages(
+            [
+                {
+                    "role": "user",
+                    "content": "empty time_stamp",
+                    "external_id": "e2",
+                    "time_stamp": "",
+                }
+            ]
+        )
+
+
 def test_lightmem_sequence_assignment_keeps_none_group_aligned() -> None:
     """assign_sequence_numbers_with_timestamps 混合时/无时消息：不解析 None 分组，
     但仍按原顺序分配 sequence_number，五条并行数组保持索引对齐。"""
@@ -934,6 +987,22 @@ def test_lightmem_memory_entry_from_missing_time_keeps_lineage() -> None:
     assert mem.topic_id == 7
     assert mem.source_external_id == "e2"
     assert mem.memory == "harbor cafe noise"
+
+
+def test_lightmem_memory_entry_time_fields_are_optional() -> None:
+    """R1-3：MemoryEntry 真实存储 None，因此 time_stamp/float_time_stamp/weekday 的
+    annotation 必须是 Optional，让类型声明与运行时值一致。"""
+
+    from typing import get_args, get_type_hints
+
+    import_lightmem_classes(load_path_settings())
+    lm_utils = sys.modules["lightmem.memory.utils"]
+
+    hints = get_type_hints(lm_utils.MemoryEntry)
+    for field_name in ("time_stamp", "float_time_stamp", "weekday"):
+        assert type(None) in get_args(hints[field_name]), (
+            f"MemoryEntry.{field_name} must be Optional"
+        )
 
 
 def test_lightmem_vendored_retrieve_omits_time_label_for_null_payload() -> None:

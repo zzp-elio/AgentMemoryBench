@@ -13,9 +13,11 @@ from typing import Optional, Union, Dict
 @dataclass
 class MemoryEntry:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    time_stamp: str = field(default_factory=lambda: datetime.now().isoformat())
-    float_time_stamp: float = 0
-    weekday: str = ""
+    # Membench 缺失时间兼容：这三个字段在缺失 source timestamp 时真实存储 None，
+    # 因此 annotation 收敛为 Optional；默认值保持原样，不改未显式传参时的 runtime 行为。
+    time_stamp: Optional[str] = field(default_factory=lambda: datetime.now().isoformat())
+    float_time_stamp: Optional[float] = 0
+    weekday: Optional[str] = ""
     category: str = ""
     subcategory: str = ""
     memory_class: str = ""

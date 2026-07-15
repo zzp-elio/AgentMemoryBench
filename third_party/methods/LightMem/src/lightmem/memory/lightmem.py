@@ -57,20 +57,21 @@ class MessageNormalizer:
             raise ValueError(f"{str(e)}: Failed to parse session time format: '{raw_ts}'. Expected something like '2023/05/20 (Sat) 00:44'")
 
     def normalize_messages(self, messages: Any) -> List[Dict[str, Any]]:
-        """规范化输入 message，并无损保留缺失 source timestamp。
+        """规范化输入 message，并无损保留显式缺失的 source timestamp。
 
-        接受 str / dict / list[dict]：
-          - str -> 视为单条 user message（若需要 time_stamp，请用 dict 形式）
+        只接受 dict / list[dict]：
           - dict -> 单条 message
           - list -> 多条 message（每条须为 dict）
+          - str -> 拒绝（无法携带 session 级 time_stamp）
 
-        Membench 缺失时间兼容扩展：当某条 message 的 `time_stamp` 显式为 None
-        （由 adapter 在 `missing_timestamp_policy="preserve_none"` 下透传）时，本方法
-        深复制该条并令 `session_time`/`time_stamp`/`weekday` 均为 None，不生成任何
+        Membench 缺失时间兼容扩展：仅当某条 message **存在 `time_stamp` 键且值严格为
+        None**（由 adapter 在 `missing_timestamp_policy="preserve_none"` 下显式透传）时，
+        本方法深复制该条并令 `session_time`/`time_stamp`/`weekday` 均为 None，不生成任何
         offset/sentinel/墙钟时间，也不更新 `last_timestamp_map`。normalizer 本身不感知
-        framework policy，只保证 None 能被无损表示；`require`/`preserve_none` 的门由
-        adapter 在调用 backend 前统一执行。非空 timestamp 的既有解析与 offset 行为
-        完全不变。空字符串等非法 time_stamp 仍按原逻辑报错。
+        framework policy，只保证显式 None 能被无损表示；`require`/`preserve_none` 的门由
+        adapter 在调用 backend 前统一执行。**缺 `time_stamp` 键与空字符串等非法值仍按
+        upstream 原逻辑报错**，不会被静默当成缺失时间。非空 timestamp 的既有解析与
+        offset 行为完全不变。
 
         Returns: List[Dict]（每条为复制并补全后的 message）。
         """
@@ -82,7 +83,7 @@ class MessageNormalizer:
         elif isinstance(messages, str):
             raise ValueError("Please provide messages as dict or list[dict], and ensure each dict contains a 'time_stamp' field (session-level).")
         else:
-            raise ValueError("messages must be dict or list[dict] (or str, but not recommended).")
+            raise ValueError("messages must be dict or list[dict].")
 
         enriched_list: List[Dict[str, Any]] = []
 
@@ -90,10 +91,10 @@ class MessageNormalizer:
             if not isinstance(msg, dict):
                 raise ValueError("Each item in messages list must be a dict.")
             raw_ts = msg.get("time_stamp")
-            if raw_ts is None:
-                # 缺失 source timestamp：无损保留 None（不解析、不生成 offset/sentinel、
+            if "time_stamp" in msg and raw_ts is None:
+                # 仅显式 time_stamp=None 走无损保留分支（不解析、不生成 offset/sentinel、
                 # 不更新 last_timestamp_map），仅令三个时间字段为空。role/content/
-                # speaker/external_id 经 deepcopy 完整保留。
+                # speaker/external_id 经 deepcopy 完整保留。缺键与空串不进入本分支。
                 enriched = copy.deepcopy(msg)
                 enriched["session_time"] = None
                 enriched["time_stamp"] = None
