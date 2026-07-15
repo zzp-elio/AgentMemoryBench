@@ -255,6 +255,7 @@ class _FakeMemoryOS(BaseMemoryProvider):
         config=None,
         efficiency_collector=None,
         consume_granularity: str | None = None,
+        benchmark_name: str | None = None,
     ):
         """保存 factory 参数，并初始化恢复与写入调用记录。"""
 
@@ -265,6 +266,7 @@ class _FakeMemoryOS(BaseMemoryProvider):
         self.efficiency_collector = efficiency_collector
         if consume_granularity is not None:
             self.consume_granularity = consume_granularity
+        self.benchmark_name = benchmark_name
         self.loaded_conversation_ids: list[str] = []
         self.add_calls: list[list[Conversation]] = []
         self.answered_question_ids: list[str] = []
@@ -570,6 +572,7 @@ def test_memoryos_registered_prediction_uses_generic_runner_with_smoke_crop_resu
     assert isinstance(captured["system"], _FakeMemoryOS)
     assert _FakeMemoryOS.instances[0].loaded_conversation_ids == ["conv-1"]
     assert _FakeMemoryOS.instances[0].add_calls == []
+    assert _FakeMemoryOS.instances[0].benchmark_name == "locomo"
     assert captured["policy"].max_workers == 1
     assert captured["policy"].question_limit_per_conversation == 1
     assert captured["benchmark_variant"] == "locomo10"
