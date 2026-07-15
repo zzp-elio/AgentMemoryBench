@@ -13,10 +13,13 @@ evaluator 按 Recall/NDCG 各自要求导出 `valid / n_a / pending`。这样不
 1. 两份 docs-only audit 与架构裁决已合入。
 2. LightMem lifecycle profile 卡已于主线 `825132f` 强验收合入，原依赖关闭。
 3. [`actor-prompt-retrieval-evidence-contract-m0.md`](cards/actor-prompt-retrieval-evidence-contract-m0.md)
-   **已解锁，等待用户选择跨模型 actor 派发**：相邻 `membench-time-semantics` Phase A
-   与 preserve-none Phase B 均已强验收，后者主线为 `915f73c` + `3968373`；M0 可以在
-   稳定的 LightMem adapter v3/manifest 上施工。
-4. M0 合入后再写/派 M1：迁五个 evaluator、修 LongMemEval no-target 分母和 k coverage。
+   首轮已由 Opus 4.8 完成于 `5fd5ac1`；架构师在数据齐备条件下独立整套复跑
+   `297 passed, 1 warning in 12.35s`。主体保留，但 runtime 会接受未知 evidence status，
+   首轮尚未合入。
+4. [`M0 R1`](cards/actor-prompt-retrieval-evidence-contract-m0-r1.md) **待用户派回同一
+   worktree**：只补 status 枚举 fail-fast 与强反例，follow-up 不 amend。
+5. R1 强验收并线性合入 M0 后再写/派 M1：迁五个 evaluator、修 LongMemEval no-target
+   分母和 k coverage。
 
 ## 权威材料
 

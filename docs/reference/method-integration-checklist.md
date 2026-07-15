@@ -57,11 +57,19 @@
   读写无竞态。**任一项证不了 → 判物理隔离兜底**。判例：Mem0 是当前唯一逻辑隔离
   候选，且缺 clean-retry 钩子（③ 存疑），见其实例文档 B8。
 
-### B4. formatted_memory 完整性（含时间戳）
+### B4. 输入可见性 + formatted_memory 完整性（含时间/地点）
+- **输入可见性门**：字段写进 storage metadata，不等于 method 的 extraction/build
+  算法实际看见了它。必须沿官方调用链核实 typed timestamp/place 是否进入算法 prompt、
+  排序或更新逻辑；若 method 没有独立字段，或独立字段只落库而不被算法消费，就在 adapter
+  边界把数据集公开时间/地点用稳定格式折进 content。禁止只凭 API 签名或 metadata 落库
+  断言“已支持时间”。Mem0 OSS 的 `Memory.add()` 判例：extraction 读取 parsed messages，
+  metadata 主要用于持久化；当前 adapter 因此同时渲染 `[Session time]`/`[Turn time]`。
+- **原文无损规则**：benchmark 原 content 已含 place/time 时必须逐字保留；结构化字段是
+  additive，不得以“已经拆字段”为由从 content 删除。缺失则保持缺失，不用 question time、
+  兄弟 turn、运行墙钟或人造序号补齐。重复的公开原文 + typed channel 可以接受并须披露。
 - 检索返回是否覆盖官方全部有效记忆层 + 时间/地点字段。
-- **时间戳规则**：能单独传/取时间戳就结构化带；不能就折进 content；只要
-  检索**能拿回**时间戳，formatted_memory 就必须带；拿不回则记 gap。前提
-  是 benchmark dataset 有时间戳。
+- **取回规则**：能单独传/取时间戳就结构化带；不能就折进 content；只要检索**能拿回**
+  时间戳，formatted_memory 就必须带；拿不回则记 gap。前提是 benchmark dataset 有时间戳。
 - 禁止 `str(context)` 这种不可审计的塞法（A-Mem 判例）。
 - **get_answer 型接口的拆分流程覆盖**（用户 2026-07-13 固化）：method 官方
   只有 `get_answer/ask/get_response` 一体化入口、没有独立 retrieve 时，我们

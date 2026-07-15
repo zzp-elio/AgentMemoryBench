@@ -42,9 +42,12 @@
 - provenance sidecar：原生 id → ingest 批 source ids(M2),检索命中缺映射
   **fail-fast**——13 格全程未绊。它在单 turn 批是 turn semantic provenance；在
   LongMemEval 两 turn chunk 只安全向上聚合为 session，在 BEAM pair 不足以算 turn Recall。
-- 时间口径:add 侧对话时间进 metadata(OSS `add()` 无 timestamp 参数,
-  Platform-only;官方 OSS server 甚至静默丢弃该字段=upstream issue 候选
-  #3),retrieve 侧提升进 created_at 槽(M3,官方 Cloud/论文语义)。
+- 时间口径：旧句“add 侧只进 metadata”已勘误。OSS `add()` 无独立 timestamp 参数，
+  phased extraction 实际读取 parsed messages；adapter `_turn_to_message()` 已把公开
+  session/turn 时间内联为 `[Session time]`/`[Turn time]`，并另存 metadata。MemBench 原
+  place/time 文本保持不删，无时间 noise 保持缺失。retrieve 侧再提升 payload 对话时间到
+  `created_at` 槽（M3，官方 Cloud/论文 reader 语义）。官方 OSS server 丢弃独立 timestamp
+  字段仍是 upstream issue 候选，但不应再被表述成当前抽取链“metadata-only”。
 - 注入粒度：locomo/membench=turn；lme/halumem 由 registry 声明 session，lme 在 adapter
   内按位置两 turn chunk；BEAM=pair；halumem=整 session 单次 add。
 - B8+ 韧性:业务两 API 点(抽取 LLM/answer LLM)60s timeout+8 retries

@@ -254,6 +254,17 @@
     直接执行口吻，明确“本卡被发送到当前会话即表示用户已完成选择与授权，你就是执行者，
     不要另派 actor”。这条也防止模型把任务卡里的 worktree 命令误读成“请替用户编排”。
 
+28. **存进 metadata ≠ 算法看见 metadata；输入可见性必须追到消费点**（2026-07-15
+    用户提出 Mem0 时间戳疑问后固化）。Mem0 OSS 的 `Memory.add()` 接收 metadata，但当前
+    phased extraction 的 LLM 输入来自 `parse_messages(messages)`；metadata 主要进入持久化
+    payload。若 adapter 只存 metadata，抽取器确实看不见时间。现场复核发现生产代码已经
+    通过 `_turn_to_message()` 把 session/turn 时间内联进 content，MemBench 原始 place/time
+    也完整保留，只是冻结文档仍过时地写成“add 侧对话时间进 metadata”。**规矩**：method
+    接入要分别证明“字段已保存”和“字段已被算法消费”；typed field 只作 additive channel，
+    原 content 不因结构化而删减；算法不消费 typed field 时，在 adapter 边界内联公开字段；
+    数据缺失时保持缺失，绝不拿 question time、兄弟 turn 或墙钟补造。文档与代码冲突时以
+    一手调用链为准，并立即勘误冻结记录，避免下一任把正确实现误修坏。
+
 ## 4. 审查手艺（隐性知识核心）
 
 ### 4.1 三层审查法

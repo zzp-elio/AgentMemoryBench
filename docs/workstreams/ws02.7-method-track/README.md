@@ -48,22 +48,35 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   BEAM recall=N/A。LME 官方剔除无目标题，框架现记 1 分；top_k=10 亦挡死 k30/50。
   架构采用逐题 `RetrievalEvidence` + evaluator requirement 两层，不建手写笛卡尔积表。
   裁决=`branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`；
-  LightMem preserve-none Phase B 已强验收，`RetrievalEvidence M0` **现已解锁、待用户
-  派发**；M1 仍须等 M0 强验收合入后再写/派。
+  LightMem preserve-none Phase B 已强验收。`RetrievalEvidence M0` 首轮 Opus 4.8
+  `5fd5ac1` 已回卡，架构师完整定向复跑为 `297 passed, 1 warning in 12.35s`；主体正确，
+  但 `EvidenceAssertion` 会接受带理由的未知 status，故首轮未合入。现只待同 worktree
+  极小 R1；M1 仍须等 M0 强验收合入后再写/派。
 - **元学习/过时文档整改**：actor 卡整份即 prompt，禁止卡尾重复 wrapper；不默认要求
   reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
   AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。待派/暂停属于支线
   README，不得混进施工 prompt；用户把卡发送给某 actor 就是已完成选择与授权。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
-  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**下一步由用户派
-  `branches/retrieval-metrics/cards/actor-prompt-retrieval-evidence-contract-m0.md`；
-  白话目标=让每道题随 artifact 声明 retrieval provenance/ranking 是否可用于指标，
-  先铺协议与落盘，不在本卡改 evaluator/top_k。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止
-  自行调用 API。
+  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**下一步由用户把
+  `branches/retrieval-metrics/cards/actor-prompt-retrieval-evidence-contract-m0-r1.md`
+  派回现有 actor/worktree；白话目标=只拒绝 `bogus` 等未定义 evidence status，不重做
+  其余 M0。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-15）
+
+- 2026-07-15（**RetrievalEvidence M0 首轮主体通过审读、极小 R1 待用户派发**，GPT-5
+  架构师）：Opus 4.8 首轮 `5fd5ac1` 共 16 文件、844+/3-；协议、两条 artifact、strict
+  resume version 与 Mem0/LightMem/MemoryOS 逐题矩阵均按卡落地。actor 首跑的两项 HaluMem
+  失败确为隔离 worktree 缺 gitignored data；架构师补齐 data 后不是做 `295+2` 推断，而是
+  重跑原七文件整套，现场 `297 passed, 1 warning in 12.35s`。full diff 另抓到
+  `EvidenceAssertion(status="bogus", reason_code="x", reason="y")` 会成功构造：Literal 不做
+  runtime 校验，未定义状态可能进入 artifact/evaluator。故 `5fd5ac1` 暂不 cherry-pick；
+  极小返工卡=`branches/retrieval-metrics/cards/
+  actor-prompt-retrieval-evidence-contract-m0-r1.md`，只补 status fail-fast + 强反例 + note，
+  follow-up 不 amend。另复核 Mem0 输入链：时间已内联 messages 且 MemBench 原 place/time
+  保留；两处 metadata-only 过时文档已进入本轮勘误。零真实 API。
 
 - 2026-07-15（**LightMem preserve-none Phase B 强验收通过；RetrievalEvidence M0
   解锁待用户派发**，GPT-5 架构师）：Opus 4.8 首轮 `e1cfb75` + R1 `0d6bf9f` 已逐行

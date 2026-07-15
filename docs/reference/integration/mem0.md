@@ -34,8 +34,13 @@
   HaluMem 的 memory-point 复用 `end_session` 返回的 `add().results`。
 - **B3 ✅ 混合隔离**：worker 间独立 backend 物理隔离，worker 内按官方 `run_id`
   namespacing 逻辑隔离；四格 par2 smoke 已实证。
-- **B4 ✅ formatted_memory+时间**：add 侧对话时间写 metadata，retrieve 侧提升到
-  `created_at` 槽；OSS 无 timestamp 参数及 server 丢弃字段是已声明 upstream 缺口。
+- **B4 ✅ 输入可见性+formatted_memory 时间**：OSS `Memory.add()` 没有独立 timestamp
+  参数，且 phased extraction 从 parsed messages 而非 storage metadata 读取新对话；因此
+  adapter 的 `_turn_to_message()` 把公开 session/turn 时间渲染成 `[Session time: …]` /
+  `[Turn time: …]`，同时仍把时间写 metadata 供持久化与检索。MemBench 原 content 中的
+  place/time 不删，有时间时允许与结构化前缀重复；无时间 noise 不补时间。retrieve 侧再把
+  payload 对话时间提升到 `created_at` 槽供官方 reader 使用。server 丢弃独立 timestamp
+  字段仍是 upstream 缺口，但不等于当前 extraction 看不见 adapter 已内联的公开时间。
 - **B5 ✅/N/A 逐格 provenance**：原生 memory id→持久 sidecar source ids；命中缺映射
   fail-fast，旧 state 不静默回落。LoCoMo/MemBench=valid(turn)；LongMemEval 只能安全
   声明 valid(session)，不得冒充 turn；BEAM pair 的批 id 并集不能证明每条 fact 同时承载
