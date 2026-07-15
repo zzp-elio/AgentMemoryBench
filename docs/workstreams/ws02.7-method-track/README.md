@@ -54,8 +54,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
   提醒可用；恢复是后台动作，不自动向用户播报机械台词。**下一步由用户派
   `branches/membench-time-semantics/cards/actor-prompt-membench-time-semantics-phase-a.md`；
-  RetrievalEvidence M0 暂停。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止
-  自行调用 API。
+  卡已补强“place/time 原 content 永不删除 + 官方无时 noise 不过滤”。RetrievalEvidence
+  M0 暂停。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
@@ -71,8 +71,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   time，官方四源实扫：307,738 step 独立 time 字段为 0；49,738 文本有完整 timestamp，
   258,000（83.84%）无。当前未把 `QA.time` 直接写进 message，但把首个有时 turn 派生为
   session_time 并扩散给无时 noise，裁为同级伪造。③ 新裁：内嵌时间只结构化给本 turn；
-  无时保持 None；MemBench session_time=None；QA.time 只进 query/prompt。MemBench
-  frozen-v1 暂停，LightMem × 100k 在通用输入预检前不得真实运行。④ Phase A 自包含卡=
+  原 place/time content 对所有 method 完整保留；官方无时 noise 不过滤并保持 None；MemBench
+  session_time=None；QA.time 只进 query/prompt。`None` 兼容性按 method 实现裁：LightMem
+  明确拒绝，A-Mem 接受但生成 method-native ingestion wall clock，后者不得冒充 source
+  time。MemBench frozen-v1 暂停，LightMem × 100k 在通用输入预检前不得真实运行。④ Phase A 自包含卡=
   `branches/membench-time-semantics/cards/actor-prompt-membench-time-semantics-phase-a.md`；
   RetrievalEvidence M0 因后续 registry/LightMem Phase B 可能重叠继续暂停。零真实 API。
 

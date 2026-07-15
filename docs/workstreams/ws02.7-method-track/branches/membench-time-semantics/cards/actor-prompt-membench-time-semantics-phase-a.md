@@ -56,8 +56,14 @@ QA.time -> Question.question_time -> retrieval query / answer prompt only
 ```
 
 保留 `_membench_turn_time()` 对 `time: '…'` 与 `time'…'` 两种官方文本格式的解析，
-content 原文不改。不得把所有 `turn_time` 一刀切为 None；也不得引入 question time、第一条
-turn time、墙钟、文件 mtime、step index 派生时间或固定 epoch。
+content 原文不改：原文本里的 `place` 和 `time` 必须继续一起交给所有 method；结构化
+`turn_time` 只是 additive typed metadata，即使 method 支持独立 timestamp 也不得从 content
+删掉重复的时间文字。不得把所有 `turn_time` 一刀切为 None；也不得引入 question time、
+第一条 turn time、墙钟、文件 mtime、step index 派生时间或固定 epoch。
+
+100k 的无时间 message 是官方 `NoiseData` 生成器有意插入的 distractor；它们保持原始无时间
+文本和 `turn_time=None`。不要删除 noise、给 noise 补 place/time，或因 gold target 不指向
+noise 就跳过 ingest。
 
 ## 2. 生产改动
 
@@ -65,8 +71,10 @@ turn time、墙钟、文件 mtime、step index 派生时间或固定 epoch。
 fallback，构造 MemBench `Session` 时显式保持 `session_time=None`。同步修正附近注释和
 docstring，不留下“保证 LightMem 不落空”之类过时目标。
 
-不要在本卡解决 LightMem 100k 兼容性。Phase B 会另设 method-neutral 的输入需求预检；
-本卡只恢复 benchmark 公共对象的真实语义。
+不要在本卡解决 LightMem 100k 兼容性，也不要修改 A-Mem。`time_stamp=None` 会被 LightMem
+官方 MessageNormalizer 拒绝；A-Mem 虽接受 `time=None`，却会在内部生成 ingestion wall
+clock。Phase B 会另设 method-neutral 的输入需求预检并区分这些语义；本卡只恢复 benchmark
+公共对象的真实语义。
 
 ## 3. 必测反例
 
@@ -79,8 +87,10 @@ docstring，不留下“保证 LightMem 不落空”之类过时目标。
    `turn_time`；两条 `metadata["original_session_time"] is None`；任何 event 字段中都
    不得出现 QA 的未来日期；
 3. first-person dict step 与 third-person str step 均覆盖，避免只修一类源；
-4. 现有 0-10k 两种内嵌时间格式仍能解析，原 content 不变；
-5. question public/private 边界、smoke crop、registered fake 全链路不退化。
+4. 现有 0-10k 两种内嵌时间格式仍能解析；分别断言原 content 中完整的 message、`place`
+   与 `time` 子串仍在，不能只断言时间字段；
+5. 无时间 noise 的 content 逐字保留且 `turn_time is None`，不得被过滤；
+6. question public/private 边界、smoke crop、registered fake 全链路不退化。
 
 测试 fixture 必须让 message time 与 question time 明显不同，禁止二者写同一个值导致
 错误串字段也能绿。

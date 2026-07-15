@@ -46,8 +46,9 @@
 |---|---|---|
 | 双人称双形态：first=dict{user,agent}（1 round=1 turn）/ third=纯 str | 按人称裁剪 round/turn | D2 |
 | **时间戳两种官方格式**：`time: '…'` 与 `time'…'`（加噪代码 `time{}` 格式串所致；ThirdLow 0-10k 19,285 条全无冒号） | 正则 `time:?\s*'…'` 兼容 | D2 测试 |
+| **place/time 是公开 content 的一部分** | timestamp 抽取只额外填同 Turn 的 `turn_time`；所有 method 继续收到含 place/time 的完整 content，不做删词去重 | membench-100k-time-ruling §1/§5 |
 | **原生无任何 session 级时间字段**（trajectory 只有 tid/message_list/QA；单 tid 单 session） | `session_time=None`；统一 schema 的单 Session 只是包装，不得从首个有时 turn 派生 | membench-100k-time-ruling §4-§5 |
-| **100k 是有时源 message + 无时 noise 混合流**：307,738 step 均无独立 time 字段；49,738 文本有完整 timestamp，258,000（83.84%）无 | 有完整 timestamp 才无损解析到该 `turn_time`；无则保持 None；禁止 session/question/墙钟/人造时间兜底 | membench-100k-time-ruling §2-§5 |
+| **100k 是有时源 message + 官方主动插入的无时 noise 混合流**：307,738 step 均无独立 time 字段；49,738 文本有完整 timestamp，258,000（83.84%）无 | noise 仍 ingest 且保持 None；gold target 只重定位原 evidence；禁止 session/question/墙钟/人造时间兜底 | membench-100k-time-ruling §2-§5 |
 | 全 task type 单字母 MCQ（answer str/list 只是内容形态） | ground_truth 恒 A-D | audit §6 |
 | 官方 step id 0 基 vs 公开 turn id 1 基 | evidence +1 平移到公开空间 | D4 |
 | 越界 target_step_id 2 例 + 空 1 例（官方 off-by-one/缺失） | 合法保留；recall unmatched/N/A 计数 | D2/D4 |

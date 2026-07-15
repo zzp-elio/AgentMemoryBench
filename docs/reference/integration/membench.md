@@ -46,5 +46,7 @@
 6. **native 格**：仅 SimpleMem。其余 method 在 membench 全部单轨 collapse。
 7. 100k variant 只剖面未全链路；capacity/memory-efficiency 维度 Phase 1 未纳入。
 8. `QA.time` 只进 retrieval query / answer prompt。message 文本有自己的 time marker 时可
-   无损结构化到该 turn；无 marker 保持 None。要求每条 message timestamp 的 method
-   必须按真实 variant shape 做兼容性预检，不得拿 question/首条/墙钟造时间。
+   无损结构化到该 turn；无 marker 保持 None。结构化后所有 method 收到的 content 仍完整
+   保留原 place/time，不做破坏性清洗。要求每条 message 非空 timestamp 的 method 必须按
+   真实 variant shape 做兼容性预检；传 `None` 是否兼容按 method 真实实现裁，不得拿
+   question/首条/墙钟造 source time。

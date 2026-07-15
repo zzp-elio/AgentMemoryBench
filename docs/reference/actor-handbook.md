@@ -103,6 +103,11 @@
   会把正文叙述也计入 timestamp；至少锁定日期/分隔符形态，并抽样首尾反证。2026-07-15
   MemBench 100k 初扫的宽条件在提交前被架构师推翻，完整 timestamp 正则才得到
   49,738 有时 / 258,000 无时的可信计数。
+- **从公开 content 抽取 typed metadata 默认必须是 additive normalization**：除非
+  benchmark 官方契约明确要求清洗，否则抽出 timestamp/place/id 后不得把相同公开文字从
+  content 删除。支持结构化字段的 method 收到“原 content + typed field”，不支持者仍能
+  读原文；缺字段保持 None。2026-07-15 MemBench 判例中，time 被额外写入 Turn，但原
+  place/time 对所有 method 完整保留。
 
 ## 7. 好行为（值得学的正例）
 
