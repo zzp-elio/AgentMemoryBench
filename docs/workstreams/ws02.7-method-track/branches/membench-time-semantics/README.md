@@ -28,8 +28,11 @@ question 的 `QA.time`。本支线修复把首个 message 时间扩散成伪 ses
 
 1. Phase A 已由 Opus 4.8 完成，架构师 full diff + `31 passed in 3.68s` + 主树
    `1193 passed` 强验收，合入 `2e6b4d7`；MemBench benchmark frozen-v1 恢复。
-2. 下一批执行 [`actor-prompt-lightmem-missing-time-online-soft.md`](cards/actor-prompt-lightmem-missing-time-online-soft.md)：
-   只给 online-soft 增加 preserve-none 输入兼容，并把 consolidated profile 锁在 require。
+2. Opus 4.8 首轮 `e1cfb75` 已实现 preserve-none 主体，架构师独立复跑
+   `87 passed, 1 warning in 7.07s`；但 explicit None、空字符串和 `MemoryEntry` optional
+   类型三道边界未锁实，故未合入。下一批只执行
+   [`actor-prompt-lightmem-missing-time-online-soft-r1.md`](cards/actor-prompt-lightmem-missing-time-online-soft-r1.md)，
+   在原 worktree 补 follow-up commit；原 Phase B 卡禁止重复执行。
 3. Phase B 通过后再决定是否需要更通用的 input-requirement 协议；不预建 method × variant
    人工白名单，也不把 A-Mem method-generated wall clock 冒充 source time。
 4. RetrievalEvidence M0 在 Phase B 强验收前继续暂停，避免同时修改 LightMem manifest、
@@ -40,4 +43,5 @@ question 的 `QA.time`。本支线修复把首个 message 时间扩散成伪 ses
 - 数据与官方流程裁决：[`membench-100k-time-ruling.md`](notes/membench-100k-time-ruling.md)
 - Phase A 实现记录：[`membench-time-semantics-phase-a-implementation.md`](notes/membench-time-semantics-phase-a-implementation.md)
 - LightMem None 裁决：[`lightmem-missing-time-compatibility-ruling.md`](notes/lightmem-missing-time-compatibility-ruling.md)
-- **待派 Phase B 卡**：[`actor-prompt-lightmem-missing-time-online-soft.md`](cards/actor-prompt-lightmem-missing-time-online-soft.md)
+- 首轮 Phase B 历史卡：[`actor-prompt-lightmem-missing-time-online-soft.md`](cards/actor-prompt-lightmem-missing-time-online-soft.md)
+- **待用户派发 R1 卡**：[`actor-prompt-lightmem-missing-time-online-soft-r1.md`](cards/actor-prompt-lightmem-missing-time-online-soft-r1.md)

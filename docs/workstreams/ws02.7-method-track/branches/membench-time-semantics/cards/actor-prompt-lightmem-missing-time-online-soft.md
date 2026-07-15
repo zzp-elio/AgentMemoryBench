@@ -1,8 +1,8 @@
 # Actor 卡：LightMem online-soft 缺失时间兼容 Phase B
 
-> 状态：**待用户选择跨模型 actor 派发**。本文件整份即 prompt；单批上限 5h、零真实 API、
-> 不 push。白话目标：让 LightMem online-soft 诚实接收 `time=None` 的官方 noise，同时保持
-> 原 content、顺序和 lineage；绝不造时间，也绝不让缺失时间进入 consolidated 时间算法。
+> **历史卡，禁止重复执行。** Opus 4.8 已完成首轮 commit `e1cfb75`；架构师验收发现
+> explicit-None 边界与类型契约仍需收紧，后续只执行同目录
+> `actor-prompt-lightmem-missing-time-online-soft-r1.md`。本卡保留为原始施工契约。
 
 ## 0. 上工与隔离
 

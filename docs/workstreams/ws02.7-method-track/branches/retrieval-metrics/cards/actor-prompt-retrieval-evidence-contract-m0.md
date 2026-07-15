@@ -1,6 +1,8 @@
 # Actor 卡：RetrievalEvidence M0（协议与 artifact plumbing）
 
-> 派发日：待定。状态：**暂停，先不要派发**。
+> **给当前 actor 的执行指令：你就是用户已选中的执行者。** 本卡被发送到当前会话即代表
+> 用户已经完成选择与授权，请直接按卡施工；不要再询问由谁派发，也不要另派 actor。
+> 仓库侧的前置依赖与可派时机只看本支线 README，不属于 actor 收卡后的二次决策。
 > 本卡本身就是可整份复制的 prompt；单批上限 5h、零真实 API。
 > 目标只做 M0 plumbing，**不切 evaluator、不修 LongMemEval 分母、不改 top_k**；M1 必须
 > 等本卡经架构师强验收合入后再派。
