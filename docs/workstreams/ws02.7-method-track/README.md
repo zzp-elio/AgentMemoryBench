@@ -20,9 +20,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 > 原始对话。恢复只读本节 + `git status --short` + `git log -5 --oneline`，再按链接
 > 定点读一份 note/判据；不要从下方历史断点全文重建。
 
-- **最近实质链**：`e2fff4b`（MemoryOS M2）→ `147ab15`（派发/恢复规则）→
-  `bfe69f1`（registry 测试替身）→ `0333c7a`（LightMem 纯取证）→ `ac24f63`
-  （首次裁决）→ `653c1ff`（Mem0 文档锚）。准确 commit/upstream 状态始终
+- **最近实质链**：`bfe69f1`（MemoryOS M2 验收）→ `0333c7a`（LightMem 取证）→
+  `ac24f63`（semantic provenance 改判）→ `653c1ff`（Mem0 文档锚）→ `eed497b`
+  （compact/metric 资格门）→ `dc15304`（Mem0 ADD-only audit）→ `c36b171`
+  （retrieval eligibility audit）。准确 commit/upstream 状态始终
   以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
   `1181 passed, 3 deselected, 2 warnings, 4 subtests passed in 161.04s`。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
@@ -32,22 +33,40 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `57 passed, 1 warning`，但用户指出输入 id 并集不证明改写后 memory 仍承载各事实；
   反例成立，commit **不合入**。LoCoMo post-update provenance Recall/NDCG 改判结构化
   N/A；B5/B11 等 capability artifact 门，禁止再花 API 做 plural provenance smoke。
-  现行裁决：`notes/lightmem-offline-recall-ruling.md`。
-- **指标资格/top-k**：`consume_granularity`、semantic provenance、item 粒度分离；
-  answer depth 与 evaluation ranking depth 混用（LME k30/50 被 top_k=10 挡住）挂 ws03。
-  两张 docs-only 取证卡待用户跨模型派发：Mem0 ADD-only 负空间审计 + retrieval metric
-  eligibility/NDCG 排序契约审计；架构师不自动启动 actor。
-- **过时文档整改**：AGENTS Cognee→EverOS；roadmap/ws02.6 状态；playbook
-  删除动态快照/过期继任安排；onboarding 区分 Claude/Codex 两套 advisory hook；
-  integration-status、Mem0/LightMem/MemoryOS 实例、freeze note、metric 排期、checklist
-  与框架差异化已更新；Fable→GPT 一次性交接信已移入 `archive/handoffs/`。
-- **Codex hook/下一动作**：`.codex/hooks.json` 已设计为 compact 后自举四步恢复、commit
-  前提醒；合入后仍需用户在 `/hooks` 一次性审核信任。下一步等待用户并行派两张审计卡；
-  MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止自行调用 API。
+  `update="online"` 是不入库空壳；五格初始持久化实际均为 offline embed+insert，只有
+  LoCoMo 另跑 post-build consolidation。主线保持官方 post-update；pre-update 只可另名
+  ablation。现行裁决：`notes/lightmem-offline-recall-ruling.md`。
+- **指标资格/top-k**：两张 docs-only audit 已由 Sonnet 5 回卡并经架构师强验收合入。
+  Mem0 mutation=ADD-only，但 sidecar 是批归属：LoCoMo/MemBench=turn、LME=session、
+  BEAM recall=N/A。LME 官方剔除无目标题，框架现记 1 分；top_k=10 亦挡死 k30/50。
+  架构采用逐题 `RetrievalEvidence` + evaluator requirement 两层，不建手写笛卡尔积表。
+  裁决=`notes/retrieval-metric-eligibility-ruling.md`；下一张依赖卡=
+  `actor-prompt-retrieval-evidence-contract-m0.md`，待用户派发，M1 不得抢跑。
+- **元学习/过时文档整改**：actor 卡整份即 prompt，禁止卡尾重复 wrapper；不默认要求
+  reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
+  AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。
+- **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
+  提醒可用；两个旧用户级条目重复/含过时广读序，用户保持未信任是正确选择。下一步由
+  用户派 RetrievalEvidence M0；MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止
+  自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-15）
+
+- 2026-07-15（**两份 retrieval audit 强验收通过；资格架构裁定并派 M0 卡**，GPT-5
+  架构师）：① Sonnet 5 Mem0 audit `30f22dc` 合入为 `dc15304`；控制流复证当前生产
+  `Memory.add()` 只产 ADD，但架构师纠正自己任务卡的过宽标签：ADD-only mutation 不等于
+  fact-level semantic provenance。Mem0 逐格收紧为 LoCoMo/MemBench=turn、LME=session、
+  BEAM turn Recall=N/A，method frozen-v1 保留并携 metric 勘误。② Sonnet 5 framework
+  audit `0f8b382` 合入为 `c36b171`；架构师回读官方源码并只读计数两份 500 题 cleaned
+  数据，均为 30 `_abs` + 21 无目标题，确认框架把官方应剔除的后者记 1 分；同时确认
+  k30/50 被 query top_k=10 硬挡。③ 架构裁决=provider 逐题陈述 semantic provenance/
+  stable ranking 事实，evaluator 按 metric requirement 推导 valid/n_a/pending；拒绝静态
+  method 字段扩张和独立人工 eligibility 白名单。④ LightMem 不切 `online`（函数空壳）；
+  LoCoMo 主线保留官方 post-update，pre-update 仅允许另名 ablation。⑤ 用户指出卡尾重复
+  prompt 与 subagent 禁令过度，已同步 AGENTS/onboarding/两本手册并修正两张历史卡；
+  新 M0 卡自身即 prompt、待用户派发，M1 依赖 M0 强验收后再写/派。
 
 - 2026-07-15（**Codex 压缩自举 hook 落地；LightMem lineage 修复拒绝合入；两张横向
   审计卡待用户派发**，GPT-5 架构师）：① 官方 Codex manual 与本机 catalog 核证

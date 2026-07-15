@@ -6,6 +6,13 @@
 > 并重跑受影响格的 smoke。B1-B11 勾选终态见
 > `docs/reference/integration-status.md`,逐项证据见
 > `docs/reference/integration/mem0.md` 与 M1-M5 notes。
+>
+> **2026-07-15 后续勘误（不撤销 method 冻结）：**ADD-only 负空间审计证明当前生产
+> memory mutation 仅新增 immutable id，但 sidecar 记录的是 ingest 批归属，不是每条
+> 抽取 fact 的无损 turn 归因。LoCoMo/MemBench 保持 turn；LongMemEval 仅 session；
+> BEAM turn Recall=N/A。既有受影响 retrieval metric 数字撤销为可信指标声明，其他
+> answer/judge/F1/成本与 B1-B4/B6-B10 证据继续有效。现行裁决见
+> `retrieval-metric-eligibility-ruling.md`。
 
 ## 1. 冻结时点的证据面(13 格 predict + 全指标)
 
@@ -32,13 +39,14 @@
 - 隔离形态=**worker 间物理、worker 内逻辑**(run_id namespacing=官方
   姿势=方法身份,M1 §3);clean 三件套=delete_all+批准 diff
   `SQLiteManager.delete_messages(session_scope)`+sidecar 清除。
-- provenance="turn":原生 id → sidecar 映射(M2),检索命中缺映射
-  **fail-fast**——13 格全程未绊,观察项转正式行为。
+- provenance sidecar：原生 id → ingest 批 source ids(M2),检索命中缺映射
+  **fail-fast**——13 格全程未绊。它在单 turn 批是 turn semantic provenance；在
+  LongMemEval 两 turn chunk 只安全向上聚合为 session，在 BEAM pair 不足以算 turn Recall。
 - 时间口径:add 侧对话时间进 metadata(OSS `add()` 无 timestamp 参数,
   Platform-only;官方 OSS server 甚至静默丢弃该字段=upstream issue 候选
   #3),retrieve 侧提升进 created_at 槽(M3,官方 Cloud/论文语义)。
-- 注入粒度:locomo/lme=turn 对齐官方、BEAM=pair(官方 2-turn chunk)、
-  halumem=整 session 单次 add(M2,R 裁决)。
+- 注入粒度：locomo/membench=turn；lme/halumem 由 registry 声明 session，lme 在 adapter
+  内按位置两 turn chunk；BEAM=pair；halumem=整 session 单次 add。
 - B8+ 韧性:业务两 API 点(抽取 LLM/answer LLM)60s timeout+8 retries
   实锚到客户端;ingest 失败=failed_ingest 隔离+显式 retry 前全清理
   (M5 §1)。
@@ -65,6 +73,13 @@
 8. halumem 五件套⑤=N/A(op-level runner 单 worker 硬校验)。
 9. embedding >512 token 截断警告风险 full 前复查(MiniLM 序列上限,
    与 LightMem 同款风险面)。
+
+### 3.1 冻结后新增的 metric 资格勘误
+
+- BEAM provenance recall=N/A（pair 批 id 并集会产生 turn-level 假阳性）。
+- LongMemEval 只允许 session provenance；rank 另待真实保序与 evaluation depth 门。
+- runner 的 `top_k=10` 使官方 k30/50 必然缺失；不得把已有 artifact 条目数冒充已覆盖。
+- 上述是 metric 输出资格勘误，不改变 Mem0 add-only 算法身份或要求重跑真实 API。
 
 ## 4. R0 前置包(mem0 份)
 

@@ -52,17 +52,21 @@
   误标成"Claude Sonnet"，架构师又照搬未核实——身份自标也要验证，同"验证 actor
   断言"一理）。actor
   规矩全文在 `docs/reference/actor-handbook.md`（上工流程、红线、停工条件、报告
-  格式）。**每次给 actor 派工必须同时写一段可直接复制发送的 prompt**，并把工作量
-  限制在单个 5h 窗口内；prompt 列出本批要读的最少文件（`AGENTS.md` → 目标
+  格式）。**每张 actor 卡本身就是可直接复制发送的自包含 prompt**，禁止在卡尾再套
+  一份内容重复的“可转发 prompt”；并把工作量限制在单个 5h 窗口内。卡内列出本批
+  要读的最少文件（`AGENTS.md` → 目标
   workstream README → plan 当前批次 → `actor-handbook.md`）和明确停点，不能只丢一份
   大 plan。任务卡仍须自包含、把裁定与口径写全；
   **禁用"纪律照旧""规矩同上"这类只有老搭档才懂的暗语**（新人看不懂，等于没写）。
   **默认派发权在用户**：架构师负责写好可直接复制的自包含任务卡并交给用户，由
   用户按跨模型额度和能力选择 actor；只有用户明确要求在当前 Codex 内派 subagent
   时，架构师才可自行启动。不得把"合理下放"误解成默认消耗 Codex 同一额度。
-  actor 严格按本批 prompt/plan 施工，只跑一次直接相关的最小自检并报告真实输出；
+  actor 严格按本批任务卡/plan 施工，只跑一次直接相关的最小自检并报告真实输出；
   **不得默认要求 actor 再开 reviewer subagent、重复一手审计、跑全量回归或自行做最终
-  验收**。plan 未覆盖的情况停工写断点，交回架构师，不自行发散。
+  验收**；也不得反向一刀切禁止 actor 自行组织 subagent。架构师约束的是交付物、允许
+  文件、预算/API、证据与停工边界，不替 actor 规定内部执行拓扑；subagent 不得扩大
+  scope 或替代主 actor 对最终报告负责，发生实质性使用时须在回报中说明。plan 未覆盖
+  的情况停工写断点，交回架构师，不自行发散。
 - 执行者报告完成不等于任务完成；验收以架构师复跑命令的输出为准，**完成度
   以 git log 为准，不以 actor 最后一条消息为准**（额度耗尽时消息可能错乱）。
   架构师负责关键 diff 审读、定向复跑、最终全量回归和状态冻结；“放慢”是 benchmark/
@@ -80,8 +84,9 @@
   都要有落点，Claude memory 至多作镜像。
 - **上下文不是持久记忆**：Codex 上下文窗口有限且会压缩；对话里已经裁定但未落盘的
   内容等同于尚未交接。每次用户拍板、验收阻断、派卡/回卡和架构裁决都应先写入活跃
-  workstream README 或对应 spec/note/手册，再依 `git log` 恢复；压缩后必须重读
-  `architect-onboarding.md` 的使用时刻表与活跃 README 顶部，禁止凭残余摘要装作记得。
+  workstream README 或对应 spec/note/手册，再依 `git log` 恢复。冷启动才读
+  `architect-onboarding.md`；同一会话压缩后只走下条四步恢复门，禁止把冷启动全文读序
+  搬进 compact 恢复，也禁止凭残余摘要装作记得。
 - **压缩恢复必须可自举**：项目 `.codex/hooks.json` 用
   `SessionStart(source=compact)` 重新注入四步恢复门；hook 首次/变更后须由用户在
   `/hooks` 审核信任。若 hook 未加载，本文就是兜底触发器：只读 `git status --short`、

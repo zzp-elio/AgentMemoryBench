@@ -11,6 +11,12 @@
 > transformation-input lineage，不能恢复 Recall/NDCG 所需的 semantic evidence
 > provenance；actor commit `3e2d957` 虽忠实通过旧卡实现与 57 项定向测试，但不合入
 > 主线。与本段冲突的旧裁决均作废。**
+>
+> **2026-07-15 术语补充：不得把 LoCoMo 改成 `update="online"`。当前
+> `online_update()` 是空壳，改后不会持久化 memory；五格初次持久化均为
+> `offline_update()` 的 embed+insert，只有 LoCoMo 另跑 post-build consolidation。
+> 主线保持官方 README 的 post-update profile；pre-update 只能是另名 ablation。完整
+> capability 裁决见 `retrieval-metric-eligibility-ruling.md`。**
 
 ## 1. 一句话裁决
 

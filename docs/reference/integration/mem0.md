@@ -3,9 +3,10 @@
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
 > 状态：**method-frozen-v1（2026-07-14）**。冻结证据与九项声明缺口见
 > `../../workstreams/ws02.7-method-track/notes/mem0-frozen-v1.md`；下列 B1-B11 是现行
-> 结论，不再把 2026-07-13 的预填风险冒充当前状态。2026-07-15 已开 docs-only
-> ADD-only/provenance 负空间审计卡；在一手证据回卡前维持冻结，不因类上存在公开
-> `update/delete` API 就推断 adapter 可达 mutation。
+> 结论，不再把 2026-07-13 的预填风险冒充当前状态。2026-07-15 ADD-only/provenance
+> 负空间审计已由架构师验收：memory mutation 仅 ADD；同时确认 sidecar 是 ingest 批
+> 归属，不自动等于 fact-level turn provenance。现行逐格裁决见
+> `../../workstreams/ws02.7-method-track/notes/retrieval-metric-eligibility-ruling.md`。
 
 - adapter：`src/memory_benchmark/methods/mem0_adapter.py`
 - 算法源：vendored `third_party/methods/mem0-main`（官方 `Memory` 类）
@@ -27,14 +28,17 @@
 - **B1 ✅ 来源/接口**：使用 vendored OSS `Memory.add/search`；上游压缩包无可追 commit，
   以 package 2.0.4 + 146 文件 content hash 锁定，并把 5×10 后 upstream drift 对比列为
   声明缺口。
-- **B2 ✅ 注入粒度**：LoCoMo/LongMemEval=turn，BEAM=pair，HaluMem=整 session；
+- **B2 ✅ 注入粒度**：LoCoMo/MemBench=turn，BEAM=pair，LongMemEval/HaluMem=
+  framework session；LongMemEval 在 adapter 内按位置两 turn chunk，HaluMem 整 session。
   HaluMem 的 memory-point 复用 `end_session` 返回的 `add().results`。
 - **B3 ✅ 混合隔离**：worker 间独立 backend 物理隔离，worker 内按官方 `run_id`
   namespacing 逻辑隔离；四格 par2 smoke 已实证。
 - **B4 ✅ formatted_memory+时间**：add 侧对话时间写 metadata，retrieve 侧提升到
   `created_at` 槽；OSS 无 timestamp 参数及 server 丢弃字段是已声明 upstream 缺口。
-- **B5 ✅ turn provenance**：原生 memory id→持久 sidecar source ids；命中缺映射
-  fail-fast，旧 state 不静默回落。
+- **B5 ✅/N/A 逐格 provenance**：原生 memory id→持久 sidecar source ids；命中缺映射
+  fail-fast，旧 state 不静默回落。LoCoMo/MemBench=valid(turn)；LongMemEval 只能安全
+  声明 valid(session)，不得冒充 turn；BEAM pair 的批 id 并集不能证明每条 fact 同时承载
+  两个 turn，turn Recall=N/A；HaluMem 官方无 retrieval recall。
 - **B6 ✅ no-op flush**：`add()` 同步抽取并写入，无 conversation 尾部缓冲。
 - **B7 ✅ api_usage（带声明缺口）**：build/answer/judge 观测已贯通；三格 native
   injected-token 计量尚未完全跟随官方实际嵌入段，列入 R0 前置包。
@@ -45,10 +49,14 @@
   空检索属于方法语义，不当作框架故障。
 - **B10 ✅ 双轨**：native 注册 LoCoMo、LongMemEval、BEAM；judge 路由泛化和旧论文
   校准配置属于 R0 前置包，不伪装成已消费。
-- **B11 ✅ smoke+冻结**：13 格 predict、免费/付费指标与既定并行门完成；冻结时基线
-  1164 passed。完整 run_id、数字和九项声明缺口以 frozen note 为准。
+- **B11 ✅ smoke+冻结（provenance metric 勘误）**：13 格 predict、免费/付费指标与既定
+  并行门完成；冻结时基线 1164 passed。既有 BEAM provenance recall 与 LongMemEval
+  turn-level/rank 数字不再作可信指标声明，待逐题 eligibility artifact 门；answer/F1/
+  judge/成本与 add-only 证据继续有效。
 
 ## 特殊情况
 1. Mem0 是当前唯一混合隔离方法，不能把 worker 内逻辑隔离误写成全局纯逻辑隔离。
 2. `method-frozen-v1` 允许携带声明缺口，不等于这些缺口消失；解冻边界和 R0 前置包以
    frozen note §3-§4 为准。
+3. `ADD_ONLY_MUTATION_PROVEN` 只回答旧 memory 是否被改写/删除；它不替代 semantic
+   provenance 审计。任务卡旧标签 `ADD_ONLY_PROVEN` 的过宽语义以现行 ruling 为准。

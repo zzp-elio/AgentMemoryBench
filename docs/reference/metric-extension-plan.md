@@ -40,9 +40,11 @@
    写进对应 benchmark 的 `integration/<b>.md`。
 4. LoCoMo 特别注意：官方 BLEU-1 属于非 QA 任务面（frozen note §5 已裁"不接入"）
    ——若加 BLEU 是**我们的 supplementary 决定**，不得声称官方口径。
-5. **资格先于计算**：每个 method × benchmark × metric 独立声明
-   `valid / N/A / pending` 与 reason。transformation-input lineage 不等于 semantic
-   evidence provenance；Recall 可评也不自动推出 NDCG 可评，后者另需保序和 depth。
+5. **资格先于计算**：每个 method × benchmark × metric 都要得到
+   `valid / N/A / pending` 与 reason，但不手填笛卡尔积白名单。provider 逐题陈述
+   semantic provenance / stable ranking 事实，evaluator 用通用要求导出 metric 资格。
+   transformation-input lineage 不等于 semantic evidence provenance；Recall 可评也不
+   自动推出 NDCG 可评，后者另需保序和 depth。
 
 ## 4. 排期
 

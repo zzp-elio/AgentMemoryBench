@@ -1,7 +1,8 @@
 # Actor 取证卡：retrieval metric 资格与排序契约审计
 
-> 派发日：2026-07-15。docs-only、零真实 API、单批上限 5h；不得另开
-> reviewer/subagent。可与 Mem0 provenance 审计并行。actor 只列一手契约与候选缺口，
+> 派发日：2026-07-15；已由 Claude Sonnet 5 执行并以 `0f8b382` 回卡，架构师强验收后
+> 合入主线为 `c36b171`。docs-only、零真实 API、单批上限 5h；可与 Mem0 provenance
+> 审计并行。actor 只列一手契约与候选缺口，
 > 不替架构师设计最终 schema。
 
 ## 0. 上工与隔离
@@ -108,17 +109,3 @@ git commit -m "docs(ws02.7): audit retrieval metric eligibility"
 
 到此停止。按 actor-handbook §4 回报 commit、`git diff --check` 原始结果、实际改动文件、
 偏差/停工点；不跑 pytest/compileall，不更新 status/checklist，不 push。
-
-## 5. 可直接转发给 actor 的 prompt
-
-```text
-你是本批 docs-only 框架契约取证 actor。请完整执行
-/Users/wz/Desktop/memoryBenchmark/docs/workstreams/ws02.7-method-track/actor-prompt-retrieval-metric-eligibility-audit.md。
-严格按卡内顺序先读 AGENTS.md → ws02.7 README 顶部恢复胶囊 → 本卡全文 →
-actor-handbook.md §0-§4 → method-integration-checklist.md B5/B5+ →
-lightmem-offline-recall-ruling.md §1/§3/§5-§7，再新建卡内指定 worktree/branch。唯一允许
-产出是 notes/retrieval-metric-eligibility-audit.md；不得改代码/测试/状态文档，不得真实
-API，不得另开 subagent/reviewer，不得替架构师定最终 schema。命中停工条件就记录并
-提交 note 后停止。最后只按卡 §4 回报 commit、git diff --check 原始结果、实际文件和
-偏差/停工点，不 push。
-```

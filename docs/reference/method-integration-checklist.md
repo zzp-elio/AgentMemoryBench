@@ -89,6 +89,12 @@
   返回的稳定有序列表、足够的 evaluation depth 与可解释 rank；不能拿无序集合、二次
   排序后的展示列表或 answer 截断深度冒充官方 top-k。资格按 method × benchmark ×
   metric 独立声明 valid/N/A/pending，禁止要求每个 method 填满所有指标。
+- **资格不是手写白名单**（2026-07-15 裁决）：provider 在逐次 `RetrievalResult` 陈述
+  semantic provenance 与 stable ranking 的 `valid/n_a/pending + reason` 事实，evaluator
+  按本 metric 的通用 requirement 导出资格。禁止另建会与 runtime 漂移的
+  method × benchmark × metric 人工矩阵；manifest 只存 schema/version 与能力上限，
+  不能覆盖逐题实际值。实现门见 ws02.7
+  `notes/retrieval-metric-eligibility-ruling.md`。
 
 ### B5+. 能力缺口的无损改造评估（2026-07-13 新增，导师建议）
 B2/B5 及 HaluMem memory_point 这类**能力缺口**（method 接口不支持某 benchmark 的
