@@ -162,3 +162,19 @@ status，不误报 reason 缺失。
 Literal 单源集合与三种合法值语义均不变。参数化测试补 `[]`/`{}`，要求两者与其他非法值
 同样稳定抛 `ValueError`。该修复由架构师以独立 follow-up commit 留痕，不 amend actor 的
 `5fd5ac1` / `1999f56` 历史。
+
+## 9. 主树全量门：registered preflight / resume 身份对称性
+
+合入首轮与 R1 后，主树第一次全量回归在
+`test_locomo_registered_prediction_offline_probe_workflow` 暴露确定性回归：首次 run 进入
+`run_predictions()` 后才补 `retrieval_evidence_contract_version="v1"` 并落盘；同一 registered
+入口第二次 `resume=True` 却会先用 CLI 预构造、尚未带 v1 的 method manifest 做只读
+preflight，因此拒绝自己刚生成的 run。该失败证明内部 `_manifests_match_for_resume` 单测与
+runner 落盘测试不足以覆盖真实 registered service 的两阶段装配。
+
+修复不放宽 strict resume，也不把 version 加进旧兼容删除键：
+`cli/run_prediction.py::_build_method_manifest()` 新增可选 contract version，registered CLI
+从同一 `MethodRegistration` 静态声明取值，在 preflight 前写入 child method manifest；随后
+runner 的既有 `setdefault` 看到相同 v1，首次落盘与 resume 候选保持一致。custom method 与
+未声明 contract 的 method 继续不写该字段。LoCoMo registered 端到端测试显式断言 manifest
+v1，并以原有第二次 resume 成功锁住该边界。

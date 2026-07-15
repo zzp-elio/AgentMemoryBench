@@ -196,6 +196,7 @@ def test_locomo_registered_prediction_offline_probe_workflow(
     assert answer_prompts[0]["retrieval_query_top_k"] == 10
     assert manifest["method"]["provenance_granularity"] == "turn"
     assert manifest["method"]["prompt_track"] == "unified"
+    assert manifest["method"]["retrieval_evidence_contract_version"] == "v1"
     assert predictions[0]["answer"] == "fake unified answer"
     assert fake_client.calls  # framework 确实调用了离线 fake，而非跳过 answer 步骤
 

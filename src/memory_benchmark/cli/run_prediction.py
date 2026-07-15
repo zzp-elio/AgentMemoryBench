@@ -492,6 +492,11 @@ def run_registered_conversation_qa_prediction(
                 else None
             ),
             config_track=("native" if config_track_bundle is not None else None),
+            retrieval_evidence_contract_version=getattr(
+                method_registration,
+                "retrieval_evidence_contract_version",
+                None,
+            ),
         )
         policy = PredictionRunPolicy(
             max_workers=max_workers,
@@ -1557,8 +1562,9 @@ def _build_method_manifest(
     answer_reader_manifest: dict[str, object] | None = None,
     prompt_track: str | None = None,
     config_track: str | None = None,
+    retrieval_evidence_contract_version: str | None = None,
 ) -> dict[str, object]:
-    """构造不含 secret 的 method manifest。"""
+    """构造不含 secret、可供 registered preflight 直接比较的 method manifest。"""
 
     manifest: dict[str, object] = {
         "config": config_manifest,
@@ -1570,6 +1576,10 @@ def _build_method_manifest(
         manifest["prompt_track"] = prompt_track
     if config_track is not None:
         manifest["config_track"] = config_track
+    if retrieval_evidence_contract_version is not None:
+        manifest["retrieval_evidence_contract_version"] = (
+            retrieval_evidence_contract_version
+        )
     if workload_estimate is not None:
         manifest["workload_estimate"] = workload_estimate
     return manifest
