@@ -43,8 +43,9 @@
   handover-to-next-architect.md 已于 2026-07-14 并入并删除），再配
   `docs/reference/architect-playbook.md`
   （历任踩坑与纪律，供"上任自检"，也是不可用时的备份机制）。
-- **执行者（actor）= 轮换池**（2026-07-07 起）：Codex / OpenCode+DeepSeek /
-  WorkBuddy(GLM-5.2) / Claude Sonnet 等，可能随时换人、新开会话，**一律视为
+- **执行者（actor）= 跨产品轮换池**（2026-07-07 起）：Codex /
+  OpenCode+DeepSeek / WorkBuddy(GLM-5.2) / Claude Sonnet / MiniMax 等，可能随时
+  换人、新开会话，**不等于当前 Codex 可启动的 subagent**，一律视为
   "刚进公司的新人"**。**actor 写交接记录时须核实自己会话的实际模型（看系统提示），
   别顺手套用本池里的名字**（2026-07-08 判例：一个 WorkBuddy/GLM-5.2 会话把自己
   误标成"Claude Sonnet"，架构师又照搬未核实——身份自标也要验证，同"验证 actor
@@ -55,6 +56,9 @@
   workstream README → plan 当前批次 → `actor-handbook.md`）和明确停点，不能只丢一份
   大 plan。任务卡仍须自包含、把裁定与口径写全；
   **禁用"纪律照旧""规矩同上"这类只有老搭档才懂的暗语**（新人看不懂，等于没写）。
+  **默认派发权在用户**：架构师负责写好可直接复制的自包含任务卡并交给用户，由
+  用户按跨模型额度和能力选择 actor；只有用户明确要求在当前 Codex 内派 subagent
+  时，架构师才可自行启动。不得把"合理下放"误解成默认消耗 Codex 同一额度。
   actor 严格按本批 prompt/plan 施工，只跑一次直接相关的最小自检并报告真实输出；
   **不得默认要求 actor 再开 reviewer subagent、重复一手审计、跑全量回归或自行做最终
   验收**。plan 未覆盖的情况停工写断点，交回架构师，不自行发散。
@@ -73,6 +77,10 @@
   的便利缓存，**不得存放仅此一处的项目真相**——下一任架构师可能是 GPT/其他模型，
   读不到该目录。凡继任者必须知道的（用户画像、协作约束、经验教训），仓库内文档
   都要有落点，Claude memory 至多作镜像。
+- **上下文不是持久记忆**：Codex 上下文窗口有限且会压缩；对话里已经裁定但未落盘的
+  内容等同于尚未交接。每次用户拍板、验收阻断、派卡/回卡和架构裁决都应先写入活跃
+  workstream README 或对应 spec/note/手册，再依 `git log` 恢复；压缩后必须重读
+  `architect-onboarding.md` 的使用时刻表与活跃 README 顶部，禁止凭残余摘要装作记得。
 
 ## 硬规则
 

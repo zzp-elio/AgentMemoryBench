@@ -13,7 +13,33 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 **接入顺序（用户 2026-07-12 拍板）**：LightMem 首（外部校准器，原则 #16）
 → 其余按 method-interface-inventory 排 → **EverOS 最后**。
 
-## 当前断点（2026-07-14）
+## 当前断点（2026-07-15）
+
+- 2026-07-15（**M2 合入后全量回归阻断 + 两卡待用户跨模型派发**，GPT-5
+  架构师）：M2 `97e7c18` 已经逐行审查并 cherry-pick 为主线 `e2fff4b`；定向
+  `146 passed in 15.03s`、compileall exit 0，但合入后主树全量为
+  **`2 failed, 1174 passed, 3 deselected, 2 warnings, 4 subtests passed in
+  134.21s`**，故 M2 **尚未通过**。两项失败同源：registry 正确新增
+  `benchmark_name`，`tests/test_memoryos_registered_prediction.py` 的
+  `_FakeMemoryOS` 未镜像该 factory 契约。已写极小返工卡
+  `actor-prompt-m2-memoryos-regression-fix.md`，生产接口不回退，只同步测试替身并
+  补注入断言。LightMem offline update × Recall@k 纯取证卡仍为
+  `actor-prompt-lightmem-offline-recall-audit.md`。**两卡都只交给用户，由用户按
+  Sonnet 5 / GLM-5.2 / MiniMax / Codex 等额度与能力选择 actor；架构师不得默认
+  自行启动 Codex subagent。**本轮曾误启动一个 Codex LightMem 子 agent，用户纠正
+  后已立即中止，并清除其 clean worktree/空分支，无交付被采用。
+
+- 2026-07-15（**GPT-5 架构师试任恢复 + M2 强验收进行中 + LightMem
+  Recall@k 语义审计派卡**）：会话已发生压缩，架构师按 onboarding/本断点/git
+  事实重建；MemoryOS M2 actor 回卡 `97e7c18`，独立定向复跑为
+  `146 passed in 15.03s`、compileall exit 0，尚未因测试绿而接受，正在逐行核
+  R1-R7 与主树全量门。用户新提出 LightMem LoCoMo offline update 后发生合并/
+  删除时 Recall@k 是否仍成立，以及现有输入/来源粒度强校验是否合理；架构师保留
+  最终裁决，已按额度经济拆出纯取证卡
+  `actor-prompt-lightmem-offline-recall-audit.md`，要求 actor 对照官方 LightMem、
+  本框架 evaluator 与本地 MemoryData，只交一手证据和候选风险，不改代码、不代裁。
+  同轮还确认 `.claude/settings.json` 的 commit 纪律 hook 是 Claude Bash
+  `PreToolUse` 提醒而非 Git/Codex 阻断钩子；跨模型持久规则仍必须落仓库文档。
 
 - 2026-07-14（**R7 改判:image 框架统一(用户三次对峙胜出),M2 卡
   终稿待派**，Fable 5,周额度剩 10%）：**R7 v2**=image→文本是**数据

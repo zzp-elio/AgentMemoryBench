@@ -141,11 +141,12 @@ BenchmarkAdapter.load() → Dataset（公开 Conversation+Question，无 gold）
 | 强验收前 | playbook §4 审查手艺 + 该卡完成门原文 |
 | 宣布"某阶段完成/下一步=frozen"前 | **checklist 对应节原文 + integration-status 对应行,输出缺项清单**（playbook #23 对表仪式） |
 | 给用户跑真实 API 命令前 | 上一次同类命令的既定格式（tee 目录预建、剪裁哨兵、run_id 序列） |
-| commit 前 | playbook §14 三问 + §13 清单（hook 会提醒,但 hook 只钩 commit 这一种动作） |
+| commit 前 | playbook §14 三问 + §13 清单（`.claude/settings.json` 只会在 Claude Bash 的 `git commit` 前给 advisory 提醒；Codex/其他入口无此钩子，必须人工执行） |
 
 ## 6. 硬规则高频项（全文见 AGENTS.md）
 
-- 不改 `third_party/`（获批的最小 diff 除外：留档+审批+上游 PR 素材）。
+- `third_party/` 允许为 benchmark 扩展适配或纯观测插桩做留档的最小修改，
+  但不得改变算法核心流程；逐处记录文件、位置与理由（以 `AGENTS.md` 当前条款为准）。
 - 私有数据边界：gold_answers 等黑名单 key 不进公开 artifact（4 层防护）。
 - 真实 API 要用户确认预算+规模+run_id；默认 `-m "not api"`。
 - 中文 docstring；`outputs/` 受保护实验不动。
