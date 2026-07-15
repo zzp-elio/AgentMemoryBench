@@ -1,0 +1,24 @@
+# Retrieval metrics 资格支线
+
+## 目的
+
+让 provider 逐题陈述“这次检索是否有可审 semantic provenance、排名是否可信”，再由
+evaluator 按 Recall/NDCG 各自要求导出 `valid / n_a / pending`。这样不能算的格子不会被
+硬算成 0 或 1，也不维护会漂移的 method × benchmark × metric 人工白名单。
+
+## 依赖顺序
+
+权威当前动作看父级 `../../README.md`，本节只定义稳定先后关系：
+
+1. 两份 docs-only audit 与架构裁决已合入。
+2. [`actor-prompt-retrieval-evidence-contract-m0.md`](cards/actor-prompt-retrieval-evidence-contract-m0.md)
+   依赖 LightMem lifecycle profile 卡先经架构师强验收合入；否则它会把旧 LoCoMo
+   post-update 行为写死进新协议。
+3. M0 合入后再写/派 M1：迁五个 evaluator、修 LongMemEval no-target 分母和 k coverage。
+
+## 权威材料
+
+- 架构裁决：[`retrieval-metric-eligibility-ruling.md`](notes/retrieval-metric-eligibility-ruling.md)
+- 框架审计：[`retrieval-metric-eligibility-audit.md`](notes/retrieval-metric-eligibility-audit.md)
+- Mem0 mutation/provenance 审计：[`mem0-provenance-validity-audit.md`](notes/mem0-provenance-validity-audit.md)
+- 对应历史卡位于 [`cards/`](cards/)。

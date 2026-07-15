@@ -1,9 +1,11 @@
 # Actor 卡：RetrievalEvidence M0（协议与 artifact plumbing）
 
-> 派发日：2026-07-15。状态：待用户选择跨模型 actor 派发。
+> 派发日：待定。状态：**暂停，先不要派发**。
 > 本卡本身就是可整份复制的 prompt；单批上限 5h、零真实 API。
 > 目标只做 M0 plumbing，**不切 evaluator、不修 LongMemEval 分母、不改 top_k**；M1 必须
 > 等本卡经架构师强验收合入后再派。
+> 前置依赖：`../../lightmem-lifecycle/cards/actor-prompt-lightmem-online-soft-profile.md`
+> 经架构师强验收合入。否则本卡会把旧 LoCoMo post-update 行为写死进新 contract。
 
 ## 0. 上工与隔离
 
@@ -13,9 +15,12 @@
 2. `docs/workstreams/ws02.7-method-track/README.md` 顶部“Codex 恢复胶囊”；
 3. 本卡全文；
 4. `docs/reference/actor-handbook.md` §0-§4；
-5. `notes/retrieval-metric-eligibility-ruling.md` §1、§3-§4、§7；
-6. `src/memory_benchmark/core/provider_protocol.py` 的 retrieval 实体；
-7. `src/memory_benchmark/runners/prediction.py::_answer_question_retrieve_first` 与
+5. `docs/workstreams/ws02.7-method-track/branches/retrieval-metrics/notes/
+   retrieval-metric-eligibility-ruling.md` §1、§3-§4、§7；
+6. `docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/notes/
+   lightmem-update-lifecycle-ruling.md` §3-§5、§7；
+7. `src/memory_benchmark/core/provider_protocol.py` 的 retrieval 实体；
+8. `src/memory_benchmark/runners/prediction.py::_answer_question_retrieve_first` 与
    `operation_level.py::_answer_prompt_record`。
 
 从届时 `main` 新建；路径/分支已存在就停工，不删、不复用：
@@ -39,7 +44,8 @@ uv sync
 - 与上述行为直接对应的现有 `tests/test_{provider_protocol,prediction_runner,
   operation_level_runner,mem0_adapter,lightmem_adapter,memoryos_adapter}.py`；
 - `tests/test_halumem_registered_prediction.py`（只锁 registered operation-level manifest）；
-- 新建 `docs/workstreams/ws02.7-method-track/notes/retrieval-evidence-contract-m0.md`。
+- 新建 `docs/workstreams/ws02.7-method-track/branches/retrieval-metrics/notes/
+  retrieval-evidence-contract-m0.md`。
 
 禁止改 evaluator、CLI 其他模块、TOML、third_party、其他 method、README/status/
 checklist、outputs；不得 push。若真实文件名与允许清单不符，先停工，不自行扩表。
@@ -121,18 +127,20 @@ valid contract，不把真实 0 hit 当 provenance 缺失。
 
 ### 3.2 LightMem
 
-给构造器增加可选 `benchmark_name`，registry factory 显式传
-`context.benchmark_name`；不使用 source_path/问题时间启发式决定资格：
+复用前置 lifecycle 卡已经显式注入的 `self.benchmark_name`；不使用 source_path/问题时间
+启发式决定资格。资格同时取决于实际 lifecycle：
 
-- `locomo`：恒为 n_a + none，reason_code=
-  `semantic_mapping_unavailable_after_mutation`，reason 说明 post-build consolidation
-  不提供 output-to-source mapping；
-- 其余四个已注册 benchmark：当 adapter 内部算出的 `items is not None` 时 valid + turn；
-  `items is None` 时 n_a + none，reason_code=`retrieval_hit_lineage_incomplete`；
+- `lifecycle_profile="online_soft"` + 任一已注册 benchmark：当 adapter 内部算出的
+  `items is not None` 时 valid + turn；`items is None` 时 n_a + none，reason_code=
+  `retrieval_hit_lineage_incomplete`；
+- `lifecycle_profile="locomo_offline_consolidated"` + `locomo`：恒为 n_a + none，
+  reason_code=`semantic_mapping_unavailable_after_mutation`，reason 说明 post-build
+  consolidation 不提供 output-to-source mapping；
 - benchmark_name 缺失/未知：pending + none，reason_code=`benchmark_identity_missing`。
 
 注意空 tuple 与 None 不同：`items=()` 是检索 0 hit、仍可 valid；None 才是本次 lineage
-不可用。不要改 LightMem update/insert/merge 算法。
+不可用。不要改 LightMem lifecycle、update/insert/merge 算法；若前置卡尚未合入，立即
+停工，不能在本卡顺手补。
 
 ### 3.3 MemoryOS
 
@@ -149,8 +157,8 @@ valid contract，不把真实 0 hit 当 provenance 缺失。
 3. 三家注册/isolated manifest 均写 version v1，A-Mem/SimpleMem 不写；
 4. v1 manifest 与旧缺 version manifest 拒绝 resume；
 5. Mem0 五 benchmark 的 turn/session/n_a 矩阵，BEAM reason code 精确；
-6. LightMem LoCoMo 即使 items 完整也 n_a；非 LoCoMo 的 `items=()` 为 valid、
-   `items=None` 为 n_a；factory 显式注入 benchmark_name；
+6. LightMem `online_soft` 五格的 `items=()` 为 valid、`items=None` 为 n_a；
+   `locomo_offline_consolidated` 即使 items 完整也 n_a；复用 factory 的 benchmark_name；
 7. MemoryOS 已知 benchmark valid(turn)，未知 identity pending；
 8. 三家 stable_ranking 都是 pending，禁止某家误盖 valid。
 
@@ -163,6 +171,7 @@ valid contract，不把真实 0 hit 当 provenance 缺失。
 - 不改 `RetrievalQuery.top_k=10`，不新增第二次 retrieve；
 - 不建立 method × benchmark × metric eligibility 表；
 - 不把旧 `provenance_granularity` 字段删掉或重解释；M1 才迁 evaluator；
+- 不改 LightMem lifecycle profile 或 TOML；
 - 不跑真实 API、不下载数据/模型、不更新 frozen/status 文档。
 
 ## 6. 停工条件
@@ -170,6 +179,7 @@ valid contract，不把真实 0 hit 当 provenance 缺失。
 - 逐题 evidence 无法在不改 evaluator/CLI 的前提下写入两条 artifact；
 - registered isolated manifest 无法只靠现有 `system_factory` identity 盖 version；
 - 任一 adapter 必须改 third_party 算法才能生成上述事实；
+- 前置 LightMem lifecycle profile/card 未在 main 合入，或字段/取值与本卡不一致；
 - 发现本裁决矩阵与生产 benchmark_name/ingest 路径矛盾；
 - 定向测试失败且 15 分钟内不能定位。
 
@@ -212,7 +222,7 @@ git add \
   tests/test_mem0_adapter.py \
   tests/test_lightmem_adapter.py \
   tests/test_memoryos_adapter.py \
-  docs/workstreams/ws02.7-method-track/notes/retrieval-evidence-contract-m0.md
+  docs/workstreams/ws02.7-method-track/branches/retrieval-metrics/notes/retrieval-evidence-contract-m0.md
 git commit -m "feat(metrics): add retrieval evidence contract"
 ```
 

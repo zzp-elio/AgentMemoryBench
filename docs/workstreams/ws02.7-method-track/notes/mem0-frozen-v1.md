@@ -12,7 +12,7 @@
 > 抽取 fact 的无损 turn 归因。LoCoMo/MemBench 保持 turn；LongMemEval 仅 session；
 > BEAM turn Recall=N/A。既有受影响 retrieval metric 数字撤销为可信指标声明，其他
 > answer/judge/F1/成本与 B1-B4/B6-B10 证据继续有效。现行裁决见
-> `retrieval-metric-eligibility-ruling.md`。
+> `../branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`。
 
 ## 1. 冻结时点的证据面(13 格 predict + 全指标)
 

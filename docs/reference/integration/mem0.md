@@ -6,7 +6,8 @@
 > 结论，不再把 2026-07-13 的预填风险冒充当前状态。2026-07-15 ADD-only/provenance
 > 负空间审计已由架构师验收：memory mutation 仅 ADD；同时确认 sidecar 是 ingest 批
 > 归属，不自动等于 fact-level turn provenance。现行逐格裁决见
-> `../../workstreams/ws02.7-method-track/notes/retrieval-metric-eligibility-ruling.md`。
+> `../../workstreams/ws02.7-method-track/branches/retrieval-metrics/notes/
+> retrieval-metric-eligibility-ruling.md`。
 
 - adapter：`src/memory_benchmark/methods/mem0_adapter.py`
 - 算法源：vendored `third_party/methods/mem0-main`（官方 `Memory` 类）

@@ -2,7 +2,7 @@
 
 > 日期：2026-07-15
 > 身份：Claude Sonnet 5 actor（docs-only、零真实 API、单批 ≤5h）
-> 任务卡：`actor-prompt-retrieval-metric-eligibility-audit.md`
+> 任务卡：`../cards/actor-prompt-retrieval-metric-eligibility-audit.md`
 > 范围：框架契约取证（registry→factory→runner manifest→evaluator），**不逐一审
 > 10 个 method**，不改代码/测试/状态文档，不裁最终 schema。
 > worktree：`/Users/wz/Desktop/mb-actor-metric-eligibility`
@@ -21,7 +21,8 @@
   依据：`third_party/benchmarks/` 不入 git 是仓库既定策略而非本次缺失，源码在同一
   物理机上确实存在且可读，停工条件的立意应是"源码不可得或与冻结判例矛盾"而非
   "worktree 机制性地看不到 gitignore 目录"；核实结果见 §2.2，与
-  `notes/lightmem-offline-recall-ruling.md` 无矛盾（该 note 未涉及 LongMemEval rank
+  当时与旧 `../../lightmem-lifecycle/notes/lightmem-update-lifecycle-ruling.md` 的
+  post-update provenance 证据无矛盾（该 note 未涉及 LongMemEval rank
   细节）。此偏差已在 §3 说明，供架构师复核该判断是否合理。
 - 唯一改动文件：本 note。未改 src/tests/third_party/README/status/checklist/
   configs/outputs。
@@ -459,7 +460,7 @@ reason 字段。
 **未触发任何一条列出的停工条件**：
 
 - 官方 LongMemEval rank/NDCG 源码在同一物理机的主工作区路径下可读，内容与
-  框架实现、与 `lightmem-offline-recall-ruling.md` 均不矛盾（该 note 范围是
+  框架实现、与 LightMem lifecycle 审计的 post-update 证据均不矛盾（该 note 范围是
   LoCoMo/LightMem，未涉及 LongMemEval rank 细节，两者结论不重叠也不冲突）；
   §0 已说明为何判断"跨 worktree 只读官方源码"不等同于"源码缺失"，请架构师
   复核此判断是否合理。

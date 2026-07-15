@@ -94,7 +94,8 @@
   按本 metric 的通用 requirement 导出资格。禁止另建会与 runtime 漂移的
   method × benchmark × metric 人工矩阵；manifest 只存 schema/version 与能力上限，
   不能覆盖逐题实际值。实现门见 ws02.7
-  `notes/retrieval-metric-eligibility-ruling.md`。
+  `docs/workstreams/ws02.7-method-track/branches/retrieval-metrics/notes/
+  retrieval-metric-eligibility-ruling.md`。
 
 ### B5+. 能力缺口的无损改造评估（2026-07-13 新增，导师建议）
 B2/B5 及 HaluMem memory_point 这类**能力缺口**（method 接口不支持某 benchmark 的

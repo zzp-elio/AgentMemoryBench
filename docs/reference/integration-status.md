@@ -66,12 +66,14 @@
 **跨 method 横向事实（2026-07-13 取证）**
 - **provenance 现状（2026-07-15 重审）**：MemoryOS 维持既有 turn 声明；Mem0 的
   sidecar 是 ingest 批归属，故 LoCoMo/MemBench=turn、LongMemEval=session、BEAM
-  turn Recall=N/A。LightMem 的初始
-  external-id 透传对不运行 LoCoMo post-build merge 的路径仍成立；但 LoCoMo
-  `offline_update_all_entries` 可把 candidate 文本并进 target；即使合并全部输入 id，
-  也只能证明 transformation inputs，不能证明新文本仍承载每个 fact，故 LoCoMo
-  provenance-based Recall/NDCG 应 N/A，B5/B11 已重开，见
-  `ws02.7/notes/lightmem-offline-recall-ruling.md`。A-Mem/SimpleMem 仍为 `"none"`；
+  turn Recall=N/A。LightMem 的现行目标主 profile 为五格 paper `online_soft`：初始
+  external-id 透传后不运行全库 merge，可逐题审 semantic provenance；lifecycle 代码卡
+  尚未合入，B5/B6/B11 仍重开。LoCoMo `locomo_offline_consolidated` 补充轨会把
+  candidate 文本
+  并进 target；即使合并全部输入 id，也只能证明 transformation inputs，不能证明新文本
+  仍承载每个 fact，故该补充轨 provenance-based Recall/NDCG 应 N/A，见
+  `ws02.7/branches/lightmem-lifecycle/notes/lightmem-update-lifecycle-ruling.md`。
+  A-Mem/SimpleMem 仍为 `"none"`；
   不可评 metric 必须 N/A，不得按 0 分。
 - **clean-retry 钩子覆盖（2026-07-14 M2 后五家全员到齐）**：Mem0 的 hook =
   `delete_all(run_id)` + 批准的第二个 B5+ third_party 最小 diff

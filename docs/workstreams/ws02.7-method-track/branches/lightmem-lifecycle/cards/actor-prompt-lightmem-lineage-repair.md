@@ -3,11 +3,14 @@
 > **状态：已执行但被后续架构裁决终止，禁止再次派发。**Sonnet 5 commit
 > `3e2d957` 忠实完成本卡且定向测试通过；用户随后指出 transformation-input lineage
 > 不等于更新后 memory 的 semantic evidence provenance，架构师复核成立，故该 commit
-> 不合入。现行裁决见 `notes/lightmem-offline-recall-ruling.md` 顶部与 §3、§7。
+> 不合入。现行裁决见
+> `docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/notes/
+> lightmem-update-lifecycle-ruling.md` §5-§7。
 >
 > 派发日：2026-07-15。单批上限 5h；零真实 API；不得另开 reviewer/subagent。
 > 由用户选择 Sonnet 5、GLM-5.2、MiniMax、Codex 或其他 actor 后转发。
-> 架构裁决原文：`notes/lightmem-offline-recall-ruling.md`，不得自行改判。
+> 架构裁决原文：`docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/notes/
+> lightmem-update-lifecycle-ruling.md`，不得自行改判。
 
 ## 0. 上工与 Git 隔离
 
@@ -17,8 +20,10 @@
 2. `docs/workstreams/ws02.7-method-track/README.md` 顶部当前断点；
 3. 本卡全文；
 4. `docs/reference/actor-handbook.md`；
-5. `notes/lightmem-offline-recall-ruling.md` §1-§3、§7；
-6. `notes/lightmem-offline-recall-validity-audit.md` §2-§3。
+5. `docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/notes/
+   lightmem-update-lifecycle-ruling.md` §5-§7；
+6. `docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/notes/
+   lightmem-offline-recall-validity-audit.md` §2-§3。
 
 从届时主树 `main` 创建独立 worktree；路径或分支已存在就停工报告，不删除、不复用：
 

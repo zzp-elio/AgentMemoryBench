@@ -3,7 +3,8 @@
 > 日期：2026-07-15
 > actor：Claude Sonnet 5（本会话系统提示自报模型；按 AGENTS.md 2026-07-08 判例，
 > actor 交接记录须核实自己会话的实际模型，不套用协作池里的名字）
-> 任务卡：`docs/workstreams/ws02.7-method-track/actor-prompt-lightmem-offline-recall-audit.md`
+> 任务卡：`docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/cards/
+> actor-prompt-lightmem-offline-recall-audit.md`
 > 性质：纯取证，零真实 API，零生产代码改动，本 note 是唯一交付物。
 > worktree：`/Users/wz/Desktop/mb-actor-lm-recall`，branch
 > `actor/lightmem-offline-recall-audit`（新建，未与其他 actor worktree 冲突）。

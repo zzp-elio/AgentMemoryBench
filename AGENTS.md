@@ -61,6 +61,9 @@
   **默认派发权在用户**：架构师负责写好可直接复制的自包含任务卡并交给用户，由
   用户按跨模型额度和能力选择 actor；只有用户明确要求在当前 Codex 内派 subagent
   时，架构师才可自行启动。不得把"合理下放"误解成默认消耗 Codex 同一额度。
+  **任务卡写入仓库不等于已经交给用户派发**：架构师在回复中必须用醒目标识明确写
+  “需要派发”或“暂勿派发”，给出卡的可点击路径，并用通俗语言说明这张卡解决什么、
+  为什么现在做、它依赖/阻塞哪一步；不能只在长汇报里顺带留一个文件名。
   actor 严格按本批任务卡/plan 施工，只跑一次直接相关的最小自检并报告真实输出；
   **不得默认要求 actor 再开 reviewer subagent、重复一手审计、跑全量回归或自行做最终
   验收**；也不得反向一刀切禁止 actor 自行组织 subagent。架构师约束的是交付物、允许
@@ -123,6 +126,12 @@
 - 新任务先判断规模：一次会话内能完成的小修，记入当前 workstream 的任务清单；
   需要独立 spec/plan 的，新建 `docs/workstreams/ws<ID>-<name>/`，ID 挂在父任务下
   （如 ws02.1），目录内含 README.md（状态页）、spec.md、plan.md、notes/。
+- 同一 workstream 内的支线一旦同时出现“取证/裁决 + actor 卡”，或预期还会有下一批，
+  必须收进 `branches/<slug>/`，由支线 `README.md` 管范围、文档索引与稳定依赖顺序，
+  任务卡放
+  `cards/`、证据和裁决放 `notes/`；一次性单文档仍可留在 workstream 原层。禁止为整理
+  旧历史而无边界地全仓搬家，但活跃支线不得继续把卡和 note 平铺到根目录。权威状态、
+  commit/test 快照与当前动作仍只写父 workstream README，不在支线 README 复制。
 - 状态只写两处：本 workstream README（勾选 + 断点 + 验收证据）+
   `docs/roadmap.md` 索引表对应行（仅整体状态变化时）。
 - 历史文档在 `docs/archive/`，只读；与现状冲突时以 workstream README 为准。

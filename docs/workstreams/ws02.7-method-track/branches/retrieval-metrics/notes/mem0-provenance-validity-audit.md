@@ -1,7 +1,7 @@
 # Mem0 ADD-only 路径与 provenance 有效性审计
 
 > actor：Sonnet 5（Claude Code）。派工卡：
-> `actor-prompt-mem0-provenance-validity-audit.md`。docs-only、零真实 API，
+> `../cards/actor-prompt-mem0-provenance-validity-audit.md`。docs-only、零真实 API，
 > 纯静态代码追踪（未跑 pytest/compileall，未调用任何 LLM/embedding API）。
 
 ## 结论（置顶，三选一）

@@ -26,7 +26,8 @@ cd /Users/wz/Desktop/mb-actor-mem0-prov-audit
 ```
 
 唯一允许改动：新建
-`docs/workstreams/ws02.7-method-track/notes/mem0-provenance-validity-audit.md`。
+`docs/workstreams/ws02.7-method-track/branches/retrieval-metrics/notes/
+mem0-provenance-validity-audit.md`。
 禁止改 src/、tests/、third_party/、README/status/checklist、configs、outputs；不得 push。
 
 ## 1. 背景与禁止偷换
@@ -109,7 +110,7 @@ API、禁止用测试 fixture 代替生产源码。
 ```bash
 git diff --check
 git status --short
-git add docs/workstreams/ws02.7-method-track/notes/mem0-provenance-validity-audit.md
+git add docs/workstreams/ws02.7-method-track/branches/retrieval-metrics/notes/mem0-provenance-validity-audit.md
 git commit -m "docs(ws02.7): audit mem0 provenance mutation semantics"
 ```
 

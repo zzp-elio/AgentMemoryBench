@@ -14,7 +14,8 @@
 3. 本卡全文；
 4. `docs/reference/actor-handbook.md` §0-§4；
 5. `docs/reference/method-integration-checklist.md` B5/B5+；
-6. `notes/lightmem-offline-recall-ruling.md` §1、§3、§5-§7。
+6. `docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/notes/
+   lightmem-update-lifecycle-ruling.md` §3、§5-§7。
 
 从届时 `main` 新建；路径/分支已存在即停工，不删不复用：
 
@@ -26,7 +27,8 @@ cd /Users/wz/Desktop/mb-actor-metric-eligibility
 ```
 
 唯一允许改动：新建
-`docs/workstreams/ws02.7-method-track/notes/retrieval-metric-eligibility-audit.md`。
+`docs/workstreams/ws02.7-method-track/branches/retrieval-metrics/notes/
+retrieval-metric-eligibility-audit.md`。
 禁止改 src/、tests/、third_party/、README/status/checklist、configs、outputs；不得 push。
 
 ## 1. 核心区分（已裁，不得改判）
@@ -103,7 +105,7 @@ turn/session 粒度、是否要求 item 顺序、是否读取 score、k 集合�
 ```bash
 git diff --check
 git status --short
-git add docs/workstreams/ws02.7-method-track/notes/retrieval-metric-eligibility-audit.md
+git add docs/workstreams/ws02.7-method-track/branches/retrieval-metrics/notes/retrieval-metric-eligibility-audit.md
 git commit -m "docs(ws02.7): audit retrieval metric eligibility"
 ```
 

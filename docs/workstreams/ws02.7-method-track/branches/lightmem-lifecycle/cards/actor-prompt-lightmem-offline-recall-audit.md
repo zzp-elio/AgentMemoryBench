@@ -23,7 +23,8 @@ cd /Users/wz/Desktop/mb-actor-lm-recall
 
 若目标路径或分支已存在，立即停工报告，不删除、不复用。只允许新增：
 
-`docs/workstreams/ws02.7-method-track/notes/lightmem-offline-recall-validity-audit.md`
+`docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/notes/
+lightmem-offline-recall-validity-audit.md`
 
 不得修改 `src/`、`tests/`、`third_party/`、现有文档或实验产物；不得 push。
 
@@ -125,7 +126,7 @@ git diff --check
 
 ```bash
 git status --short
-git add docs/workstreams/ws02.7-method-track/notes/lightmem-offline-recall-validity-audit.md
+git add docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/notes/lightmem-offline-recall-validity-audit.md
 git commit -m "docs(ws02.7): audit lightmem offline recall semantics"
 ```
 
