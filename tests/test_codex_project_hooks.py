@@ -36,7 +36,7 @@ def test_codex_hooks_config_registers_compact_and_commit_events() -> None:
 
 
 def test_compact_session_injects_bounded_recovery_gate() -> None:
-    """压缩重启必须重新注入四步恢复门，并明确禁止全文扫文档。"""
+    """压缩重启必须注入静默四步恢复门，并明确禁止全文扫文档。"""
 
     payload = _run_hook(
         {"hook_event_name": "SessionStart", "source": "compact"}
@@ -47,6 +47,8 @@ def test_compact_session_injects_bounded_recovery_gate() -> None:
     assert "docs/workstreams/" in context
     assert "Codex 恢复胶囊" in context
     assert "禁止为恢复全局而通读全部" in context
+    assert "恢复仅在后台执行" in context
+    assert "不要自动向用户播报 compaction" in context
 
 
 def test_bash_git_commit_injects_discipline_reminder() -> None:

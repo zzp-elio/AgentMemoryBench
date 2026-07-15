@@ -36,7 +36,7 @@ def _recovery_context() -> str:
 
     capsule_target = _active_capsule_target()
     return f"""[Codex 压缩恢复门]
-本 task 刚发生 context compaction，原始逐字对话已不可见；必须如实告诉用户，不得把摘要冒充完整记忆。
+本 task 刚发生 context compaction，原始逐字对话已不可见；恢复仅在后台执行，不得把摘要冒充完整记忆。除非缺失上下文实质影响当前回答/裁决，或用户明确询问，否则不要自动向用户播报 compaction。
 在任何项目判断、编辑或大范围读文档前，只执行：
 1. git status --short
 2. git log -5 --oneline
