@@ -17,7 +17,8 @@ question 的 `QA.time`。本支线修复把首个 message 时间扩散成伪 ses
    缺时间是公开输入形状的一部分，不得“修复”噪声。
 5. LightMem upstream 当前要求每条 message 有非空 `time_stamp`，但全链路审计确认
    online-soft 的向量相关性主路径可做 preserve-none 兼容扩展；consolidated/summary 的
-   时间排序路径仍必须 require。Phase B 强验收前 `LightMem × MemBench 100k` 不得真实运行。
+   时间排序路径仍必须 require。Phase B 已以主线 `915f73c` + `3968373` 强验收；该格可进入
+   后续免费 dry-run/smoke 门，但结果必须声明 framework-extended compatibility。
 6. A-Mem 可接收 `time=None`，但 upstream 会生成 ingestion wall clock；这是 method-native
    创建时间，不是 source time，不能回流成 benchmark provenance。Phase B 必须区分这些
    不同的 optional 语义。
@@ -28,15 +29,13 @@ question 的 `QA.time`。本支线修复把首个 message 时间扩散成伪 ses
 
 1. Phase A 已由 Opus 4.8 完成，架构师 full diff + `31 passed in 3.68s` + 主树
    `1193 passed` 强验收，合入 `2e6b4d7`；MemBench benchmark frozen-v1 恢复。
-2. Opus 4.8 首轮 `e1cfb75` 已实现 preserve-none 主体，架构师独立复跑
-   `87 passed, 1 warning in 7.07s`；但 explicit None、空字符串和 `MemoryEntry` optional
-   类型三道边界未锁实，故未合入。下一批只执行
-   [`actor-prompt-lightmem-missing-time-online-soft-r1.md`](cards/actor-prompt-lightmem-missing-time-online-soft-r1.md)，
-   在原 worktree 补 follow-up commit；原 Phase B 卡禁止重复执行。
+2. Opus 4.8 首轮 `e1cfb75` 实现 preserve-none 主体；架构师发现 explicit None、空字符串和
+   `MemoryEntry` optional 类型三道边界后，R1 `0d6bf9f` 收紧。架构师独立定向
+   `91 passed, 1 warning in 6.32s`，线性合入 `915f73c` + `3968373`；主树全量
+   `1206 passed`、compileall exit 0，Phase B 关闭。
 3. Phase B 通过后再决定是否需要更通用的 input-requirement 协议；不预建 method × variant
    人工白名单，也不把 A-Mem method-generated wall clock 冒充 source time。
-4. RetrievalEvidence M0 在 Phase B 强验收前继续暂停，避免同时修改 LightMem manifest、
-   resume 与 provenance 面。
+4. RetrievalEvidence M0 的前置现已满足，转入 retrieval-metrics 支线等待用户派发。
 
 ## 权威材料
 
@@ -44,4 +43,4 @@ question 的 `QA.time`。本支线修复把首个 message 时间扩散成伪 ses
 - Phase A 实现记录：[`membench-time-semantics-phase-a-implementation.md`](notes/membench-time-semantics-phase-a-implementation.md)
 - LightMem None 裁决：[`lightmem-missing-time-compatibility-ruling.md`](notes/lightmem-missing-time-compatibility-ruling.md)
 - 首轮 Phase B 历史卡：[`actor-prompt-lightmem-missing-time-online-soft.md`](cards/actor-prompt-lightmem-missing-time-online-soft.md)
-- **待用户派发 R1 卡**：[`actor-prompt-lightmem-missing-time-online-soft-r1.md`](cards/actor-prompt-lightmem-missing-time-online-soft-r1.md)
+- 已验收 R1 卡：[`actor-prompt-lightmem-missing-time-online-soft-r1.md`](cards/actor-prompt-lightmem-missing-time-online-soft-r1.md)

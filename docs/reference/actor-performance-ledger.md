@@ -22,6 +22,7 @@
 |---|---|---|---|---|---:|---|
 | 2026-07-15 | Claude Sonnet 5；reasoning=max；约 20min（用户提供） | LightMem paper online-soft 主 profile | `19a0934` → `825132f` | actor `78 passed, 1 warning in 5.84s`；架构师定向 `78 passed, 1 warning in 8.10s`；主树 `1191 passed` | **9.7** | accepted |
 | 2026-07-15 | Claude Code / Opus 4.8；reasoning/时长未提供 | MemBench 时间语义 Phase A | `0fbf8e1` → `2e6b4d7` | actor `31 passed in 3.70s`；架构师定向 `31 passed in 3.68s`；主树 `1193 passed` | **9.7** | accepted |
+| 2026-07-15 | Claude Code / Opus 4.8；reasoning/时长未提供 | LightMem missing-time Phase B + R1 | `e1cfb75` + `0d6bf9f` → `915f73c` + `3968373` | actor R1 `91 passed, 1 warning in 7.27s`；架构师定向 `91 passed, 1 warning in 6.32s`；主树 `1206 passed` | **9.0** | accepted after rework |
 
 ### 2026-07-15：LightMem online-soft
 
@@ -50,3 +51,18 @@
   找回 `0fbf8e1`。代码质量不扣，交接可执行性扣 0.3。
 - 总评：实现与测试均很扎实；和 Sonnet 5 同分不代表任务难度相同，累计满三个已验收样本
   前不做模型总排名。
+
+### 2026-07-15：LightMem missing-time Phase B + R1
+
+- 正确性 3.6/4：config/manifest、backend 前 fail-fast、online/consolidated 边界、None
+  direct insert 与 lineage 主体均正确；首轮遗漏“缺键 ≠ explicit None”、空串不能洗成 None、
+  `MemoryEntry` optional annotation 三道边界，R1 后完整关闭。
+- 证据 1.6/2：首轮已有 87 项并覆盖 real normalizer、sequence、lineage、双接口和 retrieve；
+  但这些测试没能抓住输入域被额外放宽。R1 新增四组会在首轮真实失败的反例，最终 91 项。
+- 纪律 2/2：两次均严格在允许清单，follow-up 不 amend，clean worktree，零 API、零 push；
+  未使用 subagent。
+- 判断/交接 1.8/2：两次报告结构清楚，R1 对三项裁决逐条精确落地；首轮未主动发现类型与
+  explicit-None 边界，保留 0.2。旧卡把“待派”状态写进 prompt 导致 Opus 先询问意图，
+  根因属于架构师卡设计，**不扣 actor 分**。
+- 总评：最终交付可接受且返工质量高；9.0 反映“核心方向一次正确、边界需架构师抓一次”。
+  Opus 4.8 当前只有两份已验收样本，尚不做跨模型累计排名。

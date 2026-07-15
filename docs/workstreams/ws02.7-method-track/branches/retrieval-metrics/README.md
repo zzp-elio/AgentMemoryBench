@@ -13,9 +13,9 @@ evaluator 按 Recall/NDCG 各自要求导出 `valid / n_a / pending`。这样不
 1. 两份 docs-only audit 与架构裁决已合入。
 2. LightMem lifecycle profile 卡已于主线 `825132f` 强验收合入，原依赖关闭。
 3. [`actor-prompt-retrieval-evidence-contract-m0.md`](cards/actor-prompt-retrieval-evidence-contract-m0.md)
-   继续暂停：相邻 `membench-time-semantics` Phase A 已验收；仍需先完成
-   `actor-prompt-lightmem-missing-time-online-soft.md` Phase B 强验收，避免 M0 同时改
-   LightMem manifest/resume/provenance 契约。
+   **已解锁，等待用户选择跨模型 actor 派发**：相邻 `membench-time-semantics` Phase A
+   与 preserve-none Phase B 均已强验收，后者主线为 `915f73c` + `3968373`；M0 可以在
+   稳定的 LightMem adapter v3/manifest 上施工。
 4. M0 合入后再写/派 M1：迁五个 evaluator、修 LongMemEval no-target 分母和 k coverage。
 
 ## 权威材料

@@ -28,9 +28,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   （compact/metric 资格门）→ `dc15304`（Mem0 ADD-only audit）→ `c36b171`
   （retrieval eligibility audit）→ `5fc0345`（资格裁决）→ `025a141`（LightMem
   online-soft 裁决）→ `825132f`（online-soft 实现强验收）→ `2e6b4d7`（MemBench 时间
-  Phase A 强验收）→ `ff91aa3`（LightMem 缺失时间兼容裁决）。准确 commit/upstream 状态始终
+  Phase A 强验收）→ `ff91aa3`（缺失时间兼容裁决）→ `915f73c`（Phase B 主体）→
+  `3968373`（explicit-None R1）。准确 commit/upstream 状态始终
   以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
-  `1193 passed, 3 deselected, 2 warnings, 4 subtests passed in 144.68s`；compileall exit 0。
+  `1206 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.81s`；compileall exit 0。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。下一门是
   五格真实 smoke；未获用户预算/规模/run_id 确认，禁止 API。
@@ -47,24 +48,36 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   BEAM recall=N/A。LME 官方剔除无目标题，框架现记 1 分；top_k=10 亦挡死 k30/50。
   架构采用逐题 `RetrievalEvidence` + evaluator requirement 两层，不建手写笛卡尔积表。
   裁决=`branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`；
-  `RetrievalEvidence M0` **暂勿派发**：MemBench Phase A 已关闭，但 LightMem preserve-none
-  Phase B 会改 manifest/provenance 相关面，先做该卡，M1 不得抢跑。
+  LightMem preserve-none Phase B 已强验收，`RetrievalEvidence M0` **现已解锁、待用户
+  派发**；M1 仍须等 M0 强验收合入后再写/派。
 - **元学习/过时文档整改**：actor 卡整份即 prompt，禁止卡尾重复 wrapper；不默认要求
   reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
   AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。待派/暂停属于支线
   README，不得混进施工 prompt；用户把卡发送给某 actor 就是已完成选择与授权。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
   提醒可用；恢复是后台动作，不自动向用户播报机械台词。**下一步由用户派
-  `branches/membench-time-semantics/cards/actor-prompt-lightmem-missing-time-online-soft-r1.md`；
-  白话目标=在首轮正确方向上锁窄 explicit-None、空串与 `MemoryEntry` 类型三道契约。
-  RetrievalEvidence M0 暂停。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止
+  `branches/retrieval-metrics/cards/actor-prompt-retrieval-evidence-contract-m0.md`；
+  白话目标=让每道题随 artifact 声明 retrieval provenance/ranking 是否可用于指标，
+  先铺协议与落盘，不在本卡改 evaluator/top_k。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止
   自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-15）
 
-- 2026-07-15（**LightMem preserve-none 首轮未通过强验收；R1 待用户派发**，GPT-5
+- 2026-07-15（**LightMem preserve-none Phase B 强验收通过；RetrievalEvidence M0
+  解锁待用户派发**，GPT-5 架构师）：Opus 4.8 首轮 `e1cfb75` + R1 `0d6bf9f` 已逐行
+  审读；R1 独立定向 `91 passed, 1 warning in 6.32s`。线性合入主线为 `915f73c` +
+  `3968373`，保留首轮/R1 审计链；主树全量
+  `1206 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.81s`，compileall exit 0。
+  最终契约：只有显式双 None 进入 online-soft preserve 分支，缺键/无 fallback 空串仍拒绝；
+  `MemoryEntry` 三个时间字段类型与真实 None 一致；consolidated 继续 require。MemBench 100k
+  结果必须声明 framework-extended missing-time compatibility，不冒充 upstream parity。
+  Phase B 关闭后，下一卡=`branches/retrieval-metrics/cards/
+  actor-prompt-retrieval-evidence-contract-m0.md`；只由用户选择跨模型 actor 派发，M1 不得
+  抢跑。零真实 API。
+
+- 2026-07-15（**历史断点，已被上方 Phase B 强验收取代；首轮未通过、R1 当时待派**，GPT-5
   架构师）：Opus 4.8 首轮 commit `e1cfb75`，worktree clean、允许清单与 diff-check 通过；
   架构师独立复跑为 `87 passed, 1 warning in 7.07s`，但 full diff 发现现有测试未覆盖的
   三项契约缺口：① normalizer 用 `msg.get()`，把“缺键”误当 explicit None 放行；

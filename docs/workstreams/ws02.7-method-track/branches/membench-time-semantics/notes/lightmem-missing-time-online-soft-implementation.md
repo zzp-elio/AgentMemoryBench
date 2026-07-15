@@ -138,3 +138,13 @@ tests/test_amem_lightmem_registry.py tests/test_method_registry.py`）：
 ```
 
 首轮 §6 的历史尾行不改写。
+
+## 9. 架构师最终强验收
+
+- R1 full diff 与允许清单通过；架构师独立定向：`91 passed, 1 warning in 6.32s`。
+- 首轮/R1 保持两个 commit 线性合入：`e1cfb75` → 主线 `915f73c`，`0d6bf9f` → 主线
+  `3968373`，不 squash、不 amend，保留返工审计链。
+- 合入后主树全量：`1206 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.81s`。
+- `uv run python -m compileall -q src/memory_benchmark tests`：exit 0。
+- 裁决：Phase B 接受；MemBench 100k × LightMem 可进入后续免费 dry-run/smoke 门，结果仍须
+  标注 framework-extended missing-time compatibility，不得称 upstream native parity。
