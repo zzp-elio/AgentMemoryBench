@@ -35,7 +35,8 @@ question 的 `QA.time`。本支线修复把首个 message 时间扩散成伪 ses
    `1206 passed`、compileall exit 0，Phase B 关闭。
 3. Phase B 通过后再决定是否需要更通用的 input-requirement 协议；不预建 method × variant
    人工白名单，也不把 A-Mem method-generated wall clock 冒充 source time。
-4. RetrievalEvidence M0 的前置现已满足，转入 retrieval-metrics 支线等待用户派发。
+4. RetrievalEvidence M0 的前置现已满足并已强验收；后续资格消费归
+   retrieval-metrics 支线 M1，本支线无需再派 actor。
 
 ## 权威材料
 

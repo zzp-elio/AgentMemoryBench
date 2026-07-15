@@ -38,9 +38,10 @@
   knowledge 全部纳入；LoCoMo 在出口按持久 speaker map 恢复真人姓名，非 LoCoMo 保持
   User/Assistant；时间随 page 输出。共享图片表示固定为
   `[Sharing image that shows: {caption}]`，不读 `metadata.query`。
-- **B5 provenance ✅ turn**：page 原文键使用规范 JSON 精确匹配，不做 embedding/
-  模糊文本反查；重复 page 合并全部公开 turn ids。sidecar schema、原子替换、旧状态
-  fail-fast 与 clean 路径均有测试。
+- **B5 provenance ✅ turn + RetrievalEvidence v1**：page 原文键使用规范 JSON 精确匹配，
+  不做 embedding/模糊文本反查；重复 page 合并全部公开 turn ids。sidecar schema、原子替换、
+  旧状态 fail-fast 与 clean 路径均有测试；M0 已逐题写 valid(turn)，identity 未注入时 pending，
+  stable ranking 在逐 method rank 审计前保持 pending。
 - **B6 flush ✅ no-op**：retrieve 直接覆盖尚在 STM 的内容及已迁移层，无需额外
   conversation flush。
 - **B7 效率插桩 ✅（待 B11 产物复证）**：产品 LLM wrapper 接入框架 collector；

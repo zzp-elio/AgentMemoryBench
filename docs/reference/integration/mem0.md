@@ -57,8 +57,8 @@
   校准配置属于 R0 前置包，不伪装成已消费。
 - **B11 ✅ smoke+冻结（provenance metric 勘误）**：13 格 predict、免费/付费指标与既定
   并行门完成；冻结时基线 1164 passed。既有 BEAM provenance recall 与 LongMemEval
-  turn-level/rank 数字不再作可信指标声明，待逐题 eligibility artifact 门；answer/F1/
-  judge/成本与 add-only 证据继续有效。
+  turn-level/rank 数字不再作可信指标声明。逐题 RetrievalEvidence contract v1 已由 M0
+  落盘，现待 M1 evaluator 消费；answer/F1/judge/成本与 add-only 证据继续有效。
 
 ## 特殊情况
 1. Mem0 是当前唯一混合隔离方法，不能把 worker 内逻辑隔离误写成全局纯逻辑隔离。

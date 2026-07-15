@@ -29,9 +29,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   （retrieval eligibility audit）→ `5fc0345`（资格裁决）→ `025a141`（LightMem
   online-soft 裁决）→ `825132f`（online-soft 实现强验收）→ `2e6b4d7`（MemBench 时间
   Phase A 强验收）→ `ff91aa3`（缺失时间兼容裁决）→ `915f73c`（Phase B 主体）→
-  `3968373`（explicit-None R1）。准确 commit/upstream 状态始终
+  `3968373`（explicit-None R1）→ `352ed3c`（RetrievalEvidence M0 主体）→ `6b4fd4e`
+  （status R1）→ `afd4040`（不可哈希 status hardening）→ `c879343`（preflight/resume
+  身份对称）。准确 commit/upstream 状态始终
   以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
-  `1206 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.81s`；compileall exit 0。
+  `1235 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.03s`；compileall exit 0。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。下一门是
   五格真实 smoke；未获用户预算/规模/run_id 确认，禁止 API。
@@ -48,25 +50,36 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   BEAM recall=N/A。LME 官方剔除无目标题，框架现记 1 分；top_k=10 亦挡死 k30/50。
   架构采用逐题 `RetrievalEvidence` + evaluator requirement 两层，不建手写笛卡尔积表。
   裁决=`branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`；
-  LightMem preserve-none Phase B 已强验收。`RetrievalEvidence M0` 首轮 Opus 4.8
-  `5fd5ac1` 已回卡，架构师完整定向复跑为 `297 passed, 1 warning in 12.35s`；主体正确，
-  但 `EvidenceAssertion` 会接受带理由的未知 status，故首轮未合入。现只待同 worktree
-  极小 R1；M1 仍须等 M0 强验收合入后再写/派。
+  **RetrievalEvidence M0 已强验收合入**：Mem0/LightMem/MemoryOS 每题 artifact 陈述
+  semantic provenance + granularity + stable ranking，manifest contract v1 严格参与 resume；
+  无契约的 A-Mem/SimpleMem 不盖章。下一门=M1：迁五个 evaluator 消费逐题事实，并修
+  LongMemEval no-target 分母与 k coverage；M1 卡尚未起草/派发。
 - **元学习/过时文档整改**：actor 卡整份即 prompt，禁止卡尾重复 wrapper；不默认要求
   reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
   AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。待派/暂停属于支线
   README，不得混进施工 prompt；用户把卡发送给某 actor 就是已完成选择与授权。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
-  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**下一步由用户把
-  `branches/retrieval-metrics/cards/actor-prompt-retrieval-evidence-contract-m0-r1.md`
-  派回现有 actor/worktree；白话目标=只拒绝 `bogus` 等未定义 evidence status，不重做
-  其余 M0。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止自行调用 API。
+  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**当前无需用户派卡：下一步由
+  架构师先写 RetrievalEvidence M1 自包含卡与验收矩阵，完成后再醒目交给用户选择 actor。**
+  MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-15）
 
-- 2026-07-15（**RetrievalEvidence M0 首轮主体通过审读、极小 R1 待用户派发**，GPT-5
+- 2026-07-15（**RetrievalEvidence M0 强验收完成；M1 解锁、尚未派发**，GPT-5 架构师）：
+  Opus 4.8 首轮/R1 `5fd5ac1` + `1999f56` 线性合入为 `352ed3c` + `6b4fd4e`；架构师复现
+  R1 `34 passed` 后发现 list/dict 会从 frozenset membership 泄漏 `TypeError`，以独立
+  `afd4040` 加字符串短路和反例，M0 七文件套件 `307 passed, 1 warning in 16.09s`。第一次
+  主树全量进一步抓到 registered CLI preflight 尚未盖 v1、会拒绝自己刚落盘的 resume run；
+  `c879343` 在 preflight 前从 `MethodRegistration` 写同一 contract identity，保留严格
+  mismatch。第二次全量越过 resume 后，MemoryOS 整字典旧期望正确暴露 schema 演进，测试
+  补 v1 而生产字段不撤回。最终主树
+  **`1235 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.03s`**，compileall exit 0。
+  M0 现完整覆盖协议→provider→artifact→manifest→registered preflight/resume；M1 才改五个
+  evaluator、LongMemEval no-target 分母和 top-k depth。零真实 API。
+
+- 2026-07-15（**历史断点，已被上方 M0 强验收取代；当时极小 R1 待派**，GPT-5
   架构师）：Opus 4.8 首轮 `5fd5ac1` 共 16 文件、844+/3-；协议、两条 artifact、strict
   resume version 与 Mem0/LightMem/MemoryOS 逐题矩阵均按卡落地。actor 首跑的两项 HaluMem
   失败确为隔离 worktree 缺 gitignored data；架构师补齐 data 后不是做 `295+2` 推断，而是

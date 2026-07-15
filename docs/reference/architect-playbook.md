@@ -265,6 +265,19 @@
     数据缺失时保持缺失，绝不拿 question time、兄弟 turn 或墙钟补造。文档与代码冲突时以
     一手调用链为准，并立即勘误冻结记录，避免下一任把正确实现误修坏。
 
+29. **严格 resume identity 必须在 preflight 前盖章；只测 matcher 不等于闭合真实续跑**
+    （2026-07-15 RetrievalEvidence M0 判例）。M0 把
+    `retrieval_evidence_contract_version="v1"` 写入最终 runner manifest，也锁了
+    `_manifests_match_for_resume()` 的严格不匹配；但 registered CLI 在调用 runner 之前会先
+    用自己构造的 candidate manifest 做 preflight。该 candidate 当时未盖 v1，于是框架会拒绝
+    续跑自己刚写出的产物。修复不是把新 key 塞进“任一侧缺失就双删”的兼容集合，而是让
+    builder/preflight 与 final runner 从同一 `MethodRegistration` 身份源盖同一章。以后任何
+    strict manifest/resume key 的任务卡与验收矩阵必须同时覆盖：① builder/preflight
+    candidate；②最终 runner manifest；③至少一条 registered 首跑→续跑端到端。只测内部
+    matcher 或只断言最终 JSON 都不够。本次原卡还把相关 CLI 文件和端到端测试排除在允许/
+    必测范围外，这是架构师的卡设计缺口；不能把全量回归才发现的问题全扣给忠实执行卡的
+    actor。
+
 ## 4. 审查手艺（隐性知识核心）
 
 ### 4.1 三层审查法

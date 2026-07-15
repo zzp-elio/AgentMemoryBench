@@ -23,6 +23,7 @@
 | 2026-07-15 | Claude Sonnet 5；reasoning=max；约 20min（用户提供） | LightMem paper online-soft 主 profile | `19a0934` → `825132f` | actor `78 passed, 1 warning in 5.84s`；架构师定向 `78 passed, 1 warning in 8.10s`；主树 `1191 passed` | **9.7** | accepted |
 | 2026-07-15 | Claude Code / Opus 4.8；reasoning/时长未提供 | MemBench 时间语义 Phase A | `0fbf8e1` → `2e6b4d7` | actor `31 passed in 3.70s`；架构师定向 `31 passed in 3.68s`；主树 `1193 passed` | **9.7** | accepted |
 | 2026-07-15 | Claude Code / Opus 4.8；reasoning/时长未提供 | LightMem missing-time Phase B + R1 | `e1cfb75` + `0d6bf9f` → `915f73c` + `3968373` | actor R1 `91 passed, 1 warning in 7.27s`；架构师定向 `91 passed, 1 warning in 6.32s`；主树 `1206 passed` | **9.0** | accepted after rework |
+| 2026-07-15 | Claude Code / Opus 4.8；约 30min（用户提供）；reasoning 未提供 | RetrievalEvidence M0 + R1 | `5fd5ac1` + `1999f56` → `352ed3c` + `6b4fd4e` | actor R1 `34 passed in 0.05s`；架构师 R1 `34 passed`；M0 七文件 `307 passed`；主树 `1235 passed` | **9.1** | accepted after architect hardening |
 
 ### 2026-07-15：LightMem online-soft
 
@@ -65,4 +66,24 @@
   explicit-None 边界，保留 0.2。旧卡把“待派”状态写进 prompt 导致 Opus 先询问意图，
   根因属于架构师卡设计，**不扣 actor 分**。
 - 总评：最终交付可接受且返工质量高；9.0 反映“核心方向一次正确、边界需架构师抓一次”。
-  Opus 4.8 当前只有两份已验收样本，尚不做跨模型累计排名。
+  当时 Opus 4.8 只有两份已验收样本，尚不做跨模型累计排名。
+
+### 2026-07-15：RetrievalEvidence M0 + R1
+
+- 正确性 3.6/4：协议、三家 adapter 运行时盖章、逐题 artifact、严格 manifest identity 与
+  resume 主体均正确；首轮把未知 status 当成普通 non-valid，R1 又让 list/dict 从
+  `frozenset` membership 泄漏 `TypeError`，架构师以 `afd4040` 收紧为统一 `ValueError`。
+  registered CLI preflight 未提前盖 v1 的问题由全量回归才暴露，并以 `c879343` 修复；原卡
+  没把该 CLI 文件与“首跑→续跑”强反例纳入范围，这部分是架构师设计责任，不全扣 actor。
+- 证据 1.6/2：actor 大范围 fake/registered 测试覆盖三家 method 与 artifact；R1 的非法值
+  矩阵也能抓住首轮漏洞。但缺不可哈希输入，且内部 manifest matcher 测试没有证明真实 CLI
+  preflight 与最终 runner 对称。架构师最终七文件 `307 passed, 1 warning`、全量
+  `1235 passed, 3 deselected, 2 warnings, 4 subtests passed`、compileall exit 0。
+- 纪律 2/2：两层 commit 均在隔离 worktree，follow-up 不 amend、不 push、零 API；允许清单
+  与显式 add 纪律清楚，未使用 subagent。
+- 判断/交接 1.9/2：用 `get_args(RetrievalEvidenceStatus)` 单源派生运行时集合是好判断；报告
+  清楚区分环境缺 data 与真实回归，并主动说明 `_UnusedRootSystem`/resume 身份边界。最后两处
+  契约缝隙仍需架构师收口，保留 0.1。
+- 总评：这是重卡，约 30 分钟属合理投入；主体质量高，强验收抓到的主要是跨层最后一公里。
+  Opus 4.8 现有三份已验收样本为 9.7、9.0、9.1，简单均值 **9.27**。当前画像是“大范围
+  实现与交接稳定，边界契约仍值得架构师重点反证”；任务难度不同，不据此做绝对模型排名。

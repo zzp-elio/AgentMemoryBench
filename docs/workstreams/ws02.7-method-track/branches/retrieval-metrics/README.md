@@ -13,13 +13,13 @@ evaluator 按 Recall/NDCG 各自要求导出 `valid / n_a / pending`。这样不
 1. 两份 docs-only audit 与架构裁决已合入。
 2. LightMem lifecycle profile 卡已于主线 `825132f` 强验收合入，原依赖关闭。
 3. [`actor-prompt-retrieval-evidence-contract-m0.md`](cards/actor-prompt-retrieval-evidence-contract-m0.md)
-   首轮已由 Opus 4.8 完成于 `5fd5ac1`；架构师在数据齐备条件下独立整套复跑
-   `297 passed, 1 warning in 12.35s`。主体保留，但 runtime 会接受未知 evidence status，
-   首轮尚未合入。
-4. [`M0 R1`](cards/actor-prompt-retrieval-evidence-contract-m0-r1.md) **待用户派回同一
-   worktree**：只补 status 枚举 fail-fast 与强反例，follow-up 不 amend。
-5. R1 强验收并线性合入 M0 后再写/派 M1：迁五个 evaluator、修 LongMemEval no-target
-   分母和 k coverage。
+   + [`M0 R1`](cards/actor-prompt-retrieval-evidence-contract-m0-r1.md) 已强验收：actor
+   `5fd5ac1` + `1999f56` 合入主线为 `352ed3c` + `6b4fd4e`；架构师 hardening=
+   `afd4040`（不可哈希 status）+ `c879343`（registered preflight/resume 身份对称）。
+4. M0 最终门：七文件 `307 passed, 1 warning`；主树
+   `1235 passed, 3 deselected, 2 warnings, 4 subtests passed`；compileall exit 0。
+5. **当前下一步=M1，尚未起草/派发**：迁五个 evaluator、修 LongMemEval no-target 分母
+   与 k coverage。先由架构师写自包含卡，用户暂时无需派 actor。
 
 ## 权威材料
 
