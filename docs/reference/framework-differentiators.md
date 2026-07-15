@@ -23,8 +23,10 @@
 - **我们**：LightMem 始终走真实抽取 + post-build update 管线。最初的 B5+ singular
   source-id 透传在 2026-07-15 被进一步审计出 merge 后血缘不完整，架构师当场撤销
   LoCoMo Recall@10 的可信声明并重开冻结，而不是因为“已经有非零 items”就放行。
-  修复限定为不进入文本/embedding/prompt 的 plural 变换血缘，禁止改变算法；修复前
-  该格不作 headline recall。证据与裁决见
+  第一版 plural 输入 lineage 修复虽可零算法变化实现，但用户指出它不证明更新后文本
+  仍承载各 source fact；架构师因此拒绝合入已通过测试的 `3e2d957`，把该格
+  provenance Recall/NDCG 定为 N/A。这里的差异化不是“多算一个指标”，而是敢于承认
+  method 能力边界。证据与裁决见
   `ws02.7/notes/lightmem-offline-recall-ruling.md`。
 
 ### D2. 评测元数据不进被测系统

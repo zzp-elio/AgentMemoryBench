@@ -145,8 +145,9 @@ recall，但不得伪装成 turn-level recall。provider 声明 provenance=`none
 时输出结构化 N/A，不把不可评估伪装成 0 分。
 
 2026-07-15 LightMem post-update 审计补充：上述 fail-fast 是**结构门**，不能证明
-summary/merge/update 后来源仍完整；该保证必须由 method 的传递血缘 schema 与变换级
-测试提供。`consume_granularity` 不与 provenance 粒度强绑。不同 method 的 top-k item
+summary/merge/update 后来源仍是当前文本的 semantic evidence；完整输入 lineage 和
+变换级测试也只能证明处理链，不能替代 output-to-source 归因。官方不提供无损映射时
+该格应 N/A。`consume_granularity` 不与 provenance 粒度强绑。不同 method 的 top-k item
 可能是 fact/session/chunk，故当前 Recall@k 作为 method-native item 辅助指标报告；
 跨 method headline 还需 source/token-budget 伴随口径。完整裁决见
 `ws02.7/notes/lightmem-offline-recall-ruling.md`。

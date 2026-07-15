@@ -36,6 +36,8 @@ models/
 # Experiment outputs and local run artifacts.
 outputs/
 logs/
+!docs/archive/logs/
+!docs/archive/logs/README.md
 
 # Official benchmark repositories are retained locally for fact checking but too large for Git.
 # Runtime adapters should use data/ as dataset entry, not this directory.

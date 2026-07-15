@@ -29,7 +29,7 @@
 | 短语 QA（locomo、longmemeval、halumem-QA） | LLM-judge、EM、token-F1、（BLEU/ROUGE 弱匹配，标 auxiliary 且低优先） | — |
 | 单字母 MCQ（membench） | parse_failed 率（已有） | BLEU/ROUGE/F1（对单字母无意义，已有断言锁 f1 排除） |
 | rubric 长答案（beam） | ROUGE-L/BLEU 可作 auxiliary 参考 | EM |
-| 检索面（全 benchmark，条件=provenance） | recall@k / NDCG@k（框架已有 conditional evaluator） | — |
+| 检索面（逐 method × benchmark 过资格门） | recall@k；有 semantic provenance、稳定顺序与足够 evaluation depth 时才可 NDCG@k | 无损 provenance 不可得、列表无序或深度不足时 N/A，不强造 |
 
 ## 3. 硬约束
 
@@ -40,11 +40,14 @@
    写进对应 benchmark 的 `integration/<b>.md`。
 4. LoCoMo 特别注意：官方 BLEU-1 属于非 QA 任务面（frozen note §5 已裁"不接入"）
    ——若加 BLEU 是**我们的 supplementary 决定**，不得声称官方口径。
+5. **资格先于计算**：每个 method × benchmark × metric 独立声明
+   `valid / N/A / pending` 与 reason。transformation-input lineage 不等于 semantic
+   evidence provenance；Recall 可评也不自动推出 NDCG 可评，后者另需保序和 depth。
 
 ## 4. 排期
 
 - 盘点卡：可立即派（docs-only，与 method 深耕线零冲突）。
 - 匹配矩阵：盘点回来后架构师裁决、更新本文 §2 为定稿。
-- 实现：本计划与单个 method 冻结状态没有技术依赖；但当前先关闭 LightMem
-  offline-update lineage 与 MemoryOS B11 等可信度门，避免用扩展指标制造“进度感”并
-  抢占验收注意力。排期由活跃 workstream README 决定，不再写死在某次 frozen 之后。
+- 实现：本计划与单个 method 冻结状态没有技术依赖；但当前先完成 retrieval metric
+  eligibility 契约审计、LightMem N/A artifact 门与 MemoryOS B11，避免用扩展指标制造
+  “进度感”并抢占验收注意力。排期由活跃 workstream README 决定。

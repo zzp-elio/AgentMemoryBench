@@ -41,7 +41,7 @@
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅ | 🟡turn（LoCoMo update lineage 待修） | ✅offline | ✅ | ✅ | ✅分叉 | ✅ | 🟡LoCoMo provenance 复证 | **v1 suspended** |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅ | 🟡LoCoMo semantic provenance 不可无损 | ✅offline | ✅ | ✅ | ✅分叉 | ✅ | 🟡待 per-metric N/A artifact 门 | **v1 suspended** |
 | [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅M3对话时间(s2实弹复证) | ✅turn(首个非零recall) | ✅零flush | ✅(native计量=R0前置,声明2) | ✅B8+清单落档(M5,下载点声明4) | ✅ | ✅三格实弹 | ✅13格+全指标 | **v1**(九项声明) |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅ | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn | ✅no-op | ✅ | ✅降级审计 | ✅分叉 | ✅readout-native | 🟡五格 smoke 待跑 | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -54,7 +54,8 @@
 
 > "适配器 ✅" 只代表代码入口存在，不代表冻结。Mem0 已 frozen-v1；MemoryOS 已完成
 > M1 一手取证与 M2 离线施工/全量门，只差 B11 真实 smoke；LightMem 因 2026-07-15
-> 发现 LoCoMo post-update lineage 缺口而重开 B5/B11；A-Mem/SimpleMem 待各自 M 阶段。
+> 发现 LoCoMo post-update 无 semantic source mapping 而重开 B5/B11；A-Mem/SimpleMem
+> 待各自 M 阶段。N/A 是能力结论，待补的是准确声明机制，不是强造指标。
 
 **逐项证据与接口调用面**：全部收归各实体的实例文档（表中名字即链接），本文不再
 就地展开（2026-07-13 起，原"LightMem 详情"节已迁入
@@ -64,8 +65,9 @@
 - **provenance 现状（2026-07-15 重审）**：Mem0 与 MemoryOS 已是可信
   `"turn"`（各自 sidecar 持久化+旧 state fail-fast）。LightMem 的初始
   external-id 透传对不运行 LoCoMo post-build merge 的路径仍成立；但 LoCoMo
-  `offline_update_all_entries` 可把 candidate 文本并进 target 而不合并 id，故现状只能
-  证明“单一 anchor”，不能证明完整传递血缘，B5/B11 已重开，见
+  `offline_update_all_entries` 可把 candidate 文本并进 target；即使合并全部输入 id，
+  也只能证明 transformation inputs，不能证明新文本仍承载每个 fact，故 LoCoMo
+  provenance-based Recall/NDCG 应 N/A，B5/B11 已重开，见
   `ws02.7/notes/lightmem-offline-recall-ruling.md`。A-Mem/SimpleMem 仍为 `"none"`；
   不可评 metric 必须 N/A，不得按 0 分。
 - **clean-retry 钩子覆盖（2026-07-14 M2 后五家全员到齐）**：Mem0 的 hook =
@@ -73,10 +75,11 @@
   `SQLiteManager.delete_messages(session_scope)`（污染场景有测试钉死）。
   Mem0 隔离形态实为 **worker 间物理、worker 内逻辑**（M1 取证 §3;生产
   Qdrant 零 API 泄漏测试已补;共享实例并行维持关闭）。
-- **B5+ provenance 无损改造初判（2026-07-13，MemoryData 判例取证）**：mem0（id 映射
-  sidecar）/ memoryos（文本反查）/ amem、simplemem（in-band 或 id 映射）四家
-  **可无损改造**（adapter 层零 third_party）；**lightmem 需 third_party 最小 diff**
-  （上游抽取已产出 fact 级 source_id、构造时丢弃）= 上游 PR 候选。三策略全景 +
+- **B5+ provenance 无损改造重审（2026-07-15）**：mem0（仅 adapter 可达 ADD 路径待
+  负空间审计）/memoryos（精确 page sidecar）已实现；amem、simplemem 待各自 M 阶段。
+  LightMem 初次 fact insert 可透传 source id，但 LoCoMo post-update 没有 output-to-source
+  语义映射，判为**该格不可无损改造、指标 N/A**，不再把 plural 输入并集列作 PR 候选。
+  三策略全景 +
   反面判例（绕管线换指标不可取）：`ws02.7/notes/memorydata-recall-retrofit-survey.md`。
 
 ## 三、维护约定

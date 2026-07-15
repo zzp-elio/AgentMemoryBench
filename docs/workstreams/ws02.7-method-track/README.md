@@ -15,37 +15,56 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## Codex 恢复胶囊（热层；每次原地更新，禁止继续堆历史）
 
-> 当前 Codex 会话窗口约 270K，明显小于 Claude Code 的约 1M；压缩后不得声称保留
+> 当前 `gpt-5.6-sol` model catalog 硬上限为 272K，明显小于 Claude Code 的约 1M；
+> 压缩后不得声称保留
 > 原始对话。恢复只读本节 + `git status --short` + `git log -5 --oneline`，再按链接
 > 定点读一份 note/判据；不要从下方历史断点全文重建。
 
 - **最近实质链**：`e2fff4b`（MemoryOS M2）→ `147ab15`（派发/恢复规则）→
-  `bfe69f1`（registry 测试替身）→ `0333c7a`（LightMem 纯取证）。本轮裁决文档门=
-  documentation standards `5 passed`、compileall exit 0；准确 commit/upstream 状态始终
-  以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。
+  `bfe69f1`（registry 测试替身）→ `0333c7a`（LightMem 纯取证）→ `ac24f63`
+  （首次裁决）→ `653c1ff`（Mem0 文档锚）。准确 commit/upstream 状态始终
+  以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
+  `1181 passed, 3 deselected, 2 warnings, 4 subtests passed in 161.04s`。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。下一门是
   五格真实 smoke；未获用户预算/规模/run_id 确认，禁止 API。
-- **LightMem 裁决**：LoCoMo post-update 会把 candidate 文本并入 target，却只保留
-  singular source id；既有 LoCoMo Recall@10 可信声明撤销，B5/B11 重开，
-  frozen-v1 suspended。删除与旧 embedding 属官方算法，不改；只批准 plural
-  传递血缘 metadata。裁决：`notes/lightmem-offline-recall-ruling.md`；待用户派卡：
-  `actor-prompt-lightmem-lineage-repair.md`。
-- **粒度/top-k**：不把 `consume_granularity` 与 provenance 强绑；当前 evaluator
-  结构门合理但缺变换后语义验证。Recall@k 暂作 method-native item 辅助指标；
-  answer depth 与 evaluation ranking depth 混用（LME k30/50 被 top_k=10 挡住）已挂
-  ws03，不在 LightMem 单点卡顺手修。
-- **已做的过时文档整改**：AGENTS Cognee→EverOS；roadmap/ws02.6 状态；playbook
-  删除动态快照/过期继任安排；onboarding 写清 Claude-only advisory hook；
+- **LightMem 二次裁决**：Sonnet 5 的 `3e2d957` 忠实完成旧 lineage 卡，架构师复跑
+  `57 passed, 1 warning`，但用户指出输入 id 并集不证明改写后 memory 仍承载各事实；
+  反例成立，commit **不合入**。LoCoMo post-update provenance Recall/NDCG 改判结构化
+  N/A；B5/B11 等 capability artifact 门，禁止再花 API 做 plural provenance smoke。
+  现行裁决：`notes/lightmem-offline-recall-ruling.md`。
+- **指标资格/top-k**：`consume_granularity`、semantic provenance、item 粒度分离；
+  answer depth 与 evaluation ranking depth 混用（LME k30/50 被 top_k=10 挡住）挂 ws03。
+  两张 docs-only 取证卡待用户跨模型派发：Mem0 ADD-only 负空间审计 + retrieval metric
+  eligibility/NDCG 排序契约审计；架构师不自动启动 actor。
+- **过时文档整改**：AGENTS Cognee→EverOS；roadmap/ws02.6 状态；playbook
+  删除动态快照/过期继任安排；onboarding 区分 Claude/Codex 两套 advisory hook；
   integration-status、Mem0/LightMem/MemoryOS 实例、freeze note、metric 排期、checklist
   与框架差异化已更新；Fable→GPT 一次性交接信已移入 `archive/handoffs/`。
-- **压缩后下一动作**：若 LightMem lineage actor 已回卡，按裁决 note 强验收；否则等待
-  用户选择跨模型 actor 派发。MemoryOS 五格 smoke 仍需用户明确预算、规模与 run_id，
-  不得因“下一步明确”而自行调用 API。
+- **Codex hook/下一动作**：`.codex/hooks.json` 已设计为 compact 后自举四步恢复、commit
+  前提醒；合入后仍需用户在 `/hooks` 一次性审核信任。下一步等待用户并行派两张审计卡；
+  MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-15）
+
+- 2026-07-15（**Codex 压缩自举 hook 落地；LightMem lineage 修复拒绝合入；两张横向
+  审计卡待用户派发**，GPT-5 架构师）：① 官方 Codex manual 与本机 catalog 核证
+  hooks=stable，当前模型 max context=272,000；配置不能扩大硬上限。新增版本化
+  `.codex/hooks.json`：`SessionStart(compact)` 注入四步恢复门，Bash `git commit`
+  注入显式暂存提醒；不自动倾倒聊天或修改文档，首次加载须用户 `/hooks` 信任。
+  hook/文档定向 `10 passed`，主树全量 `1181 passed, 3 deselected, 2 warnings,
+  4 subtests passed in 161.04s`，compileall/diff-check 通过；同时修复
+  `docs/archive/logs/README.md` 被全局 `logs/` 规则误忽略、导致 clean worktree 文档
+  标准假红的基线可移植性缺口。
+  ② Sonnet 5 `3e2d957` 全 diff 审读、定向复跑 `57 passed, 1 warning in 7.05s`；实现
+  忠实但 transformation-input union 会制造 semantic provenance 假阳性，故不
+  cherry-pick，LoCoMo post-update Recall/NDCG 改 N/A。③ Mem0 当前 phased add 源码
+  初读呈 ADD-only；架构师撤回“看到 CRUD API 即认为 mutation 可达”的过早断言，交
+  `actor-prompt-mem0-provenance-validity-audit.md` 做负空间证明。④ LME NDCG 顺序/depth
+  与 per-cell valid/N/A/pending 交 `actor-prompt-retrieval-metric-eligibility-audit.md`
+  做框架契约审计；两卡均 docs-only、可并行、只由用户派 actor。
 
 - 2026-07-15（**MemoryOS M2 强验收通过；LightMem B5/B11 因 lineage 缺口重开**，
   GPT-5 架构师）：① MemoryOS 三行返工 `4b75e1a` 审读后 cherry-pick 为
@@ -58,9 +77,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `source_external_id`，既有 Recall@10 可机械计算却不是完整 turn lineage，故
   `lm-locomo-unified-prov1` recall=0.0 的**可信指标声明作废**，LightMem frozen-v1
   暂停于 B5/B11。其他 answer/F1/成本证据及不跑该 merge 阶段的四 benchmark 不随之
-  作废。③ 批准 metadata-only plural lineage 修复，严禁重算 embedding 或改变
+  作废。③ 当时批准 metadata-only plural lineage 修复，严禁重算 embedding 或改变
   update/delete；卡=`actor-prompt-lightmem-lineage-repair.md`，仍由用户选择跨模型
-  actor 派发。④ 粒度裁决：`consume_granularity` 不应与 provenance 强绑；当前门
+  actor 派发；**该批准已被本页最新断点的二次裁决撤销**。④ 粒度裁决：
+  `consume_granularity` 不应与 provenance 强绑；当前门
   只强校验结构、漏了变换后语义完整性。Recall@k 先作为 method-native item 辅助
   指标，未补 source/token-budget 归一化前不单独作跨 method headline。完整裁决见
   `notes/lightmem-offline-recall-ruling.md`。
@@ -169,7 +189,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   架构师 → **`.claude` 专属内容内化审计**:9 条私有 memory 逐条核镜像
   (8 条已有仓库锚,**1 条真洞=commit 显式路径纪律只在 memory/本机 hook/
   onboarding,AGENTS 与 playbook 均无**)→ 补 AGENTS 硬规则(含事故背景
-  +"其他模型架构师无 hook,纪律以文档为准");onboarding 新增 **§-1 非
+  +"其他模型架构师无 hook,纪律以文档为准")；这是当时事实，现已由版本化 Codex
+  hook 补齐；onboarding 新增 **§-1 非
   Claude 架构师注意项**(无 memory 召回/无 commit hook/无 CLAUDE.md
   自动加载的三项替代路径)。② **M1-memoryos 取证卡写就待派**:纯取证
   七节(eval/ 代码副本差距/超参三岔口/粒度/隔离 clean/检索副作用+B5+

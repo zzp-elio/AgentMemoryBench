@@ -82,6 +82,15 @@
   内容等同于尚未交接。每次用户拍板、验收阻断、派卡/回卡和架构裁决都应先写入活跃
   workstream README 或对应 spec/note/手册，再依 `git log` 恢复；压缩后必须重读
   `architect-onboarding.md` 的使用时刻表与活跃 README 顶部，禁止凭残余摘要装作记得。
+- **压缩恢复必须可自举**：项目 `.codex/hooks.json` 用
+  `SessionStart(source=compact)` 重新注入四步恢复门；hook 首次/变更后须由用户在
+  `/hooks` 审核信任。若 hook 未加载，本文就是兜底触发器：只读 `git status --short`、
+  `git log -5 --oneline`、活跃 README 顶部恢复胶囊和当前动作的一份判据，禁止全文扫
+  docs。hook 只提醒/注入 context，不自动总结或修改项目文档。
+- **指标资格不是 method 的义务**：每个 method × benchmark × metric 独立判
+  valid/N/A/pending；不能为了填满矩阵而伪造能力。变换输入 lineage 只证明“参与过
+  生成”，不等于当前 memory 仍语义承载每个 source fact，禁止直接拿它计算
+  Recall/NDCG；N/A 是诚实结果，不是接入失败。
 
 ## 硬规则
 
@@ -98,8 +107,9 @@
 - 未经用户要求不自动 commit / push（架构师验收后 commit+push 是既定例外
   模式）。**commit 只 add 显式路径,禁 `-A`/`.`**,commit 前
   `git status --short` 过目（2026-07-14 事故:`add -A` 把用户私人文件推进
-  公开 repo,force-with-lease 整改;Claude 架构师本机有 hook 提醒,
-  **其他模型架构师无 hook,纪律以本行为准**）。Co-Authored-By 用当前
+  公开 repo,force-with-lease 整改；Claude 本机与受信任的 Codex 项目层各有 advisory
+  hook 提醒，但 Git/IDE、未信任项目及其他入口不受保护，**纪律仍以本行为准**）。
+  Co-Authored-By 用当前
   模型真名。
 - resume 逻辑、隐私边界、metric 正确性、公开协议变更必须经架构师 review。
 

@@ -62,6 +62,11 @@ benchmark 全部 frozen 后，行为被全量测试锁死才允许动结构）
 - [ ] **Recall@k 粒度诊断与公平伴随指标**：保留 method-native item recall，但统一
   报 top-k unique source 数、`source ids/item` 与 payload token；研究 source-budget/
   token-budget recall。未完成前禁止用单一 item Recall@k 作跨 method headline 排名。
+- [ ] **method × benchmark × metric 资格声明**（2026-07-15 LightMem 二次裁决）：
+  将当前 registry 静态 `provenance_granularity` 拆为可按 benchmark/metric 表达的
+  valid/N/A/pending capability，并带机器可读 reason。区分 semantic evidence
+  provenance 与 transformation-input lineage；NDCG 另校验稳定顺序和 evaluation
+  depth。先做 docs-only 契约审计，不在单个 adapter 里打 LoCoMo 特判。
 - [ ] **目录分层**：benchmark 专属指标归 per-benchmark 子目录，通用
   指标（f1/recall 骨架/judge 壳）归 common；prompt 资产统一存放布局
   （locomo/longmemeval 独立 prompt 文件 vs 其他内联的组织不一致，

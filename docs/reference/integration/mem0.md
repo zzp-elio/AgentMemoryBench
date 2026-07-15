@@ -3,7 +3,9 @@
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
 > 状态：**method-frozen-v1（2026-07-14）**。冻结证据与九项声明缺口见
 > `../../workstreams/ws02.7-method-track/notes/mem0-frozen-v1.md`；下列 B1-B11 是现行
-> 结论，不再把 2026-07-13 的预填风险冒充当前状态。
+> 结论，不再把 2026-07-13 的预填风险冒充当前状态。2026-07-15 已开 docs-only
+> ADD-only/provenance 负空间审计卡；在一手证据回卡前维持冻结，不因类上存在公开
+> `update/delete` API 就推断 adapter 可达 mutation。
 
 - adapter：`src/memory_benchmark/methods/mem0_adapter.py`
 - 算法源：vendored `third_party/methods/mem0-main`（官方 `Memory` 类）

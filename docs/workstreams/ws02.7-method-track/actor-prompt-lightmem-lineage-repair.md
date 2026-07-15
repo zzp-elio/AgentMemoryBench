@@ -1,5 +1,10 @@
 # Actor 返工卡：LightMem offline-update 传递血缘修复
 
+> **状态：已执行但被后续架构裁决终止，禁止再次派发。**Sonnet 5 commit
+> `3e2d957` 忠实完成本卡且定向测试通过；用户随后指出 transformation-input lineage
+> 不等于更新后 memory 的 semantic evidence provenance，架构师复核成立，故该 commit
+> 不合入。现行裁决见 `notes/lightmem-offline-recall-ruling.md` 顶部与 §3、§7。
+>
 > 派发日：2026-07-15。单批上限 5h；零真实 API；不得另开 reviewer/subagent。
 > 由用户选择 Sonnet 5、GLM-5.2、MiniMax、Codex 或其他 actor 后转发。
 > 架构裁决原文：`notes/lightmem-offline-recall-ruling.md`，不得自行改判。
@@ -123,7 +128,7 @@ third_party 算法层。
 - plural schema 与 legacy fail-fast 语义；
 - update/delete/ignore 三分支；
 - 实际测试尾行；
-- 仍需用户批准的真实 LoCoMo provenance smoke 门。
+- ~~仍需用户批准的真实 LoCoMo provenance smoke 门~~（二次裁决已取消，不得执行）。
 
 不得更新 README、integration-status、frozen note；这些由架构师验收后处理。
 
