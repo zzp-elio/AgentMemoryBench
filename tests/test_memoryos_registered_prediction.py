@@ -606,11 +606,11 @@ def test_memoryos_registered_prediction_uses_generic_runner_with_smoke_crop_resu
             "answer_protocol": "retrieve_first_v1",
         },
         "config": _FakeMemoryOS.instances[0].config.to_manifest(),
-            "source": {"source": "fake-memoryos"},
-            "retrieval_evidence_contract_version": "v1",
-            "workload_estimate": {
-                "kind": "memory_update_batches",
-                "total_update_batches": 1,
+        "source": {"source": "fake-memoryos"},
+        "retrieval_evidence_contract_version": "v1",
+        "workload_estimate": {
+            "kind": "memory_update_batches",
+            "total_update_batches": 1,
             "conversation_count": 1,
         },
     }
