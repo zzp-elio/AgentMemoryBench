@@ -4,8 +4,10 @@
 > 本卡本身就是可整份复制的 prompt；单批上限 5h、零真实 API。
 > 目标只做 M0 plumbing，**不切 evaluator、不修 LongMemEval 分母、不改 top_k**；M1 必须
 > 等本卡经架构师强验收合入后再派。
-> 前置依赖：`../../lightmem-lifecycle/cards/actor-prompt-lightmem-online-soft-profile.md`
-> 经架构师强验收合入。否则本卡会把旧 LoCoMo post-update 行为写死进新 contract。
+> 前置依赖一已满足：LightMem online-soft 卡已强验收合入主线 `825132f`。
+> 新前置依赖：`../../membench-time-semantics/` Phase A 强验收 + Phase B 输入兼容边界
+> 裁定；否则本卡会在尚未区分可/不可诚实 ingest 的 MemBench variant 上声明 retrieval
+> contract，并与后续 registry/LightMem 改动冲突。
 
 ## 0. 上工与隔离
 
@@ -19,8 +21,9 @@
    retrieval-metric-eligibility-ruling.md` §1、§3-§4、§7；
 6. `docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/notes/
    lightmem-update-lifecycle-ruling.md` §3-§5、§7；
-7. `src/memory_benchmark/core/provider_protocol.py` 的 retrieval 实体；
-8. `src/memory_benchmark/runners/prediction.py::_answer_question_retrieve_first` 与
+7. `docs/workstreams/ws02.7-method-track/branches/membench-time-semantics/README.md`；
+8. `src/memory_benchmark/core/provider_protocol.py` 的 retrieval 实体；
+9. `src/memory_benchmark/runners/prediction.py::_answer_question_retrieve_first` 与
    `operation_level.py::_answer_prompt_record`。
 
 从届时 `main` 新建；路径/分支已存在就停工，不删、不复用：
@@ -138,6 +141,10 @@ valid contract，不把真实 0 hit 当 provenance 缺失。
   consolidation 不提供 output-to-source mapping；
 - benchmark_name 缺失/未知：pending + none，reason_code=`benchmark_identity_missing`。
 
+本卡只描述**已经通过输入兼容门并实际发生 retrieval** 的逐题事实，不把 method 能否
+诚实 ingest 某 variant 解释为 retrieval evidence。MemBench 100k 输入门由前置支线裁定，
+本卡不得顺手造 timestamp 或建立 variant 白名单。
+
 注意空 tuple 与 None 不同：`items=()` 是检索 0 hit、仍可 valid；None 才是本次 lineage
 不可用。不要改 LightMem lifecycle、update/insert/merge 算法；若前置卡尚未合入，立即
 停工，不能在本卡顺手补。
@@ -180,6 +187,7 @@ valid contract，不把真实 0 hit 当 provenance 缺失。
 - registered isolated manifest 无法只靠现有 `system_factory` identity 盖 version；
 - 任一 adapter 必须改 third_party 算法才能生成上述事实；
 - 前置 LightMem lifecycle profile/card 未在 main 合入，或字段/取值与本卡不一致；
+- MemBench time-semantics Phase A 未强验收，或 Phase B 输入边界尚未由架构师裁定；
 - 发现本裁决矩阵与生产 benchmark_name/ingest 路径矛盾；
 - 定向测试失败且 15 分钟内不能定位。
 

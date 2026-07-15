@@ -1,6 +1,9 @@
 # Actor 卡：LightMem paper online-soft 主 profile
 
-> 派发日：2026-07-15。状态：**待用户选择跨模型 actor 派发**。
+> 派发日：2026-07-15。状态：**已完成并强验收合入；禁止重复派发**。
+> Actor：Claude Sonnet 5，commit `19a0934`；主线：`825132f`；架构师复跑
+> `78 passed, 1 warning in 8.10s`，主树全量 `1191 passed, 3 deselected, 2 warnings,
+> 4 subtests passed in 142.37s`，compileall exit 0。
 > 本卡本身就是可整份复制的 prompt；单批上限 5h、零真实 API、不 push。
 > 白话目标：让五个 benchmark 都停在 LightMem 论文定义的“抽取后直接入库”时点；
 > LoCoMo 不再默认追加会改写/删除旧记忆的全库 consolidation，但保留显式 opt-in 补充轨。

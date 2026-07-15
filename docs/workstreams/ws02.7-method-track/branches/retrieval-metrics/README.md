@@ -11,10 +11,11 @@ evaluator 按 Recall/NDCG 各自要求导出 `valid / n_a / pending`。这样不
 权威当前动作看父级 `../../README.md`，本节只定义稳定先后关系：
 
 1. 两份 docs-only audit 与架构裁决已合入。
-2. [`actor-prompt-retrieval-evidence-contract-m0.md`](cards/actor-prompt-retrieval-evidence-contract-m0.md)
-   依赖 LightMem lifecycle profile 卡先经架构师强验收合入；否则它会把旧 LoCoMo
-   post-update 行为写死进新协议。
-3. M0 合入后再写/派 M1：迁五个 evaluator、修 LongMemEval no-target 分母和 k coverage。
+2. LightMem lifecycle profile 卡已于主线 `825132f` 强验收合入，原依赖关闭。
+3. [`actor-prompt-retrieval-evidence-contract-m0.md`](cards/actor-prompt-retrieval-evidence-contract-m0.md)
+   继续暂停：先完成相邻 `membench-time-semantics` Phase A，并由架构师裁定
+   timestamp-required method 的 Phase B 输入门，避免 M0 同时改 registry/LightMem 契约。
+4. M0 合入后再写/派 M1：迁五个 evaluator、修 LongMemEval no-target 分母和 k coverage。
 
 ## 权威材料
 

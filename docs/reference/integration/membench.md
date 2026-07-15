@@ -1,17 +1,23 @@
 # MemBench 接入实例（A1-A8 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §A；勾选总表：`../integration-status.md`。
-> **frozen-v1（2026-07-11）**；证据主库 =
+> **frozen-v1 暂停（2026-07-15 message 时间语义重开）**；证据主库 =
 > `docs/workstreams/ws02.6-first-smoke-hardening/notes/membench-frozen-v1.md`。
+> 100k 有 258,000 个无时间 noise step，当前 adapter 却用首个有时 turn 派生
+> `session_time` 并扩散给它们；这不是 question-time 泄漏，但同样是伪造时间。Phase A
+> 修复卡见 ws02.7 `branches/membench-time-semantics/`，强验收前 A2/A8 暂停。
 
 ## A1-A8 逐项
 
 - **A1 来源锁 ✅**：repo `import-myself/Membench`（一手来源=bundled 论文 PDF；actor
   初版编造的 repo 名已纠正留痕）；arXiv 2506.21605；MIT（README badge，无 LICENSE
   文件，如实记录）；8 数据文件+PDF SHA-256 已锁；官方 commit 待溯。
-- **A2 数据契约 ✅**：trajectory 700/900/400/1,400（0-10k）+ 140/360/80/280（100k）；
+- **A2 数据契约 🟡 时间修复中**：trajectory 700/900/400/1,400（0-10k）+
+  140/360/80/280（100k）；
   全部 task type 单字母 MCQ（ground_truth 恒 A-D 均衡）；时间戳带冒号/无冒号双格式
-  兼容（D2 修复）；官方数据异常 3 例合法保留（越界 target_step_id ×2、空 ×1）。
+  兼容（D2 修复）；但 MemBench 没有原生 session time，现行首时戳 session fallback
+  已裁为错误，待 Phase A 删除；官方数据异常 3 例合法保留（越界 target_step_id ×2、
+  空 ×1）。
 - **A3 公私边界 ✅**：`answer`/`ground_truth`/`target_step_id` 绝不进公开对象；CLEAN。
 - **A4 canonical/GC-1 ✅**：公开 turn id=`str(step_index+1)`（1 基）；官方
   target_step_id 0 基已平移 +1，原值留 metadata 对照。
@@ -22,7 +28,8 @@
   `--membench-sources` 是调试旋钮非认证口径；formal = tid 级 checkpoint。
 - **A7 artifact/efficiency ✅**：evidence 顶层序列化（D5 停工裁决：fixture 必须经
   真实序列化函数）。
-- **A8 冻结门 ✅**：D5 时点全量通过（冻结记录 §6）。
+- **A8 冻结门 🟡**：D5 时点证据保留；2026-07-15 时间语义修复重新开门，待定向/
+  全量回归后恢复 frozen-v1。
 
 ## 对 method 接入的含义
 
@@ -38,3 +45,6 @@
    全 method provenance=none，全 N/A。
 6. **native 格**：仅 SimpleMem。其余 method 在 membench 全部单轨 collapse。
 7. 100k variant 只剖面未全链路；capacity/memory-efficiency 维度 Phase 1 未纳入。
+8. `QA.time` 只进 retrieval query / answer prompt。message 文本有自己的 time marker 时可
+   无损结构化到该 turn；无 marker 保持 None。要求每条 message timestamp 的 method
+   必须按真实 variant shape 做兼容性预检，不得拿 question/首条/墙钟造时间。

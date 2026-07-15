@@ -7,9 +7,11 @@
 > 也只能得到 transformation-input lineage，不能证明新文本仍语义承载每个 source fact。
 > 既有 answer/judge/F1/成本与其他四格证据继续有效；LoCoMo post-update
 > provenance-based Recall/NDCG 应结构化 N/A。现裁五格主 profile 改为 paper
-> `online_soft`、post-update 另名补充轨，代码尚待施工。恢复门与现行边界见
+> `online_soft`、post-update 另名补充轨；代码已于主线 `825132f` 强验收合入，B6/
+> lifecycle identity 已关闭，B5/B11 仍待逐题 RetrievalEvidence 门。恢复门与现行边界见
 > `../branches/lightmem-lifecycle/notes/lightmem-update-lifecycle-ruling.md`，不得把下方
-> 2026-07-14 终局文字继续当现状。
+> 2026-07-14 终局文字继续当现状。另有 MemBench 100k message 时间缺失门，见
+> `../branches/membench-time-semantics/`。
 
 > 首个走完 B1-B11 全流程的 method。判据=`method-integration-checklist.md`,
 > 逐项证据=`docs/reference/integration/lightmem.md`（本文不复制,只给结论

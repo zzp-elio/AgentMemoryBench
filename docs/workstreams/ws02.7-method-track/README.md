@@ -26,9 +26,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 - **最近实质链**：`bfe69f1`（MemoryOS M2 验收）→ `0333c7a`（LightMem 取证）→
   `ac24f63`（semantic provenance 改判）→ `653c1ff`（Mem0 文档锚）→ `eed497b`
   （compact/metric 资格门）→ `dc15304`（Mem0 ADD-only audit）→ `c36b171`
-  （retrieval eligibility audit）。准确 commit/upstream 状态始终
+  （retrieval eligibility audit）→ `5fc0345`（资格裁决）→ `025a141`（LightMem
+  online-soft 裁决）→ `825132f`（online-soft 实现强验收）。准确 commit/upstream 状态始终
   以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
-  `1181 passed, 3 deselected, 2 warnings, 4 subtests passed in 161.04s`。
+  `1191 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.37s`；compileall exit 0。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。下一门是
   五格真实 smoke；未获用户预算/规模/run_id 确认，禁止 API。
@@ -36,27 +37,44 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   是“抽取后直接 LTM insert”，在 vendored 代码中反而由
   `update="offline" → offline_update(memory_entries)` 实现；`online_update()` 空壳只是
   命名债。**五格 Phase 1 主 profile 改判统一 `online_soft`**，LoCoMo 全库
-  consolidation 另名补充轨。当前 HEAD 仍是旧 LoCoMo post-update 行为，必须先经 actor
-  卡施工，不能把裁决写成已实现。`3e2d957` 仍不合入；post-update provenance
-  Recall/NDCG 仍 N/A。裁决=`branches/lightmem-lifecycle/notes/
+  consolidation 另名补充轨；Claude Sonnet 5 actor `19a0934` 已经架构师 full diff +
+  `78 passed, 1 warning in 8.10s` 强验收，合入主线 `825132f`。`3e2d957` 仍不合入；
+  post-update provenance Recall/NDCG 仍 N/A。裁决=`branches/lightmem-lifecycle/notes/
   lightmem-update-lifecycle-ruling.md`。
 - **指标资格/top-k**：两张 docs-only audit 已由 Sonnet 5 回卡并经架构师强验收合入。
   Mem0 mutation=ADD-only，但 sidecar 是批归属：LoCoMo/MemBench=turn、LME=session、
   BEAM recall=N/A。LME 官方剔除无目标题，框架现记 1 分；top_k=10 亦挡死 k30/50。
   架构采用逐题 `RetrievalEvidence` + evaluator requirement 两层，不建手写笛卡尔积表。
   裁决=`branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`；
-  `RetrievalEvidence M0` **暂勿派发**，先等 LightMem lifecycle 卡强验收合入，M1 不得抢跑。
+  `RetrievalEvidence M0` **暂勿派发**：lifecycle 前置已关闭，但新发现 MemBench 100k
+  时间语义门，先做 `branches/membench-time-semantics` Phase A/Phase B 边界，M1 不得抢跑。
 - **元学习/过时文档整改**：actor 卡整份即 prompt，禁止卡尾重复 wrapper；不默认要求
   reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
   AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
-  提醒可用；两个旧用户级条目重复/含过时广读序，用户保持未信任是正确选择。**下一步由
-  用户派 `branches/lightmem-lifecycle/cards/actor-prompt-lightmem-online-soft-profile.md`；
-  M0 暂停。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止自行调用 API。
+  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**下一步由用户派
+  `branches/membench-time-semantics/cards/actor-prompt-membench-time-semantics-phase-a.md`；
+  RetrievalEvidence M0 暂停。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止
+  自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-15）
+
+- 2026-07-15（**LightMem online-soft 强验收通过；MemBench 100k 时间语义重开；新卡待
+  用户派发**，GPT-5 架构师）：① Claude Sonnet 5 `19a0934` full diff 与允许清单通过，
+  架构师复跑 `78 passed, 1 warning in 8.10s`，cherry-pick 为 `825132f`；五格默认
+  `online_soft`，LoCoMo consolidated 显式补充轨，backend 仍锁 `update="offline"`，
+  lifecycle/adapter v2 进入 manifest；主树全量 `1191 passed, 3 deselected, 2 warnings,
+  4 subtests passed in 142.37s`，compileall exit 0。actor 任务级评分 9.7/10，账本=
+  `docs/reference/actor-performance-ledger.md`。② 用户指出 MemBench 100k message 无独立
+  time，官方四源实扫：307,738 step 独立 time 字段为 0；49,738 文本有完整 timestamp，
+  258,000（83.84%）无。当前未把 `QA.time` 直接写进 message，但把首个有时 turn 派生为
+  session_time 并扩散给无时 noise，裁为同级伪造。③ 新裁：内嵌时间只结构化给本 turn；
+  无时保持 None；MemBench session_time=None；QA.time 只进 query/prompt。MemBench
+  frozen-v1 暂停，LightMem × 100k 在通用输入预检前不得真实运行。④ Phase A 自包含卡=
+  `branches/membench-time-semantics/cards/actor-prompt-membench-time-semantics-phase-a.md`；
+  RetrievalEvidence M0 因后续 registry/LightMem Phase B 可能重叠继续暂停。零真实 API。
 
 - 2026-07-15（**LightMem paper online-soft 改判；活跃支线分层；新卡待用户派发**，GPT-5
   架构师）：① 用户纠正“online soft”是论文行为而非代码 enum，架构师亲读官方 PDF：
@@ -210,7 +228,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   100% 派生自首个带时间 turn,noise 消息 72-96% 无时间→兜底,
   2026-07-11 全量扫描证实**零时间戳 trajectory=0 兜底永不落空**;
   beam probing question 无时间=官方 prompt 无时间槽,parity 不注入——
-  即"不传"只发生在官方本来就不用的位置。③ **locomo speaker A/B 三家
+  即"不传"只发生在官方本来就不用的位置。**本项 MemBench 裁决已被本页最上方
+  2026-07-15 100k 重审推翻：可回填不等于语义真实，伪 Session 没有继承资格。**
+  ③ **locomo speaker A/B 三家
   姿势硬答案(用户尖锐问)**:mem0=role 仅 API 结构标记(首现=user 交替),
   **身份保留在 content 前缀 `{speaker}: `**(adapter:1391-1421,官方
   harness 同款)零丢失;lightmem=speaker 字段全程透传+检索侧
@@ -386,6 +406,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   membench 4/4 检索带对话时间 `2024-10-01 08:00` + timestamp_source=
   session_time + src_turns 命中 sidecar（**M3 实弹复证 ✅**）;locomo/lme/
   beam-100k/halumem 空检索姿势与 s1 一致（0.1 门槛/真零抽取判例不变）。
+  **该 run 的 choice/provenance 历史产物仍保留，但 `timestamp_source=session_time`
+  是派生伪 session 时间，已被最上方 2026-07-15 裁决作废，不再作为时间正确性证据。**
   ② **BEAM 10m 首跑**（用户点名 10m 数据结构不同,架构师亲跑+剪裁哨兵
   盯防：conversations=1 questions=1、sentinel=0）：**检索非空 items=2**、
   对话时间 `July-01-2024`（M0-6 月名产物）、src_turns 三段形态

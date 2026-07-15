@@ -45,8 +45,12 @@ QA/accuracy 子集先行）。**status: draft，待用户批准后拆 plan。**
   （我们的 provenance 走 turn_id）。
 - **Observation / ThirdAgent**（string step）：content = 原字符串，
   role="user"（单方消息流，卡片 §2.5）。
-- 时间：message 内嵌的 `(place/time...)` 文本不拆解，保持原样；
-  TurnEvent.timestamp=None（数据无独立时间字段）。
+- 时间：message 内嵌的 `(place/time...)` 文本保持原样，同时允许把其中真实存在的
+  `YYYY-MM-DD HH:MM` 无损结构化到**同一个** Turn 的 `turn_time`；没有内嵌时间的
+  message 保持 `turn_time=None`。MemBench 无原生 session 时间，故包装 Session 的
+  `session_time=None`，不得从兄弟 turn 或 `QA.time` 派生。事件时间只来自该 turn
+  自身；完整裁决见 ws02.7 `branches/membench-time-semantics/notes/
+  membench-100k-time-ruling.md`。
 
 ### 2.3 QA → Question / 私有标签
 

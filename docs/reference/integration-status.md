@@ -13,14 +13,15 @@
 
 ## 一、Benchmark 侧（A1-A8）
 
-五家均 **frozen-v1**（ws02.6，冻结记录 `ws02.6/notes/<b>-frozen-v1.md`；B6 横向总验收
-2026-07-12 通过）。A1-A8 全过。
+ws02.6 曾于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k message
+时间语义重开 A2/A8，故当前为四家 frozen-v1 + MemBench v1 suspended。历史冻结记录仍在
+`ws02.6/notes/<b>-frozen-v1.md`，不能覆盖新的一手反证。
 
 | benchmark | A1 来源锁 | A2 数据契约 | A3 公私边界 | A4 canonical/GC-1 | A5 prompt/metric parity | A6 smoke/resume | A7 artifact/eff | A8 冻结门 | frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | [LoCoMo](integration/locomo.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
 | [LongMemEval](integration/longmemeval.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
-| [MemBench](integration/membench.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
+| [MemBench](integration/membench.md) | ✅ | 🟡时间修复 | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡重开 | **v1 suspended** |
 | [HaluMem](integration/halumem.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
 | [BEAM](integration/beam.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
 
@@ -35,7 +36,9 @@
   2026-07-15 审计确认框架把无目标题记 1 分且 `top_k=10` 挡死 k30/50，现已重开
   evaluator 正确性门。
 - **BEAM**：测试需 `datasets` 模块（环境依赖；缺失会 18 项 fail，非回归——2026-07-13 判例）。
-- **MemBench**：源文件维度聚合 four-cell（first/third × high/low）。
+- **MemBench**：源文件维度聚合 four-cell（first/third × high/low）。2026-07-15 发现
+  100k 258,000 个无时间 noise 被首个有时 turn 派生的伪 `session_time` 覆盖；A2/A8
+  暂停到 Phase A 删除 fallback 并回归。`QA.time` 当前没有直接泄漏进 ingest。
 
 ## 二、Method 侧（B1-B11）
 
@@ -43,7 +46,7 @@
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅ | 🟡LoCoMo semantic provenance 不可无损 | ✅offline | ✅ | ✅ | ✅分叉 | ✅ | 🟡待 per-metric N/A artifact 门 | **v1 suspended** |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | 🟡MemBench 100k 时间门 | 🟡LoCoMo semantic provenance 不可无损 | ✅online-soft | ✅ | ✅ | ✅分叉 | ✅ | 🟡待 per-metric N/A artifact 门 | **v1 suspended** |
 | [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅M3对话时间(s2实弹复证) | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(native计量=R0前置,声明2) | ✅B8+清单落档(M5,下载点声明4) | ✅ | ✅三格实弹 | ✅13格；受影响 retrieval 指标待 contract | **v1**(带 metric 勘误) |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅ | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn | ✅no-op | ✅ | ✅降级审计 | ✅分叉 | ✅readout-native | 🟡五格 smoke 待跑 | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -66,9 +69,10 @@
 **跨 method 横向事实（2026-07-13 取证）**
 - **provenance 现状（2026-07-15 重审）**：MemoryOS 维持既有 turn 声明；Mem0 的
   sidecar 是 ingest 批归属，故 LoCoMo/MemBench=turn、LongMemEval=session、BEAM
-  turn Recall=N/A。LightMem 的现行目标主 profile 为五格 paper `online_soft`：初始
-  external-id 透传后不运行全库 merge，可逐题审 semantic provenance；lifecycle 代码卡
-  尚未合入，B5/B6/B11 仍重开。LoCoMo `locomo_offline_consolidated` 补充轨会把
+  turn Recall=N/A。LightMem 五格 paper `online_soft` 主 profile 已于主线 `825132f`
+  合入：初始 external-id 透传后不运行全库 merge，可逐题审 semantic provenance；
+  B6 已恢复，B5/B11 仍待 RetrievalEvidence 门。LoCoMo
+  `locomo_offline_consolidated` 补充轨会把
   candidate 文本
   并进 target；即使合并全部输入 id，也只能证明 transformation inputs，不能证明新文本
   仍承载每个 fact，故该补充轨 provenance-based Recall/NDCG 应 N/A，见

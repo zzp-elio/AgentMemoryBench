@@ -94,6 +94,15 @@
 - retry/resume 路径写 artifact 时想清楚"重放会不会重复追加"
   （session report 曾因 extend 而重复，后改整段替换）。
 - 等价测试比对的是**调用序列全序列**，不是"最终状态差不多"。
+- **切换默认值后要搜索所有隐式依赖旧默认的调用点和测试**。不能只跑任务卡枚举的
+  新 case；对构造器/profile 字段做一次定点 `rg`，把本来就在测旧语义的 case 改成
+  显式旧 profile，不能删测试或放宽断言。2026-07-15 LightMem online-soft 卡中，
+  Sonnet 5 据此把 threaded OP-update usage 测试显式绑定到
+  `locomo_offline_consolidated`，保住了旧补充轨覆盖。
+- 对自然语言数据做字段普查时，匹配**完整结构**而不是宽松关键词。搜索单词 `time`
+  会把正文叙述也计入 timestamp；至少锁定日期/分隔符形态，并抽样首尾反证。2026-07-15
+  MemBench 100k 初扫的宽条件在提交前被架构师推翻，完整 timestamp 正则才得到
+  49,738 有时 / 258,000 无时的可信计数。
 
 ## 7. 好行为（值得学的正例）
 
@@ -111,6 +120,10 @@
   actor 行为。
 - **本批定向自检的真实尾行必须原样报告**（不概括、不编）；全量回归和最终验收由
   架构师负责，actor 不重复执行。
+- **默认语义改变导致既有测试失败时，先判断测试真正想证明什么，再显式化它的前提。**
+  若测试验证的是仍被支持的旧补充轨，就给它显式 profile；若验证的是已废弃行为，才把
+  冲突交回架构师。不要为了恢复绿色把生产默认改回去。任务级表现由架构师验收后记入
+  `docs/reference/actor-performance-ledger.md`，actor 不给自己打分。
 - **发现 plan 有事实缺口就停工上报，别硬编绕过**。判例（2026-07-08，Codex
   做对了）：T4 开工前发现 extraction/update 评测是 **session 级**（官方
   `evaluation.py:54-95` 遍历每 session 的 memory_points，与有没有 question

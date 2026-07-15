@@ -30,3 +30,5 @@
 - 想知道"现在做到哪了"：`roadmap.md` → 对应 workstream README 的"当前断点"。
 - 想知道"某个决定为什么这样定"：先查 workstream README 的"决策记录"，再查 `archive/`。
 - 想跑命令、查代码结构：`CLAUDE.md`。
+- 想比较 actor 的真实交付：`reference/actor-performance-ledger.md`（任务级样本，不是
+  脱离卡难度的模型神榜）。
