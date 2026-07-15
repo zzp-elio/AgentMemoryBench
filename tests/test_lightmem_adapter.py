@@ -8,6 +8,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 import json
+import logging
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -35,6 +36,7 @@ from memory_benchmark.core.provider_protocol import (
     RetrievalQuery,
     SessionBatch,
     SessionRef,
+    TurnEvent,
     UnitRef,
 )
 from memory_benchmark.methods.lightmem_adapter import (
@@ -118,8 +120,9 @@ def test_lightmem_config_accepts_valid_lifecycle_profiles(
     assert config.lifecycle_profile == lifecycle_profile
 
 
-def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version_v2() -> None:
-    """公开 manifest 必须携带 lifecycle_profile，adapter_version 升级为 v2。"""
+def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version_v3() -> None:
+    """公开 manifest 必须携带 lifecycle_profile 与 missing_timestamp_policy，
+    adapter_version 升级为 v3（旧 v2 manifest 由全 manifest 比较拒绝 resume）。"""
 
     config = LightMemConfig(
         llm_model="gpt-4o-mini",
@@ -135,7 +138,8 @@ def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version
     manifest = config.to_manifest()
 
     assert manifest["lifecycle_profile"] == "online_soft"
-    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v2"
+    assert manifest["missing_timestamp_policy"] == "require"
+    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v3"
 
 
 def test_lightmem_toml_profiles_declare_online_soft_lifecycle_explicitly() -> None:
@@ -150,6 +154,8 @@ def test_lightmem_toml_profiles_declare_online_soft_lifecycle_explicitly() -> No
 
     assert smoke.lifecycle_profile == "online_soft"
     assert official_full.lifecycle_profile == "online_soft"
+    assert smoke.missing_timestamp_policy == "preserve_none"
+    assert official_full.missing_timestamp_policy == "preserve_none"
 
 
 def test_lightmem_source_identity_covers_official_core_files() -> None:
@@ -721,6 +727,349 @@ def test_lightmem_turn_timestamp_keeps_missing_time_fail_fast() -> None:
 
     with pytest.raises(ConfigurationError, match="requires turn_time or session_time"):
         _turn_timestamp(turn, session)
+
+
+def test_lightmem_turn_timestamp_preserve_none_returns_none_for_missing_time() -> None:
+    """preserve_none 下完全无时间应返回 None（原样透传），不伪造时间也不报错。"""
+
+    turn = Turn(turn_id="s1:t1", speaker="user", content="Missing timestamp noise.")
+    session = Session(session_id="s1", turns=[turn])
+
+    assert _turn_timestamp(turn, session, "preserve_none") is None
+    # 有时间时不受 policy 影响，仍按官方格式转换。
+    timed_turn = Turn(
+        turn_id="s1:t2",
+        speaker="user",
+        content="Timed.",
+        turn_time="March-15-2024",
+    )
+    timed_session = Session(session_id="s1", turns=[timed_turn])
+    assert (
+        _turn_timestamp(timed_turn, timed_session, "preserve_none")
+        == "2024-03-15T00:00:00"
+    )
+
+
+def _missing_time_config(
+    *,
+    lifecycle_profile: str = "online_soft",
+    missing_timestamp_policy: str = "preserve_none",
+) -> LightMemConfig:
+    """构造缺失时间兼容测试用的 LightMemConfig。"""
+
+    return LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path=(
+            "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+        ),
+        retrieve_limit=60,
+        max_workers=1,
+        profile_name="missing-time",
+        lifecycle_profile=lifecycle_profile,
+        missing_timestamp_policy=missing_timestamp_policy,
+    )
+
+
+def _missing_time_locomo_conversation() -> Conversation:
+    """构造含无时间 noise turn 的 MemBench 风格 conversation。
+
+    turn_time/session_time 均为 None（缺失就诚实保持缺失），content 内嵌 place 但无
+    时间，用于验证 online-soft 下缺失时间原样透传、content 完整保留。
+    """
+
+    question = Question(
+        question_id="q-missing",
+        conversation_id="conv-missing",
+        text="Where did the meetup happen?",
+    )
+    return Conversation(
+        conversation_id="conv-missing",
+        sessions=[
+            Session(
+                session_id="s-1",
+                session_time=None,
+                turns=[
+                    Turn(
+                        turn_id="t-noise-1",
+                        speaker="user",
+                        content="We met at the harbor cafe near Pier 39.",
+                        turn_time=None,
+                    ),
+                ],
+            )
+        ],
+        questions=[question],
+        metadata={
+            "source_path": "data/membench/membench_100k.json",
+            "speaker_a": "user",
+            "speaker_b": "assistant",
+        },
+    )
+
+
+def test_lightmem_config_rejects_preserve_none_with_consolidated_profile() -> None:
+    """preserve_none 只允许与 online_soft 组合，consolidated 补充轨须在构造期被拒绝。"""
+
+    with pytest.raises(ConfigurationError, match="preserve_none"):
+        _missing_time_config(
+            lifecycle_profile="locomo_offline_consolidated",
+            missing_timestamp_policy="preserve_none",
+        )
+
+
+def test_lightmem_config_rejects_unknown_missing_timestamp_policy() -> None:
+    """missing_timestamp_policy 只接受 preserve_none 与 require 两个值。"""
+
+    with pytest.raises(ConfigurationError, match="missing_timestamp_policy"):
+        _missing_time_config(missing_timestamp_policy="skip")
+
+
+def test_lightmem_normalizer_preserves_none_alongside_timestamped_message() -> None:
+    """真实 MessageNormalizer 混合 timestamped 与 None message：前者保持既有 ISO/
+    weekday，后者三个时间字段为空且 content/external_id 完整。"""
+
+    import_lightmem_classes(load_path_settings())
+    normalizer_class = sys.modules["lightmem.memory.lightmem"].MessageNormalizer
+
+    normalized = normalizer_class().normalize_messages(
+        [
+            {
+                "role": "user",
+                "content": "Timed message.",
+                "external_id": "e1",
+                "time_stamp": "2023/05/20 (Sat) 00:44",
+            },
+            {
+                "role": "user",
+                "content": "Noise at Pier 39.",
+                "external_id": "e2",
+                "time_stamp": None,
+            },
+        ]
+    )
+
+    assert normalized[0]["time_stamp"] == "2023-05-20T00:44:00.000"
+    assert normalized[0]["weekday"] == "Sat"
+    assert normalized[0]["session_time"] == "2023/05/20 (Sat) 00:44"
+    assert normalized[0]["external_id"] == "e1"
+
+    assert normalized[1]["time_stamp"] is None
+    assert normalized[1]["session_time"] is None
+    assert normalized[1]["weekday"] is None
+    assert normalized[1]["content"] == "Noise at Pier 39."
+    assert normalized[1]["external_id"] == "e2"
+
+
+def test_lightmem_sequence_assignment_keeps_none_group_aligned() -> None:
+    """assign_sequence_numbers_with_timestamps 混合时/无时消息：不解析 None 分组，
+    但仍按原顺序分配 sequence_number，五条并行数组保持索引对齐。"""
+
+    import_lightmem_classes(load_path_settings())
+    lm_utils = sys.modules["lightmem.memory.utils"]
+
+    msg_timed = {
+        "role": "user",
+        "content": "Timed",
+        "session_time": "2023-05-20",
+        "time_stamp": "placeholder",
+        "weekday": "Sat",
+        "speaker_id": "A",
+        "speaker_name": "Alice",
+        "external_id": "e1",
+    }
+    msg_none = {
+        "role": "user",
+        "content": "Noise",
+        "session_time": None,
+        "time_stamp": None,
+        "weekday": None,
+        "speaker_id": "B",
+        "speaker_name": "Bob",
+        "external_id": "e2",
+    }
+    extract_list = [[[msg_timed, msg_none]]]
+
+    (
+        _new_extract,
+        timestamps_list,
+        weekday_list,
+        speaker_list,
+        external_ids,
+        _seq_to_topic,
+    ) = lm_utils.assign_sequence_numbers_with_timestamps(
+        extract_list, offset_ms=500, topic_id_mapping=[[0]]
+    )
+
+    assert msg_timed["sequence_number"] == 0
+    assert msg_none["sequence_number"] == 1
+    assert timestamps_list[0].startswith("2023-05-20T00:00:00")
+    assert timestamps_list[1] is None
+    assert weekday_list == ["Sat", None]
+    assert [info["speaker_id"] for info in speaker_list] == ["A", "B"]
+    assert external_ids == ["e1", "e2"]
+
+
+def test_lightmem_memory_entry_from_missing_time_keeps_lineage() -> None:
+    """timestamp 为 None 时 MemoryEntry 的 timestamp/float 为 None，但 speaker、
+    topic、source_external_id 完整（不被宽 catch 连带清空）。"""
+
+    import_lightmem_classes(load_path_settings())
+    lm_utils = sys.modules["lightmem.memory.utils"]
+
+    mem = lm_utils._create_memory_entry_from_fact(
+        {"source_id": 0, "fact": "harbor cafe noise"},
+        timestamps_list=[None],
+        weekday_list=[None],
+        speaker_list=[{"speaker_id": "B", "speaker_name": "Bob"}],
+        topic_id=7,
+        external_ids=["e2"],
+    )
+
+    assert mem is not None
+    assert mem.time_stamp is None
+    assert mem.float_time_stamp is None
+    assert mem.speaker_id == "B"
+    assert mem.speaker_name == "Bob"
+    assert mem.topic_id == 7
+    assert mem.source_external_id == "e2"
+    assert mem.memory == "harbor cafe noise"
+
+
+def test_lightmem_vendored_retrieve_omits_time_label_for_null_payload() -> None:
+    """项目 fake retriever direct insert 接受 null payload，向量 retrieve 仍按 score
+    返回；缺时间的格式化结果只含 memory 文本，不出现字面量 'None None'。"""
+
+    import_lightmem_classes(load_path_settings())
+    lightmem_module = sys.modules["lightmem.memory.lightmem"]
+    lightmemory_class = lightmem_module.LightMemory
+
+    class _NullPayloadRetriever:
+        """返回一个 null-timestamp payload 与一个 timestamped payload 的 fake retriever。"""
+
+        def search(self, query_vector, limit=10, filters=None, return_full=False):
+            """按预置顺序返回带 payload 的检索结果。"""
+
+            return [
+                {
+                    "id": "m-null",
+                    "score": 0.9,
+                    "payload": {
+                        "time_stamp": None,
+                        "weekday": None,
+                        "memory": "noise at harbor cafe",
+                    },
+                },
+                {
+                    "id": "m-timed",
+                    "score": 0.5,
+                    "payload": {
+                        "time_stamp": "2023-05-20T00:00:00.000",
+                        "weekday": "Sat",
+                        "memory": "timed memory",
+                    },
+                },
+            ]
+
+    stub = SimpleNamespace(
+        text_embedder=FakeLightMemEmbedder(),
+        embedding_retriever=_NullPayloadRetriever(),
+        logger=logging.getLogger("test-lightmem-retrieve"),
+    )
+
+    formatted = lightmemory_class.retrieve(stub, "where did we meet?", limit=5)
+
+    assert formatted[0] == "noise at harbor cafe"
+    assert formatted[1] == "2023-05-20T00:00:00.000 Sat timed memory"
+    assert "None None" not in "\n".join(formatted)
+
+
+def test_lightmem_online_soft_preserve_none_passes_missing_time_to_backend() -> None:
+    """online_soft + preserve_none 下，MemBench-like 无时间 noise 在 bridge 与 native
+    两条路径都不被过滤：完整 content + time_stamp=None 到 backend，零 synthetic time。"""
+
+    conversation = _missing_time_locomo_conversation()
+
+    # bridge / legacy add 路径
+    bridge_backend = FakeLightMemoryBackend()
+    bridge_system = LightMem(
+        config=_missing_time_config(),
+        backend_factory=lambda _conversation_id: bridge_backend,
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    bridge_system.add([conversation])
+    bridge_messages = [
+        message
+        for call in bridge_backend.added_messages
+        for message in call["messages"]
+    ]
+    assert bridge_messages
+    assert all(message["time_stamp"] is None for message in bridge_messages)
+    assert any("harbor cafe" in message["content"] for message in bridge_messages)
+
+    # native v3 ingest 路径
+    native_backend = FakeLightMemoryBackend()
+    native_system = LightMem(
+        config=_missing_time_config(),
+        backend_factory=lambda _conversation_id: native_backend,
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    isolation_key = "conv-missing"
+    events = tuple(build_turn_events(conversation, isolation_key))
+    for signal in GranularityAggregator("turn").aggregate(
+        events, isolation_key=isolation_key
+    ):
+        if isinstance(signal, TurnEvent):
+            native_system.ingest(signal)
+        elif isinstance(signal, SessionRef):
+            native_system.end_session(signal)
+        elif isinstance(signal, UnitRef):
+            native_system.end_conversation(signal)
+    native_messages = [
+        message
+        for call in native_backend.added_messages
+        for message in call["messages"]
+    ]
+    assert native_messages
+    assert all(message["time_stamp"] is None for message in native_messages)
+    assert any("harbor cafe" in message["content"] for message in native_messages)
+
+
+def test_lightmem_require_policy_fails_before_backend_creation() -> None:
+    """missing_timestamp_policy=require 时，legacy 与 native 缺失输入都在 backend
+    工厂计数仍为 0 时 fail-fast。"""
+
+    conversation = _missing_time_locomo_conversation()
+
+    factory_calls = {"count": 0}
+
+    def _counting_factory(_conversation_id: str) -> FakeLightMemoryBackend:
+        """记录 backend 工厂被调用次数。"""
+
+        factory_calls["count"] += 1
+        return FakeLightMemoryBackend()
+
+    # legacy add 路径
+    legacy_system = LightMem(
+        config=_missing_time_config(missing_timestamp_policy="require"),
+        backend_factory=_counting_factory,
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    with pytest.raises(ConfigurationError, match="requires turn_time or session_time"):
+        legacy_system.add([conversation])
+    assert factory_calls["count"] == 0
+
+    # native ingest 路径
+    native_system = LightMem(
+        config=_missing_time_config(missing_timestamp_policy="require"),
+        backend_factory=_counting_factory,
+        answer_client=FakeLightMemAnswerClient(),
+    )
+    events = tuple(build_turn_events(conversation, "conv-missing"))
+    first_event = events[0]
+    with pytest.raises(ConfigurationError, match="requires turn_time or session_time"):
+        native_system.ingest(first_event)
+    assert factory_calls["count"] == 0
 
 
 @pytest.mark.parametrize("raw_timestamp", ["March-15-2024", "July-01-2024"])

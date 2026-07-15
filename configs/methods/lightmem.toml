@@ -10,6 +10,11 @@
 # online_soft（论文 §3.3 soft updating at test time，只 direct insert、不做全库
 # offline consolidation）。不依赖 dataclass 默认，两个 section 都显式写。LoCoMo
 # 补充轨 locomo_offline_consolidated 不在此文件声明，需要时另建显式 profile。
+# missing_timestamp_policy（2026-07-15 缺失时间兼容 Phase B）：online-soft 主 profile
+# 显式声明 preserve_none，把 MemBench 官方 NoiseData 等无时间 message 的缺失 timestamp
+# 原样保持 None 透传给 direct insert，绝不伪造时间。不依赖 dataclass 默认（默认为严格
+# 的 require），两个 section 都显式写。consolidated 补充轨仍须用 require。裁决见
+# branches/membench-time-semantics/notes/lightmem-missing-time-compatibility-ruling.md。
 
 [smoke]
 llm_model = "gpt-4o-mini"
@@ -28,6 +33,7 @@ topic_segment = true
 text_summary = true
 suppress_official_stdout = true
 lifecycle_profile = "online_soft"
+missing_timestamp_policy = "preserve_none"
 
 [official_full]
 llm_model = "gpt-4o-mini"
@@ -46,3 +52,4 @@ topic_segment = true
 text_summary = true
 suppress_official_stdout = true
 lifecycle_profile = "online_soft"
+missing_timestamp_policy = "preserve_none"

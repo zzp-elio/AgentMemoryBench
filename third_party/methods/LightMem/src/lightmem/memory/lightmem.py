@@ -57,12 +57,22 @@ class MessageNormalizer:
             raise ValueError(f"{str(e)}: Failed to parse session time format: '{raw_ts}'. Expected something like '2023/05/20 (Sat) 00:44'")
 
     def normalize_messages(self, messages: Any) -> List[Dict[str, Any]]:
-        """
-        Accepts str / dict / list[dict]:
-          - If str -> treated as a single user message (if 'time_stamp' is required, use dict form)
-          - If dict -> single message
-          - If list -> multiple messages (each must be a dict and contain 'time_stamp')
-        Returns: List[Dict] (each item is a copied and enriched message)
+        """规范化输入 message，并无损保留缺失 source timestamp。
+
+        接受 str / dict / list[dict]：
+          - str -> 视为单条 user message（若需要 time_stamp，请用 dict 形式）
+          - dict -> 单条 message
+          - list -> 多条 message（每条须为 dict）
+
+        Membench 缺失时间兼容扩展：当某条 message 的 `time_stamp` 显式为 None
+        （由 adapter 在 `missing_timestamp_policy="preserve_none"` 下透传）时，本方法
+        深复制该条并令 `session_time`/`time_stamp`/`weekday` 均为 None，不生成任何
+        offset/sentinel/墙钟时间，也不更新 `last_timestamp_map`。normalizer 本身不感知
+        framework policy，只保证 None 能被无损表示；`require`/`preserve_none` 的门由
+        adapter 在调用 backend 前统一执行。非空 timestamp 的既有解析与 offset 行为
+        完全不变。空字符串等非法 time_stamp 仍按原逻辑报错。
+
+        Returns: List[Dict]（每条为复制并补全后的 message）。
         """
         # Normalize input into a list
         if isinstance(messages, dict):
@@ -80,6 +90,16 @@ class MessageNormalizer:
             if not isinstance(msg, dict):
                 raise ValueError("Each item in messages list must be a dict.")
             raw_ts = msg.get("time_stamp")
+            if raw_ts is None:
+                # 缺失 source timestamp：无损保留 None（不解析、不生成 offset/sentinel、
+                # 不更新 last_timestamp_map），仅令三个时间字段为空。role/content/
+                # speaker/external_id 经 deepcopy 完整保留。
+                enriched = copy.deepcopy(msg)
+                enriched["session_time"] = None
+                enriched["time_stamp"] = None
+                enriched["weekday"] = None
+                enriched_list.append(enriched)
+                continue
             if not raw_ts:
                 raise ValueError("Each message should contain a 'time_stamp' field (e.g., '2023/05/20 (Sat) 00:44').")
 
@@ -702,7 +722,12 @@ class LightMemory:
             memory = payload.get("memory", "")
             if boundmem_tags is not None:
                 memory = strip_tags(memory)
-            formatted_results.append(f"{time_stamp} {weekday} {memory}")
+            if time_stamp is None:
+                # 缺失 source timestamp：只返回 memory 文本，缺时间不显示时间标签，
+                # 避免出现字面量 "None None"。非空 timestamp 的格式保持不变。
+                formatted_results.append(memory)
+            else:
+                formatted_results.append(f"{time_stamp} {weekday} {memory}")
             
         result_string: str = "\n".join(formatted_results)
         self.logger.info(f"[{call_id}] Formatted {len(formatted_results)} results into output string")

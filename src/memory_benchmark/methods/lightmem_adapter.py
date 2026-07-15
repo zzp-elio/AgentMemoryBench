@@ -66,8 +66,9 @@ from memory_benchmark.observability.efficiency import (
 
 
 LIGHTMEM_METHOD_DIRECTORY = "LightMem"
-LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v2"
+LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v3"
 LIGHTMEM_LIFECYCLE_PROFILES = ("online_soft", "locomo_offline_consolidated")
+LIGHTMEM_MISSING_TIMESTAMP_POLICIES = ("preserve_none", "require")
 LIGHTMEM_READER_PROMPT_VERSION = "lightmem-reader-v1"
 LIGHTMEM_MEMORY_LLM_MODEL_ID = "lightmem-memory-llm"
 _LIGHTMEM_IMPORT_LOCK = threading.Lock()
@@ -133,6 +134,14 @@ class LightMemConfig:
             `benchmark_name == "locomo"` 时才允许启用。完整裁决见
             `docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/
             notes/lightmem-update-lifecycle-ruling.md`。
+        missing_timestamp_policy: 缺失 source timestamp 的处理策略，只允许两个值。
+            `require`（默认）=缺失时在 backend 创建、LLM/API、向量写入前 fail-fast，
+            适用于所有 timestamped benchmark 与 `locomo_offline_consolidated`
+            补充轨；`preserve_none`=把缺失时间原样保持 None 透传给 online-soft
+            direct insert，只允许与 `lifecycle_profile="online_soft"` 组合。默认取
+            严格值 `require`，避免 dataclass 默认暗中启用 preserve_none。裁决见
+            `docs/workstreams/ws02.7-method-track/branches/membench-time-semantics/
+            notes/lightmem-missing-time-compatibility-ruling.md`。
         profile_name: 可审计 profile 名称。
     """
 
@@ -156,6 +165,7 @@ class LightMemConfig:
     extraction_mode: str = "flat"
     suppress_official_stdout: bool = True
     lifecycle_profile: str = "online_soft"
+    missing_timestamp_policy: str = "require"
     profile_name: str = "custom"
 
     def __post_init__(self) -> None:
@@ -200,6 +210,22 @@ class LightMemConfig:
             allowed = ", ".join(LIGHTMEM_LIFECYCLE_PROFILES)
             raise ConfigurationError(
                 f"LightMem lifecycle_profile must be one of: {allowed}"
+            )
+        if self.missing_timestamp_policy not in LIGHTMEM_MISSING_TIMESTAMP_POLICIES:
+            allowed = ", ".join(LIGHTMEM_MISSING_TIMESTAMP_POLICIES)
+            raise ConfigurationError(
+                f"LightMem missing_timestamp_policy must be one of: {allowed}"
+            )
+        if (
+            self.missing_timestamp_policy == "preserve_none"
+            and self.lifecycle_profile != "online_soft"
+        ):
+            raise ConfigurationError(
+                "LightMem missing_timestamp_policy='preserve_none' is only allowed "
+                "with lifecycle_profile='online_soft'; got "
+                f"lifecycle_profile={self.lifecycle_profile!r}. Consolidated/summary "
+                "profiles depend on real timestamps and must use "
+                "missing_timestamp_policy='require'."
             )
 
     def validate_required_local_resources(self, path_settings: PathSettings) -> None:
@@ -541,15 +567,18 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             conversations = [conversations]
         conversation_ids: list[str] = []
         for conversation in conversations:
+            # 先做纯 batch 预检再创建 backend：`missing_timestamp_policy="require"`
+            # 下缺失时间必须在 backend 工厂被调用、任何 add_memory 触发前 fail-fast。
+            # 预检不改变成功路径的 add_memory 调用序列。
+            batches = self._conversation_to_lightmem_batches(conversation)
+            locomo_metadata_prompt = self._locomo_metadata_prompt_if_needed(
+                conversation
+            )
             backend = self._get_or_create_backend(conversation.conversation_id)
             self._conversation_metadata[conversation.conversation_id] = {
                 **conversation.metadata,
                 "conversation_id": conversation.conversation_id,
             }
-            batches = self._conversation_to_lightmem_batches(conversation)
-            locomo_metadata_prompt = self._locomo_metadata_prompt_if_needed(
-                conversation
-            )
             for batch_index, messages in enumerate(batches):
                 is_last_batch = batch_index == len(batches) - 1
                 kwargs: dict[str, Any] = {
@@ -629,8 +658,10 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         if not batch.events:
             raise ConfigurationError("LightMem HaluMem session batch has no events")
         self._ensure_native_metadata(batch.events[0])
-        backend = self._get_or_create_backend(batch.isolation_key)
+        # 先构造消息（含 timestamp 门）再创建 backend，保证 require 策略在 backend
+        # 工厂被调用前 fail-fast。HaluMem 均有时间，成功路径调用序列不变。
         messages = self._native_session_messages(batch)
+        backend = self._get_or_create_backend(batch.isolation_key)
         with self._capture_inserted_memories(backend) as captured_memories:
             self._suppress_stdout_if_needed(
                 backend.add_memory,
@@ -1367,7 +1398,9 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         batches: list[list[dict[str, object]]] = []
         for session in conversation.sessions:
             for turn in session.turns:
-                timestamp = _turn_timestamp(turn, session)
+                timestamp = _turn_timestamp(
+                    turn, session, self.config.missing_timestamp_policy
+                )
                 speaker_id = _locomo_speaker_id(conversation, turn)
                 speaker_name = turn.speaker
                 batches.append(
@@ -1434,7 +1467,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             raise ConfigurationError(
                 f"LightMem LongMemEval turn role must be user or assistant: {turn.turn_id}"
             )
-        timestamp = _turn_timestamp(turn, session)
+        timestamp = _turn_timestamp(turn, session, self.config.missing_timestamp_policy)
         return {
             "role": normalized_role,
             "content": turn.content,
@@ -1645,7 +1678,11 @@ def _is_longmemeval_question(
     return "longmemeval" in source_path or question.question_time is not None
 
 
-def _turn_timestamp(turn: Turn, session: Session) -> str:
+def _turn_timestamp(
+    turn: Turn,
+    session: Session,
+    missing_timestamp_policy: str = "require",
+) -> str | None:
     """读取 LightMem 必需的 `time_stamp` 字段，并转为官方格式。
 
     LightMem 的 MessageNormalizer 要求格式为 "2023/05/20 (Sat) 00:44" 或 ISO。
@@ -1653,10 +1690,16 @@ def _turn_timestamp(turn: Turn, session: Session) -> str:
     月名-日-年格式（例如 "April-02-2024"）转为 ISO；其余 compatible 格式透传。
     转换只作用于发给 LightMem 的消息副本，原始 Turn/Session 时间字段保持不变，
     并继续由公开 conversation 与 TurnEvent 的 original_* metadata 审计链保存。
+
+    缺失 timestamp 时按 `missing_timestamp_policy` 分流：`require`（默认，严格值）
+    维持既有 `ConfigurationError` fail-fast，绝不伪造默认日期；`preserve_none`
+    返回 None，把缺失时间原样透传给 online-soft direct insert。
     """
 
     raw_timestamp = turn.turn_time or session.session_time
     if not raw_timestamp:
+        if missing_timestamp_policy == "preserve_none":
+            return None
         raise ConfigurationError(
             f"LightMem requires turn_time or session_time for turn {turn.turn_id}"
         )

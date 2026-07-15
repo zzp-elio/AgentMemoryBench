@@ -59,10 +59,20 @@ def clean_response(response: str) -> List[Dict[str, Any]]:
 
 
 def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, topic_id_mapping: List[List[int]] = None):
+    """为抽取消息分配 sequence_number 并按 session 解析 timestamp。
+
+    Membench 缺失时间兼容扩展：当某个 session 分组的 `session_time` 为 None（由
+    normalizer 无损保留的缺失 timestamp）时，跳过该分组的 datetime 解析与
+    `time_stamp` 覆写，使这些 message 的 `time_stamp` 保持 None；但仍按原
+    `extract_list` 顺序为其分配 sequence_number，并继续把 timestamps/weekday/
+    speaker/external_ids 五条并行数组按索引对齐追加。非空 session_time 的解析、
+    offset 递增与既有行为完全不变。
+    """
+
     from datetime import datetime, timedelta
     from collections import defaultdict
     import re
-    
+
     current_index = 0
     timestamps_list = []
     weekday_list = []
@@ -81,8 +91,12 @@ def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, 
         session_groups[sess_time].append(msg)
     
     for sess_time, messages in session_groups.items():
+        if sess_time is None:
+            # 缺失 session timestamp：跳过解析与 time_stamp 覆写，保持 None；
+            # 这些 message 仍会在下方按原顺序分配 sequence_number 并进入并行数组。
+            continue
         cleaned_time = re.sub(r'\s*\([A-Za-z]+\)\s*', ' ', sess_time).strip()
-        
+
         formats = [
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%d %H:%M",      
@@ -303,9 +317,14 @@ def _create_memory_entry_from_fact(
     logger = None,
     external_ids: List[Optional[str]] = None,
 ) -> Optional[MemoryEntry]:
-    """
+    """从单条抽取 fact 构造 MemoryEntry 的辅助函数。
+
+    Membench 缺失时间兼容扩展：当对应 sequence 的 timestamp 为 None 时，只令
+    `time_stamp=None`、`float_time_stamp=None`，仍保留 speaker、topic 与
+    `source_external_id` 等 lineage 字段，不走宽 catch 兜底。
+
     Helper function to create a MemoryEntry from a fact entry.
-    
+
     Args:
         fact_entry: Dict containing source_id and fact
         timestamps_list: List of timestamps indexed by sequence_number
@@ -322,20 +341,25 @@ def _create_memory_entry_from_fact(
     sequence_n = source_id * 2
 
     try:
+        # 先读取 weekday/speaker/external_id 等 lineage 字段，再做 timestamp 转换。
+        # 这样 Membench 缺失时间兼容路径下 time_stamp=None 只会令 float=None，
+        # 不会因宽 catch 而连带清空 speaker/external_id/topic 等独立字段。
         time_stamp = timestamps_list[sequence_n]
-        
-        if not isinstance(time_stamp, float):
-            from datetime import datetime
-            float_time_stamp = datetime.fromisoformat(time_stamp).timestamp()
-        else:
-            float_time_stamp = time_stamp
-            
         weekday = weekday_list[sequence_n]
         speaker_info = speaker_list[sequence_n]
         speaker_id = speaker_info.get('speaker_id', 'unknown')
         speaker_name = speaker_info.get('speaker_name', 'Unknown')
         source_external_id = external_ids[sequence_n] if external_ids else None
-        
+
+        if time_stamp is None:
+            # 缺失 source timestamp：保持 None，不解析 float，也不触发 except 兜底。
+            float_time_stamp = None
+        elif not isinstance(time_stamp, float):
+            from datetime import datetime
+            float_time_stamp = datetime.fromisoformat(time_stamp).timestamp()
+        else:
+            float_time_stamp = time_stamp
+
     except (IndexError, TypeError, ValueError) as e:
         if logger:
             logger.warning(
