@@ -27,8 +27,9 @@
 - 正确性 3.9/4：profile、benchmark identity、双路径 gate、backend
   `update="offline"`、manifest/version 均与卡一致；resume 拒绝由 version + 全 manifest
   比较间接闭合，未另造 runner 特判。
-- 证据 1.9/2：必测反例齐，warning 来源判断准确；implementation note 记录了首轮失败与
-  修复后的真实尾行。
+- 证据 1.8/2：必测反例齐，warning 来源判断准确；implementation note 记录了首轮失败与
+  修复后的真实尾行。lifecycle 已进入 manifest 且复用通用 resume compare 闭合，但本卡
+  未新增一条“旧 lifecycle manifest 必须拒绝 resume”的专门强反例，故保留 0.2 分证据余量。
 - 纪律 2/2：只改允许的 6 文件，显式 add，clean worktree，零 API、零 push。
 - 判断 2/2：发现 threaded usage 测试隐式依赖旧默认值，正确改成显式
   `locomo_offline_consolidated`，没有删除覆盖或扩大生产范围。
