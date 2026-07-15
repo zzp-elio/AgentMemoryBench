@@ -5,9 +5,9 @@
 > 目标只做 M0 plumbing，**不切 evaluator、不修 LongMemEval 分母、不改 top_k**；M1 必须
 > 等本卡经架构师强验收合入后再派。
 > 前置依赖一已满足：LightMem online-soft 卡已强验收合入主线 `825132f`。
-> 新前置依赖：`../../membench-time-semantics/` Phase A 强验收 + Phase B 输入兼容边界
-> 裁定；否则本卡会在尚未区分可/不可诚实 ingest 的 MemBench variant 上声明 retrieval
-> contract，并与后续 registry/LightMem 改动冲突。
+> 新前置依赖：`../../membench-time-semantics/` Phase A 已强验收；Phase B
+> `actor-prompt-lightmem-missing-time-online-soft.md` 仍须强验收合入。否则本卡会在
+> LightMem adapter version/manifest/lineage 尚可能变化时声明 retrieval contract。
 
 ## 0. 上工与隔离
 
@@ -187,7 +187,7 @@ valid contract，不把真实 0 hit 当 provenance 缺失。
 - registered isolated manifest 无法只靠现有 `system_factory` identity 盖 version；
 - 任一 adapter 必须改 third_party 算法才能生成上述事实；
 - 前置 LightMem lifecycle profile/card 未在 main 合入，或字段/取值与本卡不一致；
-- MemBench time-semantics Phase A 未强验收，或 Phase B 输入边界尚未由架构师裁定；
+- LightMem missing-time Phase B 尚未由架构师强验收合入；
 - 发现本裁决矩阵与生产 benchmark_name/ingest 路径矛盾；
 - 定向测试失败且 15 分钟内不能定位。
 

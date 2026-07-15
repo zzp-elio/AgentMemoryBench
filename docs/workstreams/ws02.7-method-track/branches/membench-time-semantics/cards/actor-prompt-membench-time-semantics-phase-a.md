@@ -1,6 +1,8 @@
 # Actor 卡：MemBench 时间语义 Phase A
 
-> 派发日：2026-07-15。状态：**待用户选择跨模型 actor 派发**。
+> 派发日：2026-07-15。状态：**已完成并强验收，禁止重新派发**。
+> Opus 4.8 actor `0fbf8e1` → main `2e6b4d7`；架构师定向 `31 passed in 3.68s`，
+> 主树 `1193 passed`，compileall exit 0。
 > 本卡本身就是可整份复制的 prompt；单批上限 5h、零真实 API、不 push。
 > 白话目标：删掉“拿第一条有时间的 message 给整段无时间 noise 盖同一时间”的兜底；
 > question time 继续只服务提问，message 缺时间就诚实保留 None。

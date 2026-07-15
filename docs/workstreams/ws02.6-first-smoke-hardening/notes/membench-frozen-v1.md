@@ -126,3 +126,22 @@ D1 定向 8 passed（修正后）；D2 定向 145 + 全量 927；D3 定向 170 +
 6. 若官方源码/数据、prompt、metric 或公私边界有新一手证据推翻本记录，
    必须版本化为 `frozen-v2`（或撤销冻结），写影响分析并重跑本页验收门；
    不得在 method adapter 内悄悄加 MemBench 专用补丁。
+
+## 8. 2026-07-15 时间语义勘误与复验
+
+用户指出 100k message 没有独立 time 字段后，一手审计确认：307,738 个 step 中 49,738
+仅在公开 content 内有完整时间，258,000 个官方 noise 无时间；`QA.time` 只属于提问。
+旧 adapter 虽未把 question time 直接写进 ingest，却把首个有时 turn 提升成伪
+`session_time` 并扩散给无时 noise，故 frozen-v1 曾短暂暂停。
+
+Phase A 删除该 fallback，保留 additive parsing：原 place/time content 不删；有时只进入
+自身 `turn_time`；无时 noise 与包装 Session 均保持 None。Opus 4.8 actor `0fbf8e1` 经架构师
+full diff 和定向 `31 passed in 3.68s`，合入主线 `2e6b4d7`；主树复验：
+
+```text
+1193 passed, 3 deselected, 2 warnings, 4 subtests passed in 144.68s
+compileall exit 0
+```
+
+因此 A2/A8 与 benchmark frozen-v1 恢复。LightMem 对 None 的支持属于 method 侧输入兼容
+扩展；其 Phase B 成败不改变本页 benchmark 公共数据契约。

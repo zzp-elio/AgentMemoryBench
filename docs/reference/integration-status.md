@@ -13,15 +13,16 @@
 
 ## 一、Benchmark 侧（A1-A8）
 
-ws02.6 曾于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k message
-时间语义重开 A2/A8，故当前为四家 frozen-v1 + MemBench v1 suspended。历史冻结记录仍在
-`ws02.6/notes/<b>-frozen-v1.md`，不能覆盖新的一手反证。
+ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k message
+时间语义短暂重开 A2/A8，Phase A `2e6b4d7` 经定向/全量/compileall 强验收后已恢复，当前
+五家 benchmark 均为 frozen-v1。历史冻结记录在 `ws02.6/notes/<b>-frozen-v1.md`，新反证与
+复验以追加勘误保留，不能覆盖历史。
 
 | benchmark | A1 来源锁 | A2 数据契约 | A3 公私边界 | A4 canonical/GC-1 | A5 prompt/metric parity | A6 smoke/resume | A7 artifact/eff | A8 冻结门 | frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | [LoCoMo](integration/locomo.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
 | [LongMemEval](integration/longmemeval.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
-| [MemBench](integration/membench.md) | ✅ | 🟡时间修复 | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡重开 | **v1 suspended** |
+| [MemBench](integration/membench.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
 | [HaluMem](integration/halumem.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
 | [BEAM](integration/beam.md) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | v1 |
 
@@ -37,8 +38,8 @@ ws02.6 曾于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100
   evaluator 正确性门。
 - **BEAM**：测试需 `datasets` 模块（环境依赖；缺失会 18 项 fail，非回归——2026-07-13 判例）。
 - **MemBench**：源文件维度聚合 four-cell（first/third × high/low）。2026-07-15 发现
-  100k 258,000 个无时间 noise 被首个有时 turn 派生的伪 `session_time` 覆盖；A2/A8
-  暂停到 Phase A 删除 fallback 并回归。`QA.time` 当前没有直接泄漏进 ingest。
+  100k 258,000 个无时间 noise 被首个有时 turn 派生的伪 `session_time` 覆盖；Phase A
+  `2e6b4d7` 已删除 fallback 并完成全量回归，A2/A8 恢复。`QA.time` 不进入 ingest。
 
 ## 二、Method 侧（B1-B11）
 
@@ -46,7 +47,7 @@ ws02.6 曾于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | 🟡MemBench 100k 时间门 | 🟡LoCoMo semantic provenance 不可无损 | ✅online-soft | ✅ | ✅ | ✅分叉 | ✅ | 🟡待 per-metric N/A artifact 门 | **v1 suspended** |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | 🟡MemBench 100k preserve-none 待施工 | 🟡LoCoMo semantic provenance 不可无损 | ✅online-soft | ✅ | ✅ | ✅分叉 | ✅ | 🟡待 per-metric N/A artifact 门 | **v1 suspended** |
 | [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅M3对话时间(s2实弹复证) | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(native计量=R0前置,声明2) | ✅B8+清单落档(M5,下载点声明4) | ✅ | ✅三格实弹 | ✅13格；受影响 retrieval 指标待 contract | **v1**(带 metric 勘误) |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅ | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn | ✅no-op | ✅ | ✅降级审计 | ✅分叉 | ✅readout-native | 🟡五格 smoke 待跑 | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |

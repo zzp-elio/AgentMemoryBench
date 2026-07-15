@@ -21,6 +21,7 @@
 | 日期 | actor / 设置 | 任务 | actor commit → main | 架构师证据 | 分数 | 裁定 |
 |---|---|---|---|---|---:|---|
 | 2026-07-15 | Claude Sonnet 5；reasoning=max；约 20min（用户提供） | LightMem paper online-soft 主 profile | `19a0934` → `825132f` | actor `78 passed, 1 warning in 5.84s`；架构师定向 `78 passed, 1 warning in 8.10s`；主树 `1191 passed` | **9.7** | accepted |
+| 2026-07-15 | Claude Code / Opus 4.8；reasoning/时长未提供 | MemBench 时间语义 Phase A | `0fbf8e1` → `2e6b4d7` | actor `31 passed in 3.70s`；架构师定向 `31 passed in 3.68s`；主树 `1193 passed` | **9.7** | accepted |
 
 ### 2026-07-15：LightMem online-soft
 
@@ -35,3 +36,17 @@
   `locomo_offline_consolidated`，没有删除覆盖或扩大生产范围。
 - 总评：高质量交付；最有价值的不只是测试绿，而是识别“默认值切换会暴露隐式测试语义”
   并给出最小、语义正确的修复。
+
+### 2026-07-15：MemBench 时间语义 Phase A
+
+- 正确性 4/4：只删除伪 session fallback；逐 turn parsing、place/time 原文、无时 noise、
+  question time 单向流与两种 message shape 全部符合裁决。
+- 证据 2/2：强反例让 message time 与 QA.time 故意分离，并直接检查 event metadata；
+  架构师复跑与主树全量均通过。
+- 纪律 2/2：生产只改一处，三文件均在允许清单；data 软链只为 worktree 真实数据测试，
+  未暂存、未 push、零 API。
+- 判断/交接 1.7/2：正确判断 runner 与两个允许测试文件无需改，并如实披露首次缺 data；
+  但完成报告第 1 项把 note 路径写在“Commit hash”后，漏掉真实 hash，架构师只能从 git log
+  找回 `0fbf8e1`。代码质量不扣，交接可执行性扣 0.3。
+- 总评：实现与测试均很扎实；和 Sonnet 5 同分不代表任务难度相同，累计满三个已验收样本
+  前不做模型总排名。

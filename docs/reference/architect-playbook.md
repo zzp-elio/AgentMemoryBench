@@ -237,6 +237,15 @@
     这样用户保有调度掌控，压缩后的架构师也只需读一份支线 README，而不是在平铺目录
     猜文件关系。
 
+26. **纠错不分身份；接口能力要查“签名 + None 分支 + 下游消费”三层**（2026-07-15
+    用户主动纠错后固化）。用户把 A-Mem 的短板从“不支持 time”纠正为“不支持独立 role”；
+    架构师复核又发现 `add_note(time=None)` 虽可调用，`MemoryNote` 却会生成 ingestion wall
+    clock。与此同时，LightMem 不只在 normalizer 拒绝 None，sequence helper、lineage
+    构造和 consolidated 时间窗口也各有依赖。教训有二：第一，用户、actor、架构师都会
+    记错，谁先发现谁就改，错误归属不影响合作价值；第二，`Optional` 是类型事实，不是
+    语义结论。裁兼容性必须追到缺失值最终如何存储、排序、展示和进入 provenance，不能只
+    看函数签名或第一处异常。
+
 ## 4. 审查手艺（隐性知识核心）
 
 ### 4.1 三层审查法

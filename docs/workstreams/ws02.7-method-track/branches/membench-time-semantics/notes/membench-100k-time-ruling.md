@@ -104,11 +104,12 @@ turn 的时间。非空不等于真实；“兜底永不落空”是可运行性
 
 ## 6. 施工分期
 
-- **Phase A（已发卡）**：只修 MemBench adapter 的 `session_time` 与测试；不改 LightMem、
-  registry、runner 或第三方代码。
-- **Phase B（Phase A 强验收后再定卡）**：抽象 input requirement/preflight，按实际
-  selected dataset 检查，而不是维护 LightMem × MemBench 100k 特判表；同时区分
-  non-null source time 必需、unknown 可保留、参数可省略但 method 自生 ingestion time，
-  不能只检查 Python 签名是否写了 `Optional`。
+- **Phase A（已强验收）**：Opus 4.8 `0fbf8e1` 合入主线 `2e6b4d7`；架构师定向
+  `31 passed in 3.68s`、主树 `1193 passed`、compileall exit 0。只修 MemBench adapter 的
+  `session_time` 与测试，benchmark frozen-v1 已恢复。
+- **Phase B（已裁决、卡待派）**：LightMem `online_soft` 增加 preserve-none 兼容；
+  consolidated/summary 仍 require。详见 `lightmem-missing-time-compatibility-ruling.md` 与
+  `../cards/actor-prompt-lightmem-missing-time-online-soft.md`。A-Mem 的 None→ingestion wall
+  clock 另作 method-native 披露，不能只检查 Python 签名是否写了 `Optional`。
 - RetrievalEvidence M0 暂停到上述边界稳定；它负责 retrieval 事实，不负责把不能 ingest
   的 variant 伪装成可运行。

@@ -63,7 +63,8 @@
 
 ## 4. 完成报告格式（回复用户时）
 
-1. 本批 commit hash（未授权 commit 时写“未提交”）。
+1. 本批 commit hash：必须现场运行 `git rev-parse --short HEAD` 并原样粘贴；不能写文件
+   路径、commit subject 或“已提交”代替 hash（未授权 commit 时写“未提交”）。
 2. 任务卡指定的定向测试尾行原文。
 3. 实际改动文件。
 4. 是否有 plan 偏差或停工点；没有就写“无”。
@@ -108,6 +109,10 @@
   content 删除。支持结构化字段的 method 收到“原 content + typed field”，不支持者仍能
   读原文；缺字段保持 None。2026-07-15 MemBench 判例中，time 被额外写入 Turn，但原
   place/time 对所有 method 完整保留。
+- **`Optional` 只说明调用形态，不证明缺失语义**：必须继续读 None 分支。A-Mem
+  `add_note(time=None)` 会生成 ingestion wall clock；LightMem 原实现则直接拒绝 None，且
+  后续 consolidated 路径依赖 float timestamp。不能看到签名允许 None 就宣称 unknown 被
+  保留，也不能把 method-generated time 回写成 benchmark source time。
 
 ## 7. 好行为（值得学的正例）
 

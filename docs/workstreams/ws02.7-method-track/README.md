@@ -27,9 +27,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `ac24f63`（semantic provenance 改判）→ `653c1ff`（Mem0 文档锚）→ `eed497b`
   （compact/metric 资格门）→ `dc15304`（Mem0 ADD-only audit）→ `c36b171`
   （retrieval eligibility audit）→ `5fc0345`（资格裁决）→ `025a141`（LightMem
-  online-soft 裁决）→ `825132f`（online-soft 实现强验收）。准确 commit/upstream 状态始终
+  online-soft 裁决）→ `825132f`（online-soft 实现强验收）→ `2e6b4d7`（MemBench 时间
+  Phase A 强验收）。准确 commit/upstream 状态始终
   以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
-  `1191 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.37s`；compileall exit 0。
+  `1193 passed, 3 deselected, 2 warnings, 4 subtests passed in 144.68s`；compileall exit 0。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。下一门是
   五格真实 smoke；未获用户预算/规模/run_id 确认，禁止 API。
@@ -46,22 +47,38 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   BEAM recall=N/A。LME 官方剔除无目标题，框架现记 1 分；top_k=10 亦挡死 k30/50。
   架构采用逐题 `RetrievalEvidence` + evaluator requirement 两层，不建手写笛卡尔积表。
   裁决=`branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`；
-  `RetrievalEvidence M0` **暂勿派发**：lifecycle 前置已关闭，但新发现 MemBench 100k
-  时间语义门，先做 `branches/membench-time-semantics` Phase A/Phase B 边界，M1 不得抢跑。
+  `RetrievalEvidence M0` **暂勿派发**：MemBench Phase A 已关闭，但 LightMem preserve-none
+  Phase B 会改 manifest/provenance 相关面，先做该卡，M1 不得抢跑。
 - **元学习/过时文档整改**：actor 卡整份即 prompt，禁止卡尾重复 wrapper；不默认要求
   reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
   AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
   提醒可用；恢复是后台动作，不自动向用户播报机械台词。**下一步由用户派
-  `branches/membench-time-semantics/cards/actor-prompt-membench-time-semantics-phase-a.md`；
-  卡已补强“place/time 原 content 永不删除 + 官方无时 noise 不过滤”。RetrievalEvidence
-  M0 暂停。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止自行调用 API。
+  `branches/membench-time-semantics/cards/actor-prompt-lightmem-missing-time-online-soft.md`；
+  白话目标=只给 online-soft 增加 None 原样透传，consolidated 继续强制真实时间。
+  RetrievalEvidence M0 暂停。**MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止
+  自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-15）
 
-- 2026-07-15（**LightMem online-soft 强验收通过；MemBench 100k 时间语义重开；新卡待
+- 2026-07-15（**MemBench Phase A 强验收通过并恢复 frozen-v1；LightMem preserve-none
+  Phase B 卡待派**，GPT-5 架构师）：① Opus 4.8 实际 commit `0fbf8e1`（actor 回报漏写
+  hash，架构师以 git log 找回）full diff/允许清单通过；架构师定向
+  `31 passed in 3.68s`，合入 `2e6b4d7`；主树
+  `1193 passed, 3 deselected, 2 warnings, 4 subtests passed in 144.68s`，compileall exit 0。
+  MemBench A2/A8 与 frozen-v1 恢复。② LightMem 一手调用链裁决：只删 normalizer 校验会在
+  sequence datetime parsing 再失败，且现有 catch 会连带抹掉 speaker/external id；
+  consolidated/summary 大量依赖 float timestamp，不能接 None。online-soft 主线则只做抽取、
+  direct insert 与 vector similarity retrieve，本地 Qdrant probe 也确认 null payload 可写，
+  故允许显式 `missing_timestamp_policy=preserve_none` 的窄兼容扩展；timestamped 行为不变，
+  禁 synthetic time，结果标 framework-extended。③ Phase B 卡=
+  `branches/membench-time-semantics/cards/actor-prompt-lightmem-missing-time-online-soft.md`；
+  RetrievalEvidence M0 继续暂停。零真实 API。
+
+- 2026-07-15（**历史断点，已被上方 Phase A 强验收取代**；LightMem online-soft
+  强验收通过；MemBench 100k 时间语义重开；新卡待
   用户派发**，GPT-5 架构师）：① Claude Sonnet 5 `19a0934` full diff 与允许清单通过，
   架构师复跑 `78 passed, 1 warning in 8.10s`，cherry-pick 为 `825132f`；五格默认
   `online_soft`，LoCoMo consolidated 显式补充轨，backend 仍锁 `update="offline"`，
@@ -74,7 +91,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   原 place/time content 对所有 method 完整保留；官方无时 noise 不过滤并保持 None；MemBench
   session_time=None；QA.time 只进 query/prompt。`None` 兼容性按 method 实现裁：LightMem
   明确拒绝，A-Mem 接受但生成 method-native ingestion wall clock，后者不得冒充 source
-  time。MemBench frozen-v1 暂停，LightMem × 100k 在通用输入预检前不得真实运行。④ Phase A 自包含卡=
+  time。**当时** MemBench frozen-v1 暂停，LightMem × 100k 在通用输入预检前不得真实运行；
+  该状态现已由上方 Phase A 验收与 preserve-none Phase B 裁决取代。④ Phase A 自包含卡=
   `branches/membench-time-semantics/cards/actor-prompt-membench-time-semantics-phase-a.md`；
   RetrievalEvidence M0 因后续 registry/LightMem Phase B 可能重叠继续暂停。零真实 API。
 

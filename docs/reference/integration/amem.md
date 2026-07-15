@@ -19,6 +19,12 @@
 | `retrieve(query)` | 问题文本转关键词查询（:910） | `runtime.find_related_memories_raw(keywords)`（adapter:466/:475） |
 | clean-retry | registry `_clean_amem_failed_ingest_state`（registry.py:736） | 删 per-conversation state_dir |
 
+**字段能力勘误（2026-07-15）**：A-Mem `add_note(content, time=None, **kwargs)` 支持可选
+time，但 `RobustMemoryNote` 没有独立 role 参数；adapter 因此把 speaker/role 作为
+`Speaker X says: ...` 留在 content。`time=None` 也不是“unknown 原样保存”：upstream 会生成
+ingestion wall clock。该值属于 method-native 创建时间，不能回写为 benchmark source time
+或 provenance；正式 M 阶段须把这一披露写入 B4/B9 artifact。
+
 ## B1-B11 逐项（全部 ⬜ 待 M 阶段，下面只记已知事实/风险）
 
 - **B1**：⬜。复现版仓库已选定并接对（政策 §7 一手核）；repo/commit/license 锁待做。
