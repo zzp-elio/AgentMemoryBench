@@ -14,7 +14,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from memory_benchmark.config import OpenAISettings, PathSettings, load_path_settings
+from memory_benchmark.config import (
+    OpenAISettings,
+    PathSettings,
+    load_path_settings,
+    load_typed_profile,
+)
 from memory_benchmark.core import (
     AnswerResult,
     ConfigurationError,
@@ -33,6 +38,7 @@ from memory_benchmark.core.provider_protocol import (
     UnitRef,
 )
 from memory_benchmark.methods.lightmem_adapter import (
+    LIGHTMEM_ADAPTER_VERSION,
     LightMem,
     LightMemConfig,
     _turn_timestamp,
@@ -69,6 +75,81 @@ def test_lightmem_config_rejects_invalid_retrieve_limit() -> None:
             max_workers=1,
             profile_name="bad",
         )
+
+
+def test_lightmem_config_rejects_invalid_lifecycle_profile() -> None:
+    """lifecycle_profile 只接受 online_soft 与 locomo_offline_consolidated 两个值。"""
+
+    with pytest.raises(ConfigurationError, match="lifecycle_profile"):
+        LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=60,
+            max_workers=1,
+            profile_name="bad",
+            lifecycle_profile="online",
+        )
+
+
+@pytest.mark.parametrize(
+    "lifecycle_profile",
+    ["online_soft", "locomo_offline_consolidated"],
+)
+def test_lightmem_config_accepts_valid_lifecycle_profiles(
+    lifecycle_profile: str,
+) -> None:
+    """两个合法 lifecycle_profile 取值都应通过强校验。"""
+
+    config = LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path=(
+            "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+        ),
+        retrieve_limit=60,
+        max_workers=1,
+        profile_name="official-mini",
+        lifecycle_profile=lifecycle_profile,
+    )
+
+    assert config.lifecycle_profile == lifecycle_profile
+
+
+def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version_v2() -> None:
+    """公开 manifest 必须携带 lifecycle_profile，adapter_version 升级为 v2。"""
+
+    config = LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path=(
+            "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+        ),
+        retrieve_limit=60,
+        max_workers=1,
+        profile_name="official-mini",
+    )
+
+    manifest = config.to_manifest()
+
+    assert manifest["lifecycle_profile"] == "online_soft"
+    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v2"
+
+
+def test_lightmem_toml_profiles_declare_online_soft_lifecycle_explicitly() -> None:
+    """smoke/official_full TOML profile 都应显式声明 online_soft，不依赖 dataclass 默认。"""
+
+    toml_path = (
+        load_path_settings().project_root / "configs" / "methods" / "lightmem.toml"
+    )
+
+    smoke = load_typed_profile(toml_path, "smoke", LightMemConfig)
+    official_full = load_typed_profile(toml_path, "official_full", LightMemConfig)
+
+    assert smoke.lifecycle_profile == "online_soft"
+    assert official_full.lifecycle_profile == "online_soft"
 
 
 def test_lightmem_source_identity_covers_official_core_files() -> None:
@@ -1293,8 +1374,8 @@ def test_lightmem_add_uses_locomo_single_turn_incremental_feeding() -> None:
     ]
 
 
-def test_lightmem_locomo_add_runs_official_offline_update_after_all_turns() -> None:
-    """LoCoMo 的 add 完成应包含官方 post-build offline update。"""
+def test_lightmem_locomo_add_online_soft_skips_offline_update() -> None:
+    """online_soft 主 profile（默认）下，LoCoMo legacy add 完成不应触发全库 offline update。"""
 
     backend = FakeLightMemoryBackend()
     method = LightMem(
@@ -1316,8 +1397,76 @@ def test_lightmem_locomo_add_runs_official_offline_update_after_all_turns() -> N
 
     method.add([_locomo_style_lightmem_conversation()])
 
+    assert backend.construct_update_calls == []
+    assert backend.offline_update_calls == []
+
+
+def test_lightmem_locomo_add_offline_consolidated_runs_official_offline_update_after_all_turns() -> None:
+    """显式 locomo_offline_consolidated 补充 profile 保留旧的 post-build offline update。"""
+
+    backend = FakeLightMemoryBackend()
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=60,
+            max_workers=1,
+            compression_rate=0.7,
+            stm_threshold=512,
+            profile_name="official-mini",
+            lifecycle_profile="locomo_offline_consolidated",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
+    )
+
+    method.add([_locomo_style_lightmem_conversation()])
+
     assert backend.construct_update_calls == [{}]
     assert backend.offline_update_calls == [{"score_threshold": 0.8}]
+
+
+def test_lightmem_locomo_offline_consolidated_requires_explicit_locomo_benchmark_identity() -> None:
+    """locomo_offline_consolidated 补充 profile 缺失或错误 benchmark identity 时必须在构造期 fail-fast。
+
+    该补充 profile 会在 conversation 末尾触发全库 offline consolidation
+    （改写/删除既有 memory entry）；不允许从 conversation 的 source_path 或
+    question 字段猜测身份，因此校验必须发生在任何 add()/ingest() 调用之前。
+    """
+
+    consolidated_config = LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path=(
+            "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+        ),
+        retrieve_limit=60,
+        max_workers=1,
+        profile_name="official-mini",
+        lifecycle_profile="locomo_offline_consolidated",
+    )
+
+    with pytest.raises(ConfigurationError, match="locomo_offline_consolidated"):
+        LightMem(
+            config=consolidated_config,
+            backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+            answer_client=FakeLightMemAnswerClient(),
+        )
+
+    with pytest.raises(ConfigurationError, match="locomo_offline_consolidated"):
+        LightMem(
+            config=consolidated_config,
+            backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+            answer_client=FakeLightMemAnswerClient(),
+            benchmark_name="longmemeval",
+        )
+
+    # 显式声明为非 locomo 补充 profile 缺乏正当用途，本项目当前只支持 LoCoMo；
+    # 正确用法（benchmark_name="locomo"）在其他定向测试中覆盖，此处只锁反例。
 
 
 def test_lightmem_add_uses_longmemeval_user_assistant_pair_feeding() -> None:
@@ -1367,8 +1516,11 @@ def test_lightmem_add_uses_longmemeval_user_assistant_pair_feeding() -> None:
     assert backend.offline_update_calls == []
 
 
-def test_native_lightmem_locomo_matches_bridge_force_and_update_sequence() -> None:
-    """LightMem 原生 turn 路径应等价复现 LoCoMo force 与 post-build 顺序。"""
+def test_native_lightmem_locomo_matches_bridge_online_soft_force_sequence() -> None:
+    """online_soft 主 profile 下，LightMem 原生 turn 路径应等价复现 LoCoMo force 顺序。
+
+    两条路径都不应触发全库 offline update（§4 required test item 4）。
+    """
 
     conversation = _locomo_style_lightmem_conversation()
     question = conversation.questions[0]
@@ -1422,12 +1574,76 @@ def test_native_lightmem_locomo_matches_bridge_force_and_update_sequence() -> No
         "t-1",
         "t-1",
     ]
+    call_ops = [call["op"] for call in native_result.calls]
+    assert "construct_update" not in call_ops
+    assert "offline_update" not in call_ops
+    assert call_ops[-2:] == ["embed_query", "search"]
+
+
+def test_native_lightmem_locomo_offline_consolidated_matches_bridge_force_and_update_sequence() -> None:
+    """显式 locomo_offline_consolidated 补充 profile 下，原生与桥接路径应等价复现 LoCoMo force 与 post-build 顺序。
+
+    两条路径都应在最后一批后各调用一次 queue/update，且既有 offline
+    score_threshold 保持不变（§4 required test item 5）。
+    """
+
+    conversation = _locomo_style_lightmem_conversation()
+    question = conversation.questions[0]
+    config = LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path=(
+            "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+        ),
+        retrieve_limit=60,
+        max_workers=1,
+        compression_rate=0.7,
+        stm_threshold=512,
+        profile_name="official-mini",
+        lifecycle_profile="locomo_offline_consolidated",
+    )
+    bridge = LightMem(
+        config=config,
+        backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
+    )
+    native = LightMem(
+        config=config,
+        backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
+    )
+
+    bridge_result = run_bridge_sequence(
+        provider=bridge,
+        conversation=conversation,
+        question=question,
+        run_id="lightmem-equivalence",
+        snapshot_calls=_snapshot_lightmem_backend_calls,
+    )
+    native_result = run_native_sequence(
+        provider=native,
+        conversation=conversation,
+        question=question,
+        run_id="lightmem-equivalence",
+        snapshot_calls=_snapshot_lightmem_backend_calls,
+    )
+
+    assert isinstance(native, MemoryProvider)
+    assert bridge_result.calls == native_result.calls
     assert [call["op"] for call in native_result.calls[-4:]] == [
         "construct_update",
         "offline_update",
-            "embed_query",
-            "search",
-        ]
+        "embed_query",
+        "search",
+    ]
+    offline_update_calls = [
+        call for call in native_result.calls if call["op"] == "offline_update"
+    ]
+    assert offline_update_calls == [
+        {"op": "offline_update", "kwargs": {"score_threshold": 0.8}}
+    ]
 
 
 def test_native_lightmem_longmemeval_matches_bridge_pair_sequence() -> None:
@@ -1899,12 +2115,15 @@ def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
     assert isinstance(locomo, MemoryProvider)
     assert locomo.consume_granularity == "turn"
     assert locomo.session_memory_report is False
+    assert locomo.benchmark_name == "locomo"
     assert isinstance(longmemeval, MemoryProvider)
     assert longmemeval.consume_granularity == "pair"
     assert longmemeval.session_memory_report is False
+    assert longmemeval.benchmark_name == "longmemeval"
     assert isinstance(halumem, MemoryProvider)
     assert halumem.consume_granularity == "session"
     assert halumem.session_memory_report is True
+    assert halumem.benchmark_name == "halumem"
     registration = get_method_registration("lightmem")
     validate_compatibility(
         benchmark_task_family=TaskFamily.CONVERSATION_QA,
@@ -1952,6 +2171,50 @@ def test_lightmem_backend_config_uses_official_mini_profile_values() -> None:
     compress_config = backend_config["pre_compressor"]["configs"]["compress_config"]
     assert compress_config["rate"] == 0.7
     assert backend_config["lightmem_profile"]["stm_threshold"] == 512
+
+
+@pytest.mark.parametrize(
+    "lifecycle_profile",
+    ["online_soft", "locomo_offline_consolidated"],
+)
+def test_lightmem_backend_config_always_uses_offline_update_regardless_of_lifecycle_profile(
+    lifecycle_profile: str,
+) -> None:
+    """两种 lifecycle_profile 都必须继续给上游传 `update="offline"`。
+
+    论文 online soft 的直接插入本身就是由 vendored
+    `update="offline" -> offline_update(memory_entries)` 实现（见
+    `lightmem-update-lifecycle-ruling.md` §3）；错误地把它改成 `update="online"`
+    会命中官方空壳 `online_update()`，导致 memory 根本不入库。这里锁死两种
+    profile 构造出的 backend config 都不能触碰这个键。
+    """
+
+    config = LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path=(
+            "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+        ),
+        retrieve_limit=60,
+        max_workers=1,
+        compression_rate=0.7,
+        stm_threshold=512,
+        profile_name="official-mini",
+        lifecycle_profile=lifecycle_profile,
+    )
+
+    backend_config = LightMem.build_backend_config(
+        config=config,
+        openai_settings=OpenAISettings(
+            api_key="sk-test",
+            base_url="https://example.invalid/v1",
+        ),
+        storage_root="/tmp/lightmem-state",
+        conversation_id="conv-profile",
+        project_root="/project",
+    )
+
+    assert backend_config["update"] == "offline"
 
 
 def test_lightmem_locomo_reader_prompt_uses_official_memory_layout() -> None:
@@ -2264,7 +2527,12 @@ def test_lightmem_records_memory_build_manager_api_usage() -> None:
 
 
 def test_lightmem_buffers_threaded_offline_update_manager_usage() -> None:
-    """线程池中的 OP-update LLM usage 应回到 conversation scope 后落盘。"""
+    """线程池中的 OP-update LLM usage 应回到 conversation scope 后落盘。
+
+    OP-update 线程池只在显式 locomo_offline_consolidated 补充 profile 下触发
+    （online_soft 主 profile 不再执行全库 consolidation），因此本测试显式声明该
+    profile 与 benchmark_name="locomo"。
+    """
 
     backend = ThreadedUpdateFakeLightMemoryBackend()
     collector = EfficiencyCollector(
@@ -2283,10 +2551,12 @@ def test_lightmem_buffers_threaded_offline_update_manager_usage() -> None:
             compression_rate=0.7,
             stm_threshold=512,
             profile_name="official-mini",
+            lifecycle_profile="locomo_offline_consolidated",
         ),
         backend_factory=lambda conversation_id: backend,
         answer_client=FakeLightMemAnswerClient(),
         efficiency_collector=collector,
+        benchmark_name="locomo",
     )
 
     with collector.conversation_scope("conv-locomo") as scope:

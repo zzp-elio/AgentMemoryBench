@@ -66,7 +66,8 @@ from memory_benchmark.observability.efficiency import (
 
 
 LIGHTMEM_METHOD_DIRECTORY = "LightMem"
-LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v1"
+LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v2"
+LIGHTMEM_LIFECYCLE_PROFILES = ("online_soft", "locomo_offline_consolidated")
 LIGHTMEM_READER_PROMPT_VERSION = "lightmem-reader-v1"
 LIGHTMEM_MEMORY_LLM_MODEL_ID = "lightmem-memory-llm"
 _LIGHTMEM_IMPORT_LOCK = threading.Lock()
@@ -121,6 +122,17 @@ class LightMemConfig:
             score_threshold（README/tutorial 用 0.8，函数签名默认 0.9）。
             归一化前 paper 对齐 0.9，归一化后用 0.8。
         suppress_official_stdout: 是否压制第三方 stdout。
+        lifecycle_profile: LightMem 论文 update lifecycle 的显式声明。
+            `online_soft`（默认，Phase 1 五格主 profile）=论文 §3.3 的
+            soft updating at test time：抽取后直接 LTM insert，不执行全库
+            offline consolidation；vendored 层仍传 `update="offline"` 触发
+            `offline_update(memory_entries)` 的 embed+insert，只是不再额外调用
+            `construct_update_queue_all_entries`/`offline_update_all_entries`。
+            `locomo_offline_consolidated`=LoCoMo 专用补充轨，保留旧的
+            conversation 末尾全库 update/delete 整合，只有显式
+            `benchmark_name == "locomo"` 时才允许启用。完整裁决见
+            `docs/workstreams/ws02.7-method-track/branches/lightmem-lifecycle/
+            notes/lightmem-update-lifecycle-ruling.md`。
         profile_name: 可审计 profile 名称。
     """
 
@@ -143,6 +155,7 @@ class LightMemConfig:
     llmlingua_device_map: str = "cpu"
     extraction_mode: str = "flat"
     suppress_official_stdout: bool = True
+    lifecycle_profile: str = "online_soft"
     profile_name: str = "custom"
 
     def __post_init__(self) -> None:
@@ -183,6 +196,11 @@ class LightMemConfig:
             )
         if self.extraction_mode not in {"flat", "event"}:
             raise ConfigurationError("LightMem extraction_mode must be flat or event")
+        if self.lifecycle_profile not in LIGHTMEM_LIFECYCLE_PROFILES:
+            allowed = ", ".join(LIGHTMEM_LIFECYCLE_PROFILES)
+            raise ConfigurationError(
+                f"LightMem lifecycle_profile must be one of: {allowed}"
+            )
 
     def validate_required_local_resources(self, path_settings: PathSettings) -> None:
         """校验当前 profile 声明的本地模型资源是否存在。
@@ -318,6 +336,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         efficiency_collector: EfficiencyCollector | None = None,
         consume_granularity: ConsumeGranularity | None = None,
         session_memory_report: bool = False,
+        benchmark_name: str | None = None,
     ):
         """初始化 LightMem adapter。
 
@@ -332,6 +351,14 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             consume_granularity: v3 provider 实例级消费粒度；registry 按 benchmark
                 profile 设置，缺省为 LoCoMo turn 级。
             session_memory_report: 是否在 session 边界报告本次强制刷洗新增的记忆。
+            benchmark_name: registry 显式传入的 benchmark 身份；只有它等于
+                `"locomo"` 时才允许启用 `lifecycle_profile="locomo_offline_consolidated"`。
+                不从 conversation 的 source_path 或 question 字段猜测。
+
+        异常:
+            ConfigurationError: `config.lifecycle_profile` 为
+                `locomo_offline_consolidated` 但 `benchmark_name` 不是
+                `"locomo"`——该补充 profile 会触发全库 mutation，必须显式声明身份。
         """
 
         self.config = config
@@ -360,10 +387,38 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         self._native_pending_batches: dict[str, list[dict[str, object]]] = {}
         self._session_report_memories: dict[tuple[str, str | None], list[str]] = {}
         self.session_memory_report = session_memory_report
+        self.benchmark_name = (
+            benchmark_name.strip().lower()
+            if isinstance(benchmark_name, str) and benchmark_name.strip()
+            else None
+        )
+        self._validate_lifecycle_profile_benchmark_identity()
         if consume_granularity is not None:
             self.consume_granularity = consume_granularity
         if self._backend_factory is None:
             self.config.validate_required_local_resources(self.path_settings)
+
+    def _validate_lifecycle_profile_benchmark_identity(self) -> None:
+        """校验补充 profile 与显式 benchmark identity 的绑定关系。
+
+        `locomo_offline_consolidated` 会在 conversation 末尾触发全库 offline
+        consolidation（改写/删除既有 memory entry），只允许显式
+        `benchmark_name == "locomo"` 时启用；`online_soft` 主 profile 不受影响。
+        故意不读 conversation 的 source_path 或 question 字段做启发式判断，
+        避免在错误 benchmark 上误触发不可逆的全库 mutation。
+        """
+
+        if (
+            self.config.lifecycle_profile == "locomo_offline_consolidated"
+            and self.benchmark_name != "locomo"
+        ):
+            raise ConfigurationError(
+                "LightMem lifecycle_profile='locomo_offline_consolidated' "
+                "requires explicit benchmark_name='locomo'; got "
+                f"{self.benchmark_name!r}. This supplementary profile performs "
+                "full-library mutation and must not be inferred from data "
+                "shape, path names, or question fields."
+            )
 
     @staticmethod
     def build_backend_config(
@@ -508,7 +563,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                     messages,
                     **kwargs,
                 )
-            if _is_locomo_conversation(conversation):
+            if self._should_run_locomo_offline_consolidation():
                 self._run_locomo_offline_update(backend, conversation.conversation_id)
             self._flush_buffered_memory_manager_usages(conversation.conversation_id)
             conversation_ids.append(conversation.conversation_id)
@@ -657,16 +712,33 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         )
 
     def end_conversation(self, ref: UnitRef) -> None:
-        """在 conversation 边界写出最后一批并执行 LoCoMo post-build update。"""
+        """在 conversation 边界写出最后一批。
+
+        `online_soft` 主 profile（默认）只做 direct insert，不执行任何全库
+        consolidation；只有显式 `lifecycle_profile="locomo_offline_consolidated"`
+        才会额外执行 LoCoMo post-build offline update。
+        """
 
         pending = self._native_pending_batches.pop(ref.isolation_key, None)
         if pending is None:
             return
         backend = self._get_or_create_backend(ref.isolation_key)
         self._write_native_batch(ref.isolation_key, pending, is_final=True)
-        if self._is_native_locomo(ref.isolation_key):
+        if self._should_run_locomo_offline_consolidation():
             self._run_locomo_offline_update(backend, ref.isolation_key)
         self._flush_buffered_memory_manager_usages(ref.isolation_key)
+
+    def _should_run_locomo_offline_consolidation(self) -> bool:
+        """判断当前 provider 是否应在写完最后一批后执行 LoCoMo 补充 offline consolidation。
+
+        `online_soft` 主 profile 永远返回 `False`；`locomo_offline_consolidated`
+        补充 profile 已在构造期由 `_validate_lifecycle_profile_benchmark_identity`
+        校验 `benchmark_name == "locomo"`，这里直接复用该已验证结论，不再重复从
+        conversation 数据形态推断，避免 legacy `add()` 与 v3 `end_conversation()`
+        两处条件漂移。
+        """
+
+        return self.config.lifecycle_profile == "locomo_offline_consolidated"
 
     def _write_native_batch(
         self,

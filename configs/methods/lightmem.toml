@@ -6,6 +6,10 @@
 # offline_update_score_threshold=0.8（README/tutorial 用 0.8，旧 adapter 硬编码 0.9
 # 为 paper 对齐已弃用）。embedder 已是 all-MiniLM 不动。差异留档
 # method-interface-inventory.md hyperparameters 字段。
+# lifecycle_profile（2026-07-15 online-soft 改判）：Phase 1 五格主 profile 显式声明
+# online_soft（论文 §3.3 soft updating at test time，只 direct insert、不做全库
+# offline consolidation）。不依赖 dataclass 默认，两个 section 都显式写。LoCoMo
+# 补充轨 locomo_offline_consolidated 不在此文件声明，需要时另建显式 profile。
 
 [smoke]
 llm_model = "gpt-4o-mini"
@@ -23,6 +27,7 @@ stm_threshold = 512
 topic_segment = true
 text_summary = true
 suppress_official_stdout = true
+lifecycle_profile = "online_soft"
 
 [official_full]
 llm_model = "gpt-4o-mini"
@@ -40,3 +45,4 @@ stm_threshold = 512
 topic_segment = true
 text_summary = true
 suppress_official_stdout = true
+lifecycle_profile = "online_soft"
