@@ -428,79 +428,30 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
 仓库含测评代码（`third_party/methods/`，如 LightMem/experiments、mem0
 memory-benchmarks）、5 个 benchmark 官方仓库（`third_party/benchmarks/`）。
 
-## 9. 当前项目快照（2026-07-12 更新；接任先核对是否过期，权威活状态
-永远在 ws02.6 README 断点区）
+## 9. 动态状态禁止写进手册（2026-07-15 勘误）
 
-- **主线 = ws02.6 benchmark 串行冻结 → 已收官**：五 benchmark 全部
-  **frozen-v1**（LoCoMo/LongMemEval/MemBench/BEAM/HaluMem，冻结记录
-  `ws02.6/notes/*-frozen-v1.md`，推翻须 frozen-v2 + 影响分析）；**B6
-  横向总验收 = 完成（2026-07-12）**——method 侧已解冻。全量回归基线
-  **1069 passed**（只升不降）。**当前 = ws02.7 Method Track M0 启动**
-  （LightMem 首接，M0.1 审查完成，首 actor 卡已开；标准接入判据见
-  `docs/reference/method-integration-checklist.md`）。
-- **M0 双轨政策成文（2026-07-12）**：`dual-track-config-policy.md`（build/readout
-  二分定成本、native 配置来源决策树、reproduce-vs-paper 一致性检查、single-track
-  collapse、算法代码单一化）。首 actor 卡 Task1 停工 → **架构师裁决**：native
-  locomo answer=ANSWER_PROMPT、StructMem 不接（`--enable-summary` 改 build+检索+
-  embedding 三处、paper headline 是 summary OFF）。运行时 config-track 机制拆为
-  M0-1b（架构师设计后派）。A-Mem 双仓库已一手核（adapter 接复现版，对）。
-- **B6 收官结论**：① 论文指标两缺口已补（`longmemeval-retrieval-rank`
-  官方 k=[1,3,5,10,30,50] 三指标经 3000 例复算与官方零失配、
-  `membench-source-accuracy` 四格合成指标）；② judge 全景审计
-  `judge-config-audit.md`（longmemeval 现状=官方 parity，F2 降级 R0
-  前置包）；③ 匹配键契约升格 spec **GC-1**；④ 横向互查 3 处加法修复
-  （breakdown 锚 + 黑名单三键），零 frozen-v2 候选。
-- **lightmem 校准实验（用户战略，原则 #16）**：全量前用 lightmem 论文
-  的 judge+answer 配置跑 locomo/longmemeval，对齐其论文中 A-mem/
-  MemoryOS/Mem0 数字 = 框架正确性的外部校准；之后换统一公平配置。
-- **method 侧（B6 后解冻，Method Track M0）**：第一阶段 10 method
-  名单变更——**去 cognee、加 EverOS**（`third_party/methods/EverOS`
-  已 vendored，上游活跃，排接入序列最后）。
-- **ws03 已扩充（2026-07-11 用户立项）**：evaluator 通用化（recall
-  骨架/judge 壳，红线=benchmark 个性保持显式）、目录分层、prompt 统一
-  存放、遗留盘点（三列清单，引用扫描为证据）、长期健壮性排查
-  （wall-clock 泄漏 + judge/answer 模型指纹）。**前置条件 = B6 冻结后**
-  （原则 #15）。
-- **smoke 口径现状**：五 benchmark 全部注册 BenchmarkSmokePolicy/
-  ResumePolicy；HaluMem 是唯一固定形状零旋钮（4 session×8 turn×1 题，
-  operation-level 交错评测下通用裁剪旋钮语义不通）；smoke 验收口径 =
-  运行时路径调用 ≥1，非聚合桶非空（原则 #13）。
-- **actor 池实测校准（2026-07-11 最新）**：**codex+GPT-5.6 = 当前最强
-  actor**（H1 零缺陷、H2/H3 高质量、两次正确停工纠正架构师探针 bug——
-  异质制衡的实证），复杂施工首选；cc+GLM-5.2 可靠；cc+DeepSeek 派工
-  可以但验收必须从严（编造 repo URL、负空间漏做两判例）；cc+MiniMax M3
-  正常。每个 actor 都当"新人"，卡必须自包含。
-- 真实 API 校准（R0）待用户批预算——smoke 全部跑通后攒成本表申请。
-- 关键不变量速记：基线只升不降（当前 1046）；公私数据边界（4 层防护+
-  全局私有键黑名单）；官方 parity 逐字含 typo；每类问题指标分开报告；
-  论文指标必须覆盖；数据只从 `data/` 加载；不自动 commit 例外 =
-  验收后 commit+push 已获用户授权（Co-Authored-By 用当任模型真名）。
+本节旧版曾复制“当前基线、当前 M0、下一任模型、最后一日目标”等快照，数日内即与
+`roadmap`、ws02.7 和 git 同时冲突。**裁决：playbook 只保存可复用原则，不再保存
+动态项目快照。**
 
-## 9.5 交接安排（2026-07-11 更新：Fable 5 预计 2026-07-13 下线）
+- 当前方向和 workstream 索引：`docs/roadmap.md`；
+- 当前施工断点：活跃 workstream README 顶部；
+- B1-B11 当前格子：`docs/reference/integration-status.md`；
+- 实际完成度与测试基线：`git log` + 最近验收记录；
+- 历史模型交接与当时安排：`docs/archive/handoffs/`，不得继续冒充现行计划。
 
-- **架构师推荐继任：Opus 4.8；GPT-5.6 留任最强 actor**（三理由：harness
-  自动加载 CLAUDE.md+memory 摩擦最低；Claude 架构师 × GPT actor 的异质
-  制衡是实证资产——双向抓过对方的错；架构师产出=能力×纪律×上下文效率，
-  手艺已外化成本手册 16 条原则）。继任者第一会话读
-  **`docs/reference/architect-onboarding.md`（唯一交接文档;原
-  handover-to-next-architect.md 交接信已于 2026-07-14 合并进它并删除,
-  在途状态一律看活跃 ws README 断点区,不再双写）**，再按 §10 自检上任。
-- 历史记录（2026-07-07 定）：当时安排 Opus 4.8 接任、交接日约
-  2026-07-08——实际由 Fable 5 于 2026-07-09 回任执行了 B 线冻结。
-- 最后一日目标（用户要求"重构优化收官"）：① 真实 API 对照 smoke（协议 v3
-  重构的最后验收门，命令已交用户，等预算确认执行）；② Codex 完成 ws02.1
-  MemBench 施工 + 架构师验收；③ ws02.4 SimpleMem 获批后施工；④ 本手册
-  最终定稿。
-- **批量派工原则（2026-07-07 新增手艺）**：可给执行者排任务队列提效，但
-  队列**不得跨越架构师验收门**——若后一 plan 的内容依赖前一 plan 的验收结论
-  （如 M-A 验收产出了 M-B 的修订），必须拆开分批；互相独立的 plan（如
-  MemBench 与 SimpleMem）可同队列连续执行，架构师事后逐个验收。
-- **派工 prompt 是必交付物（2026-07-10）**：不能只告诉 actor“去执行 plan”。每次
-  必须写“发给 actor：……”的可复制文本，明确已完成 commit、本批唯一目标、最少阅读
-  清单、禁止事项、唯一自检命令、commit 规则和停点。批次按 actor 一个 5h 窗口能完成
-  来切；超出就继续拆，不把额度风险转给 actor。
-- **小型 method 接入允许 spec+plan 合订本**（先例 ws02.4-simplemem）：
-  一次用户批准即开工；大型/协议级变更仍必须 spec 与 plan 分离两次把关。
+actor 能力也不在手册写静态排行榜。架构师给出任务形状和验收强度，用户根据
+Sonnet 5、GLM-5.2、MiniMax、Codex 等当期额度与可用性选择派发对象；每个 actor
+仍按新人标准收卡。
+
+## 9.5 交接机制（模型无关）
+
+继任架构师第一入口永远是 `architect-onboarding.md`；点对点交接信只负责一次冷启动，
+跑顺后移入 `docs/archive/handoffs/`。交接信不能成为第二份活状态。
+
+- 可并行的卡必须语义独立且使用独立 worktree；依赖前一验收结论的队列不得跨门。
+- 每次派工必须交付可复制、自包含 prompt/任务卡；默认交给用户选择跨模型 actor。
+- 小型 method 接入可用 spec+plan 合订本；协议级或跨 method 变更仍分开审议。
 
 ## 9.6 全局规划原理（防漂移北极星，2026-07-07 与用户对齐）
 

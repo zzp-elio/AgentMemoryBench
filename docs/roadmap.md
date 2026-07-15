@@ -1,6 +1,6 @@
 # 项目路线图
 
-更新日期：2026-07-08。本文件是唯一方向文档：Phase 1 目标、workstream 索引与
+更新日期：2026-07-15。本文件是唯一方向文档：Phase 1 目标、workstream 索引与
 全局约束。逐任务状态见各 workstream README；2026-06 的历史阶段记录（Phase E-S）
 已归档到 `archive/status/2026-07-04-current-roadmap.md` 与
 `archive/status/2026-07-04-task-ledger.md`。
@@ -20,21 +20,18 @@
 恢复/防 API 空烧兜底工程通过验证；已有 LoCoMo full 结果届时在完成后的 5×10
 架构下用新 run_id 重跑。
 
-已实现基线（截至 2026-07-08）：**5 个 benchmark adapter 全部落地**——LoCoMo、
-LongMemEval（原有）+ MemBench、HaluMem、BEAM（2026-07-08 架构师验收通过，均过
-fake 全链路）；**5 个 method adapter**——Mem0、MemoryOS、A-Mem、LightMem、
-SimpleMem；效率观测、conversation 级并行/resume、CLI v2、自定义 method 轻量接入
-均已落地。**重要口径澄清（2026-07-08 用户）**：既有 LoCoMo 4-method full 结果是
-**旧协议 V2** 跑的、且未记效率指标，**不算 v3 架构下的极小 smoke**——所以 v3
-真实 smoke 目前一格都没跑。
+当前基线（2026-07-15）：5 个 benchmark adapter 全部 frozen-v1；已有 5 个 method
+adapter（Mem0、MemoryOS、A-Mem、LightMem、SimpleMem）。Mem0 已
+method-frozen-v1；MemoryOS M2 离线实现门通过，主树全量
+`1176 passed, 3 deselected, 2 warnings, 4 subtests passed`，下一门是用户授权的五格
+真实 smoke；LightMem 曾 frozen-v1，但 2026-07-15 发现 LoCoMo post-update
+provenance 只保留单一来源，B5/B11 已重开，既有 LoCoMo Recall@10 暂不可信，其他
+answer/成本证据不受影响。旧协议 V2 的 LoCoMo full 仍不计入 v3 矩阵。
 
-未跑真实 smoke，计划（2026-07-08 与用户对齐）：先填满当前 **5 method × 5
-benchmark = 25 格**的极小 v3 smoke（LoCoMo 列 5 格都要重跑，旧 V2 full 不进表），
-再以后每接一个新 method 只跑它 × 5 benchmark。**前置门 = ws02.5 method 接口
-保真审计**（确保用通用产品接口 + formatted_memory 完整，否则 smoke 数字不可信）。
-
-缺口：5 个 method adapter（MemOS、Letta、Cognee、LangMem、Supermemory）；ws02.5
-接口审计；真实 5×5 smoke（待预算 + 审计）。
+缺口：5 个尚无 adapter 的 method（MemOS、Letta/MemGPT、EverOS、LangMem、
+Supermemory）；A-Mem/SimpleMem 尚未逐项冻结；MemoryOS 待真实 smoke；LightMem 待
+传递血缘修复与 LoCoMo provenance smoke 复证。真实 API 一律继续由用户确认预算、
+规模与 run_id。
 
 ## Workstream 索引
 
@@ -47,8 +44,8 @@ benchmark = 25 格**的极小 v3 smoke（LoCoMo 列 5 格都要重跑，旧 V2 f
 | [ws02.3](workstreams/ws02.3-beam/README.md) | beam-adapter | accepted | P0 | BEAM（conversation-QA + rubric judge）架构师验收通过（2026-07-08，891 passed 干净复跑 + 关键交付第一手抽查）；剩极小真实 smoke 待预算 |
 | [ws02.4](workstreams/ws02.4-simplemem/README.md) | simplemem-adapter | accepted | P0 | SimpleMem T1-T6 架构师验收通过（2026-07-07）；剩极小真实 smoke 待预算 |
 | [ws02.5](workstreams/ws02.5-method-interface-audit/README.md) | method-interface-audit | done | P0 | 2026-07-09 关闭：5 method 接口审计 + MemoryOS 迁移 + config 归一化（repo 默认/embedder 统一/LLM 只统一模型名）+ 接口文档全清；**5×5 smoke 前置门已开**，只待预算 |
-| [ws02.6](workstreams/ws02.6-first-smoke-hardening/README.md) | first-smoke-hardening | in-progress | P0 | 实验可信度门：**五 benchmark 全部 frozen-v1 + B6 横向总验收完成（2026-07-12）**；method 侧已解冻，下一步 Method Track M0（待用户拍板启动，EverOS 排最后）；基线 1069 passed |
-| [ws02.7](workstreams/ws02.7-method-track/README.md) | method-track-m0 | in-progress | P0 | method 侧解冻后逐个接入：双轨（unified+native）config-track + 极小 smoke；LightMem 首接、EverOS 最后；标准判据见 method-integration-checklist.md |
+| [ws02.6](workstreams/ws02.6-first-smoke-hardening/README.md) | first-smoke-hardening | done | P0 | 五 benchmark 全部 frozen-v1 + B6 横向总验收完成（2026-07-12）；method 侧已转 ws02.7 |
+| [ws02.7](workstreams/ws02.7-method-track/README.md) | method-track-m0 | in-progress | P0 | Mem0 frozen-v1；MemoryOS M2 离线门通过、待五格 smoke；LightMem B5/B11 因 offline-update lineage 重开；A-Mem → SimpleMem → 其余、EverOS 最后 |
 | [ws03](workstreams/ws03-architecture-slimming/README.md) | architecture-slimming | open | P1 | registry/capability/legacy 接口与 CLI 减重、LLMRuntimeConfig |
 | [ws04](workstreams/ws04-terminal-observability/README.md) | terminal-observability | open | P2 | isolated 进度心跳、第三方 stdout/tqdm 治理 |
 | [ws05](workstreams/ws05-experiment-reporting/README.md) | experiment-reporting | open | P1 | 全量实验申请材料：成本估算表 + 结果汇总 + 兜底验证清单（依赖 ws02） |

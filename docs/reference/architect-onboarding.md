@@ -143,6 +143,39 @@ BenchmarkAdapter.load() → Dataset（公开 Conversation+Question，无 gold）
 | 给用户跑真实 API 命令前 | 上一次同类命令的既定格式（tee 目录预建、剪裁哨兵、run_id 序列） |
 | commit 前 | playbook §14 三问 + §13 清单（`.claude/settings.json` 只会在 Claude Bash 的 `git commit` 前给 advisory 提醒；Codex/其他入口无此钩子，必须人工执行） |
 
+### 5.6 本机 commit 提醒 hook 的准确边界（2026-07-15 核证）
+
+当前 `.claude/settings.json` 配的是 Claude 项目级 `PreToolUse`，matcher=`Bash`。
+Claude 准备执行 Bash 工具时，命令先经 `jq` 取 `.tool_input.command`；只要字符串包含
+`git commit`，hook 就返回 `additionalContext`，提醒：playbook §14 三问、`git add`
+只能显式路径、commit 前看 `git status --short`。timeout=10 秒，末尾 `|| true`，
+所以它是**永远放行的 advisory 提醒**，不是阻断器。
+
+它不是 Git hook：仓库未设置 `core.hooksPath`，`.git/hooks/` 没有非 sample hook；
+`.claude/` 还被 `.gitignore` 忽略。因此以下动作都不会触发它：Codex 的 shell/exec、
+Sonnet 以外的 actor 工具、IDE/UI commit、Claude 非 Bash git 工具，以及只执行
+`git add -A` 但命令里没有 `git commit` 的 Bash。即使触发，也不会拦截违规命令。
+
+**架构裁决：保留它作 Claude 本机安全带，但项目纪律只能依赖版本化的 AGENTS/
+playbook + 架构师验收，禁止把“我这里有 hook”写成跨模型保证。**
+
+### 5.7 Codex 小窗口恢复协议（2026-07-15 用户要求）
+
+对当前约 270K 上下文的 Codex，项目文档按三层使用；Claude Code 的更大窗口不改变
+仓库仍是跨模型唯一事实源：
+
+1. **热层**：活跃 workstream README 顶部“Codex 恢复胶囊”，控制在约 60 行，
+   原地更新当前目标、HEAD/测试、裁决、下一步和禁区；禁止每轮追加一份新胶囊。
+2. **温层**：当前任务卡、裁决 note、integration 实例。热层只链接；执行对应动作
+   时才定点打开相关小节。
+3. **冷层**：README 历史时间线、archive、旧交接信。只有溯源时读，不参与日常恢复。
+
+压缩后固定恢复命令面：`git status --short`、`git log -5 --oneline`、热层胶囊、当前
+动作的一份判据。不得为“重新了解全局”通读 800 行历史或整本手册；全局结构由
+roadmap/integration-status 的当前行提供。每个裁决、验收阻断和用户纠正先落热层/对应
+note 并 commit，再继续大规模取证。若原始对话已不可见，必须明确说发生压缩，不能把
+摘要冒充完整记忆。
+
 ## 6. 硬规则高频项（全文见 AGENTS.md）
 
 - `third_party/` 允许为 benchmark 扩展适配或纯观测插桩做留档的最小修改，

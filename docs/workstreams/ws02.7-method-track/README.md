@@ -13,7 +13,57 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 **接入顺序（用户 2026-07-12 拍板）**：LightMem 首（外部校准器，原则 #16）
 → 其余按 method-interface-inventory 排 → **EverOS 最后**。
 
+## Codex 恢复胶囊（热层；每次原地更新，禁止继续堆历史）
+
+> 当前 Codex 会话窗口约 270K，明显小于 Claude Code 的约 1M；压缩后不得声称保留
+> 原始对话。恢复只读本节 + `git status --short` + `git log -5 --oneline`，再按链接
+> 定点读一份 note/判据；不要从下方历史断点全文重建。
+
+- **最近实质链**：`e2fff4b`（MemoryOS M2）→ `147ab15`（派发/恢复规则）→
+  `bfe69f1`（registry 测试替身）→ `0333c7a`（LightMem 纯取证）。本轮裁决文档门=
+  documentation standards `5 passed`、compileall exit 0；准确 commit/upstream 状态始终
+  以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。
+- **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
+  `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。下一门是
+  五格真实 smoke；未获用户预算/规模/run_id 确认，禁止 API。
+- **LightMem 裁决**：LoCoMo post-update 会把 candidate 文本并入 target，却只保留
+  singular source id；既有 LoCoMo Recall@10 可信声明撤销，B5/B11 重开，
+  frozen-v1 suspended。删除与旧 embedding 属官方算法，不改；只批准 plural
+  传递血缘 metadata。裁决：`notes/lightmem-offline-recall-ruling.md`；待用户派卡：
+  `actor-prompt-lightmem-lineage-repair.md`。
+- **粒度/top-k**：不把 `consume_granularity` 与 provenance 强绑；当前 evaluator
+  结构门合理但缺变换后语义验证。Recall@k 暂作 method-native item 辅助指标；
+  answer depth 与 evaluation ranking depth 混用（LME k30/50 被 top_k=10 挡住）已挂
+  ws03，不在 LightMem 单点卡顺手修。
+- **已做的过时文档整改**：AGENTS Cognee→EverOS；roadmap/ws02.6 状态；playbook
+  删除动态快照/过期继任安排；onboarding 写清 Claude-only advisory hook；
+  integration-status、Mem0/LightMem/MemoryOS 实例、freeze note、metric 排期、checklist
+  与框架差异化已更新；Fable→GPT 一次性交接信已移入 `archive/handoffs/`。
+- **压缩后下一动作**：若 LightMem lineage actor 已回卡，按裁决 note 强验收；否则等待
+  用户选择跨模型 actor 派发。MemoryOS 五格 smoke 仍需用户明确预算、规模与 run_id，
+  不得因“下一步明确”而自行调用 API。
+- **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
+  选择。除非用户明确要求，禁止自动启动 Codex subagent。
+
 ## 当前断点（2026-07-15）
+
+- 2026-07-15（**MemoryOS M2 强验收通过；LightMem B5/B11 因 lineage 缺口重开**，
+  GPT-5 架构师）：① MemoryOS 三行返工 `4b75e1a` 审读后 cherry-pick 为
+  `bfe69f1`，主树定向 `6 passed in 2.71s`、全量
+  **`1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`**；M2
+  正式接受，下一门=用户授权的五格真实 smoke，未确认预算/规模/run_id 前不调用
+  API。② Sonnet 5 LightMem 审计 `017ebe4` 合入为 `0333c7a`；架构师回读官方
+  `UPDATE_PROMPT`、update 写点、本框架 evaluator 与 MemoryData 后裁决：LoCoMo
+  post-update 的 memory 可整合 candidate 文本，但现 payload 只保留 target 单一
+  `source_external_id`，既有 Recall@10 可机械计算却不是完整 turn lineage，故
+  `lm-locomo-unified-prov1` recall=0.0 的**可信指标声明作废**，LightMem frozen-v1
+  暂停于 B5/B11。其他 answer/F1/成本证据及不跑该 merge 阶段的四 benchmark 不随之
+  作废。③ 批准 metadata-only plural lineage 修复，严禁重算 embedding 或改变
+  update/delete；卡=`actor-prompt-lightmem-lineage-repair.md`，仍由用户选择跨模型
+  actor 派发。④ 粒度裁决：`consume_granularity` 不应与 provenance 强绑；当前门
+  只强校验结构、漏了变换后语义完整性。Recall@k 先作为 method-native item 辅助
+  指标，未补 source/token-budget 归一化前不单独作跨 method headline。完整裁决见
+  `notes/lightmem-offline-recall-ruling.md`。
 
 - 2026-07-15（**M2 合入后全量回归阻断 + 两卡待用户跨模型派发**，GPT-5
   架构师）：M2 `97e7c18` 已经逐行审查并 cherry-pick 为主线 `e2fff4b`；定向
@@ -760,7 +810,7 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
     跑一整条 conversation/instance 估成本,外推倍数按 benchmark(locomo×10、longmemeval×500);
     ③ 外推"区间 vs 点值"、如何选中位隔离空间,**待真正预算时按每隔离空间 token 数再定**（用户）。
 
-## 当前断点（2026-07-12）
+## 历史断点（2026-07-12；已被顶部当前断点覆盖）
 
 - 2026-07-12（**M0-1b + M0-eff 双卡验收通过**，Opus 4.8 强验收；含防作弊专查）：
   两 actor 并行交付、文件不重叠、**独立复跑全量 1093 passed + 3 deselected**（只升不降）。

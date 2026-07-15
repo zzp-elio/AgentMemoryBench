@@ -74,6 +74,15 @@
 - retrieve 能否返回 source id（turn/session/step）→ 决定 recall/ndcg 类
   指标是否 N/A。一手核 retrieve 返回结构。`items=None`/`provenance="none"`
   要如实表达 method 能力，不假装有。
+- **校验当前条目，不只校验初次 insert**：method 若会 summary/merge/update，
+  `source_turn_ids` 必须覆盖当前 retrieved item 的传递变换血缘；只把初始单一 id
+  原样留到改写后，字段虽非空也不算 B5 通过（2026-07-15 LightMem 判例）。
+- `consume_granularity` 是投递批次，`provenance_granularity` 是来源分辨率，二者
+  不要求相等；强绑会错杀 conversation-ingest/turn-provenance 等合法实现。
+- top-k item 可能是 fact/summary/session/chunk。允许一个 item 有多个 source ids，
+  禁为通过校验伪装成单来源；同时在报告记录 top-k unique source 数与
+  `source ids/item` 分布。未做 source/token-budget 归一化前，Recall@k 只作
+  method-native item 辅助指标，不单独作跨 method headline 排名。
 
 ### B5+. 能力缺口的无损改造评估（2026-07-13 新增，导师建议）
 B2/B5 及 HaluMem memory_point 这类**能力缺口**（method 接口不支持某 benchmark 的

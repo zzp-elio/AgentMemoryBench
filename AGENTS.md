@@ -7,9 +7,10 @@
 ## 项目定位
 
 - 长期目标：可复现、可扩展、可审计的多 task-family Agent Memory Benchmark 框架。
-- Phase 1 固定范围（2026-07-04 锁定）：5 benchmark（LoCoMo、LongMemEval、HaluMem、
-  BEAM、MemBench）× 10 method（学术型 A-Mem、MemoryOS、MemOS、LightMem、SimpleMem；
-  工程型 Mem0、Letta/MemGPT、Cognee、LangMem、Supermemory）× 尽可能多 metric。
+- Phase 1 固定范围（2026-07-04 锁定，2026-07-11 名单修订）：5 benchmark
+  （LoCoMo、LongMemEval、HaluMem、BEAM、MemBench）× 10 method（学术型 A-Mem、
+  MemoryOS、MemOS、LightMem、SimpleMem；工程型 Mem0、Letta/MemGPT、EverOS、
+  LangMem、Supermemory）× 尽可能多 metric。
   Supermemory 只按 self-host/local OSS 口径接入；Zep 与 Graphiti 不进 Phase 1。
 - 主协议 **v3 provider**：`MemoryProvider.ingest(unit) + retrieve(query) ->
   RetrievalResult`，粒度由实例级 `consume_granularity`（turn/pair/session/

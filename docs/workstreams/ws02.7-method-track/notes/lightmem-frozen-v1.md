@@ -1,5 +1,12 @@
 # LightMem method-frozen-v1（2026-07-14）
 
+> **2026-07-15 后续勘误：本冻结状态已暂停，B5/B11 重开。**新审计发现 LoCoMo
+> `offline_update_all_entries` 的 update 会整合 candidate 文本，却只保留 target
+> singular `source_external_id`，所以本 note 所引 locomo provenance n=1 只证明字段
+> 存在，不证明 post-update 完整传递血缘。既有 answer/judge/F1/成本与其他四格证据
+> 继续有效；LoCoMo Recall@10 的可信指标声明撤销。恢复门与修复边界见
+> `lightmem-offline-recall-ruling.md`，不得把下方 2026-07-14 终局文字继续当现状。
+
 > 首个走完 B1-B11 全流程的 method。判据=`method-integration-checklist.md`,
 > 逐项证据=`docs/reference/integration/lightmem.md`（本文不复制,只给结论
 > 与缺口清单）。**冻结语义:自本日起 `lightmem_adapter.py`、LightMem 注册行

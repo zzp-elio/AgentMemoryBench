@@ -1,55 +1,69 @@
 # MemoryOS 接入实例（B1-B11 逐项）
 
-> 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**adapter 已落地（ws02.5 迁移版），B1-B11 未正式过**——"已知事实"为 2026-07-13
-> 架构师代码取证预填，非验收结论。
+> 判据模板：`../method-integration-checklist.md` §B；勾选总表：
+> `../integration-status.md`。
+> 状态：**M1 一手取证 + M2 离线施工/强验收通过；B11 五格真实 smoke 待用户授权。**
+> 证据底：`ws02.7/notes/m1-memoryos-evidence.md`、
+> `ws02.7/notes/m2-memoryos-adapter.md`。
 
-- adapter：`src/memory_benchmark/methods/memoryos_adapter.py`（1,595 行）
-- 算法源：**memoryos-pypi 通用产品引擎**（ws02.5 迁移背景：原包装 `eval/` 目录的
-  LoCoMo 专用副本有"主场优势"，已弃用；`third_party/methods/MemoryOS-main` 仍留作
-  native 配置取证来源）
-- native 格：**locomo**（唯一格；配置来源=**论文超参**——作者 GitHub issue 明确指引，
-  policy §4 case 2 判例）
+- adapter：`src/memory_benchmark/methods/memoryos_adapter.py`
+- 算法运行源：vendored `third_party/methods/MemoryOS-main/memoryos-pypi/` 通用产品引擎
+- native 格：仅 LoCoMo；其余四格 single-track collapse
+- 2026-07-15 离线门：定向 146 项、M2 registry 返工定向 6 项；主树全量
+  `1176 passed, 3 deselected, 2 warnings, 4 subtests passed`
 
-## 0. 接口调用面（黑盒拆解，预填）
+## 0. 接口调用面
 
-| 框架钩子 | adapter 行为 | 落到 MemoryOS 官方接口 |
+| 框架钩子 | adapter 行为 | 官方接口/状态 |
 |---|---|---|
-| `ingest(TurnPair)` | consume_granularity="pair"（adapter:447）；orphan/dangling 空侧留空串注入不丢 | `backend.add_memory(user_input, agent_response, timestamp)`（adapter:668） |
-| `ingest(SessionBatch)` | LoCoMo 用（speaker 人名 role 使 pair 锚定失效）：`conversation_to_memory_pages` 按 speaker 配对成 QA pair 再逐对投递（adapter:676-697） | 同上逐 page `add_memory`（:692） |
-| `end_conversation` | **no-op**（adapter:741-744） | — |
-| `retrieve(query)` | **复刻官方 `get_response` 步骤 1-7**（memoryos.py:259-302），**跳过步骤 8-9 答题与步骤 10 的 add_memory 写副作用**（adapter:748-757 docstring） | `retriever.retrieve_context(user_id, config 阈值)`（:862）+ `short_term_memory.get_all()` + `user_long_term_memory.get_raw_user_profile(user_id)`（:1264） |
-| clean-retry | `clean_memoryos_conversation_state`（adapter:1565）+ registry `_clean_memoryos_failed_ingest_state`（registry.py:827） | 文件系统删 `users/<user_id>/` 状态目录（:1535） |
+| `ingest(TurnPair)` | LongMemEval 走 pair；orphan/dangling 空侧保留，不丢 turn | `Memoryos.add_memory(user_input, agent_response, timestamp)` |
+| `ingest(SessionBatch)` | LoCoMo 走 session，按官方 speaker_a 开 page/另一 speaker 回填；裸文本注入，图片经框架统一 helper | 同上逐 page 注入 |
+| `end_conversation` | no-op；STM/MTM/LPM 均能在 retrieve 时读出 | 无额外 flush |
+| `retrieve(query)` | 复刻产品 `get_response` 的检索步骤 1-7，覆盖 STM、MTM、user/assistant knowledge；跳过答题和末尾问答写回 | `retriever.retrieve_context` + 各层原始状态读取；保留 heat/N_visit 算法副作用 |
+| provenance | add 后原子 sidecar 保存 page 精确键→全部 source turn ids；LoCoMo speaker map 共存 | 检索返回原 page dict 后精确反查；旧/损坏 state fail-fast |
+| clean-retry | 删除单 conversation 物理目录，sidecar 同删 | `clean_memoryos_conversation_state` |
 
-## B1-B11 逐项（全部 ⬜ 待 M 阶段，下面只记已知事实/风险）
+## B1-B11 当前结论
 
-- **B1**：⬜。接口=add_memory/retrieve_context，不用 get_response 答题（公平性已按
-  设计落地）；pypi 版本锁定 + license 待做。**注意**：算法源是 pypi 包不是 vendored
-  目录——来源锁的形态（pip 版本号 + 哈希）与其他 method 不同，M 阶段定契约。
-- **B2**：⬜。pair 为主 + LoCoMo session 级绕道（见 §0）；HaluMem memory_point：
-  add_memory 无返回记忆列表的已知通路，预计 gap，待核签名。
-- **B3**：⬜ **物理隔离**：per-conversation `Memoryos` 实例 + 独立 `data_storage_path`
-  （adapter:441 docstring；`user_id=_safe_user_id(conversation_id)` :1392，同时作目录名）。
-- **B4**：⬜。formatted_memory 组装短/中/长期 + user/assistant knowledge 全层
-  （:748-757）；时间戳随 add_memory 注入，检索回带情况待核。
-- **B5**：`provenance_granularity="none"`（adapter:448）→ recall/ndcg 预计 N/A。
-  **B5+ 初判（2026-07-13 MemoryData 判例）：可无损改造**——检索层返回原文
-  （retrieval_queue 的 user_input），adapter 存储时记 `normalized_text→source_ids`
-  反查表即可。见 `ws02.7/notes/memorydata-recall-retrofit-survey.md` 策略③。
-- **B6**：⬜。end_conversation=no-op 的**初判依据**：retrieve 读全部层含 short_term
-  （get_all），未迁移到中长期的内容也检索得到 → 无 flush 需求。M 阶段用官方源码锚死
-  这个论证（短期→中期迁移触发条件）。
-- **B7**：⬜。adapter 有 stdout 抑制包装（`_suppress_stdout_if_needed`），LLM 调用
-  观测路径待审。
-- **B8**：⬜ **本 method 是 checklist B8 的判例主角**：heat/N_visit 是算法固有状态
-  必须保留（playbook §4.5.7）；我们已跳过 get_response 步骤 10 的写副作用，但
-  `retrieve_context` 本身是否改 heat 待官方源码锚。clean-retry 钩子已挂。
-- **B9**：⬜。参数=pypi 官方默认（short_term_capacity=10 等，非 LoCoMo 调参）——
-  与 unified 轨"repo 默认超参"政策一致。
-- **B10**：⬜。native=locomo 论文超参（作者 issue 指引）；**reproduce-vs-paper 检查
-  必做**（eval 目录与论文已知失配，正是 §5 规则的动因判例）；issue 链接落锚待补。
-- **B11**：⬜。
+- **B1 来源与接口 ✅**：只用产品版 `add_memory` 和拆出的纯 retrieval，不用
+  benchmark 专用 eval 副本作算法运行源，也不调用一体化 `get_response` 代答题。
+  `eval/` 只提供 LoCoMo native prompt/超参史料。产品版与 eval 的关键数值分叉已在
+  M1 §1-§2 逐项列出，未假装两者等价。
+- **B2 注入粒度 ✅ pair/session**：算法 add 单元仍是 QA page；LongMemEval 由 runner
+  pair 投递，LoCoMo 因 speaker 名不是 user/assistant role，由 session 投递后在 adapter
+  内按官方姿势配 page。消费批次不等于 provenance 粒度。
+- **B3 隔离 ✅ 物理**：每 conversation 独立 backend/storage 目录；worker 不共享
+  实例；clean 只删目标目录并保留 sibling。真实并行 smoke 归 B11。
+- **B4 formatted_memory ✅ 全层+时间+身份**：短/中期 page 与 user/assistant
+  knowledge 全部纳入；LoCoMo 在出口按持久 speaker map 恢复真人姓名，非 LoCoMo 保持
+  User/Assistant；时间随 page 输出。共享图片表示固定为
+  `[Sharing image that shows: {caption}]`，不读 `metadata.query`。
+- **B5 provenance ✅ turn**：page 原文键使用规范 JSON 精确匹配，不做 embedding/
+  模糊文本反查；重复 page 合并全部公开 turn ids。sidecar schema、原子替换、旧状态
+  fail-fast 与 clean 路径均有测试。
+- **B6 flush ✅ no-op**：retrieve 直接覆盖尚在 STM 的内容及已迁移层，无需额外
+  conversation flush。
+- **B7 效率插桩 ✅（待 B11 产物复证）**：产品 LLM wrapper 接入框架 collector；
+  answer LLM 属框架 reader。真实三类 observation 是否齐全在每格 smoke 开箱验货。
+- **B8/B8+ 副作用与韧性 ✅（带声明缺口）**：保留检索 heat/N_visit 更新，禁止的只是
+  `get_response` 末尾把 eval 问答写回。三路 future 吞异常的官方降级由 adapter 包装
+  实际任务方法审计，metadata 写 `degraded_retrieval*`；合法空命中不误标。LLM 有
+  timeout/retry/clean-retry；首次 embedding 模型下载缺显式 offline/timeout 仍是声明缺口。
+- **B9 模型/超参口径 ✅分叉声明**：unified build 使用产品 profile；paper、eval、
+  pypi 默认三岔已留档，不把其中一套冒充另一套。
+- **B10 双轨 ✅ readout-native**：LoCoMo 官方 system/user prompt 由 AST parity 锁逐字
+  核对，answer=`gpt-4o-mini`, temperature=0.7, max_tokens=2000。官方无 LLM judge，
+  bundle `judge_profile=None` 时回落框架默认 judge。paper build 超参只登记资产，当前
+  config-track 尚不消费 build override；这是与 LightMem/Mem0 共用的框架级缺口。
+- **B11 smoke+冻结 🟡**：离线代码门已过；还缺五格真实 predict、产物开箱、免费
+  evaluator、付费 judge（如适用）与并行/operation-level 既定门。用户未确认预算、规模、
+  run_id 前不得执行。全部通过后才写 `memoryos-frozen-v1.md`。
 
-## 特殊情况
-1. **主场优势迁移史**：eval/ 副本→pypi 通用引擎是本项目公平性的标志性决策，勿回退。
-2. native 超参来源=论文（非 eval 目录），是全矩阵唯一一例作者显式背书 paper 的格。
+## 特殊情况与不可回退项
+
+1. eval 专用副本→pypi 通用产品引擎是公平性决策，不得为了复现单一榜单把运行源切回。
+2. LoCoMo speaker 身份只在出口恢复；给 ingest 文本加 speaker 前缀会改变抽取/embedding，
+   与官方姿势冲突。
+3. native 目前明确是 **readout-native**，不是 paper-build-native；manifest/报告必须带
+   该限制，等待三 method 共用的 build-profile 框架卡。
+4. M2 主提交 `e2fff4b`，registry 测试替身返工 `bfe69f1`；两者均已过主树全量门。

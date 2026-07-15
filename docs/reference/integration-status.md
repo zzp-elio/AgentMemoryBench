@@ -41,9 +41,9 @@
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅ | ✅turn | ✅offline | ✅ | ✅ | ✅分叉 | ✅ | ✅ | **v1** |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅ | 🟡turn（LoCoMo update lineage 待修） | ✅offline | ✅ | ✅ | ✅分叉 | ✅ | 🟡LoCoMo provenance 复证 | **v1 suspended** |
 | [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅M3对话时间(s2实弹复证) | ✅turn(首个非零recall) | ✅零flush | ✅(native计量=R0前置,声明2) | ✅B8+清单落档(M5,下载点声明4) | ✅ | ✅三格实弹 | ✅13格+全指标 | **v1**(九项声明) |
-| [MemoryOS](integration/memoryos.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| [MemoryOS](integration/memoryos.md) | ✅ | ✅ | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn | ✅no-op | ✅ | ✅降级审计 | ✅分叉 | ✅readout-native | 🟡五格 smoke 待跑 | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | MemOS | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -52,24 +52,22 @@
 | Supermemory | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [EverOS](integration/everos.md) | ✅vendored | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
-> "适配器 ✅" = 有 adapter 代码（旧 5 个在 ws02.5 前落地），**但未逐项走 B1-B11
-> method-frozen-v1 流程**；Mem0/MemoryOS/A-Mem/SimpleMem 的 B 列待各自 M 阶段一手补。
-> LightMem 是当前唯一在跑 M0 的 method。
+> "适配器 ✅" 只代表代码入口存在，不代表冻结。Mem0 已 frozen-v1；MemoryOS 已完成
+> M1 一手取证与 M2 离线施工/全量门，只差 B11 真实 smoke；LightMem 因 2026-07-15
+> 发现 LoCoMo post-update lineage 缺口而重开 B5/B11；A-Mem/SimpleMem 待各自 M 阶段。
 
 **逐项证据与接口调用面**：全部收归各实体的实例文档（表中名字即链接），本文不再
 就地展开（2026-07-13 起，原"LightMem 详情"节已迁入
 [integration/lightmem.md](integration/lightmem.md)，避免双源漂移）。
 
 **跨 method 横向事实（2026-07-13 取证）**
-- **provenance 现状（2026-07-13 更新，M0-9 修正）**：**LightMem 已升级 `"turn"` =
-  首个 provenance 生产者**（M0-7b external_id 透传，locomo 实证 recall n=1；
-  **全部注入路径已覆盖**——两个消息构建器即全集，v3 turn/pair 复用之，M0-9
-  离线测试用真实 id 形态钉死 lme/membench/beam 三家，四个 recall 类 evaluator
-  契约"确定对齐无 gap"，见 `ws02.7/notes/m0-9-provenance-breadth.md`）；
-  **Mem0 已升级 `"turn"`（2026-07-14 M2:原生 id 映射 sidecar 持久化+旧 state
-  fail-fast,判例库策略② 首次落地,`notes/m2-mem0-adapter.md`）**;其余三家仍
-  `"none"`（memoryos:448 / amem:239 / simplemem:163，B5+ 均已判"可无损改造"
-  待各自 M 阶段）→ recall/ndcg/retrieval-rank 对这三家 N/A 是声明的事实。
+- **provenance 现状（2026-07-15 重审）**：Mem0 与 MemoryOS 已是可信
+  `"turn"`（各自 sidecar 持久化+旧 state fail-fast）。LightMem 的初始
+  external-id 透传对不运行 LoCoMo post-build merge 的路径仍成立；但 LoCoMo
+  `offline_update_all_entries` 可把 candidate 文本并进 target 而不合并 id，故现状只能
+  证明“单一 anchor”，不能证明完整传递血缘，B5/B11 已重开，见
+  `ws02.7/notes/lightmem-offline-recall-ruling.md`。A-Mem/SimpleMem 仍为 `"none"`；
+  不可评 metric 必须 N/A，不得按 0 分。
 - **clean-retry 钩子覆盖（2026-07-14 M2 后五家全员到齐）**：Mem0 的 hook =
   `delete_all(run_id)` + 批准的第二个 B5+ third_party 最小 diff
   `SQLiteManager.delete_messages(session_scope)`（污染场景有测试钉死）。

@@ -45,5 +45,6 @@
 
 - 盘点卡：可立即派（docs-only，与 method 深耕线零冲突）。
 - 匹配矩阵：盘点回来后架构师裁决、更新本文 §2 为定稿。
-- 实现：LightMem method-frozen-v1 之后穿插排（evaluator 是 benchmark 侧加法，
-  不阻塞也不被 method 接入阻塞）。
+- 实现：本计划与单个 method 冻结状态没有技术依赖；但当前先关闭 LightMem
+  offline-update lineage 与 MemoryOS B11 等可信度门，避免用扩展指标制造“进度感”并
+  抢占验收注意力。排期由活跃 workstream README 决定，不再写死在某次 frozen 之后。

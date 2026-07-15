@@ -54,6 +54,14 @@ benchmark 全部 frozen 后，行为被全量测试锁死才允许动结构）
   保持显式声明**（longmemeval 双粒度/membench +1 平移/beam 三形态打平/
   halumem 无 turn id——B 线教训：个性被通用代码吞掉 = bug 温床），
   通用骨架 + benchmark 声明差异，行为以现有全量测试逐一守恒验证。
+- [ ] **拆开 answer depth 与 evaluation ranking depth**（2026-07-15 LightMem
+  审计）：当前 `RetrievalQuery.top_k=10` 全局硬编码，同时被当成 evaluator 可算的
+  最大 k；LongMemEval 官方 k=30/50 因而在真实通用 run 必然跳过，即便某 method 已
+  保存 60 项。设计 benchmark-required ranking depth 与 method-native answer context
+  depth 两个字段/视图，保证扩深排名观测不偷偷改变 answer prompt。
+- [ ] **Recall@k 粒度诊断与公平伴随指标**：保留 method-native item recall，但统一
+  报 top-k unique source 数、`source ids/item` 与 payload token；研究 source-budget/
+  token-budget recall。未完成前禁止用单一 item Recall@k 作跨 method headline 排名。
 - [ ] **目录分层**：benchmark 专属指标归 per-benchmark 子目录，通用
   指标（f1/recall 骨架/judge 壳）归 common；prompt 资产统一存放布局
   （locomo/longmemeval 独立 prompt 文件 vs 其他内联的组织不一致，

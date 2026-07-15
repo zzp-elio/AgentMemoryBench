@@ -1,12 +1,12 @@
 ---
 id: ws02.6
 parent: ws02
-status: in-progress（五 benchmark 全部 frozen-v1 + B6 横向总验收完成 2026-07-12；method 侧已解冻，下一步 Method Track M0 待用户拍板启动）
+status: done（五 benchmark 全部 frozen-v1 + B6 横向总验收完成 2026-07-12；method 侧已转 ws02.7）
 created: 2026-07-09
 ---
 # ws02.6 首次真实 smoke 加固（跑通 + 可信双门）
 
-## 当前冻结与设计断点（2026-07-12）
+## 收官冻结记录（2026-07-12；现行 method 状态见 ws02.7）
 
 - 2026-07-12（**F1 强验收通过 + B6.5 总验收门通过 → B6 完成、method
   侧解冻**，架构师 Opus 4.8 接任 Fable 5）：actor（codex+GPT-5.6）三

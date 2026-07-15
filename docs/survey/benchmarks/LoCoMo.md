@@ -144,6 +144,13 @@ recall，但不得伪装成 turn-level recall。provider 声明 provenance=`none
 `source_turn_ids` 时 fail-fast；历史 run 未声明 provenance 或 provider 明确声明 `none`
 时输出结构化 N/A，不把不可评估伪装成 0 分。
 
+2026-07-15 LightMem post-update 审计补充：上述 fail-fast 是**结构门**，不能证明
+summary/merge/update 后来源仍完整；该保证必须由 method 的传递血缘 schema 与变换级
+测试提供。`consume_granularity` 不与 provenance 粒度强绑。不同 method 的 top-k item
+可能是 fact/session/chunk，故当前 Recall@k 作为 method-native item 辅助指标报告；
+跨 method headline 还需 source/token-budget 伴随口径。完整裁决见
+`ws02.7/notes/lightmem-offline-recall-ruling.md`。
+
 官方实现对 evidence 为空的题直接记 recall=1，而不是从分母剔除；release 中有 4 道
 此类 category-3 题。兼容官方的 overall 必须保留该行为，同时另报 non-empty-evidence
 子集均值和空 evidence 数量，避免把这一实现细节误读成真实检索命中。

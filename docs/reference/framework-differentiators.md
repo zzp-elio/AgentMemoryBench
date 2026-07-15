@@ -20,10 +20,12 @@
   预压缩/主题分段/LLM 抽取整条核心管线被绕过。**得到了 Recall@k，代价是测的
   实为"qdrant RAG + LightMem 存储壳"**，其报告中的"LightMem"成绩与 LightMem
   算法脱钩。
-- **我们**：LightMem 只走真实抽取管线；provenance 拿不到 → recall 诚实 N/A
-  （conditional evaluator 输出 N/A 而非硬造 0/绕行），改造走 B5+ 三态评估
-  （不动算法核心的最小 diff + 实验验证 + upstream PR 路径，
-  `method-integration-checklist.md` B5+）。
+- **我们**：LightMem 始终走真实抽取 + post-build update 管线。最初的 B5+ singular
+  source-id 透传在 2026-07-15 被进一步审计出 merge 后血缘不完整，架构师当场撤销
+  LoCoMo Recall@10 的可信声明并重开冻结，而不是因为“已经有非零 items”就放行。
+  修复限定为不进入文本/embedding/prompt 的 plural 变换血缘，禁止改变算法；修复前
+  该格不作 headline recall。证据与裁决见
+  `ws02.7/notes/lightmem-offline-recall-ruling.md`。
 
 ### D2. 评测元数据不进被测系统
 - **他们**：把 `[LOCOMO_META chunk_id=… source_ids=…]` 血缘 header 直接拼进
