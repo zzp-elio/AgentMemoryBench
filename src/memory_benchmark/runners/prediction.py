@@ -51,6 +51,7 @@ from memory_benchmark.core.validators import validate_dataset, validate_no_priva
 from memory_benchmark.methods.registry import (
     MethodBuildContext,
     resolve_registered_factory_provenance_granularity,
+    resolve_registered_factory_retrieval_evidence_contract_version,
 )
 from memory_benchmark.observability import (
     ProgressReporter,
@@ -384,12 +385,20 @@ def run_predictions(
         if system_factory is not None
         else None
     )
+    declared_retrieval_evidence_contract_version = (
+        resolve_registered_factory_retrieval_evidence_contract_version(system_factory)
+        if system_factory is not None
+        else None
+    )
     method_manifest = _method_manifest_with_protocol(
         method_manifest=method_manifest,
         protocol_version=protocol_version,
         prompt_track=prompt_track,
         system=system,
         provenance_granularity=declared_provenance_granularity,
+        retrieval_evidence_contract_version=(
+            declared_retrieval_evidence_contract_version
+        ),
     )
     dataset_fingerprint, manifest = _build_prediction_resume_artifacts(
         dataset=dataset,
@@ -1222,12 +1231,15 @@ def _method_manifest_with_protocol(
     prompt_track: str = "native",
     system: BaseMemorySystem | MemoryProvider | None = None,
     provenance_granularity: str | None = None,
+    retrieval_evidence_contract_version: str | None = None,
 ) -> dict[str, object]:
     """按注册声明协议版本补充 manifest 协议身份字段。
 
     首选路径：显式 protocol_version（来自 MethodRegistration.protocol_version），
     保证 workers>1 路径中不需要真实 method 实例也能正确盖章。
     provenance_granularity 同样优先使用注册级静态声明；未声明时才读取实例。
+    retrieval_evidence_contract_version 只由注册级静态声明提供（无实例回退），非空时
+    写入 method manifest 作为 resume 身份，同样不依赖真实 method 实例。
     回退路径：当 protocol_version 为空且 system 可用时，沿用旧 isinstance 推断，
     用于未通过注册表的测试/自定义路径向后兼容。
     """
@@ -1255,6 +1267,11 @@ def _method_manifest_with_protocol(
                 "'turn')."
             )
         normalized.setdefault("provenance_granularity", provenance_granularity)
+    if retrieval_evidence_contract_version is not None:
+        normalized.setdefault(
+            "retrieval_evidence_contract_version",
+            retrieval_evidence_contract_version,
+        )
     return normalized
 
 
@@ -2668,6 +2685,7 @@ def _answer_question_retrieve_first(
         "formatted_memory": retrieval_result.formatted_memory,
         "retrieved_items": _retrieved_items_payload(retrieval_result),
         "retrieval_query_top_k": query.top_k,
+        "retrieval_evidence": _retrieval_evidence_payload(retrieval_result),
     }
     validate_no_private_keys(answer_prompt_record)
 
@@ -2798,6 +2816,19 @@ def _retrieved_items_payload(retrieval_result: RetrievalResult) -> list[dict[str
     if retrieval_result.items is None:
         return []
     return [asdict(item) for item in retrieval_result.items]
+
+
+def _retrieval_evidence_payload(
+    retrieval_result: RetrievalResult,
+) -> dict[str, Any] | None:
+    """把逐题 RetrievalEvidence 原样序列化为 artifact 载荷；缺失时写 null。
+
+    不读取旧 manifest 或静态声明拼凑逐题值：provider 未返回 evidence 时如实写 None。
+    """
+
+    if retrieval_result.evidence is None:
+        return None
+    return asdict(retrieval_result.evidence)
 
 
 def _retrieval_from_record(record: dict[str, Any]) -> AnswerPromptResult:

@@ -44,9 +44,11 @@ from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseResumableMemorySystem
 from memory_benchmark.core.provider_protocol import (
     ConsumeGranularity,
+    EvidenceAssertion,
     IngestResult,
     IngestUnit,
     MemoryProvider,
+    RetrievalEvidence,
     RetrievalQuery,
     RetrievalResult,
     RetrievedItem,
@@ -70,6 +72,13 @@ MEM0_ADAPTER_VERSION = "conversation-qa-v1"
 MEM0_READER_PROMPT_VERSION = "mem0-memory-benchmarks-reader-v4"
 MEM0_PROVENANCE_SIDECAR_SCHEMA_VERSION = 1
 MEM0_PROVENANCE_SIDECAR_FILENAME = "provenance-sidecar.json"
+# 逐 method rank 审计未完成前，Mem0 检索名次一律声明 pending，禁止因列表"看起来
+# 有序"提前改 valid。
+_MEM0_UNAUDITED_STABLE_RANKING = EvidenceAssertion(
+    status="pending",
+    reason_code="ranking_fidelity_not_audited",
+    reason="provider result order has not passed the method-specific ranking audit",
+)
 VALID_MESSAGE_ROLES = {"user", "assistant"}
 LONGMEMEVAL_QUESTION_TYPES = {
     "temporal-reasoning",
@@ -1062,6 +1071,49 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 "top_k": self.config.top_k,
                 "answer_prompt_profile": self._reader_prompt_kind(native_question),
             },
+            evidence=self._build_retrieval_evidence(),
+        )
+
+    def _build_retrieval_evidence(self) -> RetrievalEvidence:
+        """按显式 benchmark_name 陈述本次检索的逐题 evidence 事实。
+
+        provenance 仅取决于注册显式注入的 `self.benchmark_name`，不从数据形态猜测；
+        sidecar 缺映射仍在 `_source_turn_ids_for_memory` fail-fast，本方法不因空检索或
+        真实 0 hit 降级 provenance。stable_ranking 因逐 method rank 审计未完成一律
+        pending。
+        """
+
+        if self.benchmark_name in {"locomo", "membench"}:
+            semantic = EvidenceAssertion(status="valid")
+            granularity = "turn"
+        elif self.benchmark_name in {"longmemeval", "halumem"}:
+            semantic = EvidenceAssertion(status="valid")
+            granularity = "session"
+        elif self.benchmark_name == "beam":
+            semantic = EvidenceAssertion(
+                status="n_a",
+                reason_code="ingest_batch_coarser_than_gold",
+                reason=(
+                    "pair ingest attaches both source turn ids to every extracted "
+                    "fact, so the batch source union cannot be losslessly attributed "
+                    "to each extracted fact"
+                ),
+            )
+            granularity = "none"
+        else:
+            semantic = EvidenceAssertion(
+                status="pending",
+                reason_code="benchmark_identity_missing",
+                reason=(
+                    "benchmark_name was not injected, so retrieval provenance cannot "
+                    "be asserted yet"
+                ),
+            )
+            granularity = "none"
+        return RetrievalEvidence(
+            semantic_provenance=semantic,
+            provenance_granularity=granularity,
+            stable_ranking=_MEM0_UNAUDITED_STABLE_RANKING,
         )
 
     def get_answer(self, question: Question) -> AnswerResult:

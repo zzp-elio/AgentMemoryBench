@@ -104,6 +104,9 @@ class MethodRegistration:
         protocol_version: method 显式声明的 provider 协议版本，供 manifest 盖章与
             worker 运行时交叉校验使用。
         provenance_granularity: 可选静态 provenance 粒度；为空时沿用实例声明。
+        retrieval_evidence_contract_version: 可选逐题 retrieval evidence 契约版本；
+            非空时写入 method manifest 作为 resume 身份，声明该 run 的 answer prompt
+            artifact 携带 per-question `retrieval_evidence`。
         workload_estimator: 可选的公开工作量估算 hook。
         allow_smoke_worker_override: 是否允许 smoke worker 覆盖（CLI `--workers`）配置值。
         efficiency_model_inventory_getter: 启用效率观测时生成模型清单。
@@ -127,6 +130,7 @@ class MethodRegistration:
     display_name: str
     protocol_version: str
     provenance_granularity: str | None = None
+    retrieval_evidence_contract_version: str | None = None
     workload_estimator: Callable[[Conversation, Any], int] | None = None
     allow_smoke_worker_override: bool = False
     efficiency_model_inventory_getter: (
@@ -799,6 +803,7 @@ _REGISTRATIONS = {
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
         provenance_granularity="turn",
+        retrieval_evidence_contract_version="v1",
         clean_failed_ingest_state=_clean_mem0_failed_ingest_state,
         supports_shared_instance_parallelism=False,
     ),
@@ -825,6 +830,7 @@ _REGISTRATIONS = {
         display_name="LightMem",
         protocol_version="v3",
         provenance_granularity="turn",
+        retrieval_evidence_contract_version="v1",
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_lightmem_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(
@@ -856,6 +862,7 @@ _REGISTRATIONS = {
         display_name="MemoryOS",
         protocol_version="v3",
         provenance_granularity="turn",
+        retrieval_evidence_contract_version="v1",
         allow_smoke_worker_override=True,
         workload_estimator=_estimate_memoryos_update_batches,
         efficiency_model_inventory_getter=_memoryos_efficiency_model_inventory,
@@ -928,6 +935,22 @@ def resolve_registered_factory_provenance_granularity(
     return None
 
 
+def resolve_registered_factory_retrieval_evidence_contract_version(
+    system_factory: Callable[[MethodBuildContext], BaseMemorySystem],
+) -> str | None:
+    """按注册 factory 身份返回逐题 retrieval evidence 契约版本，未注册时返回 None。
+
+    该解析与 `resolve_registered_factory_provenance_granularity` 同构：只靠
+    `system_factory` 身份匹配，无需构造真实 method 实例，因此 workers>1 的根进程也能
+    在不实例化 method 的前提下为 manifest 盖章。
+    """
+
+    for registration in _REGISTRATIONS.values():
+        if registration.system_factory is system_factory:
+            return registration.retrieval_evidence_contract_version
+    return None
+
+
 def load_method_profile(
     method_name: str,
     profile_name: str,
@@ -969,4 +992,5 @@ __all__ = [
     "list_methods",
     "load_method_profile",
     "resolve_registered_factory_provenance_granularity",
+    "resolve_registered_factory_retrieval_evidence_contract_version",
 ]

@@ -16,6 +16,7 @@ from .validators import validate_no_private_keys
 ConsumeGranularity: TypeAlias = Literal["turn", "pair", "session", "conversation"]
 ProvenanceGranularity: TypeAlias = Literal["none", "session", "turn"]
 RetrievalPurpose: TypeAlias = Literal["qa", "memory_update_probe", "extraction_probe"]
+RetrievalEvidenceStatus: TypeAlias = Literal["valid", "n_a", "pending"]
 BRIDGE_EMPTY_MEMORY_SENTINEL = "[bridge] legacy provider exposed no memory context"
 
 
@@ -253,6 +254,76 @@ class RetrievedItem:
 
 
 @dataclass(frozen=True)
+class EvidenceAssertion:
+    """provider 对某一条 retrieval evidence 事实的逐次陈述。
+
+    只描述 method 实际能证明的运行时事实，不直接判定某个 metric 是否及格：
+
+    - `status="valid"`：该事实成立，`reason_code` 与 `reason` 必须都为 None；
+    - `status="n_a"`：该事实确定不可无损获得，必须给出稳定 `reason_code` 与可读
+      `reason`；
+    - `status="pending"`：该事实尚未完成一手审计，同样必须给出 `reason_code` 与
+      `reason`。
+
+    `reason` 是公开 artifact 字段，随记录整体走既有 `validate_no_private_keys`。
+    """
+
+    status: RetrievalEvidenceStatus
+    reason_code: str | None = None
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        """校验 valid 不带原因、非 valid 必带非空原因。"""
+
+        if self.status == "valid":
+            if self.reason_code is not None or self.reason is not None:
+                raise ValueError(
+                    "valid EvidenceAssertion must not carry reason_code/reason"
+                )
+            return
+        if not (isinstance(self.reason_code, str) and self.reason_code.strip()):
+            raise ValueError(
+                f"{self.status} EvidenceAssertion requires a non-empty reason_code"
+            )
+        if not (isinstance(self.reason, str) and self.reason.strip()):
+            raise ValueError(
+                f"{self.status} EvidenceAssertion requires a non-empty reason"
+            )
+
+
+@dataclass(frozen=True)
+class RetrievalEvidence:
+    """provider 对一次检索结果的逐题 evidence 事实陈述。
+
+    字段:
+        semantic_provenance: 当前检索条目是否带可审计的 semantic evidence 来源。
+        provenance_granularity: semantic provenance 成立时命中的来源粒度；只有
+            `semantic_provenance.status == "valid"` 才允许 `turn|session`，否则必须
+            为 `none`。
+        stable_ranking: `RetrievedItem` 列表是否就是 method 实际检索名次，未被 set 化
+            或展示层二次重排。
+    """
+
+    semantic_provenance: EvidenceAssertion
+    provenance_granularity: ProvenanceGranularity
+    stable_ranking: EvidenceAssertion
+
+    def __post_init__(self) -> None:
+        """校验 provenance 状态与粒度的合法组合。"""
+
+        if self.semantic_provenance.status == "valid":
+            if self.provenance_granularity not in ("turn", "session"):
+                raise ValueError(
+                    "valid semantic_provenance requires provenance_granularity in "
+                    "{'turn', 'session'}"
+                )
+        elif self.provenance_granularity != "none":
+            raise ValueError(
+                "non-valid semantic_provenance requires provenance_granularity='none'"
+            )
+
+
+@dataclass(frozen=True)
 class RetrievalResult:
     """provider v3 检索输出。"""
 
@@ -260,6 +331,7 @@ class RetrievalResult:
     prompt_messages: tuple[PromptMessage, ...] | None = None
     items: tuple[RetrievedItem, ...] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    evidence: RetrievalEvidence | None = None
 
     def __post_init__(self) -> None:
         """校验 formatted_memory 必填并保持 metadata 公开。"""
@@ -312,10 +384,13 @@ __all__ = [
     "BRIDGE_EMPTY_MEMORY_SENTINEL",
     "ConsumeGranularity",
     "ConversationBatch",
+    "EvidenceAssertion",
     "IngestResult",
     "IngestUnit",
     "MemoryProvider",
     "ProvenanceGranularity",
+    "RetrievalEvidence",
+    "RetrievalEvidenceStatus",
     "RetrievalPurpose",
     "RetrievalQuery",
     "RetrievalResult",

@@ -686,6 +686,11 @@ def run_registered_conversation_qa_prediction(
                 provenance_granularity=getattr(
                     method_registration, "provenance_granularity", None
                 ),
+                retrieval_evidence_contract_version=getattr(
+                    method_registration,
+                    "retrieval_evidence_contract_version",
+                    None,
+                ),
             )
         else:
             summary = run_predictions(

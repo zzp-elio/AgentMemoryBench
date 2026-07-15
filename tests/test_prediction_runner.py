@@ -42,8 +42,10 @@ from memory_benchmark.core.interfaces import (
 from memory_benchmark.core.provider_bridge import LegacyProviderBridge
 from memory_benchmark.core.provider_protocol import (
     BRIDGE_EMPTY_MEMORY_SENTINEL,
+    EvidenceAssertion,
     IngestResult,
     MemoryProvider,
+    RetrievalEvidence,
     RetrievedItem,
     RetrievalQuery,
     RetrievalResult,
@@ -287,11 +289,13 @@ class RecordingV3TurnProvider(MemoryProvider):
         *,
         shared_events: list[tuple[str, str]] | None = None,
         report_sessions: bool = True,
+        evidence: RetrievalEvidence | None = None,
     ) -> None:
-        """初始化调用记录和 session report 开关。"""
+        """初始化调用记录、session report 开关与可选逐题 evidence。"""
 
         self.shared_events = shared_events if shared_events is not None else []
         self.report_sessions = report_sessions
+        self.evidence = evidence
         self.ingested_turn_ids: list[str] = []
         self.ended_sessions: list[SessionRef] = []
         self.ended_conversations: list[UnitRef] = []
@@ -344,6 +348,7 @@ class RecordingV3TurnProvider(MemoryProvider):
                 ),
             ),
             metadata={"provider": "recording-v3"},
+            evidence=self.evidence,
         )
 
 
@@ -1096,11 +1101,115 @@ def test_runner_ingests_native_v3_provider_with_event_stream_and_reports(
     assert manifest["method"]["protocol_version"] == "v3"
     assert retrievals[0]["formatted_memory"] == "v3 memory for 问题 1"
     assert retrievals[0]["retrieved_items"][0]["source_turn_ids"] == ["conv-1:t1"]
+    # provider 未返回 evidence 时逐题字段如实写 null，不偷读 manifest 拼假值。
+    assert retrievals[0]["retrieval_evidence"] is None
     assert session_reports[0]["memories"] == ["session-memory:conv-1:s1"]
     assert session_reports[0]["session_ref"] == {
         "isolation_key": "prediction-run_conv-1",
         "session_id": "conv-1:s1",
     }
+
+
+def test_runner_persists_per_question_retrieval_evidence(tmp_path: Path) -> None:
+    """provider 返回 evidence 时 answer prompt artifact 应用 asdict 原样序列化。"""
+
+    dataset = _build_dataset()
+    evidence = RetrievalEvidence(
+        semantic_provenance=EvidenceAssertion(status="valid"),
+        provenance_granularity="turn",
+        stable_ranking=EvidenceAssertion(
+            status="pending",
+            reason_code="ranking_fidelity_not_audited",
+            reason="ranking not audited",
+        ),
+    )
+    provider = RecordingV3TurnProvider(evidence=evidence)
+    context = _create_context(tmp_path)
+
+    run_predictions(
+        dataset=dataset,
+        system=provider,
+        run_context=context,
+        policy=PredictionRunPolicy(max_workers=1),
+        answer_reader=FrameworkAnswerReader(client=FakeAnswerLLMClient(answer="a")),
+        method_manifest={"adapter": "recording-v3"},
+        benchmark_variant="test_variant",
+        run_scope=RunScope.FULL,
+    )
+
+    retrievals = read_jsonl(
+        context.artifacts_dir / "answer_prompts.prediction.jsonl"
+    )
+    payload = retrievals[0]["retrieval_evidence"]
+    assert payload["semantic_provenance"] == {
+        "status": "valid",
+        "reason_code": None,
+        "reason": None,
+    }
+    assert payload["provenance_granularity"] == "turn"
+    assert payload["stable_ranking"]["status"] == "pending"
+    assert payload["stable_ranking"]["reason_code"] == "ranking_fidelity_not_audited"
+
+
+def test_registered_methods_stamp_retrieval_evidence_contract_version_v1() -> None:
+    """Mem0/LightMem/MemoryOS 注册项写 v1，A-Mem/SimpleMem 不写；盖章走 factory 身份。"""
+
+    from memory_benchmark.methods.registry import (
+        get_method_registration,
+        resolve_registered_factory_retrieval_evidence_contract_version,
+    )
+
+    for name in ("mem0", "lightmem", "memoryos"):
+        registration = get_method_registration(name)
+        assert registration.retrieval_evidence_contract_version == "v1"
+        assert (
+            resolve_registered_factory_retrieval_evidence_contract_version(
+                registration.system_factory
+            )
+            == "v1"
+        )
+    for name in ("amem", "simplemem"):
+        registration = get_method_registration(name)
+        assert registration.retrieval_evidence_contract_version is None
+        assert (
+            resolve_registered_factory_retrieval_evidence_contract_version(
+                registration.system_factory
+            )
+            is None
+        )
+
+    # isolated worker 根对象无需真实 method 实例即可按 factory 身份盖章。
+    stamped = _method_manifest_with_protocol(
+        method_manifest={},
+        protocol_version="v3",
+        retrieval_evidence_contract_version="v1",
+    )
+    assert stamped["retrieval_evidence_contract_version"] == "v1"
+    unstamped = _method_manifest_with_protocol(
+        method_manifest={},
+        protocol_version="v3",
+        retrieval_evidence_contract_version=None,
+    )
+    assert "retrieval_evidence_contract_version" not in unstamped
+
+
+def test_resume_manifest_rejects_missing_retrieval_evidence_contract_version() -> None:
+    """v1 contract manifest 与旧缺 version manifest 必须 resume mismatch，不双删兼容。"""
+
+    method_identity = {
+        "protocol_version": "v3",
+        "prompt_track": "unified",
+        "profile": {},
+    }
+    with_v1 = {
+        "method": {**method_identity, "retrieval_evidence_contract_version": "v1"}
+    }
+    without = {"method": dict(method_identity)}
+
+    assert _manifests_match_for_resume(with_v1, {"method": dict(with_v1["method"])})
+    assert _manifests_match_for_resume(without, {"method": dict(without["method"])})
+    assert not _manifests_match_for_resume(without, with_v1)
+    assert not _manifests_match_for_resume(with_v1, without)
 
 
 def test_runner_uses_membench_unified_prompt_builder_and_choice_parser(

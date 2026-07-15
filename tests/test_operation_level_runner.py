@@ -18,8 +18,10 @@ from memory_benchmark.benchmark_adapters.halumem import (
 from memory_benchmark.core import Conversation, Dataset, GoldAnswerInfo, Question, Session, Turn
 from memory_benchmark.core.validators import validate_no_private_keys
 from memory_benchmark.core.provider_protocol import (
+    EvidenceAssertion,
     IngestResult,
     MemoryProvider,
+    RetrievalEvidence,
     RetrievalQuery,
     RetrievalResult,
     RetrievedItem,
@@ -47,13 +49,14 @@ class OperationFakeProvider(MemoryProvider):
 
     consume_granularity = "session"
 
-    def __init__(self) -> None:
-        """初始化调用记录与累积 session 状态。"""
+    def __init__(self, *, evidence: RetrievalEvidence | None = None) -> None:
+        """初始化调用记录、累积 session 状态与可选逐题 evidence。"""
 
         self.calls: list[tuple[str, str, str | None, int | None]] = []
         self.ingested_sessions: list[str] = []
         self.write_count = 0
         self.update_write_counts: list[tuple[int, int]] = []
+        self.evidence = evidence
 
     def ingest(self, unit: SessionBatch) -> IngestResult:
         """记录 session batch 写入，并把 session 加入累积状态。"""
@@ -103,6 +106,7 @@ class OperationFakeProvider(MemoryProvider):
                     timestamp=None,
                 ),
             ),
+            evidence=self.evidence,
         )
 
     def cleanup(self) -> None:
@@ -415,6 +419,50 @@ def test_operation_level_runner_drives_three_stages_and_writes_artifacts(
     assert manifest["method"]["protocol_version"] == "v3"
     assert manifest["method"]["provenance_granularity"] == "turn"
     assert manifest["method"]["prompt_track"] == "unified"
+    # 未传 contract version 时 manifest 不盖章（本 fake 非注册 method）。
+    assert "retrieval_evidence_contract_version" not in manifest["method"]
+
+
+def test_operation_level_runner_writes_retrieval_evidence_and_stamps_contract(
+    tmp_path: Path,
+) -> None:
+    """operation-level answer prompt artifact 逐题写 evidence，manifest 盖 contract v1。"""
+
+    evidence = RetrievalEvidence(
+        semantic_provenance=EvidenceAssertion(status="valid"),
+        provenance_granularity="session",
+        stable_ranking=EvidenceAssertion(
+            status="pending",
+            reason_code="ranking_fidelity_not_audited",
+            reason="ranking not audited",
+        ),
+    )
+    context = _context(tmp_path)
+    run_operation_level_predictions(
+        dataset=_operation_dataset(),
+        provider=OperationFakeProvider(evidence=evidence),
+        run_context=context,
+        policy=PredictionRunPolicy(max_workers=1, progress_enabled=False),
+        method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+        benchmark_variant="medium",
+        run_scope=RunScope.SMOKE,
+        answer_reader=_reader(),
+        unified_prompt_builder=build_halumem_unified_answer_prompt,
+        protocol_version="v3",
+        provenance_granularity="turn",
+        retrieval_evidence_contract_version="v1",
+    )
+
+    paths = ExperimentPaths.create(context.run_dir)
+    answer_prompts = read_jsonl(paths.answer_prompts_path)
+    manifest = json.loads((context.run_dir / "manifest.json").read_text())
+
+    assert answer_prompts
+    payload = answer_prompts[0]["retrieval_evidence"]
+    assert payload["semantic_provenance"]["status"] == "valid"
+    assert payload["provenance_granularity"] == "session"
+    assert payload["stable_ranking"]["reason_code"] == "ranking_fidelity_not_audited"
+    assert manifest["method"]["retrieval_evidence_contract_version"] == "v1"
 
 
 def test_operation_level_update_probe_tolerates_self_recording_provider(

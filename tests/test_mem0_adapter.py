@@ -994,6 +994,51 @@ def test_mem0_beam_pair_ingest_keeps_official_two_turn_chunk() -> None:
     assert backend.add_calls[0]["metadata"]["turn_ids"] == ["t1", "t2"]
 
 
+def _mem0_evidence_provider(benchmark_name: str | None) -> Mem0:
+    """构造只用于 evidence 断言的轻量 Mem0 实例，不触发真实 API。"""
+
+    return Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+        consume_granularity="turn",
+        benchmark_name=benchmark_name,
+    )
+
+
+def test_mem0_retrieval_evidence_matrix_across_benchmarks() -> None:
+    """Mem0 五 benchmark 的 provenance turn/session/n_a 矩阵与 BEAM reason 精确。"""
+
+    for name in ("locomo", "membench"):
+        evidence = _mem0_evidence_provider(name)._build_retrieval_evidence()
+        assert evidence.semantic_provenance.status == "valid"
+        assert evidence.semantic_provenance.reason_code is None
+        assert evidence.provenance_granularity == "turn"
+    for name in ("longmemeval", "halumem"):
+        evidence = _mem0_evidence_provider(name)._build_retrieval_evidence()
+        assert evidence.semantic_provenance.status == "valid"
+        assert evidence.provenance_granularity == "session"
+
+    beam = _mem0_evidence_provider("beam")._build_retrieval_evidence()
+    assert beam.semantic_provenance.status == "n_a"
+    assert beam.semantic_provenance.reason_code == "ingest_batch_coarser_than_gold"
+    assert beam.provenance_granularity == "none"
+
+    for identity in (None, "mystery"):
+        missing = _mem0_evidence_provider(identity)._build_retrieval_evidence()
+        assert missing.semantic_provenance.status == "pending"
+        assert missing.semantic_provenance.reason_code == "benchmark_identity_missing"
+        assert missing.provenance_granularity == "none"
+
+
+def test_mem0_stable_ranking_is_pending() -> None:
+    """Mem0 stable_ranking 未审计，一律 pending，不得因命中有序误盖 valid。"""
+
+    evidence = _mem0_evidence_provider("locomo")._build_retrieval_evidence()
+    assert evidence.stable_ranking.status == "pending"
+    assert evidence.stable_ranking.reason_code == "ranking_fidelity_not_audited"
+
+
 def test_mem0_clean_removes_vectors_messages_and_failed_attempt_context(
     tmp_path: Path,
 ) -> None:

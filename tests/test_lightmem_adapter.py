@@ -34,6 +34,7 @@ from memory_benchmark.core import (
 from memory_benchmark.core.provider_protocol import (
     MemoryProvider,
     RetrievalQuery,
+    RetrievedItem,
     SessionBatch,
     SessionRef,
     TurnEvent,
@@ -842,6 +843,86 @@ def test_lightmem_config_rejects_preserve_none_with_consolidated_profile() -> No
             lifecycle_profile="locomo_offline_consolidated",
             missing_timestamp_policy="preserve_none",
         )
+
+
+def _lightmem_evidence_system(
+    *,
+    lifecycle_profile: str = "online_soft",
+    benchmark_name: str | None = "locomo",
+) -> LightMem:
+    """构造只用于 evidence 断言的轻量 LightMem 实例，不触发真实 API。"""
+
+    missing_policy = (
+        "require" if lifecycle_profile == "locomo_offline_consolidated" else "preserve_none"
+    )
+    return LightMem(
+        config=_missing_time_config(
+            lifecycle_profile=lifecycle_profile,
+            missing_timestamp_policy=missing_policy,
+        ),
+        backend_factory=lambda _conversation_id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name=benchmark_name,
+    )
+
+
+def test_lightmem_online_soft_evidence_depends_on_items_lineage() -> None:
+    """online_soft：items=() 真实 0 hit 仍 valid(turn)，items=None 缺 lineage 记 n_a。"""
+
+    system = _lightmem_evidence_system(benchmark_name="locomo")
+
+    empty_hit = system._build_retrieval_evidence(())
+    assert empty_hit.semantic_provenance.status == "valid"
+    assert empty_hit.provenance_granularity == "turn"
+
+    populated = system._build_retrieval_evidence(
+        (RetrievedItem(item_id="m1", content="c", score=None, timestamp=None),)
+    )
+    assert populated.semantic_provenance.status == "valid"
+    assert populated.provenance_granularity == "turn"
+
+    incomplete = system._build_retrieval_evidence(None)
+    assert incomplete.semantic_provenance.status == "n_a"
+    assert (
+        incomplete.semantic_provenance.reason_code == "retrieval_hit_lineage_incomplete"
+    )
+    assert incomplete.provenance_granularity == "none"
+
+
+def test_lightmem_consolidated_evidence_is_na_even_with_complete_items() -> None:
+    """locomo_offline_consolidated：即使 items 完整也恒为 n_a（无 output-to-source map）。"""
+
+    system = _lightmem_evidence_system(
+        lifecycle_profile="locomo_offline_consolidated",
+        benchmark_name="locomo",
+    )
+    evidence = system._build_retrieval_evidence(
+        (RetrievedItem(item_id="m1", content="c", score=None, timestamp=None),)
+    )
+    assert evidence.semantic_provenance.status == "n_a"
+    assert (
+        evidence.semantic_provenance.reason_code
+        == "semantic_mapping_unavailable_after_mutation"
+    )
+    assert evidence.provenance_granularity == "none"
+
+
+def test_lightmem_missing_benchmark_identity_is_pending() -> None:
+    """benchmark_name 缺失时 online_soft 也只能 pending，不静态按 benchmark 写死。"""
+
+    system = _lightmem_evidence_system(benchmark_name=None)
+    evidence = system._build_retrieval_evidence(())
+    assert evidence.semantic_provenance.status == "pending"
+    assert evidence.semantic_provenance.reason_code == "benchmark_identity_missing"
+    assert evidence.provenance_granularity == "none"
+
+
+def test_lightmem_stable_ranking_is_pending() -> None:
+    """LightMem stable_ranking 未审计，一律 pending。"""
+
+    evidence = _lightmem_evidence_system()._build_retrieval_evidence(())
+    assert evidence.stable_ranking.status == "pending"
+    assert evidence.stable_ranking.reason_code == "ranking_fidelity_not_audited"
 
 
 def test_lightmem_config_rejects_unknown_missing_timestamp_policy() -> None:

@@ -64,9 +64,11 @@ from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySystem
 from memory_benchmark.core.provider_protocol import (
     ConsumeGranularity,
+    EvidenceAssertion,
     IngestResult,
     IngestUnit,
     MemoryProvider,
+    RetrievalEvidence,
     RetrievalQuery,
     RetrievalResult,
     RetrievedItem,
@@ -101,6 +103,16 @@ MEMORYOS_EMBEDDING_MODEL_ID = "memoryos-embedding"
 MEMORYOS_DEFAULT_ASSISTANT_ID = "default_assistant_profile"
 MEMORYOS_PROVENANCE_SIDECAR_SCHEMA_VERSION = 1
 MEMORYOS_PROVENANCE_SIDECAR_FILENAME = "memory-benchmark-sidecar.json"
+# Phase 1 已注册的 benchmark 身份；identity 不在此集合时 provenance 记 pending。
+_MEMORYOS_REGISTERED_BENCHMARKS = frozenset(
+    {"locomo", "longmemeval", "halumem", "beam", "membench"}
+)
+# 逐 method rank 审计未完成前，MemoryOS 检索名次一律声明 pending。
+_MEMORYOS_UNAUDITED_STABLE_RANKING = EvidenceAssertion(
+    status="pending",
+    reason_code="ranking_fidelity_not_audited",
+    reason="provider result order has not passed the method-specific ranking audit",
+)
 
 # pypi 官方默认参数（memoryos.py:30-44），与旧 eval/ LoCoMo 调参不同。
 _MEMORYOS_PYPI_DEFAULT_SHORT_TERM_CAPACITY = 10
@@ -936,6 +948,35 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             prompt_messages=prompt_messages,
             items=items,
             metadata=dict(retrieval.metadata),
+            evidence=self._build_retrieval_evidence(),
+        )
+
+    def _build_retrieval_evidence(self) -> RetrievalEvidence:
+        """按显式 benchmark_name 陈述本次检索的逐题 evidence 事实。
+
+        page sidecar 缺失仍在 `_retrieved_items` fail-fast；本方法只按注册显式注入的
+        `self.benchmark_name` 判定资格：已注册 benchmark 返回 valid + turn，identity
+        缺失/未知返回 pending + none。stable_ranking 因逐 method rank 审计未完成一律
+        pending。
+        """
+
+        if self.benchmark_name in _MEMORYOS_REGISTERED_BENCHMARKS:
+            semantic = EvidenceAssertion(status="valid")
+            granularity = "turn"
+        else:
+            semantic = EvidenceAssertion(
+                status="pending",
+                reason_code="benchmark_identity_missing",
+                reason=(
+                    "benchmark_name was not injected, so retrieval provenance cannot "
+                    "be asserted yet"
+                ),
+            )
+            granularity = "none"
+        return RetrievalEvidence(
+            semantic_provenance=semantic,
+            provenance_granularity=granularity,
+            stable_ranking=_MEMORYOS_UNAUDITED_STABLE_RANKING,
         )
 
     def _retrieved_items(

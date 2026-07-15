@@ -43,9 +43,11 @@ from memory_benchmark.core import (
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySystem
 from memory_benchmark.core.provider_protocol import (
     ConsumeGranularity,
+    EvidenceAssertion,
     IngestResult,
     IngestUnit,
     MemoryProvider,
+    RetrievalEvidence,
     RetrievedItem,
     RetrievalQuery,
     RetrievalResult,
@@ -69,6 +71,16 @@ LIGHTMEM_METHOD_DIRECTORY = "LightMem"
 LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v3"
 LIGHTMEM_LIFECYCLE_PROFILES = ("online_soft", "locomo_offline_consolidated")
 LIGHTMEM_MISSING_TIMESTAMP_POLICIES = ("preserve_none", "require")
+# Phase 1 已注册的 benchmark 身份；identity 不在此集合时 provenance 记 pending。
+_LIGHTMEM_REGISTERED_BENCHMARKS = frozenset(
+    {"locomo", "longmemeval", "halumem", "beam", "membench"}
+)
+# 逐 method rank 审计未完成前，LightMem 检索名次一律声明 pending。
+_LIGHTMEM_UNAUDITED_STABLE_RANKING = EvidenceAssertion(
+    status="pending",
+    reason_code="ranking_fidelity_not_audited",
+    reason="provider result order has not passed the method-specific ranking audit",
+)
 LIGHTMEM_READER_PROMPT_VERSION = "lightmem-reader-v1"
 LIGHTMEM_MEMORY_LLM_MODEL_ID = "lightmem-memory-llm"
 _LIGHTMEM_IMPORT_LOCK = threading.Lock()
@@ -1005,6 +1017,65 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             prompt_messages=tuple(retrieval.prompt_messages),
             items=items,
             metadata=metadata,
+            evidence=self._build_retrieval_evidence(items),
+        )
+
+    def _build_retrieval_evidence(
+        self, items: tuple[RetrievedItem, ...] | None
+    ) -> RetrievalEvidence:
+        """按实际 lifecycle profile + 逐题 items 陈述 LightMem 的 evidence 事实。
+
+        资格取决于注册显式注入的 `self.benchmark_name` 和实际 lifecycle，而不是
+        source_path/问题时间启发式：
+
+        - benchmark identity 缺失/未知：pending + none；
+        - `locomo_offline_consolidated` 补充轨：恒为 n_a + none，post-build
+          consolidation 不提供 output-to-source mapping；
+        - `online_soft` 主轨：`items is not None`（含空 tuple 的真实 0 hit）为
+          valid + turn，`items is None`（本次 lineage 不可用）为 n_a + none。
+
+        注意 `items=()` 与 `items is None` 语义不同：前者是检索 0 hit、仍可 valid；
+        后者才表示本次 hit lineage 不可用。stable_ranking 因逐 method rank 审计未完成
+        一律 pending。
+        """
+
+        if self.benchmark_name not in _LIGHTMEM_REGISTERED_BENCHMARKS:
+            semantic = EvidenceAssertion(
+                status="pending",
+                reason_code="benchmark_identity_missing",
+                reason=(
+                    "benchmark_name was not injected, so retrieval provenance cannot "
+                    "be asserted yet"
+                ),
+            )
+            granularity = "none"
+        elif self.config.lifecycle_profile == "locomo_offline_consolidated":
+            semantic = EvidenceAssertion(
+                status="n_a",
+                reason_code="semantic_mapping_unavailable_after_mutation",
+                reason=(
+                    "post-build consolidation rewrites/merges entries without an "
+                    "output-to-source semantic mapping"
+                ),
+            )
+            granularity = "none"
+        elif items is not None:
+            semantic = EvidenceAssertion(status="valid")
+            granularity = "turn"
+        else:
+            semantic = EvidenceAssertion(
+                status="n_a",
+                reason_code="retrieval_hit_lineage_incomplete",
+                reason=(
+                    "at least one retrieval hit is missing its source_external_id, so "
+                    "the fact-to-turn lineage is incomplete for this question"
+                ),
+            )
+            granularity = "none"
+        return RetrievalEvidence(
+            semantic_provenance=semantic,
+            provenance_granularity=granularity,
+            stable_ranking=_LIGHTMEM_UNAUDITED_STABLE_RANKING,
         )
 
     def get_answer(self, question: Question) -> AnswerResult:

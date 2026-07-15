@@ -10,8 +10,10 @@ from memory_benchmark.core import PromptMessage, Question
 from memory_benchmark.core.exceptions import DataLeakageError
 from memory_benchmark.core.provider_protocol import (
     ConversationBatch,
+    EvidenceAssertion,
     IngestResult,
     MemoryProvider,
+    RetrievalEvidence,
     RetrievalQuery,
     RetrievalResult,
     RetrievedItem,
@@ -22,6 +24,7 @@ from memory_benchmark.core.provider_protocol import (
     TurnPair,
     UnitRef,
 )
+from memory_benchmark.core.validators import validate_no_private_keys
 
 
 def _turn(turn_id: str = "t1", role: str = "user", content: str = "hello") -> TurnEvent:
@@ -313,6 +316,90 @@ def test_retrieval_result_keeps_native_prompt_and_items() -> None:
 
     assert result.prompt_messages[0].content == "Question?"
     assert result.items == (item,)
+
+
+def test_evidence_assertion_valid_rejects_reason_fields() -> None:
+    """status=valid 时 reason_code/reason 必须都为 None。"""
+
+    assert EvidenceAssertion(status="valid").reason_code is None
+    with pytest.raises(ValueError, match="valid EvidenceAssertion"):
+        EvidenceAssertion(status="valid", reason_code="x", reason="y")
+
+
+@pytest.mark.parametrize("status", ["n_a", "pending"])
+def test_evidence_assertion_non_valid_requires_reason(status: str) -> None:
+    """status=n_a|pending 时 reason_code 与 reason 必须都是非空字符串。"""
+
+    with pytest.raises(ValueError, match="reason_code"):
+        EvidenceAssertion(status=status, reason=" spelled out ")
+    with pytest.raises(ValueError, match="reason"):
+        EvidenceAssertion(status=status, reason_code="code")
+    ok = EvidenceAssertion(status=status, reason_code="code", reason="human readable")
+    assert ok.status == status
+
+
+def test_retrieval_evidence_valid_provenance_requires_turn_or_session() -> None:
+    """semantic provenance=valid 时 granularity 只能是 turn|session。"""
+
+    for granularity in ("turn", "session"):
+        evidence = RetrievalEvidence(
+            semantic_provenance=EvidenceAssertion(status="valid"),
+            provenance_granularity=granularity,
+            stable_ranking=EvidenceAssertion(status="valid"),
+        )
+        assert evidence.provenance_granularity == granularity
+    with pytest.raises(ValueError, match="valid semantic_provenance"):
+        RetrievalEvidence(
+            semantic_provenance=EvidenceAssertion(status="valid"),
+            provenance_granularity="none",
+            stable_ranking=EvidenceAssertion(status="valid"),
+        )
+
+
+def test_retrieval_evidence_non_valid_provenance_requires_none() -> None:
+    """semantic provenance 非 valid 时 granularity 必须为 none。"""
+
+    with pytest.raises(ValueError, match="requires provenance_granularity='none'"):
+        RetrievalEvidence(
+            semantic_provenance=EvidenceAssertion(
+                status="n_a", reason_code="c", reason="r"
+            ),
+            provenance_granularity="turn",
+            stable_ranking=EvidenceAssertion(status="valid"),
+        )
+
+
+def test_retrieval_evidence_asdict_carries_no_private_keys() -> None:
+    """合法 RetrievalEvidence 可 asdict() 序列化且不含私有评分键。"""
+
+    from dataclasses import asdict
+
+    evidence = RetrievalEvidence(
+        semantic_provenance=EvidenceAssertion(status="valid"),
+        provenance_granularity="turn",
+        stable_ranking=EvidenceAssertion(
+            status="pending", reason_code="ranking_fidelity_not_audited", reason="r"
+        ),
+    )
+    payload = asdict(evidence)
+    validate_no_private_keys(payload)
+    assert payload["semantic_provenance"]["status"] == "valid"
+    assert payload["stable_ranking"]["reason_code"] == "ranking_fidelity_not_audited"
+
+
+def test_retrieval_result_carries_optional_evidence() -> None:
+    """RetrievalResult 默认 evidence 为 None，可携带逐题 RetrievalEvidence。"""
+
+    assert RetrievalResult(formatted_memory="m").evidence is None
+    evidence = RetrievalEvidence(
+        semantic_provenance=EvidenceAssertion(status="valid"),
+        provenance_granularity="session",
+        stable_ranking=EvidenceAssertion(
+            status="pending", reason_code="ranking_fidelity_not_audited", reason="r"
+        ),
+    )
+    result = RetrievalResult(formatted_memory="m", evidence=evidence)
+    assert result.evidence is evidence
 
 
 def test_memory_provider_default_capability_declarations() -> None:

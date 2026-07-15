@@ -347,6 +347,7 @@ def test_halumem_fake_registered_chain_runs_three_evaluators(tmp_path: Path) -> 
         run_scope=RunScope.SMOKE,
         answer_reader=_reader(),
         unified_prompt_builder=build_halumem_unified_answer_prompt,
+        retrieval_evidence_contract_version="v1",
     )
     paths = ExperimentPaths.create(run_context.run_dir)
     client = FakeHalumemJudgeClient()
@@ -367,6 +368,7 @@ def test_halumem_fake_registered_chain_runs_three_evaluators(tmp_path: Path) -> 
     manifest = json.loads(paths.manifest_path.read_text(encoding="utf-8"))
     assert manifest["method"]["protocol_version"] == "v3"
     assert manifest["method"]["prompt_track"] == "unified"
+    assert manifest["method"]["retrieval_evidence_contract_version"] == "v1"
     assert read_jsonl(paths.session_memory_reports_path)
     assert read_jsonl(paths.artifacts_dir / "update_probe_results.jsonl")
     assert read_jsonl(paths.method_predictions_path)

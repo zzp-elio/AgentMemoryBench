@@ -78,6 +78,7 @@ def run_operation_level_predictions(
     instrumentation_identity: dict[str, object] | None = None,
     protocol_version: str = "",
     provenance_granularity: str | None = None,
+    retrieval_evidence_contract_version: str | None = None,
 ) -> PredictionRunSummary:
     """运行 HaluMem operation-level prediction。
 
@@ -94,6 +95,8 @@ def run_operation_level_predictions(
         source_paths: 可选原始源文件路径，用于数据指纹。
         protocol_version: method 注册级 provider 协议版本声明。
         provenance_granularity: method 注册级 provenance 粒度声明。
+        retrieval_evidence_contract_version: method 注册级逐题 retrieval evidence
+            契约版本声明；非空时写入 manifest 作为 resume 身份。
 
     输出:
         PredictionRunSummary: 标准 prediction 摘要。
@@ -113,6 +116,9 @@ def run_operation_level_predictions(
             prompt_track="unified",
             system=provider,
             provenance_granularity=provenance_granularity,
+            retrieval_evidence_contract_version=(
+                retrieval_evidence_contract_version
+            ),
         )
         manifest = _build_operation_manifest(
             dataset=dataset,
@@ -609,6 +615,11 @@ def _answer_prompt_record(
         "retrieved_items": [
             asdict(item) for item in retrieval_result.items or ()
         ],
+        "retrieval_evidence": (
+            asdict(retrieval_result.evidence)
+            if retrieval_result.evidence is not None
+            else None
+        ),
     }
     validate_no_private_keys(record)
     return record

@@ -1077,5 +1077,30 @@ def test_retrieval_branch_exception_is_audited_as_degraded(
     ]
 
 
+def test_memoryos_known_benchmark_evidence_is_valid_turn(tmp_path: Path) -> None:
+    """已注册 benchmark 返回 valid(turn)，stable_ranking 保持 pending。"""
+
+    system = _build_system(tmp_path, benchmark_name="locomo")
+    evidence = system._build_retrieval_evidence()
+
+    assert evidence.semantic_provenance.status == "valid"
+    assert evidence.provenance_granularity == "turn"
+    assert evidence.stable_ranking.status == "pending"
+    assert evidence.stable_ranking.reason_code == "ranking_fidelity_not_audited"
+
+
+def test_memoryos_missing_benchmark_identity_is_pending(tmp_path: Path) -> None:
+    """identity 缺失/未知时返回 pending + none，不静态盖 valid。"""
+
+    for system in (
+        _build_system(tmp_path / "none"),
+        _build_system(tmp_path / "unknown", benchmark_name="mystery"),
+    ):
+        evidence = system._build_retrieval_evidence()
+        assert evidence.semantic_provenance.status == "pending"
+        assert evidence.semantic_provenance.reason_code == "benchmark_identity_missing"
+        assert evidence.provenance_granularity == "none"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])
