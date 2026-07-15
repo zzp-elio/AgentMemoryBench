@@ -14,11 +14,11 @@
 
 | 框架钩子 | adapter 行为 | 落到 Mem0 官方接口 |
 |---|---|---|
-| `ingest(TurnEvent)` | consume_granularity="turn"（adapter:278）；speaker→user/assistant 交替角色映射（:486-491） | `Memory.add([message], run_id=isolation_key, metadata=…, infer=config.infer, prompt=observation_time_prompt)`（adapter:493） |
-| `ingest(SessionBatch)` | turns 按 2 个一组切 chunk（:554-556） | 同上逐 chunk `Memory.add()`（:556） |
-| `end_session` | HaluMem 用：返回本 session `add().results` 产出的记忆（adapter:575-592，`SessionMemoryReport`） | 无额外调用（复用 add 返回值） |
+| `ingest(TurnEvent)` | `consume_granularity="turn"`；`_ingest_native_turn` 做 speaker→user/assistant 交替角色映射 | `_add_with_provenance` → `Memory.add([message], run_id=isolation_key, metadata=…, infer=…, prompt=…)` |
+| `ingest(SessionBatch)` | `_ingest_native_session`：常规 session 按位置两两切块；HaluMem `session_memory_report` 路径整 session 单次 add | 同上逐 chunk/session 调 `Memory.add()` |
+| `end_session` | HaluMem 用：返回本 session `add().results` 产出的 `SessionMemoryReport` | 无额外官方调用（复用 add 返回值） |
 | `end_conversation` | —（无钩子；Mem0 add 即建，无缓冲） | — |
-| `retrieve(query)` | 公开 Question 路径 :886/:892；v3 `_retrieve_native` :966/:972 | `Memory.search(...)` |
+| `retrieve(query)` | `retrieve` 处理公开 Question；`_retrieve_native` 处理 v3 `RetrievalQuery` | `Memory.search(..., filters={"run_id": isolation_key}, top_k=…)` |
 
 ## B1-B11 当前结论
 
