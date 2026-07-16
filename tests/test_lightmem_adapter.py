@@ -1486,7 +1486,11 @@ def test_lightmem_local_retrieval_provenance_scores_locomo_recall(
 ) -> None:
     """MemoryEntry 经本地向量链检索后应产出可评分的 canonical turn id。"""
 
-    from memory_benchmark.core import GoldAnswerInfo
+    from memory_benchmark.core import (
+        GoldAnswerInfo,
+        GoldEvidenceGroup,
+        GoldEvidenceGroupSet,
+    )
     from memory_benchmark.evaluators.locomo_recall import (
         LoCoMoRetrievalRecallEvaluator,
     )
@@ -1583,6 +1587,20 @@ def test_lightmem_local_retrieval_provenance_scores_locomo_recall(
                     question_id="q-1",
                     answer="tea",
                     evidence=["D1:1"],
+                    gold_evidence_contract_version="v1",
+                    evidence_group_sets=(
+                        GoldEvidenceGroupSet(
+                            provenance_granularity="turn",
+                            unit_kind="locomo_utterance",
+                            groups=(
+                                GoldEvidenceGroup(
+                                    unit_id="D1:1",
+                                    child_ids=("D1:1",),
+                                    mapping_status="mapped",
+                                ),
+                            ),
+                        ),
+                    ),
                 ),
                 question.category,
             )
@@ -1591,7 +1609,10 @@ def test_lightmem_local_retrieval_provenance_scores_locomo_recall(
     atomic_write_jsonl(paths.public_questions_path, [public_question_record(question)])
     result = LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(
         paths=paths,
-        manifest={"method": {"provenance_granularity": "turn"}},
+        manifest={
+            "benchmark_policy": {"gold_evidence_contract_version": "v1"},
+            "method": {"provenance_granularity": "turn"},
+        },
     )
 
     assert result["total_questions"] == 1
