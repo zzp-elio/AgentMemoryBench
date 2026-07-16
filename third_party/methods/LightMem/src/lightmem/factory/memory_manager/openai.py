@@ -293,7 +293,7 @@ class OpenaiManager:
             message_lines = []
 
             for mes in segment:
-                if mes.get("role") in allowed_roles:
+                if mes.get("role") in allowed_roles and not mes.get("memory_benchmark_structural_placeholder"):
                     sequence_id = mes["sequence_number"]
                     role = mes["role"]
                     content = mes.get("content", "")

@@ -33,6 +33,7 @@ class MemoryEntry:
     consolidated: bool = False
     bam_tags: List[Any] = field(default_factory=list)
     source_external_id: Optional[str] = None
+    source_external_ids: List[str] = field(default_factory=list)
     
 def clean_response(response: str) -> List[Dict[str, Any]]:
     """
@@ -67,8 +68,8 @@ def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, 
     normalizer 无损保留的缺失 timestamp）时，跳过该分组的 datetime 解析与
     `time_stamp` 覆写，使这些 message 的 `time_stamp` 保持 None；但仍按原
     `extract_list` 顺序为其分配 sequence_number，并继续把 timestamps/weekday/
-    speaker/external_ids 五条并行数组按索引对齐追加。非空 session_time 的解析、
-    offset 递增与既有行为完全不变。
+    speaker/external_ids/source_external_ids 六条并行数组按索引对齐追加。非空
+    session_time 的解析、offset 递增与既有行为完全不变。
     """
 
     from datetime import datetime, timedelta
@@ -80,6 +81,7 @@ def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, 
     weekday_list = []
     speaker_list = []
     external_ids = []
+    source_external_ids_list = []
     message_refs = []
     
     for segments in extract_list:
@@ -139,6 +141,15 @@ def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, 
                 }
                 speaker_list.append(speaker_info)
                 external_ids.append(message.get("external_id"))
+                raw_pair_ids = message.get("source_external_ids")
+                if isinstance(raw_pair_ids, list):
+                    pair_ids = [
+                        str(pid) for pid in raw_pair_ids
+                        if isinstance(pid, str) and pid.strip()
+                    ]
+                else:
+                    pair_ids = []
+                source_external_ids_list.append(pair_ids)
                 current_index += 1
 
     sequence_to_topic = {}
@@ -150,7 +161,7 @@ def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, 
                     seq = msg.get("sequence_number")
                     sequence_to_topic[seq] = tid
 
-    return extract_list, timestamps_list, weekday_list, speaker_list, external_ids, sequence_to_topic
+    return extract_list, timestamps_list, weekday_list, speaker_list, external_ids, sequence_to_topic, source_external_ids_list
 
 # TODO：merge into context retriever
 def save_memory_entries(memory_entries, file_path="memory_entries.json"):
@@ -233,6 +244,7 @@ def convert_extraction_results_to_memory_entries(
     max_source_ids: List[int] = None, 
     logger = None,
     external_ids: List[Optional[str]] = None,
+    source_external_ids_list: List[List[str]] = None,
 ) -> List[MemoryEntry]:
     """
     Convert extraction results to MemoryEntry objects.
@@ -301,6 +313,7 @@ def convert_extraction_results_to_memory_entries(
                     topic_summary="",
                     logger=logger,
                     external_ids=external_ids,
+                    source_external_ids_list=source_external_ids_list,
                 )
 
                 if mem_obj:
@@ -318,6 +331,7 @@ def _create_memory_entry_from_fact(
     topic_summary: str = "",
     logger = None,
     external_ids: List[Optional[str]] = None,
+    source_external_ids_list: List[List[str]] = None,
 ) -> Optional[MemoryEntry]:
     """从单条抽取 fact 构造 MemoryEntry 的辅助函数。
 
@@ -335,6 +349,8 @@ def _create_memory_entry_from_fact(
         topic_id: Topic ID for this memory entry
         topic_summary: Topic summary for this memory entry (reserved for future use)
         logger: Optional logger for warnings
+        external_ids: Legacy singular external id list
+        source_external_ids_list: Pair candidate external id list
         
     Returns:
         MemoryEntry object or None if creation fails
@@ -343,9 +359,6 @@ def _create_memory_entry_from_fact(
     sequence_n = source_id * 2
 
     try:
-        # 先读取 weekday/speaker/external_id 等 lineage 字段，再做 timestamp 转换。
-        # 这样 Membench 缺失时间兼容路径下 time_stamp=None 只会令 float=None，
-        # 不会因宽 catch 而连带清空 speaker/external_id/topic 等独立字段。
         time_stamp = timestamps_list[sequence_n]
         weekday = weekday_list[sequence_n]
         speaker_info = speaker_list[sequence_n]
@@ -353,8 +366,22 @@ def _create_memory_entry_from_fact(
         speaker_name = speaker_info.get('speaker_name', 'Unknown')
         source_external_id = external_ids[sequence_n] if external_ids else None
 
+        pair_ids: List[str] = []
+        if source_external_ids_list and sequence_n < len(source_external_ids_list):
+            raw = source_external_ids_list[sequence_n]
+            if isinstance(raw, list):
+                seen: set = set()
+                for pid in raw:
+                    if isinstance(pid, str) and pid.strip() and pid not in seen:
+                        seen.add(pid)
+                        pair_ids.append(pid)
+
+        if len(pair_ids) == 1:
+            source_external_id = pair_ids[0]
+        elif len(pair_ids) >= 2:
+            source_external_id = None
+
         if time_stamp is None:
-            # 缺失 source timestamp：保持 None，不解析 float，也不触发 except 兜底。
             float_time_stamp = None
         elif not isinstance(time_stamp, float):
             from datetime import datetime
@@ -373,6 +400,7 @@ def _create_memory_entry_from_fact(
         speaker_id = 'unknown'
         speaker_name = 'Unknown'
         source_external_id = None
+        pair_ids = []
     
     mem_obj = MemoryEntry(
         time_stamp=time_stamp,
@@ -385,6 +413,7 @@ def _create_memory_entry_from_fact(
         topic_summary=topic_summary,
         consolidated=False, 
         source_external_id=source_external_id,
+        source_external_ids=list(pair_ids) if pair_ids else [],
     )
     
     return mem_obj

@@ -4,13 +4,15 @@
 > 状态：**method-frozen-v1 定点重开（B2/B4/B5/B9/B10/B11）**。online-soft
 > lifecycle 卡已强验收合入主线 `825132f`，B6/lifecycle identity 关闭；LoCoMo
 > post-update 保留为另名补充轨。MemBench 时间语义 Phase A 与 LightMem preserve-none
-> Phase B 的 timestamp 子门仍有效；但 `messages_use="user_only"`、BEAM role laundering 与
-> MemBench pair 拼接使 B4 role fidelity 重新 pending。原冻结的 answer/judge/成本证据继续有效；
-> 当前状态见 [LightMem B1-B11 gap matrix](../../workstreams/ws02.7-method-track/branches/method-recertification/lightmem/notes/lightmem-b1-b11-gap-matrix.md)。
-> 2026-07-16 补充：unified 主 build 已裁为 `messages_use="hybrid"`，官方 LongMemEval
-> Table 2 的 `user_only` 仅作 reproduction profile。源码 extraction `source_id` 是 pair
-> index 且后续固定读 user slot，故 hybrid 的 assistant 可见性不自动等于 turn-level
-> exact lineage；LoCoMo、MemBench pair-step、LongMemEval/BEAM 的 retrieval 资格须分格裁。
+> Phase B 的 timestamp 子门仍有效。
+> 2026-07-16 补充：**hybrid role profile 卡施工完成**——unified 主 build 已改为
+> `messages_use="hybrid"`（adapter version 升至 `conversation-qa-v4`），通用
+> role-slot normalizer 保留真实 role、只补结构占位；pair candidate ids 作为纯观测
+> 链路穿过抽取管线到 Qdrant payload。官方 LongMemEval Table 2 的 `user_only` 仅作
+> reproduction profile。源码 extraction `source_id` 是 pair index 且后续固定读 user
+> slot，故 hybrid 的 assistant 可见性不自动等于 turn-level exact lineage；
+> RetrievalEvidence 逐 benchmark 诚实矩阵已落地。详见
+> `ws02.7/branches/method-recertification/lightmem/notes/lightmem-hybrid-role-profile-implementation.md`。
 > 更新纪律：每过一项 B 判据 / 发现特殊情况，更新本文对应节。2026-07-13 建。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`

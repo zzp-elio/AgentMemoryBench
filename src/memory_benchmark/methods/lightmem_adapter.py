@@ -68,7 +68,8 @@ from memory_benchmark.observability.efficiency import (
 
 
 LIGHTMEM_METHOD_DIRECTORY = "LightMem"
-LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v3"
+LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v4"
+LIGHTMEM_MESSAGES_USE_VALUES = ("user_only", "assistant_only", "hybrid")
 LIGHTMEM_LIFECYCLE_PROFILES = ("online_soft", "locomo_offline_consolidated")
 LIGHTMEM_MISSING_TIMESTAMP_POLICIES = ("preserve_none", "require")
 # Phase 1 已注册的 benchmark 身份；identity 不在此集合时 provenance 记 pending。
@@ -83,6 +84,7 @@ _LIGHTMEM_UNAUDITED_STABLE_RANKING = EvidenceAssertion(
 )
 LIGHTMEM_READER_PROMPT_VERSION = "lightmem-reader-v1"
 LIGHTMEM_MEMORY_LLM_MODEL_ID = "lightmem-memory-llm"
+LIGHTMEM_PLACEHOLDER_MARKER = "memory_benchmark_structural_placeholder"
 _LIGHTMEM_IMPORT_LOCK = threading.Lock()
 LIGHTMEM_MODEL_DOWNLOADS = {
     "embedding_model_path": "sentence-transformers/all-MiniLM-L6-v2",
@@ -154,6 +156,13 @@ class LightMemConfig:
             严格值 `require`，避免 dataclass 默认暗中启用 preserve_none。裁决见
             `docs/workstreams/ws02.7-method-track/branches/membench-time-semantics/
             notes/lightmem-missing-time-compatibility-ruling.md`。
+        messages_use: 消息角色过滤策略，只接受三个严格值。
+            `user_only`=只使用 user 消息进行抽取（官方 LongMemEval Table 2
+            reproduction profile）；`assistant_only`=只使用 assistant 消息；
+            `hybrid`=同时使用 user 与 assistant 消息（Phase 1 五格 unified 主
+            profile）。dataclass 默认保持 `user_only`，避免直接构造时暗中改变
+            reproduction；TOML 的 smoke 与 official_full 都显式写 `hybrid`。
+            backend config 必须从本字段读取，禁止硬编码。
         profile_name: 可审计 profile 名称。
     """
 
@@ -178,6 +187,7 @@ class LightMemConfig:
     suppress_official_stdout: bool = True
     lifecycle_profile: str = "online_soft"
     missing_timestamp_policy: str = "require"
+    messages_use: str = "user_only"
     profile_name: str = "custom"
 
     def __post_init__(self) -> None:
@@ -238,6 +248,15 @@ class LightMemConfig:
                 f"lifecycle_profile={self.lifecycle_profile!r}. Consolidated/summary "
                 "profiles depend on real timestamps and must use "
                 "missing_timestamp_policy='require'."
+            )
+        if (
+            not isinstance(self.messages_use, str)
+            or self.messages_use not in LIGHTMEM_MESSAGES_USE_VALUES
+        ):
+            allowed = ", ".join(LIGHTMEM_MESSAGES_USE_VALUES)
+            raise ConfigurationError(
+                f"LightMem messages_use must be one of: {allowed}; "
+                f"got {self.messages_use!r}"
             )
 
     def validate_required_local_resources(self, path_settings: PathSettings) -> None:
@@ -458,6 +477,194 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 "shape, path names, or question fields."
             )
 
+    def _normalize_session_to_pairs(
+        self,
+        session: Session,
+        conversation: Conversation,
+    ) -> list[list[dict[str, object]]]:
+        """把 session turns 转为 LightMem pair batch 列表。
+
+        LoCoMo（``benchmark_name == "locomo"``）继续按官方 named-speaker 姿势：
+        每条真实 utterance 放 user slot + 一个 empty assistant slot；两 slot 都
+        保留同一个真实 speaker/time。
+
+        其余四家读取 canonical ``normalized_role``，只接受 user/assistant，并按
+        原始顺序生成 pair：相邻 user→assistant 同一 pair；user 后仍是 user 或
+        末尾 dangling user 补 placeholder assistant；assistant-first 或
+        assistant 后仍是 assistant 补 placeholder user。placeholder 携带内部
+        marker ``memory_benchmark_structural_placeholder=True``，content 为空，
+        镜像同 pair 真实 child 的 timestamp/speaker/external_ids。
+
+        缺 benchmark identity 且遇到非 user/assistant role 时 fail-fast。
+        """
+
+        is_locomo = self.benchmark_name == "locomo"
+        batches: list[list[dict[str, object]]] = []
+        if is_locomo:
+            for turn in session.turns:
+                batches.append(
+                    self._locomo_pair(session, turn, conversation)
+                )
+            return batches
+
+        turns = list(session.turns)
+        index = 0
+        while index < len(turns):
+            current = turns[index]
+            current_role = self._canonical_role(current)
+            current_msg = self._real_message(current, session, current_role)
+            current_ids = [current.turn_id]
+
+            if current_role == "user":
+                if (
+                    index + 1 < len(turns)
+                    and self._canonical_role(turns[index + 1]) == "assistant"
+                ):
+                    assistant = turns[index + 1]
+                    assistant_msg = self._real_message(
+                        assistant, session, "assistant"
+                    )
+                    pair_ids = list(current_ids)
+                    pair_ids.append(assistant.turn_id)
+                    self._stamp_pair_ids(
+                        current_msg, assistant_msg, pair_ids
+                    )
+                    batches.append([current_msg, assistant_msg])
+                    index += 2
+                else:
+                    placeholder = self._placeholder_message(
+                        "assistant", current, session
+                    )
+                    self._stamp_pair_ids(
+                        current_msg, placeholder, list(current_ids)
+                    )
+                    batches.append([current_msg, placeholder])
+                    index += 1
+            else:
+                placeholder = self._placeholder_message(
+                    "user", current, session
+                )
+                self._stamp_pair_ids(
+                    placeholder, current_msg, list(current_ids)
+                )
+                batches.append([placeholder, current_msg])
+                index += 1
+        return batches
+
+    def _canonical_role(self, turn: Turn) -> str:
+        """读取 turn 的 canonical role，只接受 user/assistant。"""
+
+        role = turn.normalized_role
+        if not role:
+            role = turn.metadata.get("role") if turn.metadata else None
+        if not role:
+            role = turn.speaker
+        normalized = str(role).strip().lower()
+        if normalized not in {"user", "assistant"}:
+            if self.benchmark_name is None:
+                raise ConfigurationError(
+                    f"LightMem turn {turn.turn_id} has role {role!r} that is not "
+                    "user/assistant, and benchmark_name was not injected; cannot "
+                    "determine pairing strategy"
+                )
+            raise ConfigurationError(
+                f"LightMem turn {turn.turn_id} role must be user or assistant "
+                f"for benchmark {self.benchmark_name!r}; got {role!r}"
+            )
+        return normalized
+
+    def _real_message(
+        self,
+        turn: Turn,
+        session: Session,
+        role: str,
+    ) -> dict[str, object]:
+        """把真实 turn 转为 LightMem message dict。"""
+
+        timestamp = _turn_timestamp(
+            turn, session, self.config.missing_timestamp_policy
+        )
+        return {
+            "role": role,
+            "content": turn.content,
+            "speaker_id": turn.speaker,
+            "speaker_name": turn.speaker,
+            "time_stamp": timestamp,
+            "external_id": turn.turn_id,
+        }
+
+    def _placeholder_message(
+        self,
+        role: str,
+        mirror_turn: Turn,
+        session: Session,
+    ) -> dict[str, object]:
+        """构造结构占位 message，镜像同 pair 真实 child 的 time/speaker。"""
+
+        timestamp = _turn_timestamp(
+            mirror_turn, session, self.config.missing_timestamp_policy
+        )
+        return {
+            "role": role,
+            "content": "",
+            "speaker_id": mirror_turn.speaker,
+            "speaker_name": mirror_turn.speaker,
+            "time_stamp": timestamp,
+            "external_id": mirror_turn.turn_id,
+            LIGHTMEM_PLACEHOLDER_MARKER: True,
+        }
+
+    @staticmethod
+    def _stamp_pair_ids(
+        user_msg: dict[str, object],
+        assistant_msg: dict[str, object],
+        pair_ids: list[str],
+    ) -> None:
+        """把稳定去重的 pair candidate ids 写到两个 slot。"""
+
+        seen: set[str] = set()
+        stable: list[str] = []
+        for candidate in pair_ids:
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                stable.append(candidate)
+        user_msg["source_external_ids"] = list(stable)
+        assistant_msg["source_external_ids"] = list(stable)
+
+    def _locomo_pair(
+        self,
+        session: Session,
+        turn: Turn,
+        conversation: Conversation,
+    ) -> list[dict[str, object]]:
+        """LoCoMo 官方 named-speaker pair：真实 user + 空 assistant。"""
+
+        timestamp = _turn_timestamp(
+            turn, session, self.config.missing_timestamp_policy
+        )
+        speaker_id = _locomo_speaker_id(conversation, turn)
+        speaker_name = turn.speaker
+        user_msg: dict[str, object] = {
+            "role": "user",
+            "content": turn.content,
+            "speaker_id": speaker_id,
+            "speaker_name": speaker_name,
+            "time_stamp": timestamp,
+            "external_id": turn.turn_id,
+            "source_external_ids": [turn.turn_id],
+        }
+        assistant_msg: dict[str, object] = {
+            "role": "assistant",
+            "content": "",
+            "speaker_id": speaker_id,
+            "speaker_name": speaker_name,
+            "time_stamp": timestamp,
+            "external_id": turn.turn_id,
+            LIGHTMEM_PLACEHOLDER_MARKER: True,
+            "source_external_ids": [turn.turn_id],
+        }
+        return [user_msg, assistant_msg]
+
     @staticmethod
     def build_backend_config(
         config: LightMemConfig,
@@ -518,7 +725,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             "topic_segment": config.topic_segment,
             "precomp_topic_shared": True,
             "topic_segmenter": {"model_name": "llmlingua-2"},
-            "messages_use": "user_only",
+            "messages_use": config.messages_use,
             "metadata_generate": True,
             "text_summary": config.text_summary,
             "memory_manager": {
@@ -670,17 +877,23 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         if not batch.events:
             raise ConfigurationError("LightMem HaluMem session batch has no events")
         self._ensure_native_metadata(batch.events[0])
-        # 先构造消息（含 timestamp 门）再创建 backend，保证 require 策略在 backend
-        # 工厂被调用前 fail-fast。HaluMem 均有时间，成功路径调用序列不变。
-        messages = self._native_session_messages(batch)
+        conversation = self._native_conversation_from_events(batch.events)
+        session = conversation.sessions[0]
+        pairs = self._normalize_session_to_pairs(session, conversation)
+        if not pairs:
+            raise ConfigurationError(
+                "LightMem HaluMem session produced no pair batches"
+            )
         backend = self._get_or_create_backend(batch.isolation_key)
         with self._capture_inserted_memories(backend) as captured_memories:
-            self._suppress_stdout_if_needed(
-                backend.add_memory,
-                messages,
-                force_segment=True,
-                force_extract=True,
-            )
+            for pair_index, pair_messages in enumerate(pairs):
+                is_last = pair_index == len(pairs) - 1
+                self._suppress_stdout_if_needed(
+                    backend.add_memory,
+                    pair_messages,
+                    force_segment=is_last,
+                    force_extract=is_last,
+                )
         self._session_report_memories[(batch.isolation_key, batch.session_id)] = list(
             captured_memories
         )
@@ -805,23 +1018,25 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         self._suppress_stdout_if_needed(backend.add_memory, messages, **kwargs)
 
     def _native_turn_batch(self, event: TurnEvent) -> list[dict[str, object]]:
-        """把 v3 TurnEvent 转成 LightMem LoCoMo 单 turn batch。"""
+        """把 v3 TurnEvent 转成 LightMem 单 turn batch。"""
 
         conversation = self._native_conversation_from_events((event,))
-        batches = self._conversation_to_locomo_batches(conversation)
+        session = conversation.sessions[0]
+        batches = self._normalize_session_to_pairs(session, conversation)
         if len(batches) != 1:
             raise ConfigurationError("LightMem native turn produced invalid batch count")
         return batches[0]
 
     def _native_pair_batch(self, pair: TurnPair) -> list[dict[str, object]] | None:
-        """把 v3 TurnPair 转成 LightMem LongMemEval pair batch。
+        """把 v3 TurnPair 转成 LightMem pair batch。
 
-        orphan pair（session 开头无 user 锚点的 turn）经官方开头裁剪后没有
-        可写消息，返回 None 表示跳过——与旧路径整段 session 裁剪行为等价。
+        orphan pair（session 开头无 user 锚点的 turn）经正常化后没有
+        可写消息时返回 None——与旧路径整段 session 裁剪行为等价。
         """
 
         conversation = self._native_conversation_from_events(pair.turns)
-        batches = self._conversation_to_longmemeval_batches(conversation)
+        session = conversation.sessions[0]
+        batches = self._normalize_session_to_pairs(session, conversation)
         if not batches:
             return None
         if len(batches) != 1:
@@ -833,7 +1048,8 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
         conversation = self._native_conversation_from_events(batch.events)
         session = conversation.sessions[0]
-        return [self._turn_to_role_message(turn, session) for turn in session.turns]
+        pairs = self._normalize_session_to_pairs(session, conversation)
+        return [msg for pair in pairs for msg in pair]
 
     def _native_conversation_from_events(
         self,
@@ -1023,20 +1239,19 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     def _build_retrieval_evidence(
         self, items: tuple[RetrievedItem, ...] | None
     ) -> RetrievalEvidence:
-        """按实际 lifecycle profile + 逐题 items 陈述 LightMem 的 evidence 事实。
+        """按 lifecycle profile + benchmark identity + 逐题 items 陈述 evidence 事实。
 
-        资格取决于注册显式注入的 `self.benchmark_name` 和实际 lifecycle，而不是
-        source_path/问题时间启发式：
+        逐 benchmark 诚实矩阵（pair candidate ids 只证明 extraction input）：
 
-        - benchmark identity 缺失/未知：pending + none；
-        - `locomo_offline_consolidated` 补充轨：恒为 n_a + none，post-build
-          consolidation 不提供 output-to-source mapping；
-        - `online_soft` 主轨：`items is not None`（含空 tuple 的真实 0 hit）为
-          valid + turn，`items is None`（本次 lineage 不可用）为 n_a + none。
+        - LoCoMo + online_soft + items 可用（含空 tuple）：valid / turn；
+        - MemBench + online_soft：pending / none（等 canonical split + gold group）；
+        - LongMemEval + online_soft：n_a / none（pair source_id 不能证明具体 turn）；
+        - BEAM + online_soft：n_a / none（官方 gold 是单 message，pair 过粗）；
+        - HaluMem + online_soft：n_a / none（memory-point gold 无 turn qrel）；
+        - identity 缺失/未知：pending / none；
+        - locomo_offline_consolidated：恒 n_a / none。
 
-        注意 `items=()` 与 `items is None` 语义不同：前者是检索 0 hit、仍可 valid；
-        后者才表示本次 hit lineage 不可用。stable_ranking 因逐 method rank 审计未完成
-        一律 pending。
+        stable_ranking 继续 pending。
         """
 
         if self.benchmark_name not in _LIGHTMEM_REGISTERED_BENCHMARKS:
@@ -1059,16 +1274,66 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 ),
             )
             granularity = "none"
-        elif items is not None:
+        elif self.benchmark_name == "locomo" and items is not None:
             semantic = EvidenceAssertion(status="valid")
             granularity = "turn"
-        else:
+        elif self.benchmark_name == "locomo" and items is None:
             semantic = EvidenceAssertion(
                 status="n_a",
                 reason_code="retrieval_hit_lineage_incomplete",
                 reason=(
-                    "at least one retrieval hit is missing its source_external_id, so "
-                    "the fact-to-turn lineage is incomplete for this question"
+                    "at least one retrieval hit is missing its source_external_ids, "
+                    "so the fact-to-turn lineage is incomplete for this question"
+                ),
+            )
+            granularity = "none"
+        elif self.benchmark_name == "membench":
+            semantic = EvidenceAssertion(
+                status="pending",
+                reason_code="membench_canonical_split_pending",
+                reason=(
+                    "MemBench FirstAgent canonical split and pair-step gold group "
+                    "must be resolved before turn-level provenance can be asserted"
+                ),
+            )
+            granularity = "none"
+        elif self.benchmark_name == "longmemeval":
+            semantic = EvidenceAssertion(
+                status="n_a",
+                reason_code="pair_source_id_not_turn_exact",
+                reason=(
+                    "extraction source_id is a pair index; pair candidate ids cannot "
+                    "prove which specific user or assistant turn contributed a fact"
+                ),
+            )
+            granularity = "none"
+        elif self.benchmark_name == "beam":
+            semantic = EvidenceAssertion(
+                status="n_a",
+                reason_code="beam_gold_is_single_message",
+                reason=(
+                    "BEAM gold source_chat_ids are single messages; pair candidate "
+                    "ids are too coarse for message-level provenance"
+                ),
+            )
+            granularity = "none"
+        elif self.benchmark_name == "halumem":
+            semantic = EvidenceAssertion(
+                status="n_a",
+                reason_code="halumem_no_turn_qrel",
+                reason=(
+                    "HaluMem memory-point gold has no turn-level qrel; pair "
+                    "candidate ids cannot be mapped to evaluation units"
+                ),
+            )
+            granularity = "none"
+        else:
+            semantic = EvidenceAssertion(
+                status="pending",
+                reason_code="benchmark_identity_missing",
+                reason=(
+                    "benchmark_name was not injected, so retrieval provenance cannot "
+                    "be asserted yet"
                 ),
             )
             granularity = "none"
@@ -1401,10 +1666,11 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     def _retrieved_items_from_lightmem_memories(
         memories: list[Any],
     ) -> tuple[RetrievedItem, ...] | None:
-        """把带 external id 的 payload 转成 turn-level provenance items。
+        """把带 external ids 的 payload 转成 turn-level provenance items。
 
-        旧状态或未附 `external_id` 的调用路径没有无损来源信息；遇到任一此类
-        命中时整次检索回落为无 provenance，而不是返回部分来源制造假 recall。
+        v4 adapter 只信任合法、非空、稳定去重的 plural ``source_external_ids``
+        并形成 ``RetrievedItem.source_turn_ids`` tuple。旧 singular-only store
+        不再被 v4 当 exact；version bump 已要求重建。
         """
 
         items: list[RetrievedItem] = []
@@ -1414,8 +1680,20 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             payload = memory.get("payload")
             if not isinstance(payload, dict):
                 return None
-            source_external_id = payload.get("source_external_id")
-            if not isinstance(source_external_id, str) or not source_external_id.strip():
+            raw_plural = payload.get("source_external_ids")
+            if not isinstance(raw_plural, list) or not raw_plural:
+                return None
+            seen: set[str] = set()
+            stable_ids: list[str] = []
+            for candidate in raw_plural:
+                if (
+                    isinstance(candidate, str)
+                    and candidate.strip()
+                    and candidate not in seen
+                ):
+                    seen.add(candidate)
+                    stable_ids.append(candidate)
+            if not stable_ids:
                 return None
             item_id = str(memory.get("id") or "").strip()
             content = _format_lightmem_memory(memory)
@@ -1431,7 +1709,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                     content=content,
                     score=score,
                     timestamp=timestamp,
-                    source_turn_ids=(source_external_id,),
+                    source_turn_ids=tuple(stable_ids),
                     metadata={"source": str(memory.get("source") or "vector")},
                 )
             )
@@ -1443,16 +1721,15 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     ) -> list[list[dict[str, object]]]:
         """把统一 conversation 转换为官方 `add_memory()` 调用批次。
 
-        LightMem 的 LoCoMo 脚本把每条原始发言包装为 `user(content)+assistant("")`；
-        LongMemEval 脚本按真实 `user+assistant` pair 写入。这里根据公开
-        source metadata 选择对应转换，避免把整个 conversation 一次性喂给
-        LightMemory。
+        使用通用 role-slot normalizer：LoCoMo 按官方 named-speaker 姿势，其余四家
+        按 canonical role 生成 pair（含结构占位）。
         """
 
-        if _is_longmemeval_conversation(conversation):
-            batches = self._conversation_to_longmemeval_batches(conversation)
-        else:
-            batches = self._conversation_to_locomo_batches(conversation)
+        batches: list[list[dict[str, object]]] = []
+        for session in conversation.sessions:
+            batches.extend(
+                self._normalize_session_to_pairs(session, conversation)
+            )
         if not batches:
             raise ConfigurationError(
                 f"LightMem conversation has no addable turn batches: "

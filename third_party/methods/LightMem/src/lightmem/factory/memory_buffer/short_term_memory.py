@@ -16,7 +16,12 @@ class ShortMemBufferManager:
         }
 
         allowed_roles = role_map.get(messages_use, [])
-        text_list = [msg["content"] for msg in messages if msg["role"] in allowed_roles]
+        text_list = [
+            msg["content"]
+            for msg in messages
+            if msg["role"] in allowed_roles
+            and not msg.get("memory_benchmark_structural_placeholder")
+        ]
 
         text = " ".join(text_list)
 

@@ -121,9 +121,10 @@ def test_lightmem_config_accepts_valid_lifecycle_profiles(
     assert config.lifecycle_profile == lifecycle_profile
 
 
-def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version_v3() -> None:
-    """公开 manifest 必须携带 lifecycle_profile 与 missing_timestamp_policy，
-    adapter_version 升级为 v3（旧 v2 manifest 由全 manifest 比较拒绝 resume）。"""
+def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version_v4() -> None:
+    """公开 manifest 必须携带 lifecycle_profile、missing_timestamp_policy 与
+    messages_use，adapter_version 升级为 v4（旧 v3 manifest 由全 manifest 比较拒绝
+    resume）。"""
 
     config = LightMemConfig(
         llm_model="gpt-4o-mini",
@@ -140,11 +141,12 @@ def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version
 
     assert manifest["lifecycle_profile"] == "online_soft"
     assert manifest["missing_timestamp_policy"] == "require"
-    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v3"
+    assert manifest["messages_use"] == "user_only"
+    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v4"
 
 
 def test_lightmem_toml_profiles_declare_online_soft_lifecycle_explicitly() -> None:
-    """smoke/official_full TOML profile 都应显式声明 online_soft，不依赖 dataclass 默认。"""
+    """smoke/official_full TOML profile 都应显式声明 online_soft 与 hybrid messages_use。"""
 
     toml_path = (
         load_path_settings().project_root / "configs" / "methods" / "lightmem.toml"
@@ -157,6 +159,8 @@ def test_lightmem_toml_profiles_declare_online_soft_lifecycle_explicitly() -> No
     assert official_full.lifecycle_profile == "online_soft"
     assert smoke.missing_timestamp_policy == "preserve_none"
     assert official_full.missing_timestamp_policy == "preserve_none"
+    assert smoke.messages_use == "hybrid"
+    assert official_full.messages_use == "hybrid"
 
 
 def test_lightmem_source_identity_covers_official_core_files() -> None:
@@ -378,6 +382,7 @@ class FakeLightMemEmbeddingRetriever:
                     "time_stamp": "2026-01-01T00:00:00.000",
                     "weekday": "Thu",
                     "source_external_id": "D1:1",
+                    "source_external_ids": ["D1:1"],
                 },
             },
             {
@@ -389,6 +394,7 @@ class FakeLightMemEmbeddingRetriever:
                     "time_stamp": "2026-01-01T00:00:01.000",
                     "weekday": "Thu",
                     "source_external_id": "D1:2",
+                    "source_external_ids": ["D1:2"],
                 },
             },
             {
@@ -400,6 +406,7 @@ class FakeLightMemEmbeddingRetriever:
                     "time_stamp": "2026-01-01T00:00:02.000",
                     "weekday": "Thu",
                     "source_external_id": "D2:1",
+                    "source_external_ids": ["D2:1"],
                 },
             },
         ]
@@ -1031,6 +1038,7 @@ def test_lightmem_sequence_assignment_keeps_none_group_aligned() -> None:
         speaker_list,
         external_ids,
         _seq_to_topic,
+        _source_external_ids_list,
     ) = lm_utils.assign_sequence_numbers_with_timestamps(
         extract_list, offset_ms=500, topic_id_mapping=[[0]]
     )
@@ -1509,6 +1517,7 @@ def test_lightmem_local_retrieval_provenance_scores_locomo_recall(
                 memory="Alice likes tea.",
                 speaker_name="Alice",
                 source_external_id="D1:1",
+                source_external_ids=["D1:1"],
             )
         ]
     )
@@ -1525,6 +1534,7 @@ def test_lightmem_local_retrieval_provenance_scores_locomo_recall(
         ),
         backend_factory=lambda _conversation_id: backend,
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
     )
     method._backends["conv-1"] = backend
     method._conversation_metadata["conv-1"] = {
@@ -1660,6 +1670,7 @@ def test_lightmem_add_and_get_answer_with_fake_backend() -> None:
         ),
         backend_factory=lambda conversation_id: backend,
         answer_client=chat,
+        benchmark_name="locomo",
     )
     conversation = _lightmem_conversation()
 
@@ -1684,13 +1695,14 @@ def test_lightmem_add_and_get_answer_with_fake_backend() -> None:
 
 
 @pytest.mark.parametrize(
-    ("conversation_factory", "native_builder", "expected_message_count"),
+    ("conversation_factory", "native_builder", "expected_message_count", "benchmark_name"),
     (
-        (_locomo_style_lightmem_conversation, build_lightmem_locomo_native_answer_prompt, 1),
+        (_locomo_style_lightmem_conversation, build_lightmem_locomo_native_answer_prompt, 1, "locomo"),
         (
             _longmemeval_style_lightmem_conversation,
             build_lightmem_longmemeval_native_answer_prompt,
             2,
+            "longmemeval",
         ),
     ),
 )
@@ -1698,6 +1710,7 @@ def test_lightmem_native_builder_passes_through_adapter_prompt_messages(
     conversation_factory,
     native_builder,
     expected_message_count: int,
+    benchmark_name: str,
 ) -> None:
     """真实 adapter retrieve 到 native builder 应逐字透传官方 prompt messages。"""
 
@@ -1715,6 +1728,7 @@ def test_lightmem_native_builder_passes_through_adapter_prompt_messages(
         ),
         backend_factory=lambda conversation_id: backend,
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name=benchmark_name,
     )
     conversation = conversation_factory()
     method.add([conversation])
@@ -1750,6 +1764,7 @@ def test_lightmem_retrieve_missing_external_id_falls_back_without_error() -> Non
     backend = FakeLightMemoryBackend()
     for entry in backend.embedding_retriever.entries:
         entry["payload"].pop("source_external_id", None)
+        entry["payload"].pop("source_external_ids", None)
     method = LightMem(
         config=LightMemConfig(
             llm_model="gpt-4o-mini",
@@ -1763,6 +1778,7 @@ def test_lightmem_retrieve_missing_external_id_falls_back_without_error() -> Non
         ),
         backend_factory=lambda _conversation_id: backend,
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
     )
     conversation = _locomo_style_lightmem_conversation()
     method.add([conversation])
@@ -1835,6 +1851,7 @@ def test_lightmem_add_uses_locomo_single_turn_incremental_feeding() -> None:
         ),
         backend_factory=lambda conversation_id: backend,
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
     )
 
     method.add([_locomo_style_lightmem_conversation()])
@@ -1892,6 +1909,7 @@ def test_lightmem_locomo_add_online_soft_skips_offline_update() -> None:
         ),
         backend_factory=lambda conversation_id: backend,
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
     )
 
     method.add([_locomo_style_lightmem_conversation()])
@@ -2038,11 +2056,13 @@ def test_native_lightmem_locomo_matches_bridge_online_soft_force_sequence() -> N
         ),
         backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
     )
     native = LightMem(
         config=bridge.config,
         backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
     )
 
     bridge_result = run_bridge_sequence(
@@ -2338,12 +2358,14 @@ def test_native_lightmem_longmemeval_assistant_first_skips_orphan_like_official_
         config=config,
         backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="longmemeval",
     )
     native = LightMem(
         config=config,
         backend_factory=lambda conversation_id: FakeLightMemoryBackend(),
         answer_client=FakeLightMemAnswerClient(),
         consume_granularity="pair",
+        benchmark_name="longmemeval",
     )
 
     bridge_result = run_bridge_sequence(
@@ -2363,12 +2385,14 @@ def test_native_lightmem_longmemeval_assistant_first_skips_orphan_like_official_
 
     assert bridge_result.calls == native_result.calls
     add_calls = [call for call in native_result.calls if call["op"] == "add_memory"]
-    assert len(add_calls) == 2
-    assert [message["content"] for message in add_calls[0]["messages"]] == [
+    assert len(add_calls) == 3
+    assert add_calls[0]["messages"][0].get("memory_benchmark_structural_placeholder") is True
+    assert add_calls[0]["messages"][1]["content"] == "Welcome back!"
+    assert [message["content"] for message in add_calls[1]["messages"]] == [
         "I like tea.",
         "Tea is noted.",
     ]
-    assert [call["force_extract"] for call in add_calls] == [False, True]
+    assert [call["force_extract"] for call in add_calls] == [False, False, True]
 
 
 def test_lightmem_halumem_session_reports_are_incremental_and_force_flushed() -> None:
@@ -2736,6 +2760,7 @@ def test_lightmem_locomo_reader_prompt_uses_official_memory_layout() -> None:
         ),
         backend_factory=lambda conversation_id: backend,
         answer_client=chat,
+        benchmark_name="locomo",
     )
     conversation = _locomo_style_lightmem_conversation()
     method.add([conversation])
@@ -2769,6 +2794,7 @@ def test_lightmem_locomo_get_answer_uses_qdrant_payload_vector_search() -> None:
         ),
         backend_factory=lambda conversation_id: backend,
         answer_client=chat,
+        benchmark_name="locomo",
     )
     conversation = _locomo_style_lightmem_conversation()
     method.add([conversation])
@@ -2809,6 +2835,7 @@ def test_lightmem_retrieve_locomo_uses_specialized_context() -> None:
         ),
         backend_factory=lambda conversation_id: backend,
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
     )
     conversation = _locomo_style_lightmem_conversation()
     method.add([conversation])
@@ -2920,6 +2947,7 @@ def test_lightmem_records_question_efficiency_observations() -> None:
         backend_factory=lambda conversation_id: backend,
         answer_client=chat,
         efficiency_collector=collector,
+        benchmark_name="locomo",
     )
     conversation = _lightmem_conversation()
     method.add([conversation])
@@ -2969,6 +2997,7 @@ def test_lightmem_prefers_api_usage_when_answer_client_exposes_usage() -> None:
         backend_factory=lambda conversation_id: backend,
         answer_client=chat,
         efficiency_collector=collector,
+        benchmark_name="locomo",
     )
     conversation = _lightmem_conversation()
     method.add([conversation])
@@ -3110,6 +3139,7 @@ def test_lightmem_production_backend_receives_openai_and_storage_settings(
         ),
         storage_root=tmp_path / "lightmem-state",
         answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
     )
 
     method.add([_lightmem_conversation()])
@@ -3134,3 +3164,233 @@ def test_lightmem_production_backend_receives_openai_and_storage_settings(
     retriever_config = official_config["embedding_retriever"]["configs"]
     assert retriever_config["collection_name"].startswith("lightmem_conv-1")
     assert str(tmp_path / "lightmem-state") in retriever_config["path"]
+
+
+# === hybrid role profile 强反例（2026-07-16） ===
+
+
+@pytest.mark.parametrize("messages_use", ["user_only", "assistant_only", "hybrid"])
+def test_lightmem_config_accepts_valid_messages_use(messages_use: str) -> None:
+    """三个合法 messages_use 值都应通过强校验。"""
+
+    config = LightMemConfig(
+        llm_model="gpt-4o-mini",
+        embedding_model_path="models/all-MiniLM-L6-v2",
+        llmlingua_model_path="models/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+        retrieve_limit=60,
+        max_workers=1,
+        messages_use=messages_use,
+    )
+    assert config.messages_use == messages_use
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    ["", "  ", "HYBRID", "User_Only", "all", 42, None],
+)
+def test_lightmem_config_rejects_invalid_messages_use(bad_value) -> None:
+    """空白、大小写、未知、非字符串 messages_use 都应被拒绝。"""
+
+    with pytest.raises(ConfigurationError, match="messages_use"):
+        LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path="models/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+            retrieve_limit=60,
+            max_workers=1,
+            messages_use=bad_value,
+        )
+
+
+def test_lightmem_backend_config_reads_messages_use_from_config() -> None:
+    """build_backend_config 必须从 config.messages_use 读取，禁止硬编码。"""
+
+    openai_settings = OpenAISettings(
+        api_key="sk-test", base_url="https://example.invalid/v1"
+    )
+    for value in ("user_only", "assistant_only", "hybrid"):
+        config = LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path="models/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+            retrieve_limit=60,
+            max_workers=1,
+            messages_use=value,
+        )
+        backend_config = LightMem.build_backend_config(
+            config=config,
+            openai_settings=openai_settings,
+            storage_root="/tmp/test",
+            conversation_id="conv-1",
+            project_root="/tmp",
+        )
+        assert backend_config["messages_use"] == value
+
+
+def test_lightmem_normalizer_locomo_pair_preserves_named_speaker() -> None:
+    """LoCoMo normalizer 应生成 user(真实) + assistant(placeholder) pair。"""
+
+    system = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path="models/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+            retrieve_limit=60,
+            max_workers=1,
+        ),
+        backend_factory=lambda _id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
+    )
+    conversation = _lightmem_conversation()
+    session = conversation.sessions[0]
+    batches = system._normalize_session_to_pairs(session, conversation)
+
+    assert len(batches) == 2
+    first_pair = batches[0]
+    assert first_pair[0]["role"] == "user"
+    assert first_pair[0]["content"] == "I like tea."
+    assert first_pair[0]["speaker_name"] == "Alice"
+    assert first_pair[1]["role"] == "assistant"
+    assert first_pair[1]["content"] == ""
+    assert first_pair[1].get("memory_benchmark_structural_placeholder") is True
+    assert first_pair[0]["source_external_ids"] == ["t-1"]
+    assert first_pair[1]["source_external_ids"] == ["t-1"]
+
+
+def test_lightmem_normalizer_generic_pair_handles_all_sequences() -> None:
+    """通用 normalizer 应正确处理所有 role 序列。"""
+
+    system = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path="models/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+            retrieve_limit=60,
+            max_workers=1,
+        ),
+        backend_factory=lambda _id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="longmemeval",
+    )
+
+    session_normal = Session(
+        session_id="s1",
+        session_time="2026-01-01",
+        turns=[
+            Turn(turn_id="u1", speaker="user", normalized_role="user", content="hi"),
+            Turn(turn_id="a1", speaker="assistant", normalized_role="assistant", content="hello"),
+        ],
+    )
+    conv = Conversation(conversation_id="c1", sessions=[session_normal])
+    batches = system._normalize_session_to_pairs(session_normal, conv)
+    assert len(batches) == 1
+    assert batches[0][0]["role"] == "user"
+    assert batches[0][1]["role"] == "assistant"
+    assert batches[0][0]["source_external_ids"] == ["u1", "a1"]
+
+    session_user_user = Session(
+        session_id="s2",
+        session_time="2026-01-01",
+        turns=[
+            Turn(turn_id="u1", speaker="user", normalized_role="user", content="a"),
+            Turn(turn_id="u2", speaker="user", normalized_role="user", content="b"),
+        ],
+    )
+    conv2 = Conversation(conversation_id="c2", sessions=[session_user_user])
+    batches2 = system._normalize_session_to_pairs(session_user_user, conv2)
+    assert len(batches2) == 2
+    assert batches2[0][0]["role"] == "user"
+    assert batches2[0][1].get("memory_benchmark_structural_placeholder") is True
+    assert batches2[1][0]["role"] == "user"
+    assert batches2[1][1].get("memory_benchmark_structural_placeholder") is True
+
+    session_dangling = Session(
+        session_id="s3",
+        session_time="2026-01-01",
+        turns=[
+            Turn(turn_id="u1", speaker="user", normalized_role="user", content="bye"),
+        ],
+    )
+    conv3 = Conversation(conversation_id="c3", sessions=[session_dangling])
+    batches3 = system._normalize_session_to_pairs(session_dangling, conv3)
+    assert len(batches3) == 1
+    assert batches3[0][0]["role"] == "user"
+    assert batches3[0][0]["content"] == "bye"
+    assert batches3[0][1].get("memory_benchmark_structural_placeholder") is True
+
+    session_asst_assistant = Session(
+        session_id="s4",
+        session_time="2026-01-01",
+        turns=[
+            Turn(turn_id="a1", speaker="assistant", normalized_role="assistant", content="x"),
+            Turn(turn_id="a2", speaker="assistant", normalized_role="assistant", content="y"),
+        ],
+    )
+    conv4 = Conversation(conversation_id="c4", sessions=[session_asst_assistant])
+    batches4 = system._normalize_session_to_pairs(session_asst_assistant, conv4)
+    assert len(batches4) == 2
+    assert batches4[0][0].get("memory_benchmark_structural_placeholder") is True
+    assert batches4[0][1]["role"] == "assistant"
+    assert batches4[1][0].get("memory_benchmark_structural_placeholder") is True
+    assert batches4[1][1]["role"] == "assistant"
+
+
+def test_lightmem_normalizer_rejects_unknown_role_without_benchmark() -> None:
+    """缺 benchmark identity 且遇到非 user/assistant role 时应 fail-fast。"""
+
+    system = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path="models/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+            retrieve_limit=60,
+            max_workers=1,
+        ),
+        backend_factory=lambda _id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name=None,
+    )
+    session = Session(
+        session_id="s1",
+        session_time="2026-01-01",
+        turns=[
+            Turn(turn_id="t1", speaker="Alice", content="hi"),
+        ],
+    )
+    conv = Conversation(conversation_id="c1", sessions=[session])
+    with pytest.raises(ConfigurationError, match="benchmark_name"):
+        system._normalize_session_to_pairs(session, conv)
+
+
+def test_lightmem_evidence_matrix_per_benchmark() -> None:
+    """RetrievalEvidence 矩阵逐 benchmark 锁 status/reason/granularity。"""
+
+    items_empty: tuple[RetrievedItem, ...] = ()
+    items_none = None
+
+    locomo = _lightmem_evidence_system(benchmark_name="locomo")
+    assert locomo._build_retrieval_evidence(items_empty).semantic_provenance.status == "valid"
+    assert locomo._build_retrieval_evidence(items_empty).provenance_granularity == "turn"
+    assert locomo._build_retrieval_evidence(items_none).semantic_provenance.status == "n_a"
+
+    membench = _lightmem_evidence_system(benchmark_name="membench")
+    ev = membench._build_retrieval_evidence(items_empty)
+    assert ev.semantic_provenance.status == "pending"
+    assert ev.semantic_provenance.reason_code == "membench_canonical_split_pending"
+    assert ev.provenance_granularity == "none"
+
+    lme = _lightmem_evidence_system(benchmark_name="longmemeval")
+    ev = lme._build_retrieval_evidence(items_empty)
+    assert ev.semantic_provenance.status == "n_a"
+    assert ev.semantic_provenance.reason_code == "pair_source_id_not_turn_exact"
+
+    beam = _lightmem_evidence_system(benchmark_name="beam")
+    ev = beam._build_retrieval_evidence(items_empty)
+    assert ev.semantic_provenance.status == "n_a"
+    assert ev.semantic_provenance.reason_code == "beam_gold_is_single_message"
+
+    halu = _lightmem_evidence_system(benchmark_name="halumem")
+    ev = halu._build_retrieval_evidence(items_empty)
+    assert ev.semantic_provenance.status == "n_a"
+    assert ev.semantic_provenance.reason_code == "halumem_no_turn_qrel"

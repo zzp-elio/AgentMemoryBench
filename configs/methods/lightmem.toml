@@ -15,6 +15,10 @@
 # 原样保持 None 透传给 direct insert，绝不伪造时间。不依赖 dataclass 默认（默认为严格
 # 的 require），两个 section 都显式写。consolidated 补充轨仍须用 require。裁决见
 # branches/membench-time-semantics/notes/lightmem-missing-time-compatibility-ruling.md。
+# messages_use（2026-07-16 hybrid role profile）：Phase 1 五格 unified 主 build 固定
+# hybrid，同时使用 user 与 assistant 消息进行事实抽取。dataclass 默认为 user_only
+# （LongMemEval Table 2 reproduction profile），两个 section 都显式写 hybrid。
+# 裁决见 branches/input-role-semantics/notes/lightmem-messages-membench-beam-role-audit.md。
 
 [smoke]
 llm_model = "gpt-4o-mini"
@@ -34,6 +38,7 @@ text_summary = true
 suppress_official_stdout = true
 lifecycle_profile = "online_soft"
 missing_timestamp_policy = "preserve_none"
+messages_use = "hybrid"
 
 [official_full]
 llm_model = "gpt-4o-mini"
@@ -53,3 +58,4 @@ text_summary = true
 suppress_official_stdout = true
 lifecycle_profile = "online_soft"
 missing_timestamp_policy = "preserve_none"
+messages_use = "hybrid"
