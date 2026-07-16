@@ -1,6 +1,6 @@
 # BEAM 评测流程卡（现行契约）
 
-更新日期：2026-07-11（B4 `frozen-v1`；冻结记录见
+更新日期：2026-07-16（evidence-group 复核；旧冻结记录见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/beam-frozen-v1.md`）
 
 ## 1. 官方流程（一手：`third_party/benchmarks/BEAM/src/`）
@@ -35,8 +35,9 @@ evaluate：artifact-only
   │    主分 float【已声明偏差：官方 int() 截断 0.5，prompt 意图为准】
   │    + llm_judge_score_official_int 对照分【供论文数字对比】；
   │    event_ordering 复合分按官方有效行为）
-  ├── beam-recall（conditional：turn provenance 按公开 id 空间
-  │    any-match；未声明 N/A；abstention N/A；session 粒度显式报错
+  ├── beam-recall（framework_supplementary；官方 evaluation 不消费 source_chat_ids；
+  │    turn provenance 按 evaluator-private raw-id group any-match；1M 歧义 id 可多 child；
+  │    未声明 N/A；abstention N/A；session 粒度显式报错
   │    不静默【sN 前缀派生留 Method Track】）
   └── f1（framework 补充，非官方）
 ```

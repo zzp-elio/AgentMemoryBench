@@ -9,7 +9,7 @@
 | [`membench-time-semantics`](membench-time-semantics/README.md) | 100k message/question 时间隔离、LightMem preserve-none、Mem0 effective-time 渲染 | Phase A+B+C 离线验收；三格内容抽查并入后续 product-default B11 |
 | [`retrieval-metrics`](retrieval-metrics/README.md) | 逐题 RetrievalEvidence、Recall/NDCG 资格、LongMemEval depth/分母 | M0 已验收 → evaluator M1 待架构师起草 |
 | [`dual-track-identity`](dual-track-identity/README.md) | 通用产品/eval 实现身份、product-default build 轴、partial-native、MemoryOS reproduction variant | M0 R1/R2 已关闭；作为稳定判例供 B9/B10/B11 消费 |
-| [`input-role-semantics`](input-role-semantics/README.md) | canonical speaker role、benchmark gold evidence unit、Recall/NDCG 分母 | docs-only evidence-unit 审计可派；生产修复在裁决前暂停 |
+| [`input-role-semantics`](input-role-semantics/README.md) | canonical speaker role、benchmark gold evidence unit、Recall/NDCG 分母 | 审计已验收纠错；gold schema M0 与 LightMem hybrid 可并行，MemBench split 后置 |
 | [`method-recertification`](method-recertification/README.md) | 共享修复完成后按现行 commit 逐 method 重走 B1-B11，不靠历史 frozen 惯性 | LightMem 当前唯一 active method；先 gap matrix，后决定施工卡，严格串行 |
 
 每条支线用自身 README 记录范围、文档索引和稳定依赖顺序，`cards/` 放可整份复制给

@@ -13,7 +13,8 @@
 ## 0. 结论先行
 
 1. 五 benchmark 的 gold evidence unit 各不相同且与 canonical `Turn` 不同构：MemBench=
-   pair 级 step、BEAM=单条 message（但 raw id 仅 conversation 内唯一）、LoCoMo=单条
+   pair 级 step、BEAM=本意指向单条 message 的 raw id（但 frozen 1M 有 conversation 内
+   session 间 id 重启、一 id 对多 turn）、LoCoMo=单条
    utterance、LongMemEval=user 侧 has_answer turn + gold session 双粒度、HaluMem=
    memory-point fact 级（无 turn 回指，turn-level qrel 诚实 N/A）。
 2. **唯一首选推荐：方案 1「gold evidence group」**——benchmark adapter 在 load 时把一个
@@ -87,11 +88,11 @@ vendored 源发布，其存储 step 整数是否与 0 基 target 有 off-by-one 
 |---|---|
 | 官方 gold 字段 | `probing_questions`（Python-repr 字符串列）内每题的 `source_chat_ids`；结构三态：flat `list[int]`、语义分组 dict（如 contradiction 的 `{first_statement, second_statement}`）、`None`（abstention 恒 None） |
 | 指向容器 | **一个 chat id = 一条单 speaker message**，与 canonical Turn 同构。铁证：生成侧 `BEAM/src/beam/main.py:2313` `chat_id: {message['id']}, {ROLE}: {content}`（Fable 亲核） |
-| id 唯一性 | conversation 内 0..N-1 全局连续（跨 session 不重置）；**跨 conversation 从 0 重启**——全局定位必须复合键 `(conversation_id, id)` |
+| id 唯一性 | 通常 conversation 内连续、跨 conversation 从 0 重启；但 frozen 1M 的 row 4/25/32/33 存在 session 间 id 从 0 重启，分别产生 150/424/206/940 个重复 raw id。全局定位必须至少复合 `(conversation_id, id)`；异常 row 内仍需 raw id→多个 canonical turn 的 group 映射 |
 | 官方消费 | **官方评测完全不消费 `source_chat_ids`**：`evaluation/compute_metrics.py` 10 个 `evaluate_*`（:339-636）只吃 rubric+response 走 LLM judge，`grep source_chat_ids evaluation/`=0（Fable 亲核）。它是生成期 provenance 元数据。**框架 BEAM recall 是补充指标，无官方分母可 parity**（`beam_recall.py:16-19` 已自标 `framework_supplementary`） |
 | evidence role 分布 | 100K：information_extraction 7/40 assistant-only、13/40 mixed；summarization 12/40 assistant-only、21/40 mixed；multi_session_reasoning 14/40 mixed。**「证据只在 user 侧」不成立** |
 | canonical 映射（现状） | `beam.py:623` `turn_id=f"{session_id}:t{turn_index}"`（10M 为 `p{n}:s{m}:t{k}`，`:501`）；raw id 进 `Turn.metadata["id"]`（`:629`）；`_map_evidence_turn_ids`（`:522-547`）load 时把 raw id 映射为公开 turn_id 列表，连同 ambiguous/unmatched 计数落私有 `GoldAnswerInfo.metadata`（`:402-414`，`evidence=[]` `:428`）；公开 `Question.metadata={}`（`:422`）；`core/validators.py:61` 黑名单拦 `source_chat_ids` |
-| 一 unit 多 child？ | 否（1 id = 1 message = 1 turn，退化单元素 group）；但 raw id 理论一对多时 adapter 已有 ambiguous 防御（实测恒 0） |
+| 一 unit 多 child？ | 正常数据中否；但 1M 四个异常 conversation 中 raw id 实际一对多。当前全量 load 得到 41 个 `ambiguous_gold_id_count>0` 的题、逐题累计 198 个歧义 raw-id 原子；adapter 已把每个 raw id 映射到全部候选 canonical turn，因此这些 gold unit 必须保留多 child any-of group |
 | 分母/异常 | `beam_recall.py:90-101` `hits/len(evidence)` 逐 gold turn any-match；abstention/空 evidence 题记 `score=None,status="n/a"` 不进均值（`:71-88`）——**这是全框架唯一把空 gold 正确记 n/a 的 evaluator**，可作 LME/MemBench 修正样板。10M 超长 evidence（event_ordering 单题至 83 id）；10M 恰 2 处 user→user adjacency（conv `1` id 13676→13677、conv `2` id 12990→12991），pair 聚合 orphan 分支必须保留 |
 | 公开 artifact 最少保存 | 题干/category/conversation_id。turn_id 与 chat id 列表都是答案定位器，必须私有；现状安全 |
 
@@ -136,7 +137,7 @@ vendored 源发布，其存储 step 整数是否与 0 基 target 有 off-by-one 
 | benchmark | gold unit | =canonical Turn? | 拆分后 1 unit 多 child? | 官方多 evidence 语义 | 空 gold 官方处理 |
 |---|---|---|---|---|---|
 | MemBench | pair 级 step（0 基 int） | 否（FirstAgent） | 是（user+assistant 两 child） | 逐 step 部分给分，分母去重 | 数据孤例（1 题）；官方 scorer 对空 std 会除零，无显式处理 |
-| BEAM | 单 message（conversation 内唯一 int id） | 是 | 否 | 官方不评；框架补充指标逐 id 部分给分 | abstention 恒 None；框架记 n/a（正确样板） |
+| BEAM | 本意为单 message 的 int id；1M 四个 conversation 内有重复 | 通常是；异常 id 否 | 异常 id 是 | 官方不评；框架补充指标逐 id/group 部分给分 | abstention 恒 None；框架记 n/a（正确样板） |
 | LoCoMo | 单 utterance dia_id | 是 | 否 | 逐 dia_id 部分给分 | 记 1（官方原生） |
 | LongMemEval | user 侧 has_answer turn + gold session | turn 级是（但限 user role） | 否 | any/all/ndcg 三口径 | **整题剔除**（run_retrieval 路径） |
 | HaluMem | memory point（fact） | 否（非 turn 概念） | N/A | LLM judge | N/A |
@@ -154,7 +155,8 @@ method adapter 是否被迫特判 / 迁移风险与强反例。
 计分，分母=官方 unit 数。
 
 - **表达力**：五家全覆盖且各自退化优雅——MemBench FirstAgent step→2 元素 group、
-  ThirdAgent→1 元素 group；BEAM/LoCoMo/LME turn 级→1 元素 group（现状语义字节级不变）；
+  ThirdAgent→1 元素 group；LoCoMo/LME turn 级→1 元素 group；BEAM 正常 raw id→1 元素、
+  1M 异常 raw id→多个候选 turn 的 any-of group；
   LME session gold→「该 session 全部 turn」的 group 恰好等于官方 turn→session 上卷语义，
   与 spec §5 框架向上聚合原则同构；HaluMem→无 qrel，不建 group，指标 N/A。
 - **泄漏**：零。group 只存在于 `GoldAnswerInfo`/evaluator-private label；provider 继续
@@ -261,8 +263,9 @@ provider/method/公开 artifact 侧：**零改动**。`retrieval_evidence_contra
 ## 5. 分阶段迁移顺序（依赖序，均需架构师逐段验收）
 
 1. **契约先行**：`GoldAnswerInfo`/private label 增 `evidence_groups` + schema version +
-   共享 group 计分 helper；四家非 MemBench adapter 以 1 元素 group 迁移（语义不变，可
-   用旧新双跑断言数值恒等）；evaluator 对旧版 label fail-fast。
+   共享 group 计分 helper；LoCoMo/LongMemEval 以 1 元素 group 迁移，BEAM 同时覆盖正常
+   1 元素与 1M 歧义多元素 group，HaluMem 不建 retrieval qrel；evaluator 对旧版 label
+   fail-fast。
 2. **MemBench canonical split 施工卡**：adapter 拆 FirstAgent step 为两条 turn，gold
    展开为 2 元素 group；强反例见 §6。
 3. **LME 官方口径修正**（可并入 M1）：gold turn 过滤 `role=='user'`、实现 51 题
@@ -306,7 +309,8 @@ LightMem unified-hybrid 卡与本契约正交，可并行推进。
 - 官方 recall 去重口径对齐（同题重复 target 当前为 0，测试仍需钉死 group 集合语义）。
 
 **BEAM 强反例**：assistant-only gold 题（100K information_extraction）可正常计分；
-raw id 跨 conversation 重复必须复合 namespace 隔离；10M 两处 user→user adjacency
+raw id 跨 conversation 重复必须复合 namespace 隔离；1M row 4/25/32/33 的 session 内重启
+必须形成多 child any-of group（全量当前值为 41 题/198 个逐题歧义原子）；10M 两处 user→user adjacency
 （conv `1` 13676→13677、conv `2` 12990→12991）在 pair 聚合下产出 orphan/dangling 而非
 静默吞并；abstention `None` evidence 记 n/a 不记 1；dict 三形态展平顺序稳定。
 
@@ -337,3 +341,41 @@ framework_supplementary；Mem0×BEAM turn recall 维持 n_a（eligibility ruling
   路径为 canonical，最终由架构师拍板。
 
 本卡范围内无需要中止的停工条件命中；以上各项均不阻塞 §5 迁移顺序的裁决。
+
+## 8. 架构师强验收、纠错与正式裁决（2026-07-16）
+
+架构师在 main `a5ddf01` 上逐锚回读，并独立复跑 actor 文档门（`5 passed in 0.78s`）。
+LongMemEval cleaned 数据重算得到：500 题、`_abs=30`、non-abs no-user-target=51、
+主路径分母 419、任意 role 都无目标=21（且全属 abs）、assistant-side true turn=54；与本文
+LME 主体一致。正式裁决以直接生成 retrieval 结果并现场聚合的
+`run_retrieval.py:389-410` 为 official-parity canonical（419）；
+`print_retrieval_metrics.py:12` 的 470 作为官方辅助脚本矛盾披露，不用于主口径。
+
+强验收同时推翻 actor 首轮 BEAM 唯一性结论：全量 Arrow 重扫确认 1M 四个 conversation
+内部真实重复 raw id，当前 adapter 全量 load 进一步得到 41 个含歧义题、198 个逐题歧义
+原子；10M 另有 1 个 unmatched 原子。上文相关表格已由架构师纠正。该错误不推翻方案 1，
+反而证明 gold group 不能被实现成“永远单元素”的别名。
+
+最终裁决：**采用 evaluator-private gold evidence group。**MemBench FirstAgent 一个官方
+pair-step 映射为 `{user_child, assistant_child}` any-of group，分母仍按去重后的官方 step
+数；ThirdAgent 为单元素 group。provider/method 继续只见 canonical turns 与自身
+`source_turn_ids`，gold group 不进入任何公开通道。BEAM recall 永久标
+`framework_supplementary`；HaluMem turn recall 维持 N/A。实施前先落私有 qrel schema 与
+version，再拆 MemBench canonical role，禁止反序施工。
+
+架构师对 §4 草图再收紧两层。第一，单个 `evidence_groups + evidence_unit_kind` 无法同时
+表达 LongMemEval 同题的 turn/session 两套 gold view；生产契约应是
+`GoldEvidenceGroupSet{provenance_granularity, unit_kind, groups}` 的集合，evaluator 按当前
+逐题 provenance view 选择对应 set。第二，裸 `list[list[str]]` 无法区分“本题没有 gold”与
+“官方有 gold unit、但它映射不到任何 canonical child”（MemBench 两个越界 target、BEAM
+10M 的 `'--'` 都需要后者）。因此 group 本身必须是强类型对象：
+`GoldEvidenceGroup{unit_id, child_ids, mapping_status}`；`mapping_status="mapped"` 要求至少
+一个非空且去重的 child，`"unmatched"` 要求 child 为空并在分母中按 miss 计。一个
+`GoldEvidenceGroupSet.groups=()` 才表示该 view 合法但无 gold、指标 N/A。
+
+LoCoMo 可同时提供 turn/session view，BEAM/MemBench 只有 turn view，HaluMem 为空。
+该私有标签此前没有显式版本，因此首个严格版本命名为独立的
+`gold_evidence_contract_version="v1"`，不是含混的 “v2”；它属于 **benchmark/private-label
+identity**，应进 benchmark policy/manifest，而不是 method manifest。旧无版本 label/resume
+明确 fail-fast。旧 `GoldAnswerInfo.evidence` 暂保答案/历史兼容用途，但 retrieval evaluator
+不得再把扁平 evidence 当权威 group。

@@ -1,6 +1,6 @@
 # MemBench 评测流程卡（现行契约）
 
-更新日期：2026-07-11（B3 `frozen-v1`；冻结记录见
+更新日期：2026-07-16（canonical role/evidence-unit 定点解冻；旧冻结记录见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/membench-frozen-v1.md`）
 
 ## 1. 官方流程（一手：`third_party/benchmarks/Membench-main/benchmark/`）
@@ -20,7 +20,8 @@
 
 ```
 ingest：per trajectory（=conversation）按 step 顺序注入公开 turn
-  （第一人称 1 dict message = 1 turn；第三人称 1 str = 1 turn）
+  （第一人称 1 dict step = user turn + assistant turn；第三人称 1 str step = 1 user turn；
+   place/time 原文逐侧保留，无时间 noise=None）
 retrieve：该 trajectory 唯一 question 一次 RetrievalQuery
 answer：unified MCQ prompt（官方 INSTRUCTION_FIRST 逐字，含 typo；
   {memory} = formatted_memory 原样；{time} = 公开 question_time；四选项
@@ -31,8 +32,9 @@ answer：unified MCQ prompt（官方 INSTRUCTION_FIRST 逐字，含 typo；
 evaluate：artifact-only
   ├── membench-choice-accuracy（主指标；解析成功 → 字母精确比较；解析
   │    失败 → 判错 + details 记 parse_failed=true 分开统计）
-  └── membench-recall（conditional：method 声明 turn provenance 按公开
-       turn-id 空间对 evidence 匹配；session 粒度 → N/A（单 session 无
+  └── membench-recall（conditional：method 声明 turn provenance 后，evaluator 私有
+       step group 对 retrieved child turn ids 做 any-of；一个官方 step 只计一次；
+       session 粒度 → N/A（单 session 无
        结构可召回）；未声明 → N/A；越界 gold 记 unmatched + 单独计数；
        空 evidence → N/A + 计数）
   f1 不适用（MCQ，注册面排除）
@@ -46,7 +48,7 @@ knowledge_update/lowlevel_rec/RecMultiSession/noisy/highlevel…）——
 ## 3. Smoke / Resume（`MEMBENCH_SMOKE_POLICY` / `MEMBENCH_RESUME_POLICY`）
 
 - **标准 smoke（认证口径）= 0_10k 的 4 个源文件各 1 条 trajectory**：
-  第一人称 1 round（=1 turn）、第三人称 2 turns，各 1 题。依据 = 路径
+  第一人称 1 step（=2 canonical turns）、第三人称 2 turns，各 1 题。依据 = 路径
   覆盖原则（spec §6.7）：冒号 bug 实证数据形态差异按**文件**分布，每个
   full 会加载的源文件必须至少过一次 parser；边际成本 2 条 trajectory。
 - `--membench-sources first_high,first_low,third_high,third_low`
@@ -60,6 +62,8 @@ knowledge_update/lowlevel_rec/RecMultiSession/noisy/highlevel…）——
 - 官方 json_schema 结构化输出 vs 框架自由文本解析：偏差已记冻结清单。
 - answer LLM 参数官方不可考（benchutils 外部依赖），框架取值如实标注。
 - 官方 capacity/efficiency 维度未纳入 Phase 1。
+- canonical split 与 private evidence-group schema 尚待 ws02.7 施工；在该门关闭前旧
+  “1 dict step=1 turn”产物不得继续证明 Recall 或 LightMem B4。
 - 离线全链路证据：`tests/test_membench_registered_prediction.py`
   （4 源双人称路径 + 无冒号 turn_time 非空 + category_breakdown +
   privacy 扫描，零真实 API）。

@@ -1,6 +1,6 @@
 # LongMemEval 评测流程卡（现行契约）
 
-更新日期：2026-07-10（B2 `frozen-v1`；冻结记录见
+更新日期：2026-07-16（retrieval gold/分母定点解冻；旧冻结记录见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/longmemeval-frozen-v1.md`）
 
 ## 1. 官方流程（一手：`third_party/benchmarks/LongMemEval-main/src/`）
@@ -17,7 +17,9 @@
    输出 overall + per-question_type accuracy（`:130-132`）。
    `print_qa_metrics.py:16` 锁定官方报告 judge = `gpt-4o-2024-08-06`。
 3. 官方另有 retrieval（recall_any/recall_all/ndcg_any，turn/session 粒度）与
-   index expansion 任务，Phase 1 不进主线。
+   index expansion。`run_retrieval.py` 主路径只建 user corpus，并剔除 30 个 abs +
+   51 个 no-user-target，canonical 分母=419；辅助 print 脚本只剔 abs 得 470，登记为
+   upstream 矛盾。
 
 ## 2. 本框架四步映射（现行契约）
 
@@ -34,8 +36,9 @@ evaluate：artifact-only
   ├── longmemeval-judge（主指标；官方 5+1 模板 7/7 逐字 parity；
   │    judge 模型按项目基座 gpt-4o-mini，与论文 gpt-4o 有已声明偏差）
   ├── f1（framework 补充，零特判，framework_supplementary）
-  └── longmemeval-recall（conditional：method 声明 turn/session provenance
-       即按该粒度评，未声明 N/A；abstention 题 N/A；匹配键=公开 id 空间）
+  └── longmemeval-recall / rank（framework supplementary + official-parity 口径：
+       先过逐题 RetrievalEvidence 资格门；turn gold 只取 user-side target；
+       abs/no-user-target 按主路径 N/A；匹配键=private evidence group）
 ```
 
 分类别聚合由通用 `category_breakdown`（`runners/evaluation.py:219`）承接，
@@ -55,6 +58,7 @@ question_type 即 category——**每类分开报告，不只有聚合值**。
 
 - `_m`（2.7GB）只做过数据剖面与单 instance 流式加载验证，未做全链路。
 - judge 模型 gpt-4o-mini vs 论文 gpt-4o 的偏差在真实运行报告中必须声明。
-- 官方 recall_all / ndcg_any 扩展口径未纳入。
+- k30/50 仍被 prediction top_k=10 挡住；depth 拆分前只能报告 available k，不能冒充
+  官方完整 k coverage。
 - 离线全链路证据：`tests/test_longmemeval_registered_prediction.py`
   （真实 registry + 真实 `_s` 切片 + B0 probe + fake reader，零真实 API）。

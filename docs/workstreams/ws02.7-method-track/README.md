@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem role/evidence-unit 共享门审计中）
+status: in-progress（gold evidence M0 + LightMem hybrid 两卡待并行派发）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -86,19 +86,33 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   提醒可用；恢复是后台动作，不自动向用户播报机械台词。Track identity M0 已经 R1/R2
   强验收关闭：新 registered run 统一盖 typed v1 identity，旧缺 v1 不得 resume，evaluate
   严格消费，fake registration 也须显式声明 pending、不得回查另一张全局表猜身份。当前唯一
-  method 主线已转入 `branches/method-recertification/`，LightMem gap matrix 已落盘。新发现
-  `messages_use=user_only`、BEAM role laundering 与 MemBench pair 拼接，使 B2/B4/B5/B9/B10/B11
-  定点重开。下一动作是把 `branches/input-role-semantics/cards/
-  actor-prompt-evidence-unit-contract-audit.md` 派给 Fable 5 做 docs-only 高判断审计；其回卡经
-  架构师裁决后，才写 MemBench canonical split 与 LightMem unified-hybrid 施工卡。之后再接
-  RetrievalEvidence M1，严格串行 Mem0 → MemoryOS → A-Mem → SimpleMem。
+  method 主线已转入 `branches/method-recertification/`。Fable evidence-unit 审计已验收并由
+  架构师纠正 BEAM 全量结论：LME canonical 分母=419，BEAM 1M 当前为 41 个含歧义题/198
+  个歧义原子；采用强类型 evaluator-private gold group。LightMem unified 五格固定 hybrid，
+  但 extraction source_id 是 pair index，assistant 可见性不自动证明 turn-level exact lineage。
+  当前可并行派两张正交卡：gold evidence contract M0 与 LightMem hybrid role profile；M0
+  验收后才拆 MemBench canonical pair，再接 RetrievalEvidence M1。之后严格串行 Mem0 →
+  MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-16）
 
-- 2026-07-16（**LightMem role fidelity 定点重开；MemBench canonical turn 解冻；Fable
-  evidence-unit 审计待用户派发**，GPT-5 架构师）：OpenCode + DeepSeek V4 Flash 提供的两条
+- 2026-07-16（**Fable evidence-unit 回卡强验收完成；gold M0 与 LightMem hybrid 可并行**，
+  GPT-5 架构师）：Fable 5 `0e38358` docs-only 审计由架构师复跑 `5 passed in 0.78s` 并合入
+  `8e108e4`；核心 gold-group 方案采纳，但 actor 的“BEAM conversation 内 id 唯一/歧义恒 0”
+  被全量 Arrow + adapter 重扫推翻，现行数字为 1M 四个异常 conversation、41 个含歧义题、
+  198 个逐题歧义原子，10M 另有 1 个 unmatched。LME 两官方聚合路径裁定主
+  `run_retrieval.py` 的 419 为 parity canonical，470 仅披露为辅助脚本冲突。私有 schema
+  进一步收紧为 `GoldEvidenceGroup(unit_id, child_ids, mapping_status)` + 多 view
+  `GoldEvidenceGroupSet`，version 属 benchmark policy，不属 method。LightMem PR #72 仍是
+  open docs-only；源码继续证明 extraction `source_id` 是 pair index、后续固定读 user slot。
+  因此 unified 主 build 采用 hybrid + role-slot placeholder，但 LME turn/BEAM message
+  provenance 不得因“内容可见”冒充 exact。两张自包含卡待用户并行派发；MemBench split
+  必须等 gold M0 验收，零真实 API。
+
+- 2026-07-16（**历史断点，已被上方 Fable 回卡强验收取代；当时审计待派**，GPT-5
+  架构师）：OpenCode + DeepSeek V4 Flash 提供的两条
   线索经架构师独立读源码和真实数据复核。① LightMem `messages_use=user_only` 确实把
   assistant 排除在 extraction prompt 外；官方 collaborator 也确认 LongMemEval Table 2 初版
   就是 user-only。裁决：它是可复现但受限的 reproduction profile，不是 role-complete unified

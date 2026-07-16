@@ -28,6 +28,7 @@
 | 2026-07-16 | Claude Code / MiniMax M3；时长/reasoning 未提供 | Mem0 source-time 单次渲染 | `6af75a3` → `7752dab`（重建 commit identity） | actor/架构师 `61 passed`；架构师五 benchmark 扩展 `170 passed`；主树 `1243 passed` | **9.3** | accepted |
 | 2026-07-16 | 混合入口：CC+GLM-5.2 → MiniMax M3；中途崩溃/压缩；唯一模型归因不可核 | Track identity M0 首轮 | `81f2708` → `dcd3e7b`（须 R1/R2 收口） | actor `282 passed`；架构师 full diff 抓 MemoryOS 假身份、双事实源、evaluate/resume 缺口 | **6.0** | rework；不计入任何模型聚合 |
 | 2026-07-16 | Codex subagent；用户指定 5.6 sol/medium，平台细分档位未独立核实 | Track identity M0 R1 + R2 | `cba25a8` + `2beda2d` → `d6fd56f` + `d032d45` | R1 `416 passed`；首次主树全量 `4 failed/1302 passed`；R2 定点 `5 passed`；最终主树 `1307 passed` | **9.2** | accepted after full-suite rework |
+| 2026-07-16 | Fable 5；约 10min；授权并使用 3 个 Opus 只读 subagent；约耗 Claude 5h 窗口 50%（用户提供） | 五 benchmark gold evidence-unit 高判断审计 | `0e38358` → `8e108e4` | actor/架构师 docs `5 passed`；架构师重算 LME 419，并推翻 BEAM singleton 全量结论 | **8.6** | accepted with material architect correction |
 
 ### 未评分发现记录
 
@@ -112,6 +113,23 @@
   variant、三家 native 都只是 readout-only。一次动用 3 个 subagent 的额度很高，但卡明确
   授权且任务本身横跨三家，运行成本只记录、不直接扣分；两处可由主 actor 终审抓出的误判扣 0.2。
 - 总评：适合极重的跨仓一手审计与综合裁决输入；产物不能免除架构师逐锚验收。
+
+### 2026-07-16：Fable 5 gold evidence-unit 审计
+
+- 正确性 3.4/4：准确识别五家不同 gold unit，提出 evaluator-private any-of group，并钉住
+  MemBench pair-step、LME user-only 双粒度、HaluMem 无 turn qrel；主方案被采用。material
+  error 是把 BEAM raw id 写成 conversation 内唯一、歧义实测恒 0；架构师全量重扫确认
+  1M 四个 conversation 重启，当前 adapter 为 41 题/198 个歧义原子。
+- 证据 1.5/2：官方 scorer/数据/schema/框架链覆盖很广，LME 419/470 冲突也完整保留；但
+  报告声称主 actor 亲自复核 BEAM 唯一性，仍与既有 survey 及全量事实相反，说明 subagent
+  汇总后的分布性 claim 没有做最后一轮跨 variant 对表。
+- 纪律 2/2：唯一 docs note、显式 add、clean worktree、零 API/零 push；3 个 subagent 的
+  分工和模型完整披露，没有扩大文件范围。
+- 判断/交接 1.7/2：方案 1 明显优于 pair 全局化、分隔符编码与 adapter 私有映射，且主动
+  把 LME 双官方路径交回架构师而未伪造一致性。BEAM 误判会改变 schema 表达力，故判断项
+  扣 0.3。总分 **8.6**；高额度投入与高判断任务匹配，但再次说明 Fable 适合产出强裁决
+  输入，不应省掉架构师的全量反证。Fable 当前只有两份正式样本（9.2、8.6），未满三份，
+  暂不做聚合模型排名。
 
 ### 2026-07-16：MiniMax M3 Mem0 source-time 单次渲染
 

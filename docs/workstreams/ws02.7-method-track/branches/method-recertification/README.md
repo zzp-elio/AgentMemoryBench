@@ -35,8 +35,9 @@ method-frozen 后发生了实质变化。旧证据不删除，但不能靠历史
 
 ## 当前状态
 
-**LightMem 是唯一 active method，gap matrix 已落盘；尚未授权生产施工。**当前唯一可派的是
-`input-role-semantics` 的 Fable docs-only 高判断审计卡，用来裁定 MemBench pair-step 拆成两条
-canonical turn 后 Recall/NDCG 的 gold unit。裁决完成后才依序写 MemBench canonical 修复、
-LightMem `hybrid` build profile 与 RetrievalEvidence M1 卡。此阶段不并行推进 Mem0/MemoryOS，
-也不调用真实 API。权威实时动作仍看父级 `../../README.md` 恢复胶囊与最新断点。
+**LightMem 是唯一 active method，gap matrix 已落盘并按 Fable 审计的架构师纠错更新。**
+当前可并行派发两张文件正交的生产卡：`input-role-semantics` 的 gold evidence group M0
+负责私有 qrel/分母，LightMem `hybrid` role profile 负责 role-complete build 与诚实
+pair-candidate lineage。前者验收后才拆 MemBench canonical pair；两线合流后再写
+RetrievalEvidence M1。此阶段不并行推进 Mem0/MemoryOS，也不调用真实 API。权威实时动作
+仍看父级 `../../README.md` 恢复胶囊与最新断点。

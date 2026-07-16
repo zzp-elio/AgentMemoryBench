@@ -1,6 +1,6 @@
 # LongMemEval Dataset 结构卡（现行契约）
 
-更新日期：2026-07-10（B2 `frozen-v1`；现场剖面全量数字见
+更新日期：2026-07-16（retrieval gold/分母定点解冻；现场剖面全量数字见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/longmemeval-b2-audit.md`，
 逐文件身份见同目录 `longmemeval-source-lock.json`）
 
@@ -46,6 +46,9 @@ turn 只有 `role`（user/assistant）+ `content`；evidence session 内的 turn
   （haystack 干扰是任务语义）。
 - `_m` 的任何扫描/加载必须 ijson 流式，禁止一次性 `json.load`/`read_bytes`。
 - `oracle` 变体官方存在，本框架不注册。
+- retrieval 主路径只把 **user-role** `has_answer=True` turn 建入 corpus/gold。S cleaned
+  重算：`_abs=30`、non-abs no-user-target=51、assistant-side true turn=54、任意 role
+  都无目标=21（且全属 abs）；主路径有效分母=419。
 
 ## 3. 框架映射与 id 约定
 
@@ -59,11 +62,17 @@ adapter：`src/memory_benchmark/benchmark_adapters/longmemeval.py`。
 - gold（`GoldAnswerInfo`，evaluator 私有，随 private label 序列化）：
   - `evidence` = 官方 `answer_session_ids` 原样；
   - `metadata.evidence_session_public_ids` = session 级匹配键（公开 id 空间）；
-  - `metadata.evidence_turn_ids` = turn 级匹配键（`has_answer=True`，公开 id 空间）；
+  - `metadata.evidence_turn_ids` / `evidence_groups` = turn 级匹配键（**仅 user-role
+    `has_answer=True`**，公开 id 空间）；
   - `metadata.evidence_turn_corpus_ids` = 官方别名（仅记录）。
-- abstention 题可有 evidence session 但 turn gold 为空（"不可回答"语义）。
+- official retrieval 主路径剔除全部 `_abs` 题，并额外剔除 51 个 non-abs
+  no-user-target 题；`print_retrieval_metrics.py` 只剔 abs 得 470，作为官方辅助脚本矛盾
+  披露，不作为 canonical parity。
 - 公私边界：`answer`/`answer_session_ids`/`has_answer` 绝不进公开对象；
   官方 generation 自己也在进 prompt 前 pop `has_answer`
   （`run_generation.py:182`）。公开泄漏扫描为冻结验收项。
 - dataset metadata 带 source identity（repo/paper/HF/license/全文件
   `source_sha256` 分块流式现算）与实际加载计数。
+
+当前 adapter 仍会把 assistant-side `has_answer=True` 收进 turn gold；这是待 ws02.7 M1
+修复的已知偏差，不得用旧 frozen 文字宣布 retrieval parity。

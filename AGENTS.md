@@ -138,6 +138,11 @@
   commit/test 快照与当前动作仍只写父 workstream README，不在支线 README 复制。
 - 状态只写两处：本 workstream README（勾选 + 断点 + 验收证据）+
   `docs/roadmap.md` 索引表对应行（仅整体状态变化时）。
+- **调查结论不能只留在聊天或孤立 note。**经架构师强验收后，benchmark 的稳定事实回填
+  `docs/survey/{benchmarks,datasets,workflows}/`，method 的稳定事实回填
+  `docs/reference/integration/<method>.md`；完整一手命令、统计与争议保留在 workstream note，
+  并从 `docs/survey/README.md` 或 `docs/README.md` 可定位。只摘要承重结论，不把整份聊天/
+  note 重复倾倒到稳定页；发现新反证时同步更新稳定页并给旧判词加 superseded 链接。
 - 历史文档在 `docs/archive/`，只读；与现状冲突时以 workstream README 为准。
 
 ## 导航

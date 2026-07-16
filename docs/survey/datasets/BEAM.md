@@ -1,6 +1,6 @@
 # BEAM Dataset 结构卡（现行契约）
 
-更新日期：2026-07-11（B4 `frozen-v1`；剖面全量数字见
+更新日期：2026-07-16（evidence-group 复核；剖面全量数字见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/beam-e1-audit.md`，
 逐文件身份见同目录 `beam-source-lock.json`）
 
@@ -49,5 +49,13 @@ expected_compliance/why_unanswerable/…）。
   `metadata["evidence_turn_ids"]` = raw id → **全部**匹配位置（any-match
   + `ambiguous_gold_id_count`）；官方三形态原样留 metadata 对照；`'--'`
   不进匹配键、unmatched 计数。abstention 类恒无 evidence → recall N/A。
+- 该 positional namespace 与“session 序号 + session 内 turn 序号”同构，已能抵抗 raw id
+  重复、跳号与重启；不为换成更短的 `0:2` 格式重命名既有 public ids。raw id 一对多时，
+  私有 qrel 用 multi-child any-of group 表达官方无法消歧的候选位置。
+- 当前全量 adapter load：1M 有 41 个 `ambiguous_gold_id_count>0` 的题、逐题累计
+  198 个歧义 raw-id 原子；10M 有 1 个 unmatched（`'--'`）。因此 evidence-group
+  必须支持多 child any-of，不能把 BEAM 永久退化为单元素别名。
+- 官方 `evaluation/` 完全不读取 `source_chat_ids`；BEAM Recall 是框架补充诊断，必须标
+  `framework_supplementary`，不能称官方指标。
 - 快照自带 `.git`：官方代码 commit 已锁 `3e12035`（五 benchmark 首个
   可锁 commit 的快照）。

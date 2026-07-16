@@ -117,6 +117,12 @@
   会把正文叙述也计入 timestamp；至少锁定日期/分隔符形态，并抽样首尾反证。2026-07-15
   MemBench 100k 初扫的宽条件在提交前被架构师推翻，完整 timestamp 正则才得到
   49,738 有时 / 258,000 无时的可信计数。
+- **声称“全量恒为 0 / id 唯一 / 不存在某形状”前，必须和现有 survey 数字对表并跑覆盖
+  全 variant 的结构化扫描。**抽样、单 variant 或 subagent 摘要只能支持局部结论；若新扫描
+  与 `docs/survey/{datasets,workflows}/` 冲突，先停下来定位口径，不能在报告里同时写“全量
+  亲核”和相反旧事实。2026-07-16 evidence-unit 审计漏掉 BEAM 1M 四个 conversation 的
+  raw-id 重启，架构师全量复扫才得到 41 个含歧义题/198 个歧义原子；主方案虽未推翻，
+  但实现从 singleton alias 被迫升级为真实 multi-child group。
 - **从公开 content 抽取 typed metadata 默认必须是 additive normalization**：除非
   benchmark 官方契约明确要求清洗，否则抽出 timestamp/place/id 后不得把相同公开文字从
   content 删除。支持结构化字段的 method 收到“原 content + typed field”，不支持者仍能

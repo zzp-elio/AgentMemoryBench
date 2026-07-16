@@ -1,6 +1,6 @@
 # LongMemEval Benchmark 调研卡片
 
-更新日期：2026-07-10（B2 `frozen-v1` 现行契约版；冻结记录见
+更新日期：2026-07-16（retrieval gold/分母定点解冻；旧冻结记录见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/longmemeval-frozen-v1.md`，
 逐文件来源锁见同目录 `longmemeval-source-lock.json`）
 
@@ -40,9 +40,13 @@ QA 主指标是 LLM judge accuracy：judge model 对每条 hypothesis 生成 yes
 
 官方聚合同时给 task-averaged accuracy、overall accuracy 和 abstention accuracy；`print_qa_metrics.py` 固定检查 judge model 为 `gpt-4o-2024-08-06`。证据：`third_party/benchmarks/LongMemEval-main/src/evaluation/print_qa_metrics.py:16`、`third_party/benchmarks/LongMemEval-main/src/evaluation/print_qa_metrics.py:20`、`third_party/benchmarks/LongMemEval-main/src/evaluation/print_qa_metrics.py:31`。
 
-Retrieval 不是 Phase 1 当前主指标，但官方 retrieval 评测会跳过 abstention instance 与没有 user-side target label 的 instance，并报告 session / turn 粒度 recall_any、recall_all、ndcg_any。证据：`third_party/benchmarks/LongMemEval-main/README.md:206`、`third_party/benchmarks/LongMemEval-main/src/retrieval/run_retrieval.py:395`、`third_party/benchmarks/LongMemEval-main/src/retrieval/eval_utils.py:24`。
+Retrieval 不是 answer 主指标，但已作为有资格门的补充评测接入。官方主 retrieval 路径只把
+user-role turn 建入 corpus，并跳过 30 个 abstention + 51 个 non-abs no-user-target instance，
+有效分母 419；`print_retrieval_metrics.py` 只剔 abstention 得 470，是已披露的 upstream
+辅助脚本矛盾。证据：`third_party/benchmarks/LongMemEval-main/src/retrieval/run_retrieval.py:205-220,389-410`、
+`third_party/benchmarks/LongMemEval-main/src/evaluation/print_retrieval_metrics.py:12`。
 
-本项目现行 metric 注册（B2 C4 冻结，`evaluators/registry.py`）：
+本项目 metric 注册与 2026-07-16 定点重开目标（`evaluators/registry.py`）：
 
 - `longmemeval-judge`（主指标）：5 套 task 模板 + `_abs` abstention 路由与官方
   `get_anscheck_prompt()` **7/7 逐字 parity**（验收方式：直接 import 官方函数
@@ -52,8 +56,9 @@ Retrieval 不是 Phase 1 当前主指标，但官方 retrieval 评测会跳过 a
 - `f1`（framework 补充指标，非官方口径）：跨 benchmark 标准 token F1，零
   特判，details 标 `framework_supplementary`；报告中不得冒充官方指标。
 - `longmemeval-recall`（artifact-level conditional）：双粒度 gold 由 benchmark
-  全量提供，method 声明什么 provenance 粒度就测什么，均无 → N/A；abstention
-  题记 N/A。匹配键 = 公开 id 空间（session 公开 id / `{session_id}:t{raw_index}`），
+  私有 evidence group 提供，先消费逐题 RetrievalEvidence；turn gold 只取 user-side
+  `has_answer=True`，均无资格 → N/A；abstention/no-user-target 题按主路径 N/A。
+  匹配键 = 公开 id 空间（session 公开 id / `{session_id}:t{raw_index}`），
   官方 `answer_session_ids` 与 corpus_id 别名只作对照记录
   （`GoldAnswerInfo.evidence` + `metadata`，通路 `storage/artifacts.py:74`）。
 
@@ -90,12 +95,13 @@ native prompt 仅作 `--prompt-track native` 对照。
 
 LongMemEval README 在 2025/09 标注 cleaned history sessions 更新，本地文件名已经是 cleaned，但 README 的格式说明仍混用 `longmemeval_s.json` / `longmemeval_m.json` 名称；Phase 1 文档应统一称 `s_cleaned` / `m_cleaned`，并保留“官方原名”映射。证据：`third_party/benchmarks/LongMemEval-main/README.md:15`、`third_party/benchmarks/LongMemEval-main/README.md:75`、`src/memory_benchmark/benchmark_adapters/longmemeval.py:34`。
 
-【B2 C4 起已解决，改为已确认项】retrieval recall 已以 conditional 契约纳入
-（`longmemeval-recall`，见 §4）：benchmark 侧双粒度 gold 全量提供
-（turn 级 `has_answer` → `evidence_turn_ids`，session 级 `answer_session_ids`
-→ `evidence_session_public_ids`），method 声明 provenance 粒度即测、未声明记
-N/A——无需强制所有 method 支持。官方 recall_all/ndcg_any 等扩展口径未纳入，
-留待 method 侧能力明确后再议。证据：`src/memory_benchmark/evaluators/longmemeval_recall.py`、
+【2026-07-16 定点重开】retrieval recall 的 conditional 方向保留，但旧 adapter
+role-agnostic 收集 `has_answer`，多收 54 个 assistant-side target，且未实现 51 题
+no-user-target 剔除；必须随 evidence-group/M1 修复后才能恢复 parity。benchmark 双粒度 gold
+应为：turn 级 **user-role** `has_answer` → private `evidence_groups`，session 级
+`answer_session_ids` → `evidence_session_public_ids`；method 逐题 provenance 资格不成立就记
+N/A，无需强制所有 method 支持。官方 recall_all/ndcg_any 及 k30/50 要在 depth 门关闭后再接。
+证据：`src/memory_benchmark/evaluators/longmemeval_recall.py`、
 `third_party/benchmarks/LongMemEval-main/README.md:87`。
 
 M variant 对全量运行成本影响极高：官方称约 500 sessions / 1.5M tokens，本地实测每条 460-490 sessions；现有 1-conv cost pilot 只覆盖 S variant，不能直接外推 M 的成本。证据：`third_party/benchmarks/LongMemEval-main/README.md:76`、本卡验收命令、`docs/archive/status/2026-07-04-task-ledger.md:52`。
