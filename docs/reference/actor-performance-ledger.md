@@ -24,6 +24,8 @@
 | 2026-07-15 | Claude Code / Opus 4.8；reasoning/时长未提供 | MemBench 时间语义 Phase A | `0fbf8e1` → `2e6b4d7` | actor `31 passed in 3.70s`；架构师定向 `31 passed in 3.68s`；主树 `1193 passed` | **9.7** | accepted |
 | 2026-07-15 | Claude Code / Opus 4.8；reasoning/时长未提供 | LightMem missing-time Phase B + R1 | `e1cfb75` + `0d6bf9f` → `915f73c` + `3968373` | actor R1 `91 passed, 1 warning in 7.27s`；架构师定向 `91 passed, 1 warning in 6.32s`；主树 `1206 passed` | **9.0** | accepted after rework |
 | 2026-07-15 | Claude Code / Opus 4.8；约 30min（用户提供）；reasoning 未提供 | RetrievalEvidence M0 + R1 | `5fd5ac1` + `1999f56` → `352ed3c` + `6b4fd4e` | actor R1 `34 passed in 0.05s`；架构师 R1 `34 passed`；M0 七文件 `307 passed`；主树 `1235 passed` | **9.1** | accepted after architect hardening |
+| 2026-07-16 | Fable 5；约 10min；授权 3 个只读 subagent（用户提供） | 三家 dual-track/build identity 一手审计 | `82ffd8c` → `4a0533f` | actor/架构师 docs `5 passed`；架构师逐锚复核；主树 `1243 passed` | **9.2** | accepted with architect corrections |
+| 2026-07-16 | Claude Code / MiniMax M3；时长/reasoning 未提供 | Mem0 source-time 单次渲染 | `6af75a3` → `7752dab`（重建 commit identity） | actor/架构师 `61 passed`；架构师五 benchmark 扩展 `170 passed`；主树 `1243 passed` | **9.3** | accepted |
 
 ### 2026-07-15：LightMem online-soft
 
@@ -87,3 +89,30 @@
 - 总评：这是重卡，约 30 分钟属合理投入；主体质量高，强验收抓到的主要是跨层最后一公里。
   Opus 4.8 现有三份已验收样本为 9.7、9.0、9.1，简单均值 **9.27**。当前画像是“大范围
   实现与交接稳定，边界契约仍值得架构师重点反证”；任务难度不同，不据此做绝对模型排名。
+
+### 2026-07-16：Fable 5 dual-track/build identity 审计
+
+- 正确性 3.5/4：三家 generic/eval/variant、build/readout 分轴和 manifest 过度声明的核心结论
+  均成立；但把 Mem0 托管 embedding 写成“公开可复现”混淆了 API 身份与权重 revision，且把
+  MemoryOS 已落地的 `max_tokens=2000` 误列为待修项。架构师在原 note 追加订正，不抹历史。
+- 证据 1.9/2：三家承重锚与框架 manifest 链覆盖很强，3 个 subagent 分包后由主 actor 逐锚
+  复核；架构师现场复证均能重放。两处错误都属于结论措辞/现状归类，故保留 0.1。
+- 纪律 2/2：只改唯一 note、显式 add、零 API、零 push；subagent 使用与分工完整披露。
+- 判断/交接 1.8/2：准确抓到 LightMem 顶层无 runnable default、MemoryOS ChromaDB 是算法
+  variant、三家 native 都只是 readout-only。一次动用 3 个 subagent 的额度很高，但卡明确
+  授权且任务本身横跨三家，运行成本只记录、不直接扣分；两处可由主 actor 终审抓出的误判扣 0.2。
+- 总评：适合极重的跨仓一手审计与综合裁决输入；产物不能免除架构师逐锚验收。
+
+### 2026-07-16：MiniMax M3 Mem0 source-time 单次渲染
+
+- 正确性 4/4：严格实现 `turn_time → session_time → None`，marker 仅认 JSON `true`，保留
+  MemBench 原 place/time，缺时 noise 不造时间；legacy/v3 与 event-stream 均闭合。
+- 证据 2/2：actor 61 项、架构师同套 61 项与五 benchmark 扩展 170 项均绿；最终全量
+  `1243 passed, 3 deselected, 2 warnings, 4 subtests passed`、compileall exit 0。
+- 纪律 1.5/2：允许清单、显式 add、data 软链、零 API/零 push 都正确；但 commit 错写
+  `Co-Authored-By: Claude Sonnet 4.6`，违反模型身份也须核实的硬规则。架构师用
+  `cherry-pick --no-commit` 重建 `7752dab`，未保留虚假 trailer。
+- 判断/交接 1.8/2：正确识别 first-person 拼接后同一时间字面量自然出现两次，测试锁的是
+  renderer 不再生成第三份，而非机械把次数降到一；实现说明清楚。错误身份 trailer 扣 0.2。
+- 总评：代码与反例质量非常高，身份纪律是唯一明显短板；这是 MiniMax M3 首个已验收样本，
+  暂不据单样本做模型总排名。

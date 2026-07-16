@@ -32,9 +32,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `3968373`（explicit-None R1）→ `352ed3c`（RetrievalEvidence M0 主体）→ `6b4fd4e`
   （status R1）→ `afd4040`（不可哈希 status hardening）→ `c879343`（preflight/resume
   身份对称）→ `da81b0f`/`b875879`（MemoryOS manifest fixture 对齐）→ `212d21f`
-  （M0 最终验收文档）。准确 commit/upstream 状态始终
+  （M0 最终验收文档）→ `4a0533f`（双轨身份审计）→ `7752dab`（Mem0 effective-time
+  单次渲染）。准确 commit/upstream 状态始终
   以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
-  `1235 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.03s`；compileall exit 0。
+  `1243 passed, 3 deselected, 2 warnings, 4 subtests passed in 132.54s`；compileall exit 0。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。下一门是
   五格真实 smoke；但先完成 `branches/dual-track-identity/` 的 PyPI/ChromaDB/eval 身份裁决，
@@ -62,10 +63,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   README，不得混进施工 prompt；用户把卡发送给某 actor 就是已完成选择与授权。
 - **时间/B4 现行裁决**：MemBench 原 message 的 place/time 原样保留，支持 typed timestamp
   的 method 另收 `turn_time → session_time → None`；这不是正文重复。Mem0 这类 content-only
-  method 每条 message 也只折入这一个 effective timestamp。当前源码既会对 MemBench 再前置
-  相同 `[Turn time]`，又会在 turn/session 同时存在时双前置；故局部重开 Mem0 的
-  MemBench/BEAM/HaluMem B4/B11 输入形态，LoCoMo/LongMemEval session-only 字节不变。卡见
-  `branches/membench-time-semantics/cards/actor-prompt-mem0-membench-time-dedup.md`。
+  method 每条 message 也只折入这一个 effective timestamp。MiniMax M3 交付已由架构师
+  full diff + `61 passed` + 五 benchmark 扩展 `170 passed` 强验收，主线 `7752dab`；
+  MemBench 原文已含时间时不再加 header，无时间 noise 保持 None，绝不用 QA/question time、
+  兄弟 turn、首个有时 turn、wall clock 或 synthetic time。B4 离线门关闭，三格内容抽查并入
+  后续 product-default B11，不单独烧 controlled run。
 - **双轨/指标现行裁决**：unified=通用 OSS 产品实现 + 每家 pinned product-default embedding
   + benchmark-scoped method-neutral answer/judge（官方优先，fallback 标 tier/source）；
   2026-07-09 shared MiniLM 既有资产保留为 `controlled_embedding_v1` 补充轨。native
@@ -74,20 +76,34 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   共用它；Precision/F1@k 在 relevance gold 未证明穷尽时 N/A。artifact-only 新指标走独立
   metric-pack，不整体解冻 benchmark core；M1 后先消费
   `docs/reference/metric-extension-plan.md` 的 normalized EM + directional substring EM。
-  双轨证据审计卡见
-  `branches/dual-track-identity/cards/actor-prompt-integrated-method-dual-track-identity-audit.md`。
+  Fable 5 三家审计已验收：Mem0 product default=托管 OpenAI
+  `text-embedding-3-small`/1536（revision unpinned，须重建）；LightMem 顶层无可运行默认，
+  canonical-required=local MiniLM/384（与现 build 同字节、零重建）；MemoryOS PyPI 默认
+  MiniLM/384（零重建），ChromaDB 是 reproduction variant。现行裁决见
+  `branches/dual-track-identity/notes/product-default-embedding-ruling.md`。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
-  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**当前需要用户并行派两卡**：
-  ① Mem0 source-time 正文单次渲染（MemBench 去重 + turn→session fallback，代码卡）；
-  ② 三家双轨实现身份/build-axis（高难度
-  docs-only，推荐 Fable 5，明确允许其自启 subagent 分包）。两卡回收强验收后，架构师按
-  已裁 product-default 主轨起草迁移卡，并继续起草
-  RetrievalEvidence M1；M1 未遗忘但现在不抢跑。MemoryOS 五格 smoke 仍需身份门 + 用户
+  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**当前只需用户派一张离线卡**：
+  `branches/dual-track-identity/cards/actor-prompt-track-identity-contract-m0.md`，让 manifest
+  如实声明 implementation/build/readout/judge 身份并严格参与 resume；不切 embedding、不跑
+  API。M0 强验收后架构师再起草 Mem0 product-default 迁移卡，并继续 RetrievalEvidence M1；
+  M1 未遗忘但现在不抢跑。MemoryOS 五格 smoke 仍需身份门 + 用户
   明确预算、规模与 run_id，禁止自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-16）
+
+- 2026-07-16（**Mem0 source-time + 三家 identity 审计强验收；track identity M0 待派**，
+  GPT-5 架构师）：Fable 5 `82ffd8c` docs-only 审计经逐锚复核与文档标准门合入 `4a0533f`；
+  架构师订正两处：托管 OpenAI embedding 只可称 API identity 公开、revision
+  `provider_managed_unpinned`，不能称权重级可复现；MemoryOS native `max_tokens=2000`
+  已在源码落地，不是待修项。架构裁决：Mem0 迁 OpenAI text-embedding-3-small/1536 须重建；
+  LightMem 以 `product_canonical_required_config_v1` 锁 local MiniLM/384 且零重建；MemoryOS
+  PyPI 默认 MiniLM/384 零重建，ChromaDB 是 reproduction variant。MiniMax M3 `6af75a3`
+  的 effective-time 实现经 full diff、定向 `61 passed`、五 benchmark 扩展 `170 passed`
+  验收；因 actor commit 错写 Sonnet 4.6 trailer，架构师未保留虚假身份，以主线 `7752dab`
+  重建提交。最终 `1243 passed, 3 deselected, 2 warnings, 4 subtests passed in 132.54s`，
+  compileall exit 0。下一张唯一施工卡为 track identity M0；零真实 API。
 
 - 2026-07-16（**embedding 新政策落盘；Mem0 B4 + 三家身份审计两卡待并行派发**，GPT-5
   架构师）：

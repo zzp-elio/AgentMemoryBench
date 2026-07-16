@@ -25,8 +25,16 @@ LLM、prompt 与 metric 语义；embedding、build LLM、update/retrieval 超参
 > 异构 method。common embedding 仍有因果控制价值，但不是产品公平主估计量。
 
 产品默认必须锁 provider/model/revision/dimension/normalization/instruction/distance 等身份；若
-默认依赖不可公开服务、无法复现，或替换会触碰算法核心，不得静默找近似替代，须停工裁定。
+默认依赖托管服务，只能声明 provider/model API 身份与 `provider_managed_unpinned` revision，
+不得把接口公开误写成权重级可复现。替换会触碰算法核心时，不得静默找近似替代，须停工裁定。
 全局 `gpt-4o-mini` 仍是 Phase 1 明示的 build/readout LLM override，不受 embedding 改判影响。
+
+若产品顶层故意没有可运行零配置默认，按“可运行构造默认 → 官方通用 quickstart 唯一配置 →
+backend 内部缺省与官方 experiments/paper 同轴共识”的顺序操作化；只有后一层证据闭合时才可
+盖 `product_canonical_required_config`，不能再称 `repo_default`。LightMem 是首个判例：
+`text_embedder=None` 不可运行，现行 canonical 是 local HF `all-MiniLM-L6-v2`，与当前 build
+字节重合，故无需重建但必须修正 manifest identity。完整裁决见 ws02.7
+`branches/dual-track-identity/notes/product-default-embedding-ruling.md`。
 
 > **2026-07-16 纠偏：**旧版 §7 写“多仓库优先复现版，两轨都跑在它上”，与项目
 > “通用产品接口”主线冲突，现已撤销。复现目录若改变算法流程，属于另一个
@@ -112,13 +120,15 @@ build profile 尚未接入，因此只可称 **readout-native**。
   同一 method 跨全部 benchmark 同一套）。embedding 必须按上方新裁决盖精确 build identity；
   shared `all-MiniLM-L6-v2` 只在兼容 method 上作为 `controlled_embedding_v1` 补充轨，不要求
   强铺 5×10。build LLM 的全局模型名 `gpt-4o-mini` 是 Phase 1 显式 override，不冒充产品默认。
-- **"repo 默认"要操作化**：= "不加任何特殊 flag、开箱即用"的那套。它本身要一次
-  **每-method 小审计**——LightMem 的 `--enable-summary` `store_true` 默认 False
-  就是判例（Task 1 的核查本质是"repo 默认到底是哪套"）。
+- **产品默认要操作化**：优先“不加特殊 flag、开箱即用”的可运行默认；某项能力被产品
+  明确设为必填时，按上方 canonical-required 证据链处理，不能为了填字段臆造 repo default。
+  LightMem 的 `--enable-summary` `store_true` 默认 False 仍是可选超参默认判例，但 embedding
+  顶层 `None` 是必填缺口，两者不能混为一谈。
 - **现有实现不因政策文字自动合规**：Mem0 当前 unified 显式换成 shared MiniLM，而其
   通用 OSS 默认已知为 `text-embedding-3-small`；当前结果保留为 controlled 身份，主轨迁移
-  已定。三家 build-axis 审计只负责核实精确默认值、实现等价性、manifest 与重建/复证范围，
-  不再决定“是否迁移”；审计前仍不悄悄改配置或重烧实验。
+  已定。2026-07-16 三家 build-axis 审计与架构裁决已核实精确默认、实现等价性、manifest
+  缺口与重建/复证范围；下一门先落 truthful track identity，再单独迁 Mem0，不在身份门前
+  改配置或重烧实验。
 - **全局模型锁优先于 native 口号**：当前真实调用只能是 `gpt-4o-mini`。若官方 harness
   使用 GPT-5/Qwen/Claude 等，只抽取其可复用 prompt/decoding/metric 资产并在 coverage 中
   标模型 override；不得为追论文数字绕过 AGENTS 硬规则。
@@ -212,10 +222,10 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
 
 | method | native 格 | native 配置来源 | 已知关键点 |
 |--------|-----------|-----------------|-----------|
-| LightMem | locomo, longmemeval | 官方 experiments 目录 | experiments 是否与通用 `src/lightmem` 同实现及 build override 范围纳入 2026-07-16 三家审计；StructMem 明确是另一 variant，不接 |
+| LightMem | locomo, longmemeval | 官方 experiments 目录 | ingest core 等价，但官方 LoCoMo retrieval 为 harness-local brute-force cosine；当前 native 只 readout，未来 wiring build 才重建；StructMem 是另一 variant，不接 |
 | A-Mem | locomo | 复现版仓库（现状） | 见 §7；通用版/复现版算法身份待 A-Mem M 阶段审计，不能把现状反写成永久政策 |
-| MemoryOS | locomo | eval answer 资产 + paper 超参候选 | 当前只 readout-native；eval 与 pypi 已有算法差异，build 不得直接塞进 config-track；pypi/chromadb 关系待三家审计 |
-| mem0 | locomo, longmemeval, beam | `memory-benchmarks` 当前 eval | 需证明 harness 仍调用同一 OSS `Memory.add/search` core；current unified embedder 与产品默认分叉待三家审计 |
+| MemoryOS | locomo | eval answer 资产 + paper 超参候选 | 当前只 readout-native；eval 与 pypi 已有算法差异；PyPI 是 canonical，ChromaDB 是 reproduction variant |
+| mem0 | locomo, longmemeval, beam | `memory-benchmarks` 当前 eval | oss harness 已证实调用同一 `Memory.add/search` core；current MiniLM 是 controlled，product-default OpenAI/1536 迁移待 identity M0 后施工 |
 | SimpleMem | locomo, longmemeval, membench | `simplemem/evolver` 等 | 逐格 M 阶段核 |
 | MemOS | locomo, longmemeval | 待 M 阶段一手 | — |
 | EverOS | locomo | 待 M 阶段一手（排最后） | — |
@@ -232,6 +242,6 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
 - **A-Mem 双仓库**：复现版在 `third_party/methods/A-mem`（adapter 接的这份），
   通用版在 `third_party/A-mem`；README note 是区分二者的判据。
 - **MemoryOS eval≠paper**：作者 GitHub 回应推荐论文超参 → native 用论文超参。
-- **MemoryOS pypi≠chromadb 不可先验等同**：两目录除 prompts 外核心文件均有 diff；在
-  update/retrieval/storage 调用链审计完成前，Phase 1 canonical 通用实现继续使用已接入、
-  更简单可审计的 `memoryos-pypi`，chromadb 只作候选 storage variant。
+- **MemoryOS pypi≠chromadb**：调用链审计已确认 ChromaDB 同时改变检索、合并、heat/LTM、
+  持久化与异常语义；Phase 1 canonical 继续 `memoryos-pypi`，ChromaDB 明确列
+  `reproduction_variant:memoryos-chromadb`，不是候选 storage variant。

@@ -11,6 +11,12 @@
 > 配置值身份标注约定（全文沿用）：**(i)**=函数签名/dataclass 默认；
 > **(ii)**=README/demo/YAML 示例覆盖；**(iii)**=实际 CLI/脚本入口默认；
 > **(iv)**=调用点显式传值。
+>
+> **架构师强验收勘误（2026-07-16）：**主体结论接受；两处文字由架构师抽锚后修正：
+> ① OpenAI 托管 embedding 只能锁 provider/model/API 接口身份，不能锁服务端权重 revision，
+> 因而不得称“权重级可复现”；② 原 E6 把已经正确落地的 MemoryOS native
+> `max_tokens=2000` 误列为待勘误，现删除。LightMem P1 的后续裁决见同目录
+> `product-default-embedding-ruling.md`，不回写 actor 当时的停点历史。
 
 ## 0. 结论摘要
 
@@ -19,8 +25,9 @@
    （`memory-benchmarks/docker/mem0/main.py:145`）→ **`CONFIG_EQUIVALENT`**；
    但存在 `cloud` backend 打 `api.mem0.ai` 闭源远端（**`ALGORITHM_VARIANT`**，
    默认不启用）。产品默认 embedding = `openai/text-embedding-3-small/1536/COSINE`
-   （**(i)**，`mem0/embeddings/openai.py:15,19`），远端计费、公开可复现、与算法
-   无硬耦合，可作单一 profile 跨五 benchmark 固定。harness answer/judge 默认
+   （**(i)**，`mem0/embeddings/openai.py:15,19`），远端计费、接口公开、与算法
+   无硬耦合，可作单一 profile 跨五 benchmark 固定；但服务端权重 revision 由 provider
+   管理，只能按 provider/model/endpoint/run time 记录，不得声称权重级 pin。harness answer/judge 默认
    **gpt-5**（`benchmarks/locomo/run.py:682-683`）→ **`FRAMEWORK_MODEL_OVERRIDE /
    PARTIAL_NATIVE`**。产品默认 build LLM 是 **gpt-5-mini**（`mem0/llms/openai.py:39`
    **(i)**），当前 gpt-4o-mini 是框架全局锁 override，不是产品默认。
@@ -107,7 +114,7 @@
 | implementation variant | 进程内 `Memory` V3 additive pipeline（`main.py:699-971`）**(i)** | 同 core **(iv)** | oss=同 core via HTTP server **(iii)**；cloud=远端 V3 **(iii)** |
 | storage backend | Qdrant（provider 默认 `vector_stores/configs.py:7-9` **(i)**；本地 path/collection 默认 `configs/vector_stores/qdrant.py:11-16` **(i)**） | Qdrant，调用点显式 path=`<state>/qdrant`、collection=`mem0`、dims=384（`mem0_adapter.py:440-447` **(iv)**） | Qdrant 容器（`docker/mem0/main.py:80-103` **(iii)**） |
 | embedding provider/model/dim | openai（`embeddings/configs.py:9` **(i)**）/ text-embedding-3-small（`embeddings/openai.py:15` **(i)**）/ 1536（`openai.py:19` **(i)**；默认不向 API 发 dimensions 参数，`openai.py:17` `_pass_dimensions_to_api`） | huggingface / sentence-transformers/all-MiniLM-L6-v2 / 384（`configs/methods/mem0.toml:12-14` **(iv)**） | openai / text-embedding-3-small / 1536（`configs/openai.yaml:14-16` **(ii)**；server env fallback `main.py:112` **(iii)**） |
-| revision | 无 pin（OpenAI 托管，model id 即身份）**(i)** | HF repo id 无 revision pin（SOURCE_UNDETERMINED，见 §7） | 同产品 **(ii)** |
+| revision | 无权重 pin（OpenAI 托管；model id 只锁接口身份，服务端 revision 由 provider 管理）**(i)** | HF repo id 无 revision pin（SOURCE_UNDETERMINED，见 §7） | 同产品 **(ii)** |
 | normalization | 无显式归一化（`openai.py` embed 仅换行清洗）**(i)** | SentenceTransformer encode 未显式 normalize（`mem0/embeddings/huggingface.py:44`；模型内建与否 SOURCE_UNDETERMINED） | 同产品 **(i)** |
 | instruction/prefix | 无（`memory_action` 参数存在但 openai embedder 不消费）**(i)** | 无 **(i)** | 无 **(i)** |
 | distance | Qdrant COSINE（`vector_stores/qdrant.py:120,146` **(i)**） | 同 **(i)** | 同 **(i)** |
@@ -308,8 +315,7 @@ Phase 1 canonical 继续 pypi 与既有裁决一致。
 | E3 | `configs/methods/mem0.toml:5-7` 注释 | "top_k=20 为 mem0 官方默认"（签名默认属实，`main.py:1130`）但未点明 memory-benchmarks 入口默认是 200（`run.py:687,963`），而 `config_track.py:73` `hyperparam_ref="mem0.memory-benchmarks.repo_default"` 恰指向 harness 口径——两处并读会自相矛盾，建议注释区分"产品签名默认 20 / harness 入口默认 200"。 |
 | E4 | `src/memory_benchmark/methods/config_track.py:91-101` + manifest 链 | native bundle 的 `embedding_ref/hyperparam_ref` 是纯文档字符串、不生效也不落盘；配合裸 `config_track=native` 造成 §5.1 的过度标注。建议按 §5.4 字段化。 |
 | E5 | `configs/methods/memoryos.toml:3` 注释 | "参数取 memoryos-pypi 官方默认（memoryos.py:30-44）"——`embedding_model_name` 实填限定名 `sentence-transformers/all-MiniLM-L6-v2`，签名字面默认是裸名 `all-MiniLM-L6-v2`（`memoryos.py:42`）；解析同模型但文本非逐字默认，建议注释补一句"限定名=裸名同模型"，并在 manifest 身份中显式记录该等价。 |
-| E6 | `docs/reference/method-integration-checklist.md:197-199` + 未来 MemoryOS native profile | readout-native 登记正确，但 answer `max_tokens` 官方 eval=2000（`eval/main_loco_parse.py:156`）而产品 `get_response`=1500（`memoryos-pypi/memoryos.py:338-343`）；native answer 参数应以 eval 的 2000 显式登记，防止误取产品值。 |
-| E7 | `docs/workstreams/ws02.7-method-track/notes/m1-memoryos-evidence.md`（机械 diff 段） | chromadb 此前只有机械 diff 记录；本卡升级为 `ALGORITHM_VARIANT`（query-time LLM 抽词回归、持久化时序变更、heat-LTM 护栏丢失、capacity 死参数），建议 m1 note 增补指针到本文 §4，防后续误当纯 storage variant 接入。 |
+| E6 | `docs/workstreams/ws02.7-method-track/notes/m1-memoryos-evidence.md`（机械 diff 段） | chromadb 此前只有机械 diff 记录；本卡升级为 `ALGORITHM_VARIANT`（query-time LLM 抽词回归、持久化时序变更、heat-LTM 护栏丢失、capacity 死参数），建议 m1 note 增补指针到本文 §4，防后续误当纯 storage variant 接入。 |
 
 ## 7. 来源待溯 / 停工点
 

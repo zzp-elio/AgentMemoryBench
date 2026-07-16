@@ -105,7 +105,8 @@ class Mem0Config:
         top_k: method 内部检索记忆上限，不进入统一接口参数。
         max_workers: conversation 级建议并发数，由 runner policy 读取。
         ingestion_chunk_size: 每次 Mem0 add 包含的 turn 数；官方 LoCoMo 配置为 1。
-        infer: 是否启用 Mem0 官方事实提取、ADD/UPDATE/DELETE 算法。
+        infer: 是否启用 vendored Mem0 V3 事实抽取与 ADD/hash-dedup 写入；本 adapter 的
+            可达调用链不执行手工 update/delete API。
         api_timeout_seconds: Mem0 内部 OpenAI-compatible LLM/embedding 请求超时秒数。
         api_max_retries: Mem0 内部 OpenAI-compatible LLM/embedding 请求最大重试次数。
         profile_name: 可审计的 profile 名称。

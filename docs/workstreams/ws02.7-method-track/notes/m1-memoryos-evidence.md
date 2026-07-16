@@ -1,5 +1,10 @@
 # M1 MemoryOS 接入取证
 
+> 2026-07-16 后续勘误：本文只比较 eval 与 `memoryos-pypi`，不证明
+> `memoryos-chromadb` 是等价 storage backend。跨实现审计已确认其检索、合并、heat/LTM、
+> 持久化与异常语义均分叉，现行裁决为 `reproduction_variant:memoryos-chromadb`；见
+> `branches/dual-track-identity/notes/product-default-embedding-ruling.md` §2.3。
+
 > 日期：2026-07-14。范围：只读官方仓库、框架 adapter/registry/config/tests；
 > 零真实 API。算法运行源是 `memoryos-pypi/`，`eval/` 只作为 LoCoMo native
 > 复现事实源。本文不修改 `outputs/memoryos-locomo-full-20260603/`。

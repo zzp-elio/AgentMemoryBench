@@ -37,12 +37,11 @@ question 的 `QA.time`。本支线修复把首个 message 时间扩散成伪 ses
    人工白名单，也不把 A-Mem method-generated wall clock 冒充 source time。
 4. RetrievalEvidence M0 的前置现已满足并已强验收；后续资格消费归
    retrieval-metrics 支线 M1。
-5. 2026-07-16 复核发现 Mem0 会对原文已内嵌的 turn time 再前置一次，且在 turn/session
-   同时有值时双前置；两者都违反每条 message 只传一个 effective timestamp 的规则。
-   MemBench/BEAM/HaluMem B4 输入形态局部重开。裁决见 ruling §7；施工卡为
-   [`actor-prompt-mem0-membench-time-dedup.md`](cards/actor-prompt-mem0-membench-time-dedup.md)。
-   退出条件=架构师验收 legacy/v3 强反例 + 三个受影响 benchmark 的 smoke/内容抽查；
-   LoCoMo/LongMemEval session-only 输入不重烧。
+5. 2026-07-16 Phase C 已通过架构师 full diff、定向 `61 passed` 与五 benchmark 扩展
+   `170 passed` 离线强验收，主线 `7752dab`。Mem0 现在统一执行
+   `turn_time → session_time → None`，原文已含 source time 时不再加 header；MemBench
+   无时间 noise 仍为 `None`。B4 离线门关闭，MemBench/BEAM/HaluMem 的新输入字节仍须在
+   后续 product-default B11 smoke 中抽查；LoCoMo/LongMemEval 无需重烧。
 
 ## 权威材料
 
@@ -52,3 +51,4 @@ question 的 `QA.time`。本支线修复把首个 message 时间扩散成伪 ses
 - 首轮 Phase B 历史卡：[`actor-prompt-lightmem-missing-time-online-soft.md`](cards/actor-prompt-lightmem-missing-time-online-soft.md)
 - 已验收 R1 卡：[`actor-prompt-lightmem-missing-time-online-soft-r1.md`](cards/actor-prompt-lightmem-missing-time-online-soft-r1.md)
 - Mem0 正文时间去重卡：[`actor-prompt-mem0-membench-time-dedup.md`](cards/actor-prompt-mem0-membench-time-dedup.md)
+- Mem0 Phase C 实现记录：[`mem0-membench-time-dedup-implementation.md`](notes/mem0-membench-time-dedup-implementation.md)

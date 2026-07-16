@@ -125,6 +125,10 @@
   `add_note(time=None)` 会生成 ingestion wall clock；LightMem 原实现则直接拒绝 None，且
   后续 consolidated 路径依赖 float timestamp。不能看到签名允许 None 就宣称 unknown 被
   保留，也不能把 method-generated time 回写成 benchmark source time。
+- **commit 身份也是审计证据，禁止从模板猜模型名。**当前会话能核实真实模型时才写
+  `Co-Authored-By`；不能核实时宁可不写 trailer，并在完成报告如实说明入口与可见模型。
+  2026-07-16 MiniMax M3 经 Claude Code 施工的提交误带 `Claude Sonnet 4.6` trailer，代码虽
+  通过强验收，架构师仍以 `cherry-pick --no-commit` 重建主线 commit，未保留虚假身份。
 
 ## 7. 好行为（值得学的正例）
 
