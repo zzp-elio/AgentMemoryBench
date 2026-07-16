@@ -19,17 +19,24 @@
 **第一步 盘点（actor 卡，离线取证）**：三个池子各列一张表——
 ① 框架已注册 evaluator 面（`evaluators/registry.py` 一手）；
 ② 五 benchmark 官方指标面（五份 frozen-v1 note 已核证，含"官方死代码不接"名单）；
-③ 通用候选池：EM / token-F1 / BLEU / ROUGE-L / LLM-judge（binary + rubric）/
-  recall@k / NDCG@k / abstention 口径 / parse_failed 率。
+③ 通用候选池：normalized EM / directional substring EM / token-F1 / BLEU / ROUGE-L /
+  LLM-judge（binary + rubric）/ recall@k / precision@k / retrieval-F1@k / NDCG@k /
+  abstention 口径 / parse_failed 率。
 
 **第二步 匹配（架构师裁决矩阵）**：按 benchmark 的**答案形态**过滤：
 
-| 答案形态 | 语义匹配的扩展 | 明确不加 |
+| 答案形态 | 语义匹配的扩展 | 明确不默认加 |
 |---|---|---|
-| 短语 QA（locomo、longmemeval、halumem-QA） | LLM-judge、EM、token-F1、（BLEU/ROUGE 弱匹配，标 auxiliary 且低优先） | — |
+| 短语/事实 QA（locomo、longmemeval、halumem-QA） | normalized EM、明确方向的 gold-in-prediction substring EM、token-F1、LLM-judge | BLEU/ROUGE-L 对短答案不稳定且与 F1 高度冗余，除非另有任务级论证 |
 | 单字母 MCQ（membench） | parse_failed 率（已有） | BLEU/ROUGE/F1（对单字母无意义，已有断言锁 f1 排除） |
-| rubric 长答案（beam） | ROUGE-L/BLEU 可作 auxiliary 参考 | EM |
-| 检索面（逐 method × benchmark 过资格门） | recall@k；有 semantic provenance、稳定顺序与足够 evaluation depth 时才可 NDCG@k | 无损 provenance 不可得、列表无序或深度不足时 N/A，不强造 |
+| rubric 长答案/序列任务（beam） | 官方 rubric judge 与 event-ordering 结构指标 | EM；gold 若只是 rubric 而非 canonical reference，BLEU/ROUGE-L 也 N/A |
+| 真正摘要任务（未来或经审计确认的 task） | ROUGE-L 可作 lexical coverage 辅助；仍需语义 judge/事实性 guardrail | 不能因为输出“较长”就把 rubric QA 当摘要 |
+| 检索面（逐 method × benchmark 过资格门） | recall@k；gold relevance 穷尽时才加 precision@k/F1@k；另有 semantic provenance、稳定顺序与足够 depth 才可 NDCG@k | provenance 不可得、gold 非穷尽、列表无序或 depth 不足时对应指标 N/A |
+
+**可复用的正确层次**：复用 normalization、计数、聚合、artifact I/O 和 judge engine；prompt/
+rubric/适用性仍按 benchmark/task profile 注册。不能为了“通用”做一个跨任务万能 judge prompt。
+同一 prediction artifact 只生成一次答案，全部答案级指标消费同一文本；禁止因某个 metric
+改 answer `max_tokens` 后再把不同 prediction 混成一组。
 
 ## 3. 硬约束
 
@@ -45,11 +52,33 @@
    semantic provenance / stable ranking 事实，evaluator 用通用要求导出 metric 资格。
    transformation-input lineage 不等于 semantic evidence provenance；Recall 可评也不
    自动推出 NDCG 可评，后者另需保序和 depth。
+6. **Precision/F1 需要穷尽 relevance gold**：Recall 只问已标 evidence 是否被找回，允许
+   gold 是一组“足够支持答案”的证据；Precision 会把未标注但实际相关的 item 当假阳性。
+   未证明 annotation 穷尽时，precision@k 与 retrieval-F1@k 必须 N/A，不能从 Recall@k
+   机械派生。
+7. **LoCoMo `max_tokens=32` 保持 canonical**：它是 benchmark 官方 answer 配置；F1、EM、
+   BLEU/ROUGE（若未来批准）与 LLM judge 都消费同一份 32-token prediction。judge 自己的输出
+   budget 是独立调用参数；若发现 answer 截断，另建带新 run identity 的 ablation，不按 metric
+   暗改 answer 配置。
 
-## 4. 排期
+## 4. 冻结语义：benchmark core 与 metric-pack 分层
+
+- `benchmark frozen-v1` 锁 data/canonical mapping/privacy/prompt/官方 metric parity，不因新增
+  artifact-only supplementary evaluator 整体解冻。
+- 扩展指标进入独立 `metric-pack` 版本；新增/修正 evaluator 时只重开 metric surface，并记录
+  tier、公式、适用 task 与 artifact schema。
+- 既有 prediction 已含所需公开字段时离线复算，不重跑 method；LLM judge 可复用 prediction，
+  但会新增付费 evaluate 调用，仍需用户批准预算。
+- 若新 retrieval metric 需要更深 top-k、stable ranking 或新 provenance，重开受影响 method ×
+  benchmark 的 B5/B11 与 prediction profile，而不是重开 benchmark data/prompt。改变 top-k 后
+  formatted_memory/answer 也可能变化，必须使用新 run identity。
+- 只有指标要求新增/改写 gold 映射、改变 benchmark prompt/data，才重开 benchmark 对应 A 项。
+
+## 5. 排期
 
 - 盘点卡：可立即派（docs-only，与 method 深耕线零冲突）。
 - 匹配矩阵：盘点回来后架构师裁决、更新本文 §2 为定稿。
-- 实现：本计划与单个 method 冻结状态没有技术依赖；但当前先完成 retrieval metric
-  eligibility 契约审计、LightMem N/A artifact 门与 MemoryOS B11，避免用扩展指标制造
-  “进度感”并抢占验收注意力。排期由活跃 workstream README 决定。
+- 实现：先完成 retrieval M1（evaluator 消费逐题 evidence、LongMemEval depth/分母），再做
+  answer-metric pack M0（normalized EM + directional substring EM 优先）。BLEU/ROUGE-L 不因
+  库已存在就自动排入；Precision/F1 先做五 benchmark relevance 穷尽性审计。排期由活跃
+  workstream README 指针消费，本文不单独充当“待办墓地”。

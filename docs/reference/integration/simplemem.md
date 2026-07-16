@@ -41,7 +41,8 @@
 - **B7**：⬜。配置强校验含 api_timeout/retries（:123-125）；usage 观测路径待审。
 - **B8**：⬜。hybrid_retriever.retrieve 预期只读，待锚。clean-retry 钩子已挂。
 - **B9**：⬜。llm_model/embedding_model_path 均强制显式（:103-105 fail-fast），
-  embedding 是本地路径模型——unified 轨统一 embedding 政策如何适配待 M 阶段定。
+  embedding 是本地路径模型——M 阶段须分别盖章产品默认、Phase 1 framework override 与
+  native 配置；不得再用“unified 一律统一 embedding”一句话掩盖 build identity。
 - **B10**：⬜。native 3 格（locomo/longmemeval/membench）来源逐格取证；
   reproduce-vs-paper 按 policy §5。
 - **B11**：⬜。

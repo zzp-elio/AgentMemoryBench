@@ -9,13 +9,19 @@
 
 | 轨 | 别名 | 目的 | 配置来源 |
 |----|------|------|----------|
-| **unified**（轨1） | 框架配置轨 | method 之间**公平横向对比**（同一把尺子量所有 method） | 框架统一的 answer/judge/embedding + **method 自己的 repo 默认超参** |
-| **native**（轨2） | 论文复现轨 | 复现该 method **paper 报告的数字**（对齐论文，做校准） | method 官方复现实验的 answer/judge/embedding/超参 |
+| **unified**（轨1） | 产品公平轨 | method 之间**公平横向对比**（同一 benchmark 读出尺子） | 通用 OSS 产品实现 + benchmark-scoped method-neutral answer/judge；官方资产优先，缺失 fallback 必须标 tier/source |
+| **native**（轨2） | 官方配置校准轨 | 在**同一产品算法实现**可表达的范围内对齐 method 官方实验配置 | method 官方实验的 build/readout 配置；覆盖不全就明确 partial-native |
 
-**公平 ≠ 超参也相同**。unified 的"公平"指**读出层**（answer LLM/prompt、judge
-LLM/prompt、embedding）对所有 method 一致；method 的**内部超参**（top_k、chunk、
-summary 开关…）无法归一，各 method 用自己的 repo 默认即可。所以
-unified = { 全局共享读出层 } × { 各 method 的 repo 默认内部超参 }。
+**公平 ≠ 所有 build 组件也相同**。unified 的硬公平面是 method 外部的 answer/judge
+LLM、prompt 与 metric 语义；embedding、build LLM、update/retrieval 超参都属于 method
+如何建库和检索，不能再误称 readout。原则上采用通用产品 repo 默认；若 Phase 1 因模型
+预算/控制变量显式覆盖（例如统一 `gpt-4o-mini`，或历史上的 shared embedder），必须把
+`product_default` 与 `framework_override` 分开盖章。覆盖可以是合法实验设计，但不能继续
+写成“repo 默认”。
+
+> **2026-07-16 纠偏：**旧版 §7 写“多仓库优先复现版，两轨都跑在它上”，与项目
+> “通用产品接口”主线冲突，现已撤销。复现目录若改变算法流程，属于另一个
+> `reproduction_variant`，不是同一 method 的 native 配置。
 
 ## 1. 双轨"归根结底是不是 toml 的修改"？——是声明层，不是全部
 
@@ -40,7 +46,7 @@ parity 锁 + run_id 路由"工程，之后才是 TOML 一键切换。
 
 ## 2. 配置差异的完整轴清单 + build/readout 二分（成本关键）
 
-两轨之间**能**不同的轴（用户列了 3 条，实为 7 条）：
+两轨/变体之间必须显式对表的轴（原 7 条扩成 9 条）：
 
 | # | 轴 | 类型 | 影响面 |
 |---|-----|------|--------|
@@ -51,6 +57,8 @@ parity 锁 + run_id 路由"工程，之后才是 TOML 一键切换。
 | 5 | judge 语义（cat5 跳过 / abstention 门控） | **代码** | **readout** |
 | 6 | embedding model | 配置 | **build** |
 | 7 | method 内部超参（top_k/chunk/summary 开关…） | 配置（部分藏库内） | **build**（多数） |
+| 8 | storage backend / 持久化语义 | 实现或配置 | **build** |
+| 9 | algorithm implementation（通用产品 vs eval fork） | **实现身份** | **variant**，不得藏在 config-track |
 
 **build-affecting vs readout-affecting 二分是成本命门**：
 - **readout 轴（1-5）**：只影响"取回记忆后如何生成答案/如何判分"。改这些**不用重建
@@ -63,24 +71,57 @@ parity 锁 + run_id 路由"工程，之后才是 TOML 一键切换。
 的 repo 默认，记忆无法复用，是两次完整构建。**记忆复用是有条件的，不是默认的。**
 逐 method 在 M 阶段核 build 轴是否分叉，再定成本。
 
+### 2.1 native 是 coverage vector，不是一个万能布尔值
+
+每个 native 格至少记录六轴：`implementation/build/retrieval/answer/judge/metric`。推荐拆成
+两个正交身份：`native_scope = none | readout_only | build_and_readout`，以及
+`implementation_variant = product | reproduction:<name>`；并为缺失轴记录 fallback：
+
+- 官方只有 answer prompt/参数 → `readout_only`；
+- 官方无 LLM judge → 可以消费 framework judge，但 manifest/报告必须写
+  `judge=framework_fallback`，不能称 full-native；
+- eval 目录改变 update/retrieval/storage 算法 → `implementation_variant=reproduction:<name>`，
+  与产品轨使用不同 variant identity、输出目录和报告栏，不能只切 `config_track=native`；
+- 单轨格没有可区分的官方资产 → collapse，不重复跑。
+
+其中 `answer` 与 `judge` 轴都必须再拆成 `model + decoding params + prompt + output/parse
+semantics`。项目硬规则把所有真实 LLM 锁为 `gpt-4o-mini`；官方实验若用别的 model，Phase 1
+只能记 `model=framework_override`，其余参数/prompt 即使 parity 也只是 partial-native，不能
+把分数称作论文模型复现。未来若用户明确解锁模型，再用新 run identity 补完整 native。
+
+MemoryOS 当前已经是明确判例：LoCoMo 有 native answer prompt/参数、没有 native LLM judge，
+build profile 尚未接入，因此只可称 **readout-native**。
+
 ## 3. 轨1（unified）配置来源政策
 
-- **answer/judge/embedding = 框架统一配置**（method-neutral，所有 method 同一套）。
-- **method 内部超参 = 官方 repo 默认**（**非** paper、**非** benchmark 专用调参、
+- **answer/judge = benchmark-scoped、method-neutral 的框架统一配置**。来源优先级是 benchmark
+  官方资产 → 明确标注的 framework supplementary；“同一 benchmark 同一套”不等于把 fallback
+  冒充官方。LoCoMo 没有官方 LLM judge，当前 `locomo-judge` 使用 LightMem prompt 参考并标
+  `framework_auxiliary`，它可横向统一使用，但不是 LoCoMo official parity。
+- **method 实现 = 通用 OSS 产品接口**，不用 benchmark eval 专用算法副本。
+- **embedding/build LLM/内部超参 = 官方产品 repo 默认优先**（**非** paper、**非** benchmark 专用调参、
   跨全部 benchmark 同一套）。这是 ws02.5 已锁政策，见 `docs/roadmap.md` 全局约束
-  与 `ws02.5-method-interface-audit/README.md` "超参数政策"。用户 2026-07-12 的
-  "轨1 走 repo 默认超参"判断与既有锁定**一致**，非新决定。
+  与 `ws02.5-method-interface-audit/README.md` "超参数政策"。全局模型名
+  `gpt-4o-mini` 是 Phase 1 显式覆盖，不冒充产品默认。
 - **"repo 默认"要操作化**：= "不加任何特殊 flag、开箱即用"的那套。它本身要一次
   **每-method 小审计**——LightMem 的 `--enable-summary` `store_true` 默认 False
   就是判例（Task 1 的核查本质是"repo 默认到底是哪套"）。
+- **现有实现不因政策文字自动合规**：Mem0 当前 unified 显式换成 shared MiniLM，而其
+  通用 OSS 默认是 `text-embedding-3-small`；这是待 build-axis 审计裁决的历史
+  framework override。审计前不悄悄改配置、不重烧实验，审计后决定保留为受控 ablation
+  还是迁回 product-default。
+- **全局模型锁优先于 native 口号**：当前真实调用只能是 `gpt-4o-mini`。若官方 harness
+  使用 GPT-5/Qwen/Claude 等，只抽取其可复用 prompt/decoding/metric 资产并在 coverage 中
+  标模型 override；不得为追论文数字绕过 AGENTS 硬规则。
 
 ## 4. 轨2（native）配置来源决策树
 
 对每个 `method × benchmark` 的 native 格，按优先级定配置来源：
 
-1. **method 官方有该 benchmark 的复现/eval 目录** → 那就是 native 源
-   （SimpleMem/simplemem/evolver、MemoryOS-main/eval、mem0-main/memory-benchmarks
-   均属此类）。**但必须过 §5 的一致性检查。**
+1. **method 官方有该 benchmark 的复现/eval 目录** → 先判断它是否调用与通用产品相同的
+   algorithm implementation。相同核心、差异可配置 → 可作为 native 配置源；fork 了 update/
+   retrieval/storage → 只能作 `reproduction_variant`。SimpleMem evolver、MemoryOS eval、
+   mem0 memory-benchmarks 都必须先过此门，不能仅因目录名叫 eval 就归 native。
 2. **复现目录与 paper 冲突，且作者有明确指引** → follow 作者（MemoryOS：作者在
    GitHub issue 回应"推荐用论文超参" → MemoryOS native 用论文超参；记录 issue 链接）。
 3. **复现目录与 paper 冲突，且 method 已明显进化过 paper（paper 数字已不可复现）**
@@ -115,22 +156,26 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
 
 ## 6. single-track collapse 规则（省钱 + 防臆造）
 
-> **一个 `method × benchmark` 格是"双轨"，当且仅当该 method 官方在该 benchmark
-> 上跑过、且有可区分的配置。否则是"单轨"：native ≡ unified，只跑一次，不重复。**
+> **一个 `method × benchmark` 格是同实现“双轨”，当且仅当该 method 官方在该 benchmark
+> 上跑过、有可区分配置，且配置能落在同一 algorithm implementation。否则要么单轨 collapse，
+> 要么另列 reproduction variant；两者都不能伪装成普通 native。**
 
 - 跑量因此是：**unified 铺满**（method 兼容的所有格）+ **native 只在稀疏的 native 格**。
 - native 矩阵本就稀疏（见 ws02.7 README）：A-Mem 只有 locomo 双轨、其余单轨；
   LightMem 只有 locomo+longmemeval 双轨、其余单轨；HaluMem 全员单轨。
 - smoke 时：native 格两套都 smoke；单轨格只 smoke 一次（unified）。
 
-## 7. 算法代码单一化原则（多仓库 method）
+## 7. 通用产品 identity 与复现 variant（多仓库 method）
 
 有些 method 官方放了**多个仓库/版本**（复现版 / 通用库版 / 商业产品版）。
 
-> **method 的算法代码（实现）每 method 固定一份；双轨只换配置，绝不换算法实现。**
-> 否则"双轨"退化成"两个不同的 method"，对比失去意义。
+> **Phase 1 主 method identity 固定为通用 OSS 产品实现；双轨只换可配置资产，绝不暗换
+> 算法实现。**否则“native”实际比较的是两个不同 variant。
 
-- 选哪一份代码：**优先复现/benchmark harness 版**（native 保真要求它），两轨都跑在它上。
+- 选哪一份代码：**unified 优先通用产品版**，因为项目测的是用户真实可调用的产品接口，
+  且同一实现要铺五 benchmark。benchmark harness 只作配置/prompt/调用序列证据；若它复用
+  产品 core，可以抽取 native 配置；若它是 fork，则另建 `reproduction_variant` 身份，不能
+  替换 unified 的底座。
 - **A-Mem 判例**（已一手核实，纠正用户口径的方向）：
   - `third_party/methods/A-mem` = **复现版**（README: "specifically designed to
     reproduce the results presented in our paper"，含 `memory_layer_robust.py` +
@@ -139,7 +184,8 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
   - `third_party/A-mem`（顶层，2026-07-09 新加，untracked）= **通用库版**（README 指
     引你去别处复现，含 `agentic_memory/` 包）。**adapter 未用**，对本项目冗余。
   - A-Mem 整治（M 阶段）待办：① 确认复现版 `memory_layer_robust.py` 与通用版
-    `agentic_memory/` 是否同一核心算法（若分叉，则"哪份是 A-Mem"以复现版为准）；
+    `agentic_memory/` 是否同一核心算法（若分叉，通用版是 Phase 1 产品 identity，复现版
+    另列 variant；现有 adapter 的迁移成本须先审计，不在文档里假装已完成）；
     ② A-Mem 只有 **locomo 双轨**，其余 benchmark 单轨；③ 顶层 `third_party/A-mem`
     是否保留为参考 or 移除，由用户定（架构师不擅自删非自建文件）。
 
@@ -156,10 +202,10 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
 
 | method | native 格 | native 配置来源 | 已知关键点 |
 |--------|-----------|-----------------|-----------|
-| LightMem | locomo, longmemeval | 官方 experiments 目录 | locomo headline=LightMem 模式（summary OFF）→ answer=`ANSWER_PROMPT`；StructMem 是**另一实验**（换 build+检索+embedding），非 headline，暂不接（§见 ws02.7 Task1 裁决） |
-| A-Mem | locomo | 复现版仓库 | 见 §7；只 locomo 双轨 |
-| MemoryOS | locomo | eval 目录**但用论文超参** | 作者 issue 指引用论文超参（§4 case 2）；eval 目录与论文失配需 §5 取证 |
-| mem0 | locomo, longmemeval, beam | `memory-benchmarks` 当前 eval | 老论文已进化，走当前 harness 不看老论文（§4 case 3） |
+| LightMem | locomo, longmemeval | 官方 experiments 目录 | experiments 是否与通用 `src/lightmem` 同实现及 build override 范围纳入 2026-07-16 三家审计；StructMem 明确是另一 variant，不接 |
+| A-Mem | locomo | 复现版仓库（现状） | 见 §7；通用版/复现版算法身份待 A-Mem M 阶段审计，不能把现状反写成永久政策 |
+| MemoryOS | locomo | eval answer 资产 + paper 超参候选 | 当前只 readout-native；eval 与 pypi 已有算法差异，build 不得直接塞进 config-track；pypi/chromadb 关系待三家审计 |
+| mem0 | locomo, longmemeval, beam | `memory-benchmarks` 当前 eval | 需证明 harness 仍调用同一 OSS `Memory.add/search` core；current unified embedder 与产品默认分叉待三家审计 |
 | SimpleMem | locomo, longmemeval, membench | `simplemem/evolver` 等 | 逐格 M 阶段核 |
 | MemOS | locomo, longmemeval | 待 M 阶段一手 | — |
 | EverOS | locomo | 待 M 阶段一手（排最后） | — |
@@ -176,3 +222,6 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
 - **A-Mem 双仓库**：复现版在 `third_party/methods/A-mem`（adapter 接的这份），
   通用版在 `third_party/A-mem`；README note 是区分二者的判据。
 - **MemoryOS eval≠paper**：作者 GitHub 回应推荐论文超参 → native 用论文超参。
+- **MemoryOS pypi≠chromadb 不可先验等同**：两目录除 prompts 外核心文件均有 diff；在
+  update/retrieval/storage 调用链审计完成前，Phase 1 canonical 通用实现继续使用已接入、
+  更简单可审计的 `memoryos-pypi`，chromadb 只作候选 storage variant。

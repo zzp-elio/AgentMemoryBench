@@ -1,7 +1,7 @@
 # Mem0 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**method-frozen-v1（2026-07-14）**。冻结证据与九项声明缺口见
+> 状态：**method-frozen-v1 局部重开（2026-07-16：source-time B4）**。冻结证据与九项声明缺口见
 > `../../workstreams/ws02.7-method-track/notes/mem0-frozen-v1.md`；下列 B1-B11 是现行
 > 结论，不再把 2026-07-13 的预填风险冒充当前状态。2026-07-15 ADD-only/provenance
 > 负空间审计已由架构师验收：memory mutation 仅 ADD；同时确认 sidecar 是 ingest 批
@@ -34,11 +34,16 @@
   HaluMem 的 memory-point 复用 `end_session` 返回的 `add().results`。
 - **B3 ✅ 混合隔离**：worker 间独立 backend 物理隔离，worker 内按官方 `run_id`
   namespacing 逻辑隔离；四格 par2 smoke 已实证。
-- **B4 ✅ 输入可见性+formatted_memory 时间**：OSS `Memory.add()` 没有独立 timestamp
+- **B4 🟡 输入可见性+formatted_memory 时间（effective time 单次渲染待修）**：OSS `Memory.add()` 没有独立 timestamp
   参数，且 phased extraction 从 parsed messages 而非 storage metadata 读取新对话；因此
   adapter 的 `_turn_to_message()` 把公开 session/turn 时间渲染成 `[Session time: …]` /
-  `[Turn time: …]`，同时仍把时间写 metadata 供持久化与检索。MemBench 原 content 中的
-  place/time 不删，有时间时允许与结构化前缀重复；无时间 noise 不补时间。retrieve 侧再把
+  `[Turn time: …]`，同时仍把时间写 metadata 供持久化与检索。2026-07-16 现场复核确认
+  MemBench 原 content 已带 place/time 时仍会再前置相同 `[Turn time]`；且普通 turn/session
+  同时有值时会同时前置两行，未遵守 `turn_time → session_time → None` fallback。前者不是
+  additive typed channel，而是同一 content 双拼；后者给 content-only method 额外输入两份
+  时间。裁决为原文不删、typed time 仍保留，但每条 Mem0 message 只渲染一个 effective
+  timestamp：turn 优先、session 仅 fallback、原文已嵌 effective turn time 则不再加 header；
+  无时间 noise 不补时间。retrieve 侧再把
   payload 对话时间提升到 `created_at` 槽供官方 reader 使用。server 丢弃独立 timestamp
   字段仍是 upstream 缺口，但不等于当前 extraction 看不见 adapter 已内联的公开时间。
 - **B5 ✅/N/A 逐格 provenance**：原生 memory id→持久 sidecar source ids；命中缺映射
@@ -55,10 +60,11 @@
   空检索属于方法语义，不当作框架故障。
 - **B10 ✅ 双轨**：native 注册 LoCoMo、LongMemEval、BEAM；judge 路由泛化和旧论文
   校准配置属于 R0 前置包，不伪装成已消费。
-- **B11 ✅ smoke+冻结（provenance metric 勘误）**：13 格 predict、免费/付费指标与既定
+- **B11 🟡 既有 13 格证据保留，受影响三 benchmark B4 修复后局部复证**：13 格 predict、免费/付费指标与既定
   并行门完成；冻结时基线 1164 passed。既有 BEAM provenance recall 与 LongMemEval
   turn-level/rank 数字不再作可信指标声明。逐题 RetrievalEvidence contract v1 已由 M0
-  落盘，现待 M1 evaluator 消费；answer/F1/judge/成本与 add-only 证据继续有效。
+  落盘，现待 M1 evaluator 消费；MemBench/BEAM/HaluMem 新输入字节须局部复证，LoCoMo/
+  LongMemEval 的 session-only 输入及既有 add-only 证据继续有效。
 
 ## 特殊情况
 1. Mem0 是当前唯一混合隔离方法，不能把 worker 内逻辑隔离误写成全局纯逻辑隔离。

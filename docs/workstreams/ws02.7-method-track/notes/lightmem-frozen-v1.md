@@ -8,7 +8,8 @@
 > 既有 answer/judge/F1/成本与其他四格证据继续有效；LoCoMo post-update
 > provenance-based Recall/NDCG 应结构化 N/A。现裁五格主 profile 改为 paper
 > `online_soft`、post-update 另名补充轨；代码已于主线 `825132f` 强验收合入，B6/
-> lifecycle identity 已关闭，B5/B11 仍待逐题 RetrievalEvidence 门。恢复门与现行边界见
+> lifecycle identity 已关闭；逐题 RetrievalEvidence M0 已落盘，B5/B11 现待 M1 evaluator
+> 消费资格事实与受影响格复证。恢复门与现行边界见
 > `../branches/lightmem-lifecycle/notes/lightmem-update-lifecycle-ruling.md`，不得把下方
 > 2026-07-14 终局文字继续当现状。另有 MemBench 100k message 时间缺失门，见
 > `../branches/membench-time-semantics/`。

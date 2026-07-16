@@ -114,6 +114,13 @@
   content 删除。支持结构化字段的 method 收到“原 content + typed field”，不支持者仍能
   读原文；缺字段保持 None。2026-07-15 MemBench 判例中，time 被额外写入 Turn，但原
   place/time 对所有 method 完整保留。
+- **additive 不等于允许在同一 content 里复制一遍时间**：typed timestamp 与原 content 是
+  两个接口通道，可以同时存在；content-only method 则只需要一份正文可见事实。若 benchmark
+  原文已内嵌该 turn 的 place/time，renderer 必须保留原文并跳过相同 `[Turn time]` 前缀；原文
+  未带时间时才按 `turn_time → session_time → None` 折入**唯一一次**，turn/session 同时有值
+  也不能双前置。用公开 turn metadata 传递
+  “已嵌入”事实，不在 method adapter 写 benchmark 名特判。2026-07-16 Mem0×MemBench 判例中，
+  架构师现场发现现有 `_turn_to_message()` 会双拼，B4 因而局部重开。
 - **`Optional` 只说明调用形态，不证明缺失语义**：必须继续读 None 分支。A-Mem
   `add_note(time=None)` 会生成 ingestion wall clock；LightMem 原实现则直接拒绝 None，且
   后续 consolidated 路径依赖 float timestamp。不能看到签名允许 None 就宣称 unknown 被

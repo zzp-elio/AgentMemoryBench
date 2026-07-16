@@ -48,7 +48,7 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅timestamped + explicit-None online-soft | ✅online-soft turn；consolidated N/A | ✅online-soft | ✅ | ✅ | ✅分叉 | ✅ | 🟡M0逐题 artifact 已落，待 M1 evaluator | **v1 suspended** |
-| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅M3对话时间(s2实弹复证) | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(native计量=R0前置,声明2) | ✅B8+清单落档(M5,下载点声明4) | ✅ | ✅三格实弹 | ✅13格；M0 contract v1 已落，待 M1 消费 | **v1**(带 metric 勘误) |
+| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | 🟡effective time 单次渲染待修 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(native计量=R0前置,声明2) | ✅B8+清单落档(M5,下载点声明4) | ✅ | ✅三格实弹 | 🟡13格证据保留；MemBench/BEAM/HaluMem B4 局部复证 | **v1 局部重开** |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅ | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅分叉 | ✅readout-native | 🟡五格 smoke 待跑 | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -58,8 +58,9 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 | Supermemory | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [EverOS](integration/everos.md) | ✅vendored | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
-> "适配器 ✅" 只代表代码入口存在，不代表冻结。Mem0 已 frozen-v1；MemoryOS 已完成
-> M1 一手取证与 M2 离线施工/全量门，只差 B11 真实 smoke；LightMem 因 2026-07-15
+> "适配器 ✅" 只代表代码入口存在，不代表冻结。Mem0 原 frozen-v1 的大部分证据保留，
+> 但 MemBench/BEAM/HaluMem B4/B11 因 effective time 渲染局部重开；MemoryOS 已完成 M1 一手取证与
+> M2 离线施工/全量门，只差身份裁决后的 B11 真实 smoke；LightMem 因 2026-07-15
 > 发现 LoCoMo post-update 无 semantic source mapping 而重开 B5/B11；逐题 M0 声明机制已落，
 > 现待 M1 evaluator 消费。A-Mem/SimpleMem 待各自 M 阶段。N/A 是能力结论，不是强造指标。
 

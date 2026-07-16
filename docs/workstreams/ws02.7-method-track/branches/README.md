@@ -6,8 +6,9 @@
 | 支线 | 解决的问题 | 稳定依赖入口 |
 |---|---|---|
 | [`lightmem-lifecycle`](lightmem-lifecycle/README.md) | 论文 online soft 与 offline consolidation 的术语、主 profile、provenance 边界 | lifecycle profile 是 retrieval M0 的前置门 |
-| [`membench-time-semantics`](membench-time-semantics/README.md) | 100k message/question 时间隔离、LightMem online-soft preserve-none 兼容 | Phase A + Phase B 均已验收；现为 retrieval M0 的已关闭前置 |
+| [`membench-time-semantics`](membench-time-semantics/README.md) | 100k message/question 时间隔离、LightMem preserve-none、Mem0 effective-time 渲染 | Phase A+B 已验收；Mem0×MemBench/BEAM/HaluMem B4 Phase C 待施工/局部复证 |
 | [`retrieval-metrics`](retrieval-metrics/README.md) | 逐题 RetrievalEvidence、Recall/NDCG 资格、LongMemEval depth/分母 | M0 已验收 → evaluator M1 待架构师起草 |
+| [`dual-track-identity`](dual-track-identity/README.md) | 通用产品/eval 实现身份、build 轴、partial-native、MemoryOS 存储变体 | 三家 docs-only 一手审计 → 架构师裁 product-default/controlled ablation |
 
 每条支线用自身 README 记录范围、文档索引和稳定依赖顺序，`cards/` 放可整份复制给
 actor 的卡，`notes/` 放一手审计、架构裁决与施工记录。**权威当前动作、commit/test

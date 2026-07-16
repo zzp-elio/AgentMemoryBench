@@ -1,5 +1,11 @@
 # M0 spec+plan：Method Track 双轨接入 + LightMem 首接
 
+> **现行政策覆盖（2026-07-16）：**本文保留 2026-07-12 的施工历史与当时配置，不再作为
+> unified/native 定义的当前判据。旧 §3.1 “unified 统一 embedding”与“native=paper 全套”已被
+> `docs/reference/dual-track-config-policy.md` 取代：embedding 属 build identity；native 是
+> 六轴 coverage，算法分叉另列 `reproduction_variant`。执行新工作必须先读现行 policy，
+> 不得从本历史 plan 复活旧口径。
+
 > 2026-07-12 架构师（Opus 4.8）起草。小型合订本（spec+plan），一次用户
 > 批准即开工（playbook §9.5 允许）。前置：benchmark 五家 frozen-v1 + B6
 > 完成。标准判据见 `docs/reference/method-integration-checklist.md`。

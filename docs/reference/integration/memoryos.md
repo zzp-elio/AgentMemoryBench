@@ -25,10 +25,12 @@
 
 ## B1-B11 当前结论
 
-- **B1 来源与接口 ✅**：只用产品版 `add_memory` 和拆出的纯 retrieval，不用
+- **B1 来源与接口 ✅（PyPI canonical，ChromaDB 候选待审）**：只用产品版 `add_memory` 和拆出的纯 retrieval，不用
   benchmark 专用 eval 副本作算法运行源，也不调用一体化 `get_response` 代答题。
   `eval/` 只提供 LoCoMo native prompt/超参史料。产品版与 eval 的关键数值分叉已在
-  M1 §1-§2 逐项列出，未假装两者等价。
+  M1 §1-§2 逐项列出，未假装两者等价。当前 Phase 1 canonical 继续用已接入且更易审计的
+  `memoryos-pypi`；`memoryos-chromadb` 核心文件并非纯字节同构，在 storage/update/retrieval
+  等价性审计前只作候选 variant，不因名字含 ChromaDB 就假定“只换向量库”。
 - **B2 注入粒度 ✅ pair/session**：算法 add 单元仍是 QA page；LongMemEval 由 runner
   pair 投递，LoCoMo 因 speaker 名不是 user/assistant role，由 session 投递后在 adapter
   内按官方姿势配 page。消费批次不等于 provenance 粒度。
@@ -50,8 +52,10 @@
   `get_response` 末尾把 eval 问答写回。三路 future 吞异常的官方降级由 adapter 包装
   实际任务方法审计，metadata 写 `degraded_retrieval*`；合法空命中不误标。LLM 有
   timeout/retry/clean-retry；首次 embedding 模型下载缺显式 offline/timeout 仍是声明缺口。
-- **B9 模型/超参口径 ✅分叉声明**：unified build 使用产品 profile；paper、eval、
-  pypi 默认三岔已留档，不把其中一套冒充另一套。
+- **B9 模型/超参口径 ✅分叉声明（build-axis 终裁待三家审计）**：unified build 使用当前
+  产品 profile；paper、eval、pypi 默认三岔已留档，不把其中一套冒充另一套。当前 profile
+  与真正无覆盖 product default 的逐轴关系、PyPI/ChromaDB variant 身份，交
+  `dual-track-identity` 支线裁定；审计前不静默换配置或重烧 smoke。
 - **B10 双轨 ✅ readout-native**：LoCoMo 官方 system/user prompt 由 AST parity 锁逐字
   核对，answer=`gpt-4o-mini`, temperature=0.7, max_tokens=2000。官方无 LLM judge，
   bundle `judge_profile=None` 时回落框架默认 judge。paper build 超参只登记资产，当前
@@ -62,7 +66,8 @@
 
 ## 特殊情况与不可回退项
 
-1. eval 专用副本→pypi 通用产品引擎是公平性决策，不得为了复现单一榜单把运行源切回。
+1. eval 专用副本→pypi 通用产品引擎是公平性决策，不得为了复现单一榜单把运行源切回；
+   ChromaDB 也只有在证明算法等价后才可作为同 identity 的 storage backend。
 2. LoCoMo speaker 身份只在出口恢复；给 ingest 文本加 speaker 前缀会改变抽取/embedding，
    与官方姿势冲突。
 3. native 目前明确是 **readout-native**，不是 paper-build-native；manifest/报告必须带

@@ -31,12 +31,14 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   Phase A 强验收）→ `ff91aa3`（缺失时间兼容裁决）→ `915f73c`（Phase B 主体）→
   `3968373`（explicit-None R1）→ `352ed3c`（RetrievalEvidence M0 主体）→ `6b4fd4e`
   （status R1）→ `afd4040`（不可哈希 status hardening）→ `c879343`（preflight/resume
-  身份对称）。准确 commit/upstream 状态始终
+  身份对称）→ `da81b0f`/`b875879`（MemoryOS manifest fixture 对齐）→ `212d21f`
+  （M0 最终验收文档）。准确 commit/upstream 状态始终
   以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
   `1235 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.03s`；compileall exit 0。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。下一门是
-  五格真实 smoke；未获用户预算/规模/run_id 确认，禁止 API。
+  五格真实 smoke；但先完成 `branches/dual-track-identity/` 的 PyPI/ChromaDB/eval 身份裁决，
+  避免为可能变化的 build profile 重烧费用。未获用户预算/规模/run_id 确认，禁止 API。
 - **LightMem lifecycle 现行裁决**：论文第 5/7/8 页与官方脚本复证，paper online soft
   是“抽取后直接 LTM insert”，在 vendored 代码中反而由
   `update="offline" → offline_update(memory_entries)` 实现；`online_update()` 空壳只是
@@ -58,14 +60,44 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
   AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。待派/暂停属于支线
   README，不得混进施工 prompt；用户把卡发送给某 actor 就是已完成选择与授权。
+- **时间/B4 现行裁决**：MemBench 原 message 的 place/time 原样保留，支持 typed timestamp
+  的 method 另收 `turn_time → session_time → None`；这不是正文重复。Mem0 这类 content-only
+  method 每条 message 也只折入这一个 effective timestamp。当前源码既会对 MemBench 再前置
+  相同 `[Turn time]`，又会在 turn/session 同时存在时双前置；故局部重开 Mem0 的
+  MemBench/BEAM/HaluMem B4/B11 输入形态，LoCoMo/LongMemEval session-only 字节不变。卡见
+  `branches/membench-time-semantics/cards/actor-prompt-mem0-membench-time-dedup.md`。
+- **双轨/指标现行裁决**：unified=通用 OSS 产品实现 + benchmark-scoped method-neutral
+  answer/judge（官方优先，fallback 标 tier/source）；native
+  按 implementation/build/retrieval/answer/judge/metric 六轴声明，算法 fork 另列
+  `reproduction_variant`。LoCoMo canonical answer 仍是 32-token 单一 prediction，各答案指标
+  共用它；Precision/F1@k 在 relevance gold 未证明穷尽时 N/A。artifact-only 新指标走独立
+  metric-pack，不整体解冻 benchmark core；M1 后先消费
+  `docs/reference/metric-extension-plan.md` 的 normalized EM + directional substring EM。
+  双轨证据审计卡见
+  `branches/dual-track-identity/cards/actor-prompt-integrated-method-dual-track-identity-audit.md`。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
-  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**当前无需用户派卡：下一步由
-  架构师先写 RetrievalEvidence M1 自包含卡与验收矩阵，完成后再醒目交给用户选择 actor。**
-  MemoryOS 五格 smoke 仍需明确预算、规模与 run_id，禁止自行调用 API。
+  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**当前需要用户并行派两卡**：
+  ① Mem0 source-time 正文单次渲染（MemBench 去重 + turn→session fallback，代码卡）；
+  ② 三家双轨实现身份/build-axis（高难度
+  docs-only，推荐 Fable 5）。两卡回收强验收后，架构师裁 build identity 并起草
+  RetrievalEvidence M1；M1 未遗忘但现在不抢跑。MemoryOS 五格 smoke 仍需身份门 + 用户
+  明确预算、规模与 run_id，禁止自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
-## 当前断点（2026-07-15）
+## 当前断点（2026-07-16）
+
+- 2026-07-16（**Mem0 B4 局部重开 + 三家双轨身份审计待用户派发**，GPT-5 架构师）：
+  用户纠正“原文 + typed timestamp”不等于要求正文双拼；源码复核确认 MemBench adapter
+  无损保留 place/time 并抽取 turn time，但 Mem0 `_turn_to_message()` 又前置同一
+  `[Turn time]`；同时 `_turn_to_message()` 在 turn/session 并存时会双前置，与用户明确的
+  `turn_time → session_time → None` fallback 不一致。裁决为 typed method 保留原文+typed
+  双通道、content-only method 每条正文只出现一个 effective timestamp；不按 benchmark 名
+  特判，以公开 turn metadata 标记原文已嵌 source time。Mem0 局部重开 MemBench/BEAM/
+  HaluMem B4/B11 输入形态，LoCoMo/LongMemEval 与其余证据保留。另撤销“native 是一个全套布尔值”和“多仓库优先复现版”
+  的旧政策：unified 主 identity 是通用 OSS 产品实现；native 只容纳同算法的官方配置，
+  eval fork 另列 reproduction variant；MemoryOS 当前只 readout-native，PyPI 暂为 canonical，
+  ChromaDB 等价性待审。两张自包含卡已落入上述支线，可并行派发；零真实 API。
 
 - 2026-07-15（**RetrievalEvidence M0 强验收完成；M1 解锁、尚未派发**，GPT-5 架构师）：
   Opus 4.8 首轮/R1 `5fd5ac1` + `1999f56` 线性合入为 `352ed3c` + `6b4fd4e`；架构师复现

@@ -6,6 +6,12 @@ created: 2026-07-08
 ---
 # ws02.5 Method 接口保真审计（5×5 smoke 前置门）
 
+> **2026-07-16 现行解释：**本页 `embedder 统一 all-MiniLM` 是 2026-07-09 已执行配置的历史
+> 记录，不再自动等于 unified 政策。embedding 属 build identity；产品默认、framework
+> override 与 controlled ablation 的现行裁决见
+> `docs/reference/dual-track-config-policy.md` 及 ws02.7 `dual-track-identity` 支线。历史 commit
+> 不改写，但后续 method 不得照抄“统一 embedder”而跳过逐轴声明。
+
 ## 为什么有这个 workstream（第一手发现，别只当 MemoryOS 个例）
 
 2026-07-08 用户提出核心问题：**method adapter 注入/检索记忆时，用的是 method

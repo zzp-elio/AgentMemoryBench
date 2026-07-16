@@ -51,6 +51,7 @@ ingestion wall clock。该值属于 method-native 创建时间，不能回写为
 
 ## 特殊情况（M 阶段待办，policy §7 已登记）
 1. 核 `memory_layer_robust.py`（复现版）与 `agentic_memory/`（通用版）是否同一核心
-   算法；分叉则以复现版为准。
+   算法；等价且差异可配置时才可抽取 native profile，分叉则通用产品实现作为 Phase 1
+   主 identity、复现版另列 `reproduction_variant`。现有 adapter 的迁移成本须一手审计。
 2. 顶层 `third_party/A-mem` 去留由用户定（架构师不擅自删非自建文件）。
 3. pickle 持久化的跨版本兼容性（resume 场景）值得一个定向测试。

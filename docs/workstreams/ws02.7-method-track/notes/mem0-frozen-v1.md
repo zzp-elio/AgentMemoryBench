@@ -13,6 +13,15 @@
 > BEAM turn Recall=N/A。既有受影响 retrieval metric 数字撤销为可信指标声明，其他
 > answer/judge/F1/成本与 B1-B4/B6-B10 证据继续有效。现行裁决见
 > `../branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`。
+>
+> **2026-07-16 B4 局部重开：**MemBench 原 message 已内嵌 place/time，但
+> `_turn_to_message()` 又前置 `[Turn time]`，形成同一 content 的重复时间；该 helper 在
+> turn/session 同时有值时也双前置，未遵守 `turn_time → session_time → None` fallback。
+> 原文 + typed channel 仍是正确 additive 设计；content-only message 则只应出现一个
+> effective timestamp。冻结不整体作废，只重开 Mem0 的 MemBench/BEAM/HaluMem B4/B11
+> 输入形态；修复后局部复证三格，LoCoMo/LongMemEval session-only 字节和既有 add-only
+> 证据保留。裁决见 `../branches/membench-time-semantics/notes/
+> membench-100k-time-ruling.md` §7。
 
 ## 1. 冻结时点的证据面(13 格 predict + 全指标)
 

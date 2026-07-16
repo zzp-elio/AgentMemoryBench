@@ -19,8 +19,8 @@ message 时间提升为伪 `session_time`；事件流随后让所有无时间 tu
 - `QA.time`：只进入 `Question.question_time`，供官方 retrieval query 与 MCQ prompt。
 
 结构化不是清洗或搬家。即使 method 支持独立 timestamp，它收到的 content 仍保留公开
-文本里的 place/time；不支持独立 timestamp 的 method 也因此不会损失信息。这种重复是
-有意的：一个是 benchmark 原始可见内容，一个是从同一公开内容派生的 typed metadata。
+文本里的 place/time；不支持独立 timestamp 的 method 也因此不会损失信息。这里是“原文
++ typed channel”两个接口通道，不是要求在同一 content 里再拼一遍时间。
 
 ## 2. 真实 100k 数据剖面
 
@@ -101,15 +101,25 @@ turn 的时间。非空不等于真实；“兜底永不落空”是可运行性
    可以调用，但 `MemoryNote` 会把缺失 time 换成本机 ingestion wall clock。这是 method-native
    创建时间，不是 benchmark source time；允许其按产品默认 ingest，但不得回写 Turn、冒充
    source-time parity 或作为 provenance 真值。相关运行披露纳入 Phase B 能力语义。
+7. **content-only 单次渲染（2026-07-16 补充裁决）**：Mem0 之类 extraction 不消费独立
+   timestamp 时，每条 message 只折入一个 effective timestamp：非空 `turn_time` 优先，只有
+   turn 缺失时才 fallback 到真实 `session_time`，两者都缺则不加。MemBench 已内嵌 turn
+   time/place 的 message 原样保留，禁止再加相同 `[Turn time]`。实现应由 benchmark adapter
+   在公开 `Turn.metadata` 标记 source time 已嵌入，method renderer 读通用标记；禁止
+   `if benchmark == "membench"`。BEAM/HaluMem 同时提供 turn/session 时只渲染 turn；LoCoMo/
+   LongMemEval 只有 session 时保持现有 session header。
 
 ## 6. 施工分期
 
 - **Phase A（已强验收）**：Opus 4.8 `0fbf8e1` 合入主线 `2e6b4d7`；架构师定向
   `31 passed in 3.68s`、主树 `1193 passed`、compileall exit 0。只修 MemBench adapter 的
   `session_time` 与测试，benchmark frozen-v1 已恢复。
-- **Phase B（已裁决、卡待派）**：LightMem `online_soft` 增加 preserve-none 兼容；
-  consolidated/summary 仍 require。详见 `lightmem-missing-time-compatibility-ruling.md` 与
-  `../cards/actor-prompt-lightmem-missing-time-online-soft.md`。A-Mem 的 None→ingestion wall
-  clock 另作 method-native 披露，不能只检查 Python 签名是否写了 `Optional`。
-- RetrievalEvidence M0 暂停到上述边界稳定；它负责 retrieval 事实，不负责把不能 ingest
-  的 variant 伪装成可运行。
+- **Phase B（已强验收）**：LightMem `online_soft` preserve-none 主体与 explicit-None R1 已
+  合入主线 `915f73c` + `3968373`；consolidated/summary 仍 require。A-Mem 的
+  None→ingestion wall clock 只作 method-native 披露。
+- **Phase C（当前）**：修复 Mem0 source-time renderer：MemBench 原文已带 time 时不双拼，
+  普通 message 只按 turn→session fallback 折入一次；锁 first-person/third-person、带时/无时、
+  turn+session、legacy/v3 两路径。局部重开 Mem0×MemBench/BEAM/HaluMem B4 输入形态，不改
+  benchmark 时间解析、不改 Mem0 extraction/update/retrieve 算法。
+- RetrievalEvidence M0 已于主线 `352ed3c` 起强验收落盘；它只负责 retrieval 事实，与本次
+  ingest content 去重正交。

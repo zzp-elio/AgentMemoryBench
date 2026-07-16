@@ -123,17 +123,20 @@
     answer/judge/超参"的**声明**，但 native prompt 是代码资产（builder+parity）、
     judge 语义（cat5 跳过/abstention）是代码、track-aware run_id 是 runner 代码、
     库内超参要 adapter 暴露——TOML 管不到。**规矩**：
-    (a) 7 轴差异分 **build**（embedding+内部超参，改了重建记忆、成本 ×2）与
-    **readout**（answer/judge LLM+prompt+语义，改了记忆可复用）；**记忆复用有条件、
+    (a) 9 轴差异分 **build**（embedding、storage、内部超参，改了重建记忆、成本 ×2）、
+    **readout**（answer/judge LLM+prompt+语义，改了记忆可复用）及
+    **implementation variant**；
+    **记忆复用有条件、
     非默认**（改正此前"native 只重跑 answer+judge"无条件口径）。
     (b) unified 超参走 **repo 默认**（ws02.5 已锁），native 走官方复现实验配置；
     **无官方实验的格 = 单轨 native≡unified，不重复跑**（collapse 规则）。
     (c) **reproduce≠paper≠default 三方发散必查**（method 侧的"官方死代码"同款）：
     失配且无作者指引 → 标 DISPUTED 留痕不阻塞（MemoryOS 判例：作者 issue 指引用
     论文超参）；老论文已进化的（mem0、memgpt→letta）走当前 repo eval 不看论文。
-    (d) **多仓库 method 选一份算法代码**（优先复现版），两轨只换配置不换算法——
-    A-Mem 判例：adapter 已接复现版 `third_party/methods/A-mem`（对），通用版
-    `third_party/A-mem` 冗余待定。
+    (d) **Phase 1 主 identity 固定为通用 OSS 产品实现**；eval/复现目录只有在复用同一
+    core、差异可配置时才能提供 native 资产。若 update/retrieval/storage 已分叉，另列
+    `reproduction_variant`，不得在 `config_track` 内暗换算法。A-Mem 现有 adapter 接复现版
+    只是待审计的历史实现状态，不是“复现版永远优先”的政策依据。
     (e) **两候选 prompt 都活跃时选"复现 paper headline 数字"的那个，而非任选**——
     LightMem `--enable-summary` 判例：它改 build+检索+embedding 三处、非纯 answer，
     paper headline 是 summary OFF，故 native locomo=标准 ANSWER_PROMPT、StructMem
@@ -262,8 +265,13 @@
     也完整保留，只是冻结文档仍过时地写成“add 侧对话时间进 metadata”。**规矩**：method
     接入要分别证明“字段已保存”和“字段已被算法消费”；typed field 只作 additive channel，
     原 content 不因结构化而删减；算法不消费 typed field 时，在 adapter 边界内联公开字段；
-    数据缺失时保持缺失，绝不拿 question time、兄弟 turn 或墙钟补造。文档与代码冲突时以
-    一手调用链为准，并立即勘误冻结记录，避免下一任把正确实现误修坏。
+    **但原 content 已经内嵌同一时间时不能再前置一份**。typed channel + 原文是跨接口 additive，
+    同一 content 双拼才是噪声。content-only method 每条 message 只渲染一个 effective
+    timestamp：turn 优先、session 仅 fallback；不能因为两个字段都是真实就把两行都塞给它。
+    数据缺失时保持缺失，绝不拿 question time、兄弟 turn 或墙钟补造。2026-07-16 复核发现
+    Mem0 既对 MemBench 原文时间双拼，也在 BEAM/HaluMem turn+session 并存时双前置，故 B4
+    局部重开；这也证明文档写了“原文保留”仍不等于消费点正确，必须抽查最终送进 method 的
+    字节。
 
 29. **严格 resume identity 必须在 preflight 前盖章；只测 matcher 不等于闭合真实续跑**
     （2026-07-15 RetrievalEvidence M0 判例）。M0 把
@@ -277,6 +285,14 @@
     matcher 或只断言最终 JSON 都不够。本次原卡还把相关 CLI 文件和端到端测试排除在允许/
     必测范围外，这是架构师的卡设计缺口；不能把全量回归才发现的问题全扣给忠实执行卡的
     actor。
+
+30. **文档要有消费者、触发器和退出条件；只“提上日程”就是半个遗忘**（2026-07-16
+    用户再次提醒后固化）。每条长期裁决至少回答三问：① 谁在什么时候必读（例如 B4/B10/
+    B11 gate 或 compact 热恢复胶囊）；② 它阻塞哪个当前动作；③ 什么证据出现后移出活跃层或
+    归档。没有这三项的 note 即使写进仓库也会吃灰。施工方式：证据放 branch `notes/`，执行
+    卡放 `cards/`，稳定原则进入 checklist/policy，活跃 README 只保存“当前动作 + 指针 +
+    exit condition”。压缩恢复只读活跃 README，故任何真正要继续的支线都必须在其索引出现；
+    完成后则把状态改成 closed/历史，不靠继任者猜文件名。
 
 ## 4. 审查手艺（隐性知识核心）
 
