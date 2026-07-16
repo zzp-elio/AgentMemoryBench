@@ -200,7 +200,7 @@ class LongMemEvalConversationAdapterTest(unittest.TestCase):
         self.assertTrue(first_turn.content)
 
     def test_full_official_split_loads_after_source_normalization(self):
-        """官方 S split 含少量空 message/重复 session id，adapter 应规范化后全量可读。"""
+        """官方 S split 应全量可读，并锁住主检索路径 419 题分母。"""
 
         dataset = LongMemEvalAdapter(ROOT).load()
 
@@ -209,6 +209,35 @@ class LongMemEvalConversationAdapterTest(unittest.TestCase):
         self.assertTrue(dataset.metadata["source_fully_scanned"])
         self.assertEqual(dataset.metadata["skipped_blank_turn_count"], 12)
         self.assertEqual(dataset.metadata["deduplicated_session_id_count"], 13)
+
+        abstention_count = 0
+        no_user_target_count = 0
+        scored_count = 0
+        for conversation in dataset.conversations:
+            question = conversation.questions[0]
+            gold = conversation.gold_answers[question.question_id]
+            turn_view = next(
+                group_set
+                for group_set in gold.evidence_group_sets
+                if (
+                    group_set.provenance_granularity == "turn"
+                    and group_set.unit_kind == "longmemeval_user_target_turn"
+                )
+            )
+            if "_abs" in question.question_id:
+                abstention_count += 1
+            elif not turn_view.groups:
+                no_user_target_count += 1
+            else:
+                scored_count += 1
+
+        self.assertEqual(abstention_count, 30)
+        self.assertEqual(no_user_target_count, 51)
+        self.assertEqual(scored_count, 419)
+        self.assertEqual(
+            abstention_count + no_user_target_count + scored_count,
+            500,
+        )
 
     def test_full_m_cleaned_split_loads_all_instances(self):
         """M split 应能全量加载 500 个 evaluation instance。"""

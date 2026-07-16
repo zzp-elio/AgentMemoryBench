@@ -10,6 +10,7 @@ import pytest
 from memory_benchmark.core import GoldAnswerInfo, GoldEvidenceGroup, GoldEvidenceGroupSet, Question
 from memory_benchmark.evaluators.longmemeval_retrieval_rank import (
     LongMemEvalRetrievalRankEvaluator,
+    _evaluate_groups_at_k,
 )
 from memory_benchmark.storage import (
     ExperimentPaths,
@@ -91,6 +92,40 @@ def test_recall_all_requires_every_gold_doc(tmp_path: Path) -> None:
     assert metrics["recall_all@1"] == 0.0
 
 
+def test_unmatched_group_stays_in_ndcg_ideal_denominator() -> None:
+    """unmatched 官方 unit 必须扣在 ideal 分母，不能被洗成满分。"""
+
+    groups = (
+        GoldEvidenceGroup("mapped", ("hit",), "mapped"),
+        GoldEvidenceGroup("unmatched", (), "unmatched"),
+    )
+
+    metrics = _evaluate_groups_at_k(["hit"], groups, 3)
+
+    assert metrics["recall_any@3"] == 1.0
+    assert metrics["recall_all@3"] == 0.0
+    assert metrics["ndcg_any@3"] == pytest.approx(0.5)
+
+
+def test_group_rank_uses_best_child_and_duplicate_child_has_no_extra_gain() -> None:
+    """multi-child 取最小 rank，检索列表重复同一 child 不得重复累计 DCG。"""
+
+    groups = (
+        GoldEvidenceGroup("g1", ("late", "early"), "mapped"),
+        GoldEvidenceGroup("g2", ("other",), "mapped"),
+    )
+
+    metrics = _evaluate_groups_at_k(
+        ["noise", "early", "other", "late", "early"],
+        groups,
+        5,
+    )
+
+    expected_actual = 1.0 / log2(2) + 1.0 / log2(3)
+    expected_ideal = 1.0 + 1.0 / log2(2)
+    assert metrics["ndcg_any@5"] == pytest.approx(expected_actual / expected_ideal)
+
+
 def test_k_above_top_k_is_skipped_and_counted(tmp_path: Path) -> None:
     """artifact top_k 以上的官方 k 不得输出下界冒充官方结果。"""
 
@@ -148,8 +183,7 @@ def _write_run(
     manifest: dict[str, object] = {
         "run_id": "rank-run", "benchmark_name": "longmemeval", "method": method,
     }
-    if provenance is not None:
-        manifest["benchmark_policy"] = V1_BENCHMARK_POLICY
+    manifest["benchmark_policy"] = V1_BENCHMARK_POLICY
     atomic_write_json(paths.manifest_path, manifest)
     questions = [Question(qid, qid, "Question?", category="multi-session") for qid, _, _ in rows]
     atomic_write_jsonl(

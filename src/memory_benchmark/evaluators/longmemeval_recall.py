@@ -42,10 +42,10 @@ class LongMemEvalRetrievalRecallEvaluator:
         """从 manifest、answer prompt 与 evaluator-private labels 计算 recall。"""
 
         del max_workers
+        require_manifest_gold_evidence_contract_v1(manifest)
         provenance_granularity = _method_provenance_granularity(manifest)
         if provenance_granularity in {"none", "undeclared"}:
             return _na_payload(self.metric_name, provenance_granularity)
-        require_manifest_gold_evidence_contract_v1(manifest)
         if provenance_granularity not in {"turn", "session"}:
             raise ConfigurationError(
                 f"Unknown provenance_granularity {provenance_granularity!r} in "

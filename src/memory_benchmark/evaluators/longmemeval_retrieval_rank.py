@@ -42,10 +42,10 @@ class LongMemEvalRetrievalRankEvaluator:
         """读取 answer prompt 与 evaluator-private gold 并聚合排名指标。"""
 
         del max_workers
+        require_manifest_gold_evidence_contract_v1(manifest)
         granularity = _provenance_granularity(manifest)
         if granularity in {"none", "undeclared"}:
             return _na_payload(granularity)
-        require_manifest_gold_evidence_contract_v1(manifest)
         if granularity not in {"turn", "session"}:
             raise ConfigurationError(
                 f"Unknown provenance_granularity {granularity!r} in manifest['method']; "
@@ -214,9 +214,9 @@ def _evaluate_groups_at_k(
         if rank is not None:
             actual_hits[rank] = 1.0
     actual_dcg = _dcg(actual_hits)
-    # ideal：全部 mapped group 优先于 unmatched，排在 rank 0,1,2,...
-    mapped_count = sum(1 for group in groups if group.mapping_status == "mapped")
-    ideal_dcg = _dcg([1.0] * min(mapped_count, k))
+    # ideal：每个官方 gold unit 都占理想分母；unmatched 只是永远无法进入 actual，
+    # 不能从 ideal gold 数中删除，否则会把映射失败悄悄洗成满分。
+    ideal_dcg = _dcg([1.0] * min(len(groups), k))
     ndcg = actual_dcg / ideal_dcg if ideal_dcg else 0.0
 
     return {

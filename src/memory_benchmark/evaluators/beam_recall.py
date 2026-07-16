@@ -40,10 +40,10 @@ class BeamRetrievalRecallEvaluator:
         """从 answer prompt 与私有标签 artifact 计算 recall。"""
 
         del max_workers
+        require_manifest_gold_evidence_contract_v1(manifest)
         provenance = _provenance_granularity(manifest)
         if provenance in {"none", "undeclared"}:
             return _na_payload(provenance)
-        require_manifest_gold_evidence_contract_v1(manifest)
         if provenance != "turn":
             raise ConfigurationError(
                 f"Unknown provenance_granularity {provenance!r} for BEAM recall; "

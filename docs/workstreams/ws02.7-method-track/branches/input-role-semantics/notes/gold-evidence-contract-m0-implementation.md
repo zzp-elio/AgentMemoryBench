@@ -1,13 +1,13 @@
 # gold evidence group contract M0 施工笔记
 
-> 日期：2026-07-16。actor：Claude Opus 4.8。卡：
+> 日期：2026-07-16。actor：Claude Opus 4.8 起始、DeepSeek V4 Pro 接力。卡：
 > [`cards/actor-prompt-gold-evidence-contract-m0.md`](../cards/actor-prompt-gold-evidence-contract-m0.md)
 > 零真实 API、零下载。
 
 ## 实现摘要
 
-按卡 §3 实施顺序完成，单项 product 文件悉数在 allow list 内（允许文件清单
-不含 `gold_evidence_groups.py`，属于新增 evaluator shared helper）。
+按卡 §3 实施顺序完成，全部生产文件都在 allowlist 内；其中共享 helper
+`gold_evidence_groups.py` 已由原卡 §4 显式列入允许清单。
 
 ### 1. 实体（§2.1）
 
@@ -137,7 +137,8 @@
 
 ### 6. 实质 subagent 使用
 
-无。全程单会话执行。
+无。首轮由 Claude Opus 4.8 开始施工，额度耗尽后由 DeepSeek V4 Pro 在同一
+worktree/branch 接力并完成首轮 commit；没有把混合执行错误归功给单一模型。
 
 ### 7. 定向自检结果
 
@@ -157,3 +158,35 @@
   gold group 从 singleton child 升级为 {user_child, assistant_child}）
 - RetrievalEvidence M1（evaluator 消费逐题 evidence 事实）
 - LME k30/50 depth 拆分
+
+### 10. 架构师 R1 强验收返工
+
+架构师未把首轮 `422 passed` 当作验收结论，逐读生产 diff 与测试 fixture 后发现
+五类 false-green，并裁定线性追加 R1，不 amend 首轮历史：
+
+1. LongMemEval NDCG 的 ideal DCG 错按 `mapped_count` 构造，导致 unmatched unit
+   从理想 gold 数中消失；R1 改为全部 `groups` 计入 ideal，新增“一 mapped 命中 +
+   一 unmatched”应为 0.5，以及 multi-child 最小 rank/重复 child 不重复增益强反例。
+2. BEAM 所谓“歧义任一位置命中”测试实际构造了两个 singleton group 并期望 0.5；
+   R1 改为一个 raw unit 对两个 canonical child，任一命中为 1.0，并把 empty=N/A 与
+   unmatched=0 两条语义彻底拆开。
+3. runner 在 `benchmark_policy=None` 时无条件跳过，使 v1 label 可混入无版本 run；
+   R1 只保留“policy=None + 全部 label unversioned”的 legacy 兼容，任一版本化 label
+   均 fail-fast。
+4. 五个 evaluator 原先先按 method provenance 返回 N/A，旧/非法 benchmark manifest
+   会被掩盖；R1 统一改为 manifest v1 identity-first。method 本身 N/A 时仍不读取
+   evaluator-private label/view，保持“不消费 qrel 就不强读私有 artifact”的裁决边界。
+5. MemBench evaluator fixture 用 `zip(target_step_ids, legacy evidence)` 建 group，既会
+   被 legacy 长度截断，又使用了不存在于生产 adapter 的复合 id。R1 改为稳定去重的
+   target step 单事实源，合法 child=`str(step_id + 1)`、OOB=unmatched；legacy evidence
+   只保留历史字段。真实 LongMemEval S split 同时锁定 500=30 abstention + 51 non-abs
+   no-user-target + 419 scored，禁止靠过滤数据迎合分母。
+
+R1 最终定向自检结果见下方追加记录；首轮 §7 的历史尾行保持原样，不回写覆盖。
+
+```text
+436 passed, 29 subtests passed in 142.45s (0:02:22)
+```
+
+文件范围仍为原卡 §6 的全部 15 个测试文件；零真实 API、零下载，worktree 中现有
+`data` / `third_party/benchmarks` 只读软链未进入暂存区。

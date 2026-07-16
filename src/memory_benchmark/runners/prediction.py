@@ -953,18 +953,20 @@ def validate_gold_evidence_contract_alignment(
     输入:
         dataset: 本次运行的完整统一数据集（含私有 gold_answers）。
         benchmark_policy: 已注册 benchmark 的 policy manifest；未注册（legacy/
-            测试自定义路径）为 None 时跳过校验，保持现状兼容路径。
+            测试自定义路径）为 None 时，只允许全部 gold label 都未声明契约版本。
 
     输出:
         None。任何一侧声明 v1 而另一侧缺失、或版本非法时抛 ConfigurationError；
         本函数必须在创建目录、构造 method factory 或调用真实 API 之前执行。
     """
 
-    if benchmark_policy is None:
-        return
-    if not isinstance(benchmark_policy, dict):
+    if benchmark_policy is not None and not isinstance(benchmark_policy, dict):
         raise ConfigurationError("benchmark_policy must be a dict or None")
-    declared_version = benchmark_policy.get("gold_evidence_contract_version")
+    declared_version = (
+        None
+        if benchmark_policy is None
+        else benchmark_policy.get("gold_evidence_contract_version")
+    )
     if declared_version not in (None, "v1"):
         raise ConfigurationError(
             "benchmark_policy gold_evidence_contract_version must be None or "
@@ -973,22 +975,32 @@ def validate_gold_evidence_contract_alignment(
     for conversation in dataset.conversations:
         for question in conversation.questions:
             gold = conversation.gold_answers.get(question.question_id)
+            label_version = (
+                None
+                if gold is None
+                else getattr(gold, "gold_evidence_contract_version", None)
+            )
+            if benchmark_policy is None:
+                if label_version is not None:
+                    raise ConfigurationError(
+                        f"{question.question_id}: gold label declares gold evidence "
+                        f"contract {label_version!r} but benchmark_policy is absent; "
+                        "refuse to run with mixed versions"
+                    )
+                continue
             if declared_version == "v1":
                 if gold is None:
                     raise ConfigurationError(
                         f"{question.question_id}: benchmark declares gold evidence "
                         "contract v1 but the public question has no gold label"
                     )
-                label_version = getattr(gold, "gold_evidence_contract_version", None)
                 if label_version != "v1":
                     raise ConfigurationError(
                         f"{question.question_id}: benchmark declares gold evidence "
                         "contract v1 but the gold label declares "
                         f"{label_version!r}; refuse to run with mixed versions"
                     )
-            elif gold is not None and (
-                getattr(gold, "gold_evidence_contract_version", None) is not None
-            ):
+            elif label_version is not None:
                 raise ConfigurationError(
                     f"{question.question_id}: gold label declares gold evidence "
                     "contract v1 but the benchmark policy does not; refuse to run "

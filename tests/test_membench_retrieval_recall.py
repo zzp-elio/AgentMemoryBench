@@ -70,8 +70,10 @@ def _private_label(
 ) -> dict[str, object]:
     """通过**真实生产序列化函数**构造私有标签。
 
-    gold evidence contract v1: child_ids 使用 evidence 空间的公开 turn id。
-    oob_step_ids 中的 0 基 target 记 unmatched（与真实 adapter 一致）。
+    gold evidence contract v1: group 只由稳定去重后的 target_step_ids 构造，
+    合法 child 是生产 adapter 的 1 基公开 turn id `str(step_id + 1)`；legacy
+    evidence 只保留历史字段，长度不得截断权威 group。oob_step_ids 中的 0 基
+    target 记 unmatched（与真实 adapter 一致）。
     """
 
     from memory_benchmark.core import GoldEvidenceGroup, GoldEvidenceGroupSet
@@ -79,11 +81,11 @@ def _private_label(
     oob_set = set(oob_step_ids)
     groups = tuple(
         GoldEvidenceGroup(
-            unit_id=str(sid),
-            child_ids=(evidence_id,) if sid not in oob_set else (),
-            mapping_status="unmatched" if sid in oob_set else "mapped",
+            unit_id=str(step_id),
+            child_ids=() if step_id in oob_set else (str(step_id + 1),),
+            mapping_status="unmatched" if step_id in oob_set else "mapped",
         )
-        for sid, evidence_id in zip(target_step_ids, evidence)
+        for step_id in dict.fromkeys(target_step_ids)
     )
     gold = GoldAnswerInfo(
         question_id=question_id,
@@ -105,7 +107,7 @@ def _private_label(
 def test_turn_provenance_matches_public_turn_ids_and_keeps_official_aliases(
     tmp_path: Path,
 ) -> None:
-    """turn recall 应用公开 turn id 匹配，官方 0 基 target_step_id 留 metadata。"""
+    """公开 id 计分只由 target groups 决定，不受 legacy evidence 长度截断。"""
 
     paths, manifest = _write_run(
         tmp_path,
@@ -115,14 +117,14 @@ def test_turn_provenance_matches_public_turn_ids_and_keeps_official_aliases(
                 "question_id": "q1",
                 "conversation_id": "q1",
                 "retrieval_query_top_k": 1,
-                "retrieved_items": [_item("membench-conv-1:t2")],
+                "retrieved_items": [_item("2")],
                 "metadata": {"public_turn_count": 5},
             }
         ],
         private_labels=[
             _private_label(
                 "q1",
-                evidence=["membench-conv-1:t2", "membench-conv-1:t3"],
+                evidence=["legacy-only"],
                 target_step_ids=[1, 2],
             )
         ],
@@ -201,7 +203,7 @@ def test_declared_provenance_missing_source_ids_fails_fast(tmp_path: Path) -> No
         private_labels=[
             _private_label(
                 "q1",
-                evidence=["membench-conv-1:t2"],
+                evidence=["2"],
                 target_step_ids=[1],
             )
         ],
@@ -226,7 +228,7 @@ def test_declared_provenance_missing_evidence_fails_fast(tmp_path: Path) -> None
                 "question_id": "q1",
                 "conversation_id": "q1",
                 "retrieval_query_top_k": 1,
-                "retrieved_items": [_item("membench-conv-1:t2")],
+                "retrieved_items": [_item("2")],
                 "metadata": {},
             }
         ],
@@ -264,15 +266,15 @@ def test_out_of_bounds_target_step_id_is_counted_but_does_not_crash(
                 "question_id": "q1",
                 "conversation_id": "q1",
                 "retrieval_query_top_k": 1,
-                # 检索到 turn 1（公开空间），但 evidence 含越界 "t5"（公开 turn_count=4）
-                "retrieved_items": [_item("membench-conv-1:t1")],
+                # 检索到公开 turn "1"，但官方 step 4 越界（公开 turn_count=4）。
+                "retrieved_items": [_item("1")],
                 "metadata": {"public_turn_count": 4},
             }
         ],
         private_labels=[
             _private_label(
                 "q1",
-                evidence=["membench-conv-1:t1", "membench-conv-1:t5"],
+                evidence=["1", "5"],
                 target_step_ids=[0, 4],
                 oob_step_ids=(4,),
             )
@@ -298,7 +300,7 @@ def test_out_of_bounds_target_step_id_is_counted_but_does_not_crash(
     assert summary["unmatched_gold_total"] == 1
 
 
-def test_empty_evidence_scores_one_and_keeps_zero_unmatched(tmp_path: Path) -> None:
+def test_empty_evidence_is_na_and_keeps_zero_unmatched(tmp_path: Path) -> None:
     """v1 下空 target 产生空 groups → evaluator 记 N/A，不再是旧框架错误记 1.0。"""
 
     paths, manifest = _write_run(
@@ -309,7 +311,7 @@ def test_empty_evidence_scores_one_and_keeps_zero_unmatched(tmp_path: Path) -> N
                 "question_id": "q1",
                 "conversation_id": "q1",
                 "retrieval_query_top_k": 1,
-                "retrieved_items": [_item("membench-conv-1:t1")],
+                "retrieved_items": [_item("1")],
                 "metadata": {"public_turn_count": 4},
             }
         ],

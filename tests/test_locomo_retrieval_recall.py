@@ -33,8 +33,8 @@ def _write_run(
 ) -> tuple[ExperimentPaths, dict]:
     """构造一个最小可用的 run 目录，写入 artifact-only recall 所需文件。
 
-    provenance_granularity 非 None 时自动在 manifest 写入 gold evidence contract
-    v1 的 benchmark_policy，模拟真实 run 的 manifest 结构。
+    manifest 始终写入 gold evidence contract v1 的 benchmark_policy，模拟真实
+    registered run；即使 method provenance=N/A，也先通过 benchmark identity 门。
 
     输出:
         tuple: `(paths, manifest)`；manifest 与磁盘上写入的内容一致，供
@@ -51,8 +51,7 @@ def _write_run(
         "benchmark_name": "locomo",
         "method": method_manifest,
     }
-    if provenance_granularity is not None:
-        manifest["benchmark_policy"] = {"gold_evidence_contract_version": "v1"}
+    manifest["benchmark_policy"] = {"gold_evidence_contract_version": "v1"}
     atomic_write_json(paths.manifest_path, manifest)
     atomic_write_jsonl(paths.answer_prompts_path, answer_prompts)
     atomic_write_jsonl(paths.evaluator_private_labels_path, private_labels)
@@ -252,7 +251,7 @@ def test_provenance_none_returns_structured_na_without_zero_score(tmp_path: Path
 
 
 def test_missing_provenance_declaration_returns_structured_na(tmp_path: Path) -> None:
-    """历史 run 未声明 provenance 时应为 N/A（在 contract v1 校验前返回）。"""
+    """v1 run 未声明 method provenance 时应在 identity 门后返回 N/A。"""
 
     paths, manifest = _write_run(
         tmp_path,

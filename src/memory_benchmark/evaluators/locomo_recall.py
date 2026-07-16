@@ -64,6 +64,7 @@ class LoCoMoRetrievalRecallEvaluator:
             dict: 供 `run_artifact_evaluation` 写盘的 artifact-level payload。
         """
 
+        require_manifest_gold_evidence_contract_v1(manifest)
         provenance_granularity = _method_provenance_granularity(manifest)
         if provenance_granularity in {"none", "undeclared"}:
             return _na_payload(
@@ -75,7 +76,6 @@ class LoCoMoRetrievalRecallEvaluator:
                 provenance_granularity=provenance_granularity,
                 official_source=self.official_source,
             )
-        require_manifest_gold_evidence_contract_v1(manifest)
         if provenance_granularity not in ("turn", "session"):
             raise ConfigurationError(
                 f"Unknown provenance_granularity {provenance_granularity!r} in "

@@ -751,8 +751,8 @@ def test_gold_evidence_alignment_rejects_bogus_policy_version() -> None:
         )
 
 
-def test_gold_evidence_alignment_skips_unregistered_policy() -> None:
-    """benchmark_policy=None 的 legacy/测试路径保持现状兼容。"""
+def test_gold_evidence_alignment_accepts_unversioned_labels_without_policy() -> None:
+    """policy=None 只兼容全部 label 都未声明版本的 legacy 数据集。"""
 
     from memory_benchmark.runners.prediction import (
         validate_gold_evidence_contract_alignment,
@@ -762,6 +762,20 @@ def test_gold_evidence_alignment_skips_unregistered_policy() -> None:
         dataset=_build_two_question_dataset(),
         benchmark_policy=None,
     )
+
+
+def test_gold_evidence_alignment_rejects_v1_label_without_policy() -> None:
+    """policy 整体缺失时也不得静默接受任一 v1 label。"""
+
+    from memory_benchmark.runners.prediction import (
+        validate_gold_evidence_contract_alignment,
+    )
+
+    with pytest.raises(ConfigurationError, match="benchmark_policy is absent"):
+        validate_gold_evidence_contract_alignment(
+            dataset=_stamp_v1_gold_labels(_build_two_question_dataset()),
+            benchmark_policy=None,
+        )
 
 
 def test_preflight_rejects_v1_policy_mismatch_before_any_write(

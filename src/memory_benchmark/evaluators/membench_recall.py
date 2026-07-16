@@ -41,6 +41,7 @@ class MemBenchRetrievalRecallEvaluator:
         """从 manifest、answer prompt 与 evaluator-private labels 计算 recall。"""
 
         del max_workers
+        require_manifest_gold_evidence_contract_v1(manifest)
         provenance_granularity = _method_provenance_granularity(manifest)
         if provenance_granularity in {"none", "undeclared"}:
             return _na_payload(
@@ -62,7 +63,6 @@ class MemBenchRetrievalRecallEvaluator:
                 provenance_granularity=provenance_granularity,
                 official_source=self.official_source,
             )
-        require_manifest_gold_evidence_contract_v1(manifest)
         if provenance_granularity != "turn":
             raise ConfigurationError(
                 f"Unknown provenance_granularity {provenance_granularity!r} in "
