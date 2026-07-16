@@ -108,6 +108,11 @@
   显式旧 profile，不能删测试或放宽断言。2026-07-15 LightMem online-soft 卡中，
   Sonnet 5 据此把 threaded OP-update usage 测试显式绑定到
   `locomo_offline_consolidated`，保住了旧补充轨覆盖。
+- **content 还在、`speaker_name` 还在，不等于 role 无损。**若第三方会按 `role` 过滤、
+  分段、抽取或排序，把 assistant 重包为 user 就是语义变化；benchmark adapter 若把两个
+  speaker 拼成一个 turn，更不能用“文字没删”宣布兼容。看到 source container、canonical
+  turn 与 method renderer 不同层时，先停在边界并逐层画映射；gold 若仍指 pair-step，交回
+  架构师裁 evidence-unit，禁止靠扩大分母或解析 id 前缀偷渡。
 - 对自然语言数据做字段普查时，匹配**完整结构**而不是宽松关键词。搜索单词 `time`
   会把正文叙述也计入 timestamp；至少锁定日期/分隔符形态，并抽样首尾反证。2026-07-15
   MemBench 100k 初扫的宽条件在提交前被架构师推翻，完整 timestamp 正则才得到

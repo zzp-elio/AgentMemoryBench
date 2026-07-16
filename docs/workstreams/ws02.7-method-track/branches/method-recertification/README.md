@@ -21,8 +21,9 @@ method-frozen 后发生了实质变化。旧证据不删除，但不能靠历史
 
 ## 串行顺序与门
 
-1. 共享门 Track identity M0 已于 2026-07-16 通过 R1/R2 强验收关闭；现在把
-   RetrievalEvidence M1 作为 LightMem 重认证所需 evaluator 资格门收口。
+1. 共享门 Track identity M0 已于 2026-07-16 通过 R1/R2 强验收关闭；新发现的
+   `input-role-semantics` 先裁 canonical turn 与 gold evidence unit，再由
+   RetrievalEvidence M1 消费该契约。
 2. **LightMem 第一家**：重点重验 online-soft 主 profile、missing-time 扩展、逐题 evidence、
    canonical-required MiniLM build identity、五 benchmark B4/B5/B6/B9/B10/B11。
 3. **Mem0 第二家**：把 source-time、ADD-only/provenance、truthful identity 与
@@ -34,8 +35,8 @@ method-frozen 后发生了实质变化。旧证据不删除，但不能靠历史
 
 ## 当前状态
 
-**LightMem 已成为唯一 active method，但尚未派施工卡。**架构师先在当前主线 commit 上重读
-checklist、`integration/lightmem.md` 与 lifecycle/retrieval-evidence 裁决，产出 B1-B11 的
-`revalidated / retested / N/A / pending` gap matrix；只有矩阵确认确有 actor 施工项后才写卡并
-醒目标注给用户派发。此阶段不并行推进 Mem0/MemoryOS，也不调用真实 API。权威实时动作仍看
-父级 `../../README.md` 恢复胶囊与最新断点。
+**LightMem 是唯一 active method，gap matrix 已落盘；尚未授权生产施工。**当前唯一可派的是
+`input-role-semantics` 的 Fable docs-only 高判断审计卡，用来裁定 MemBench pair-step 拆成两条
+canonical turn 后 Recall/NDCG 的 gold unit。裁决完成后才依序写 MemBench canonical 修复、
+LightMem `hybrid` build profile 与 RetrievalEvidence M1 卡。此阶段不并行推进 Mem0/MemoryOS，
+也不调用真实 API。权威实时动作仍看父级 `../../README.md` 恢复胶囊与最新断点。

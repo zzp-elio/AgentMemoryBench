@@ -361,6 +361,14 @@ assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪
 内部实现），框架级聚合只提供领域正确的通用语义**（user 锚定交换对），
 两者不得混同——Mem0 因此从 pair 改声明 session 粒度。
 
+**判例（2026-07-16，MemBench role 与 LightMem `messages_use`）**：benchmark 官方 reference
+agent 为适配 text-only `memory.store()`，会把一个 `{user, agent}` step 序列化成一条字符串；
+这只证明该 method renderer 的输入姿态，不能反向定义公共 canonical schema。审计必须按
+“官方 source container → canonical speaker utterance → method renderer”三层逐一核对，不能把
+最后一层抄回第一层。一条 `Turn` 只表示一个 speaker 的一次 utterance；而
+`consume_granularity`、`provenance_granularity`、`gold_evidence_unit` 是三条独立轴。拆 role
+之前先裁 qrel/group 语义，避免把 pair-step 的 Recall 分母机械翻倍。
+
 ### 4.4 发现缺陷的处置分级
 
 - 边界清晰且 ≤~30 行的精确修复：架构师直修 + 补锁定测试 + 写进验收记录

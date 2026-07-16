@@ -1,5 +1,11 @@
 # M0-4 MemBench / BEAM x LightMem 离线兼容核查
 
+> **⚠️ 2026-07-16 局部 superseded：**本文把 assistant content 被重包成 user role 视为
+> 非 blocker 的裁决已经撤销；LightMem extraction 按 `role` 过滤，且 MemBench FirstAgent
+> 更上游把 user/agent 合成了一个伪 user turn。历史取证保留，不得继续把 §6 的旧判词当现行
+> 准入。现行证据与裁决见
+> [role 一手审计](../branches/input-role-semantics/notes/lightmem-messages-membench-beam-role-audit.md)。
+
 > 日期：2026-07-13。范围仅含 MemBench 0-10k 四源与 BEAM 100k/10m 两种
 > frozen-v1 结构；全程未初始化真实 LightMemory backend、未调用 LLM/embedding API。
 > 数据来自主树只读路径 `/Users/wz/Desktop/memoryBenchmark/data/`；Arrow 是二进制，

@@ -29,6 +29,14 @@
 | 2026-07-16 | 混合入口：CC+GLM-5.2 → MiniMax M3；中途崩溃/压缩；唯一模型归因不可核 | Track identity M0 首轮 | `81f2708` → `dcd3e7b`（须 R1/R2 收口） | actor `282 passed`；架构师 full diff 抓 MemoryOS 假身份、双事实源、evaluate/resume 缺口 | **6.0** | rework；不计入任何模型聚合 |
 | 2026-07-16 | Codex subagent；用户指定 5.6 sol/medium，平台细分档位未独立核实 | Track identity M0 R1 + R2 | `cba25a8` + `2beda2d` → `d6fd56f` + `d032d45` | R1 `416 passed`；首次主树全量 `4 failed/1302 passed`；R2 定点 `5 passed`；最终主树 `1307 passed` | **9.2** | accepted after full-suite rework |
 
+### 未评分发现记录
+
+- **2026-07-16，OpenCode + DeepSeek V4 Flash，LightMem/MemBench role 线索**：准确找到
+  `messages_use="user_only"` 的 extraction 过滤链与 MemBench FirstAgent 拼接点，属于会改变
+  B4/B11 的高价值发现。两处外推需架构师收紧：没有证据证明官方模板是误复制；HaluMem
+  assistant 内容是否应作为 memory gold 也不能仅凭直觉决定。因本轮没有正式 actor 卡、
+  commit/diff 与可复跑自检，不给 10 分制分数，记录为“发现敏锐，结论边界需复核”。
+
 ### 2026-07-15：LightMem online-soft
 
 - 正确性 3.9/4：profile、benchmark identity、双路径 gate、backend

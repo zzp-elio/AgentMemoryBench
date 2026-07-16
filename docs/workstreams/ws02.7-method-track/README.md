@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（Track identity M0 已关闭；LightMem 逐项重认证准备中）
+status: in-progress（LightMem role/evidence-unit 共享门审计中）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -86,13 +86,29 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   提醒可用；恢复是后台动作，不自动向用户播报机械台词。Track identity M0 已经 R1/R2
   强验收关闭：新 registered run 统一盖 typed v1 identity，旧缺 v1 不得 resume，evaluate
   严格消费，fake registration 也须显式声明 pending、不得回查另一张全局表猜身份。当前唯一
-  method 主线转入 `branches/method-recertification/`：架构师先对 LightMem 按现行 commit
-  生成 B1-B11 gap matrix，再把 RetrievalEvidence M1 作为其 metric 资格门收口；尚无需要用户
-  派发的新卡。之后严格串行 Mem0（含 product-default 迁移）→ MemoryOS → A-Mem → SimpleMem。
+  method 主线已转入 `branches/method-recertification/`，LightMem gap matrix 已落盘。新发现
+  `messages_use=user_only`、BEAM role laundering 与 MemBench pair 拼接，使 B2/B4/B5/B9/B10/B11
+  定点重开。下一动作是把 `branches/input-role-semantics/cards/
+  actor-prompt-evidence-unit-contract-audit.md` 派给 Fable 5 做 docs-only 高判断审计；其回卡经
+  架构师裁决后，才写 MemBench canonical split 与 LightMem unified-hybrid 施工卡。之后再接
+  RetrievalEvidence M1，严格串行 Mem0 → MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-16）
+
+- 2026-07-16（**LightMem role fidelity 定点重开；MemBench canonical turn 解冻；Fable
+  evidence-unit 审计待用户派发**，GPT-5 架构师）：OpenCode + DeepSeek V4 Flash 提供的两条
+  线索经架构师独立读源码和真实数据复核。① LightMem `messages_use=user_only` 确实把
+  assistant 排除在 extraction prompt 外；官方 collaborator 也确认 LongMemEval Table 2 初版
+  就是 user-only。裁决：它是可复现但受限的 reproduction profile，不是 role-complete unified
+  主轨；unified 五格改用显式 `hybrid`，并披露 segmentation 仍 user-anchored，不修改算法核心。
+  ② MemBench FirstAgent 把 `{user, agent}` 拼成伪 user turn 违反 canonical `Turn` 契约，须拆；
+  但 `target_step_id` 仍指 pair-step，必须先裁 gold evidence unit，不能让 Recall 分母翻倍。
+  ③ BEAM 100K/500K/1M 全部 session 都是 first-turn anchor；10M 为 999 first-only + 1 none，
+  当前 `turn_time → session_time → None` 正确，不解冻时间门。LightMem gap matrix 现为
+  B1/B3/B6/B7/B8/B8+ revalidated，其余定点 pending。旧 M0-4 “role 变化非 blocker”已加
+  superseded banner。当前只允许派 Fable docs-only 卡；零生产代码、零真实 API。
 
 - 2026-07-16（**Track identity M0 R1/R2 强验收完成；下一站 LightMem 重认证**，GPT-5
   架构师）：首轮 `81f2708` 经 full diff 驳回后，用户授权 Codex subagent 在原 worktree
