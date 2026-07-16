@@ -91,12 +91,24 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   个歧义原子；采用强类型 evaluator-private gold group。LightMem unified 五格固定 hybrid，
   但 extraction source_id 是 pair index，assistant 可见性不自动证明 turn-level exact lineage。
   当前可并行派两张正交卡：gold evidence contract M0 与 LightMem hybrid role profile；M0
-  验收后才拆 MemBench canonical pair，再接 RetrievalEvidence M1。之后严格串行 Mem0 →
-  MemoryOS → A-Mem → SimpleMem。
+  已派 Claude Code + Opus 4.8，约 30 分钟后额度暂停：worktree 有 24 个 tracked 文件改动 +
+  1 个新 helper、约 2051 行新增，尚无 note/commit/test checkpoint，架构师裁定等额度恢复后
+  由原 Opus 会话继续，不在协议—adapter—evaluator 中段跨模型接管。LightMem hybrid 已派
+  OpenCode + Qwen 3.7 Max，仍在运行。M0 验收后才拆 MemBench canonical pair，再接
+  RetrievalEvidence M1。之后严格串行 Mem0 → MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-16）
+
+- 2026-07-16（**双卡已派；Gold M0 因额度暂停且不跨模型中途接管**，GPT-5 架构师）：
+  Gold M0 已交 Claude Code + Opus 4.8；约 30 分钟时额度耗尽，隔离 worktree 当前为 24 个
+  tracked 文件修改 + 新 `gold_evidence_groups.py`，约 `+2051/-141`，无 implementation note、
+  commit、staged diff 或测试 checkpoint，且 BEAM/MemBench evaluator 尚未施工。该状态不是
+  可安全换手的封箱边界；裁定等待约 3 小时额度恢复，由同一 Opus 会话 resume。若原会话
+  后续无法恢复，必须先让接任模型做只读 diff inventory + 缺项清单并写交接 checkpoint，
+  不能直接续写。LightMem hybrid 卡已交 OpenCode + Qwen 3.7 Max，约 40 分钟时仍在执行；
+  两个 worktree 继续隔离，零真实 API。
 
 - 2026-07-16（**Fable evidence-unit 回卡强验收完成；gold M0 与 LightMem hybrid 可并行**，
   GPT-5 架构师）：Fable 5 `0e38358` docs-only 审计由架构师复跑 `5 passed in 0.78s` 并合入
