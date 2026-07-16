@@ -555,23 +555,13 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         """读取 turn 的 canonical role，只接受 user/assistant。"""
 
         role = turn.normalized_role
-        if not role:
-            role = turn.metadata.get("role") if turn.metadata else None
-        if not role:
-            role = turn.speaker
-        normalized = str(role).strip().lower()
-        if normalized not in {"user", "assistant"}:
-            if self.benchmark_name is None:
-                raise ConfigurationError(
-                    f"LightMem turn {turn.turn_id} has role {role!r} that is not "
-                    "user/assistant, and benchmark_name was not injected; cannot "
-                    "determine pairing strategy"
-                )
+        if not isinstance(role, str) or role not in {"user", "assistant"}:
             raise ConfigurationError(
-                f"LightMem turn {turn.turn_id} role must be user or assistant "
-                f"for benchmark {self.benchmark_name!r}; got {role!r}"
+                f"LightMem turn {turn.turn_id} canonical normalized_role must be "
+                f"'user' or 'assistant' for benchmark {self.benchmark_name!r}; "
+                f"got {role!r}. metadata role and speaker are not role fallbacks."
             )
-        return normalized
+        return role
 
     def _real_message(
         self,
@@ -790,9 +780,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             # 下缺失时间必须在 backend 工厂被调用、任何 add_memory 触发前 fail-fast。
             # 预检不改变成功路径的 add_memory 调用序列。
             batches = self._conversation_to_lightmem_batches(conversation)
-            locomo_metadata_prompt = self._locomo_metadata_prompt_if_needed(
-                conversation
-            )
+            locomo_metadata_prompt = self._locomo_metadata_prompt_if_needed()
             backend = self._get_or_create_backend(conversation.conversation_id)
             self._conversation_metadata[conversation.conversation_id] = {
                 **conversation.metadata,
@@ -877,23 +865,19 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         if not batch.events:
             raise ConfigurationError("LightMem HaluMem session batch has no events")
         self._ensure_native_metadata(batch.events[0])
-        conversation = self._native_conversation_from_events(batch.events)
-        session = conversation.sessions[0]
-        pairs = self._normalize_session_to_pairs(session, conversation)
-        if not pairs:
+        messages = self._native_session_messages(batch)
+        if not messages:
             raise ConfigurationError(
                 "LightMem HaluMem session produced no pair batches"
             )
         backend = self._get_or_create_backend(batch.isolation_key)
         with self._capture_inserted_memories(backend) as captured_memories:
-            for pair_index, pair_messages in enumerate(pairs):
-                is_last = pair_index == len(pairs) - 1
-                self._suppress_stdout_if_needed(
-                    backend.add_memory,
-                    pair_messages,
-                    force_segment=is_last,
-                    force_extract=is_last,
-                )
+            self._suppress_stdout_if_needed(
+                backend.add_memory,
+                messages,
+                force_segment=True,
+                force_extract=True,
+            )
         self._session_report_memories[(batch.isolation_key, batch.session_id)] = list(
             captured_memories
         )
@@ -1010,7 +994,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             "force_segment": is_final,
             "force_extract": is_final,
         }
-        if self._is_native_locomo(namespace):
+        if self.benchmark_name == "locomo":
             kwargs["METADATA_GENERATE_PROMPT"] = _load_lightmem_locomo_prompt(
                 self.path_settings,
                 "METADATA_GENERATE_PROMPT_locomo",
@@ -1077,13 +1061,6 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         self._conversation_metadata[event.isolation_key] = self._native_public_metadata(
             event
         )
-
-    def _is_native_locomo(self, namespace: str) -> bool:
-        """判断 native namespace 是否应执行 LoCoMo 特化逻辑。"""
-
-        metadata = self._conversation_metadata.get(namespace, {})
-        source_path = str(metadata.get("source_path") or "").lower()
-        return "locomo" in source_path
 
     @staticmethod
     def _turn_from_event(event: TurnEvent) -> Turn:
@@ -1687,10 +1664,12 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             stable_ids: list[str] = []
             for candidate in raw_plural:
                 if (
-                    isinstance(candidate, str)
-                    and candidate.strip()
-                    and candidate not in seen
+                    not isinstance(candidate, str)
+                    or not candidate
+                    or candidate != candidate.strip()
                 ):
+                    return None
+                if candidate not in seen:
                     seen.add(candidate)
                     stable_ids.append(candidate)
             if not stable_ids:
@@ -1737,101 +1716,12 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             )
         return batches
 
-    def _conversation_to_locomo_batches(
-        self,
-        conversation: Conversation,
-    ) -> list[list[dict[str, object]]]:
-        """按 LightMem 的 LoCoMo 脚本生成单 turn + 空 assistant 批次。"""
-
-        batches: list[list[dict[str, object]]] = []
-        for session in conversation.sessions:
-            for turn in session.turns:
-                timestamp = _turn_timestamp(
-                    turn, session, self.config.missing_timestamp_policy
-                )
-                speaker_id = _locomo_speaker_id(conversation, turn)
-                speaker_name = turn.speaker
-                batches.append(
-                    [
-                        {
-                            "role": "user",
-                            "content": turn.content,
-                            "speaker_id": speaker_id,
-                            "speaker_name": speaker_name,
-                            "time_stamp": timestamp,
-                            "external_id": turn.turn_id,
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "",
-                            "speaker_id": speaker_id,
-                            "speaker_name": speaker_name,
-                            "time_stamp": timestamp,
-                            "external_id": turn.turn_id,
-                        },
-                    ]
-                )
-        return batches
-
-    def _conversation_to_longmemeval_batches(
-        self,
-        conversation: Conversation,
-    ) -> list[list[dict[str, object]]]:
-        """按 LongMemEval 官方脚本生成真实 user+assistant pair 批次。"""
-
-        batches: list[list[dict[str, object]]] = []
-        for session in conversation.sessions:
-            messages = [
-                self._turn_to_role_message(turn, session)
-                for turn in session.turns
-            ]
-            while messages and messages[0]["role"] != "user":
-                messages.pop(0)
-            if len(messages) % 2 != 0:
-                raise ConfigurationError(
-                    f"LightMem LongMemEval session has odd message count after "
-                    f"normalization: {conversation.conversation_id}/{session.session_id}"
-                )
-            for index in range(0, len(messages), 2):
-                pair = messages[index : index + 2]
-                if pair[0]["role"] != "user" or pair[1]["role"] != "assistant":
-                    raise ConfigurationError(
-                        "LightMem LongMemEval session must be user/assistant pairs: "
-                        f"{conversation.conversation_id}/{session.session_id}"
-                    )
-                batches.append(pair)
-        return batches
-
-    def _turn_to_role_message(
-        self,
-        turn: Turn,
-        session: Session,
-    ) -> dict[str, object]:
-        """把 user/assistant turn 转成保留真实 role 的 LightMem message。"""
-
-        role = turn.normalized_role or turn.metadata.get("role") or turn.speaker
-        normalized_role = str(role).strip().lower()
-        if normalized_role not in {"user", "assistant"}:
-            raise ConfigurationError(
-                f"LightMem LongMemEval turn role must be user or assistant: {turn.turn_id}"
-            )
-        timestamp = _turn_timestamp(turn, session, self.config.missing_timestamp_policy)
-        return {
-            "role": normalized_role,
-            "content": turn.content,
-            "speaker_id": turn.speaker,
-            "speaker_name": turn.speaker,
-            "time_stamp": timestamp,
-            "external_id": turn.turn_id,
-        }
-
     def _locomo_metadata_prompt_if_needed(
         self,
-        conversation: Conversation,
     ) -> str | None:
-        """LoCoMo official profile 传入官方抽取 prompt，其他数据不传。"""
+        """仅按构造期 benchmark identity 选择 LoCoMo 官方抽取 prompt。"""
 
-        if not _is_locomo_conversation(conversation):
+        if self.benchmark_name != "locomo":
             return None
         return _load_lightmem_locomo_prompt(
             self.path_settings,
@@ -1994,25 +1884,6 @@ def _count_openai_tokens(text: str, model_name: str) -> int:
     if not text:
         return 0
     return _TiktokenCounter(model_name).count_tokens(text)
-
-
-def _is_locomo_conversation(conversation: Conversation) -> bool:
-    """根据公开 metadata 判断 conversation 是否来自 LoCoMo。"""
-
-    source_path = str(conversation.metadata.get("source_path") or "").lower()
-    return "locomo" in source_path
-
-
-def _is_longmemeval_conversation(conversation: Conversation) -> bool:
-    """根据公开 metadata/session metadata 判断 conversation 是否来自 LongMemEval。"""
-
-    source_path = str(conversation.metadata.get("source_path") or "").lower()
-    if "longmemeval" in source_path:
-        return True
-    return any(
-        str(session.metadata.get("source_format") or "").startswith("longmemeval")
-        for session in conversation.sessions
-    )
 
 
 def _is_longmemeval_question(

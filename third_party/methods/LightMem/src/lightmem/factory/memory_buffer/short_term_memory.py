@@ -20,7 +20,7 @@ class ShortMemBufferManager:
             msg["content"]
             for msg in messages
             if msg["role"] in allowed_roles
-            and not msg.get("memory_benchmark_structural_placeholder")
+            and msg.get("memory_benchmark_structural_placeholder") is not True
         ]
 
         text = " ".join(text_list)
@@ -60,4 +60,3 @@ class ShortMemBufferManager:
             self.token_count = 0
             
         return trigger_num, triggered
-

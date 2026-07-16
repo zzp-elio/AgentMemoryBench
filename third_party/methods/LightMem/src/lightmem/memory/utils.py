@@ -34,6 +34,31 @@ class MemoryEntry:
     bam_tags: List[Any] = field(default_factory=list)
     source_external_id: Optional[str] = None
     source_external_ids: List[str] = field(default_factory=list)
+
+
+def _validated_source_external_ids(raw: Any) -> List[str]:
+    """按 all-or-nothing 规则校验并稳定去重 pair candidate ids。
+
+    仅非空、已 canonical 化的 ``list[str]`` 可形成 provenance；任一元素非字符串、
+    为空或含首尾空白时，整组回落为空。合法 id 保持原字节，不做 strip/正规化，
+    也不读取 singular。
+    """
+
+    if not isinstance(raw, list) or not raw:
+        return []
+    stable: List[str] = []
+    seen = set()
+    for candidate in raw:
+        if (
+            not isinstance(candidate, str)
+            or not candidate
+            or candidate != candidate.strip()
+        ):
+            return []
+        if candidate not in seen:
+            seen.add(candidate)
+            stable.append(candidate)
+    return stable
     
 def clean_response(response: str) -> List[Dict[str, Any]]:
     """
@@ -141,14 +166,9 @@ def assign_sequence_numbers_with_timestamps(extract_list, offset_ms: int = 500, 
                 }
                 speaker_list.append(speaker_info)
                 external_ids.append(message.get("external_id"))
-                raw_pair_ids = message.get("source_external_ids")
-                if isinstance(raw_pair_ids, list):
-                    pair_ids = [
-                        str(pid) for pid in raw_pair_ids
-                        if isinstance(pid, str) and pid.strip()
-                    ]
-                else:
-                    pair_ids = []
+                pair_ids = _validated_source_external_ids(
+                    message.get("source_external_ids")
+                )
                 source_external_ids_list.append(pair_ids)
                 current_index += 1
 
@@ -367,14 +387,17 @@ def _create_memory_entry_from_fact(
         source_external_id = external_ids[sequence_n] if external_ids else None
 
         pair_ids: List[str] = []
-        if source_external_ids_list and sequence_n < len(source_external_ids_list):
-            raw = source_external_ids_list[sequence_n]
-            if isinstance(raw, list):
-                seen: set = set()
-                for pid in raw:
-                    if isinstance(pid, str) and pid.strip() and pid not in seen:
-                        seen.add(pid)
-                        pair_ids.append(pid)
+        if source_external_ids_list is not None:
+            # v4 plural 一旦出现即为唯一权威；越界、空组或坏元素都不能回读
+            # legacy external_ids 冒充 exact provenance。
+            source_external_id = None
+        if (
+            source_external_ids_list is not None
+            and sequence_n < len(source_external_ids_list)
+        ):
+            pair_ids = _validated_source_external_ids(
+                source_external_ids_list[sequence_n]
+            )
 
         if len(pair_ids) == 1:
             source_external_id = pair_ids[0]

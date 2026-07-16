@@ -827,6 +827,7 @@ def _missing_time_locomo_conversation() -> Conversation:
                     Turn(
                         turn_id="t-noise-1",
                         speaker="user",
+                        normalized_role="user",
                         content="We met at the harbor cafe near Pier 39.",
                         turn_time=None,
                     ),
@@ -3359,8 +3360,762 @@ def test_lightmem_normalizer_rejects_unknown_role_without_benchmark() -> None:
         ],
     )
     conv = Conversation(conversation_id="c1", sessions=[session])
-    with pytest.raises(ConfigurationError, match="benchmark_name"):
+    with pytest.raises(ConfigurationError, match="canonical normalized_role"):
         system._normalize_session_to_pairs(session, conv)
+
+
+@pytest.mark.parametrize(
+    ("roles", "expected_real_groups"),
+    [
+        (["user", "assistant"], [["t0", "t1"]]),
+        (["assistant", "user"], [["t0"], ["t1"]]),
+        (["user", "user"], [["t0"], ["t1"]]),
+        (["assistant", "assistant"], [["t0"], ["t1"]]),
+        (["user"], [["t0"]]),
+        (["assistant"], [["t0"]]),
+    ],
+)
+def test_lightmem_generic_normalizer_preserves_each_real_turn_once(
+    roles: list[str],
+    expected_real_groups: list[list[str]],
+) -> None:
+    """六类病态 role 序列都应保持真实 turn 的顺序、次数和 pair 候选组。"""
+
+    system = _lightmem_evidence_system(benchmark_name="longmemeval")
+    turns = [
+        Turn(
+            turn_id=f"t{index}",
+            speaker=role,
+            normalized_role=role,
+            content=f"content-{index}",
+        )
+        for index, role in enumerate(roles)
+    ]
+    session = Session(
+        session_id="s1",
+        session_time="2026-01-01",
+        turns=turns,
+    )
+    conversation = Conversation(conversation_id="c1", sessions=[session])
+
+    pairs = system._normalize_session_to_pairs(session, conversation)
+
+    assert [[message["role"] for message in pair] for pair in pairs] == [
+        ["user", "assistant"] for _ in expected_real_groups
+    ]
+    real_ids = [
+        message["external_id"]
+        for pair in pairs
+        for message in pair
+        if message.get("memory_benchmark_structural_placeholder") is not True
+    ]
+    assert real_ids == [turn.turn_id for turn in turns]
+    assert [pair[0]["source_external_ids"] for pair in pairs] == expected_real_groups
+    assert [pair[1]["source_external_ids"] for pair in pairs] == expected_real_groups
+
+
+def test_lightmem_generic_normalizer_does_not_pair_across_sessions() -> None:
+    """session 尾 user 与下一 session 首 assistant 必须各自补位，不得跨界配对。"""
+
+    system = _lightmem_evidence_system(benchmark_name="longmemeval")
+    session_user = Session(
+        session_id="s-user",
+        session_time="2026-01-01",
+        turns=[
+            Turn(
+                turn_id="u1",
+                speaker="user",
+                normalized_role="user",
+                content="first session",
+            )
+        ],
+    )
+    session_assistant = Session(
+        session_id="s-assistant",
+        session_time="2026-01-02",
+        turns=[
+            Turn(
+                turn_id="a1",
+                speaker="assistant",
+                normalized_role="assistant",
+                content="second session",
+            )
+        ],
+    )
+    conversation = Conversation(
+        conversation_id="c-cross",
+        sessions=[session_user, session_assistant],
+    )
+
+    batches = system._conversation_to_lightmem_batches(conversation)
+
+    assert [batch[0]["source_external_ids"] for batch in batches] == [["u1"], ["a1"]]
+    assert batches[0][1]["memory_benchmark_structural_placeholder"] is True
+    assert batches[1][0]["memory_benchmark_structural_placeholder"] is True
+
+
+def test_lightmem_generic_normalizer_keeps_real_empty_content() -> None:
+    """真实空 content 仍是来源 turn；只有 marker=True 才代表结构占位。"""
+
+    system = _lightmem_evidence_system(benchmark_name="beam")
+    turn = Turn(
+        turn_id="empty-real",
+        speaker="user",
+        normalized_role="user",
+        content="",
+    )
+    session = Session(session_id="s1", session_time="2026-01-01", turns=[turn])
+    conversation = Conversation(conversation_id="c-empty", sessions=[session])
+
+    pair = system._normalize_session_to_pairs(session, conversation)[0]
+
+    assert pair[0]["content"] == ""
+    assert "memory_benchmark_structural_placeholder" not in pair[0]
+    assert pair[0]["source_external_ids"] == ["empty-real"]
+    assert pair[1]["memory_benchmark_structural_placeholder"] is True
+
+
+@pytest.mark.parametrize(
+    "turn",
+    [
+        Turn(
+            turn_id="missing",
+            speaker="assistant",
+            content="metadata must not launder",
+            metadata={"role": "assistant"},
+        ),
+        Turn(
+            turn_id="upper",
+            speaker="user",
+            normalized_role="USER",
+            content="case must stay strict",
+        ),
+        Turn(
+            turn_id="tool",
+            speaker="tool",
+            normalized_role="tool",
+            content="unknown role",
+        ),
+        Turn(
+            turn_id="unhashable",
+            speaker="user",
+            normalized_role=["user"],
+            content="runtime type error must be normalized",
+        ),
+    ],
+)
+def test_lightmem_generic_normalizer_rejects_missing_or_noncanonical_role(
+    turn: Turn,
+) -> None:
+    """只读 canonical normalized_role；metadata/speaker/大小写均不能洗成合法 role。"""
+
+    system = _lightmem_evidence_system(benchmark_name="membench")
+    session = Session(session_id="s1", session_time="2026-01-01", turns=[turn])
+    conversation = Conversation(conversation_id="c-role", sessions=[session])
+
+    with pytest.raises(ConfigurationError, match="canonical normalized_role"):
+        system._normalize_session_to_pairs(session, conversation)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "A third-person memory narrative.",
+        "'user': I like tea.; 'agent': Tea is noted.",
+    ],
+)
+def test_lightmem_membench_treats_adapter_composite_as_one_canonical_user(
+    content: str,
+) -> None:
+    """ThirdAgent 与当前 FirstAgent composite 都不得在 LightMem 内二次解析/伪造 assistant。"""
+
+    system = _lightmem_evidence_system(benchmark_name="membench")
+    turn = Turn(
+        turn_id="step-1",
+        speaker="user",
+        normalized_role="user",
+        content=content,
+    )
+    session = Session(session_id="s1", session_time="2026-01-01", turns=[turn])
+    conversation = Conversation(conversation_id="c-membench", sessions=[session])
+
+    pair = system._normalize_session_to_pairs(session, conversation)[0]
+
+    assert pair[0]["content"] == content
+    assert pair[0]["external_id"] == "step-1"
+    assert pair[1]["memory_benchmark_structural_placeholder"] is True
+
+
+def _capture_lightmem_extraction_messages(
+    messages: list[dict[str, object]],
+    messages_use: str,
+) -> list[dict[str, str]]:
+    """用离线 fake 捕获 vendored extraction 的 system/user messages。"""
+
+    import_lightmem_classes(load_path_settings())
+    from lightmem.factory.memory_manager.openai import OpenaiManager
+
+    manager = OpenaiManager.__new__(OpenaiManager)
+
+    def _fake_generate_response(**kwargs):
+        """返回空 extraction JSON，并保留传入 messages 供结果断言。"""
+
+        return json.dumps({"data": []}), {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+
+    manager.generate_response = _fake_generate_response
+    result = manager._extract_with_prompt(
+        "SYSTEM-PROMPT-BYTE-ANCHOR",
+        [[messages]],
+        messages_use,
+        topic_id_mapping=[[7]],
+    )
+    assert len(result) == 1
+    return result[0]["input_prompt"]
+
+
+def _lightmem_short_token_count(
+    messages: list[dict[str, object]],
+    messages_use: str,
+) -> int:
+    """离线调用 vendored short buffer 的原始 token 计数边界。"""
+
+    import_lightmem_classes(load_path_settings())
+    from lightmem.factory.memory_buffer.short_term_memory import ShortMemBufferManager
+
+    short = ShortMemBufferManager.__new__(ShortMemBufferManager)
+    short.tokenizer = None
+    return short._count_tokens(messages, messages_use)
+
+
+def test_lightmem_locomo_placeholder_keeps_hybrid_user_only_prompt_and_tokens_equal() -> None:
+    """LoCoMo placeholder 不渲染/计数，hybrid 与 user_only 输入必须严格相等。"""
+
+    messages = [
+        {
+            "role": "user",
+            "content": "Alice likes tea.",
+            "speaker_name": "Alice",
+            "sequence_number": 0,
+            "time_stamp": "2026-01-01T00:00:00.000",
+            "weekday": "Thu",
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "speaker_name": "Alice",
+            "sequence_number": 1,
+            "time_stamp": "2026-01-01T00:00:00.500",
+            "weekday": "Thu",
+            "memory_benchmark_structural_placeholder": True,
+        },
+    ]
+
+    hybrid = _capture_lightmem_extraction_messages(messages, "hybrid")
+    user_only = _capture_lightmem_extraction_messages(messages, "user_only")
+
+    assert hybrid == user_only
+    assert hybrid[0] == user_only[0] == {
+        "role": "system",
+        "content": "SYSTEM-PROMPT-BYTE-ANCHOR",
+    }
+    assert "Alice likes tea." in hybrid[1]["content"]
+    assert hybrid[1]["content"].count("Alice:") == 1
+    assert _lightmem_short_token_count(messages, "hybrid") == (
+        _lightmem_short_token_count(messages, "user_only")
+    )
+
+
+def test_lightmem_hybrid_prompt_and_tokens_include_real_assistant_only() -> None:
+    """真实 assistant 只在 hybrid 可见；system prompt 不变且 token 数真实增加。"""
+
+    messages = [
+        {
+            "role": "user",
+            "content": "User fact.",
+            "speaker_name": "user",
+            "sequence_number": 0,
+        },
+        {
+            "role": "assistant",
+            "content": "Assistant correction.",
+            "speaker_name": "assistant",
+            "sequence_number": 1,
+        },
+    ]
+
+    hybrid = _capture_lightmem_extraction_messages(messages, "hybrid")
+    user_only = _capture_lightmem_extraction_messages(messages, "user_only")
+
+    assert hybrid[0] == user_only[0]
+    assert "Assistant correction." in hybrid[1]["content"]
+    assert "Assistant correction." not in user_only[1]["content"]
+    assert _lightmem_short_token_count(messages, "hybrid") > (
+        _lightmem_short_token_count(messages, "user_only")
+    )
+
+
+def test_lightmem_truthy_non_bool_placeholder_marker_is_real_message() -> None:
+    """只有 marker is True 才过滤；字符串 'false' 必须保留为真实消息。"""
+
+    messages = [
+        {
+            "role": "assistant",
+            "content": "Truthy marker is still real.",
+            "speaker_name": "assistant",
+            "sequence_number": 1,
+            "memory_benchmark_structural_placeholder": "false",
+        }
+    ]
+
+    extraction = _capture_lightmem_extraction_messages(messages, "hybrid")
+
+    assert "Truthy marker is still real." in extraction[1]["content"]
+    assert _lightmem_short_token_count(messages, "hybrid") == len(
+        "Truthy marker is still real."
+    )
+
+
+@pytest.mark.parametrize(
+    ("turns", "expected_plural", "expected_singular", "expected_speaker"),
+    [
+        (
+            [Turn("u1", "user", "User only.", normalized_role="user")],
+            ["u1"],
+            "u1",
+            "user",
+        ),
+        (
+            [
+                Turn("u1", "user", "User fact.", normalized_role="user"),
+                Turn(
+                    "a1",
+                    "assistant",
+                    "Assistant fact.",
+                    normalized_role="assistant",
+                ),
+            ],
+            ["u1", "a1"],
+            None,
+            "user",
+        ),
+        (
+            [
+                Turn(
+                    "a1",
+                    "assistant",
+                    "Assistant only.",
+                    normalized_role="assistant",
+                )
+            ],
+            ["a1"],
+            "a1",
+            "assistant",
+        ),
+    ],
+)
+def test_lightmem_pair_lineage_survives_normalizer_sequence_and_memory_entry(
+    turns: list[Turn],
+    expected_plural: list[str],
+    expected_singular: str | None,
+    expected_speaker: str,
+) -> None:
+    """单侧、双侧、assistant-only 的 plural/singular 应穿过真实 vendored 链。"""
+
+    system = _lightmem_evidence_system(benchmark_name="longmemeval")
+    session = Session(
+        session_id="s1",
+        session_time="2026-01-01T00:00:00",
+        turns=turns,
+    )
+    conversation = Conversation(conversation_id="c-lineage", sessions=[session])
+    pair = system._normalize_session_to_pairs(session, conversation)[0]
+
+    import_lightmem_classes(load_path_settings())
+    lightmem_module = sys.modules["lightmem.memory.lightmem"]
+    utils = sys.modules["lightmem.memory.utils"]
+    normalized = lightmem_module.MessageNormalizer().normalize_messages(pair)
+    (
+        _extract,
+        timestamps,
+        weekdays,
+        speakers,
+        external_ids,
+        _topics,
+        plural_lists,
+    ) = utils.assign_sequence_numbers_with_timestamps([[[*normalized]]])
+    entry = utils._create_memory_entry_from_fact(
+        {"source_id": 0, "fact": "Extracted fact."},
+        timestamps,
+        weekdays,
+        speakers,
+        external_ids=external_ids,
+        source_external_ids_list=plural_lists,
+    )
+
+    assert entry.source_external_ids == expected_plural
+    assert entry.source_external_id == expected_singular
+    assert entry.speaker_name == expected_speaker
+
+
+def test_lightmem_pair_lineage_stably_deduplicates_canonical_ids() -> None:
+    """合法 canonical id 的重复项应稳定去重且不改变顺序。"""
+
+    import_lightmem_classes(load_path_settings())
+    utils = sys.modules["lightmem.memory.utils"]
+    message = {
+        "role": "user",
+        "content": "fact",
+        "session_time": None,
+        "time_stamp": None,
+        "weekday": None,
+        "speaker_id": "user",
+        "speaker_name": "user",
+        "external_id": "legacy",
+        "source_external_ids": ["u1", "u1", "u2", "u1"],
+    }
+
+    result = utils.assign_sequence_numbers_with_timestamps([[[message]]])
+    plural_lists = result[-1]
+    entry = utils._create_memory_entry_from_fact(
+        {"source_id": 0, "fact": "Extracted."},
+        result[1],
+        result[2],
+        result[3],
+        external_ids=result[4],
+        source_external_ids_list=plural_lists,
+    )
+
+    assert plural_lists == [["u1", "u2"]]
+    assert entry.source_external_ids == ["u1", "u2"]
+    assert entry.source_external_id is None
+
+
+@pytest.mark.parametrize(
+    "raw_plural",
+    [
+        ["u1", None],
+        ["u1", "  "],
+        ["u1", " u2 "],
+        ["u1", 7],
+        [],
+        "u1",
+        None,
+    ],
+)
+def test_lightmem_malformed_pair_lineage_never_yields_partial_provenance(
+    raw_plural,
+) -> None:
+    """任一坏 plural 元素/结构都应令整组无 lineage，不能截出 u1 或读 singular。"""
+
+    import_lightmem_classes(load_path_settings())
+    utils = sys.modules["lightmem.memory.utils"]
+    message = {
+        "role": "user",
+        "content": "fact",
+        "session_time": None,
+        "time_stamp": None,
+        "weekday": None,
+        "speaker_id": "user",
+        "speaker_name": "user",
+        "external_id": "legacy-singular",
+        "source_external_ids": raw_plural,
+    }
+
+    result = utils.assign_sequence_numbers_with_timestamps([[[message]]])
+    entry = utils._create_memory_entry_from_fact(
+        {"source_id": 0, "fact": "Extracted."},
+        result[1],
+        result[2],
+        result[3],
+        external_ids=result[4],
+        source_external_ids_list=result[-1],
+    )
+
+    assert result[-1] == [[]]
+    assert entry.source_external_ids == []
+    assert entry.source_external_id is None
+
+
+@pytest.mark.parametrize(
+    "raw_plural",
+    [
+        ["u1", None],
+        ["u1", "  "],
+        ["u1", " u2 "],
+        ["u1", 7],
+        [],
+        "u1",
+        None,
+    ],
+)
+def test_lightmem_adapter_rejects_malformed_plural_without_singular_fallback(
+    raw_plural,
+) -> None:
+    """adapter 对 mixed/空/错结构 plural 整次回落 None，不读 legacy singular。"""
+
+    memories = [
+        {
+            "id": "m1",
+            "score": 0.9,
+            "payload": {
+                "memory": "fact",
+                "source_external_id": "legacy-singular",
+                "source_external_ids": raw_plural,
+            },
+        }
+    ]
+
+    assert LightMem._retrieved_items_from_lightmem_memories(memories) is None
+
+
+def test_lightmem_adapter_reads_valid_plural_with_stable_deduplication() -> None:
+    """合法 plural 允许重复但按原顺序去重，并保持 id 字节。"""
+
+    memories = [
+        {
+            "id": "m1",
+            "score": 0.9,
+            "payload": {
+                "memory": "fact",
+                "source_external_ids": ["u1", "u1", "u2"],
+            },
+        }
+    ]
+
+    items = LightMem._retrieved_items_from_lightmem_memories(memories)
+
+    assert items is not None
+    assert items[0].source_turn_ids == ("u1", "u2")
+
+
+def test_lightmem_offline_insert_writes_plural_without_false_singular() -> None:
+    """双侧 MemoryEntry 插入 payload 只写 plural，不把 user id 冒充 exact singular。"""
+
+    classes = import_lightmem_classes(load_path_settings())
+    utils = sys.modules["lightmem.memory.utils"]
+
+    class _Retriever:
+        """记录 offline_update 插入 payload 的本地 fake。"""
+
+        def __init__(self) -> None:
+            """初始化记录。"""
+
+            self.payloads = []
+
+        def exists(self, _item_id: str) -> bool:
+            """本测试没有 id 冲突。"""
+
+            return False
+
+        def insert(self, *, vectors, payloads, ids) -> None:
+            """记录 payload，不执行外部 I/O。"""
+
+            assert vectors and ids
+            self.payloads.extend(payloads)
+
+    retriever = _Retriever()
+    backend = classes["LightMemory"].__new__(classes["LightMemory"])
+    backend.config = SimpleNamespace(index_strategy="embedding")
+    backend.logger = SimpleNamespace(
+        info=lambda *_args, **_kwargs: None,
+        debug=lambda *_args, **_kwargs: None,
+    )
+    backend.text_embedder = SimpleNamespace(embed=lambda _text: [1.0, 0.0])
+    backend.embedding_retriever = retriever
+
+    backend.offline_update(
+        [
+            utils.MemoryEntry(
+                memory="two-sided fact",
+                source_external_id=None,
+                source_external_ids=["u1", "a1"],
+            )
+        ]
+    )
+
+    assert retriever.payloads[0]["source_external_ids"] == ["u1", "a1"]
+    assert "source_external_id" not in retriever.payloads[0]
+
+
+def _prompt_identity_conversation(source_path: str) -> Conversation:
+    """构造同时可走 generic/LoCoMo 的最小 conversation，用于身份反例。"""
+
+    return Conversation(
+        conversation_id=f"c-{source_path.replace('/', '-')}",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2026-01-01",
+                turns=[
+                    Turn(
+                        turn_id="u1",
+                        speaker="Alice",
+                        normalized_role="user",
+                        content="User fact.",
+                    ),
+                    Turn(
+                        turn_id="a1",
+                        speaker="Bob",
+                        normalized_role="assistant",
+                        content="Assistant fact.",
+                    ),
+                ],
+            )
+        ],
+        metadata={
+            "source_path": source_path,
+            "speaker_a": "Alice",
+            "speaker_b": "Bob",
+        },
+    )
+
+
+def test_lightmem_legacy_locomo_prompt_uses_only_constructor_identity(
+    monkeypatch,
+) -> None:
+    """legacy add 不得从 source_path 猜 LoCoMo；构造期 identity 是唯一选择器。"""
+
+    import memory_benchmark.methods.lightmem_adapter as adapter_module
+
+    monkeypatch.setattr(
+        adapter_module,
+        "_load_lightmem_locomo_prompt",
+        lambda *_args: "LOC-PROMPT",
+    )
+    spoof_backend = FakeLightMemoryBackend()
+    spoof = LightMem(
+        config=_missing_time_config(),
+        backend_factory=lambda _key: spoof_backend,
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="longmemeval",
+    )
+    spoof.add(_prompt_identity_conversation("data/locomo/spoof.json"))
+    assert "METADATA_GENERATE_PROMPT" not in spoof_backend.added_messages[0]["kwargs"]
+
+    explicit_backend = FakeLightMemoryBackend()
+    explicit = LightMem(
+        config=_missing_time_config(),
+        backend_factory=lambda _key: explicit_backend,
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
+    )
+    explicit.add(_prompt_identity_conversation("data/other/source.json"))
+    assert all(
+        call["kwargs"]["METADATA_GENERATE_PROMPT"] == "LOC-PROMPT"
+        for call in explicit_backend.added_messages
+    )
+
+
+def test_lightmem_native_locomo_prompt_uses_only_constructor_identity(
+    monkeypatch,
+) -> None:
+    """native write 同样不得读取缓存 source_path 决定 LoCoMo extraction prompt。"""
+
+    import memory_benchmark.methods.lightmem_adapter as adapter_module
+
+    monkeypatch.setattr(
+        adapter_module,
+        "_load_lightmem_locomo_prompt",
+        lambda *_args: "LOC-PROMPT",
+    )
+    messages = [{"role": "user", "content": "fact"}]
+
+    spoof_backend = FakeLightMemoryBackend()
+    spoof = LightMem(
+        config=_missing_time_config(),
+        backend_factory=lambda _key: spoof_backend,
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="beam",
+    )
+    spoof._conversation_metadata["ns-spoof"] = {
+        "source_path": "data/locomo/spoof.json"
+    }
+    spoof._write_native_batch("ns-spoof", messages, is_final=True)
+    assert "METADATA_GENERATE_PROMPT" not in spoof_backend.added_messages[0]["kwargs"]
+
+    explicit_backend = FakeLightMemoryBackend()
+    explicit = LightMem(
+        config=_missing_time_config(),
+        backend_factory=lambda _key: explicit_backend,
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
+    )
+    explicit._conversation_metadata["ns-locomo"] = {
+        "source_path": "data/other/source.json"
+    }
+    explicit._write_native_batch("ns-locomo", messages, is_final=True)
+    assert explicit_backend.added_messages[0]["kwargs"][
+        "METADATA_GENERATE_PROMPT"
+    ] == "LOC-PROMPT"
+
+
+def test_lightmem_halumem_irregular_session_is_one_flattened_add_call() -> None:
+    """HaluMem SessionBatch 保持 session-level 单次 pipeline 边界并保留 pair marker。"""
+
+    backend = SessionCaptureFakeLightMemoryBackend()
+    provider = LightMem(
+        config=_missing_time_config(),
+        backend_factory=lambda _key: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        consume_granularity="session",
+        session_memory_report=True,
+        benchmark_name="halumem",
+    )
+    conversation = Conversation(
+        conversation_id="c-halu-irregular",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2026-01-01",
+                turns=[
+                    Turn(
+                        turn_id="a1",
+                        speaker="assistant",
+                        normalized_role="assistant",
+                        content="Assistant first.",
+                    ),
+                    Turn(
+                        turn_id="u1",
+                        speaker="user",
+                        normalized_role="user",
+                        content="Dangling user.",
+                    ),
+                ],
+            )
+        ],
+        metadata={"source_path": "data/halumem/sample.jsonl"},
+    )
+    events = tuple(build_turn_events(conversation, "halu-run_c-halu-irregular"))
+    batch = SessionBatch(
+        isolation_key="halu-run_c-halu-irregular",
+        session_id="s1",
+        events=events,
+        session_time=events[0].timestamp,
+    )
+
+    provider.ingest(batch)
+
+    assert len(backend.added_messages) == 1
+    call = backend.added_messages[0]
+    assert call["kwargs"] == {"force_segment": True, "force_extract": True}
+    assert [message["content"] for message in call["messages"]] == [
+        "",
+        "Assistant first.",
+        "Dangling user.",
+        "",
+    ]
+    assert call["messages"][0]["memory_benchmark_structural_placeholder"] is True
+    assert call["messages"][3]["memory_benchmark_structural_placeholder"] is True
+    assert [message["source_external_ids"] for message in call["messages"]] == [
+        ["a1"],
+        ["a1"],
+        ["u1"],
+        ["u1"],
+    ]
 
 
 def test_lightmem_evidence_matrix_per_benchmark() -> None:

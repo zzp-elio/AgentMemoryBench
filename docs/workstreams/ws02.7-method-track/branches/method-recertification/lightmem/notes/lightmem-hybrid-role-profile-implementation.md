@@ -77,4 +77,46 @@ update/retrieval 算法核心，不改 benchmark adapter。
 
 ## 4. 停工/偏差
 
-无停工。一处偏差：卡内 §2.2 要求 orphan assistant 与下一 user 配对，但 native pair 路径无法前瞻下一 turn，改为 orphan assistant 补 placeholder user（不消费下一 turn），保证 bridge/native 等价。
+无停工、无设计偏差。首轮曾误记“卡内 §2.2 要求 orphan assistant 与下一 user
+前瞻配对”；复核原卡后确认该说法不成立：原卡明确要求 assistant-first 与
+assistant-after-assistant 都输出 `[placeholder user, real assistant]`。首轮实现正好遵循
+该裁决，不消费下一 turn；这里订正记录，不改写首轮 commit 与测试历史。
+
+## 5. R1 架构师强验收返工（2026-07-16）
+
+架构师逐行审读首轮 diff 后发现，首轮绿测仍漏过六类承重边界：
+
+1. mixed-invalid `source_external_ids` 会被截成部分 lineage；
+2. placeholder marker 使用 truthiness，字符串 `"false"` 也会被过滤；
+3. generic role 会从 metadata/speaker 回落，可能 role-launder；
+4. legacy/native LoCoMo prompt 仍从 `source_path` 猜 benchmark identity；
+5. HaluMem SessionBatch 被拆成逐 pair `add_memory()`，改变 session-level pipeline 边界；
+6. 原卡要求的 prompt/token parity、病态 role 序列和真实 lineage 链缺少强反例。
+
+R1 按以下边界修复：
+
+- adapter 与 vendored lineage 均执行 all-or-nothing 校验：plural 必须是非空、无首尾
+  空白的 `list[str]`；合法重复稳定去重，任一坏元素令整组无 provenance，且不回读
+  legacy singular；
+- `ShortMemBufferManager._count_tokens()` 与
+  `OpenaiManager._extract_with_prompt()` 仅在 marker **严格为 `True`** 时过滤；
+- 非 LoCoMo 只读 `Turn.normalized_role` 且只接受精确 `user/assistant`，删除已无调用的旧
+  LoCoMo/LongMemEval batch helpers；
+- legacy add 与 native write 都只按构造期 `benchmark_name == "locomo"` 选择官方
+  extraction prompt，并删除 source-path identity helpers；
+- HaluMem 先 normalizer 产出 pairs，再按序 flatten，整个 SessionBatch 只调用一次
+  `add_memory(..., force_segment=True, force_extract=True)`；
+- 测试补齐六类 role 序列、跨 session、真实空 content、MemBench composite、prompt/token
+  parity、assistant 可见性、非 bool marker、三类 lineage、mixed-invalid、payload、identity
+  反例和 HaluMem 单次调用边界。
+
+R1 对 third_party 的修改仍只涉及框架 marker 过滤与观测 lineage 校验，不改变 extraction
+system prompt、source_id 编号、segmenter/sensory/compressor 或 offline consolidation 算法。
+最终定向测试与 follow-up commit 见本节后续追加；是否验收、合入和恢复冻结状态仍由
+架构师裁定。
+
+R1 定向自检（原卡四文件命令）尾行原文：
+
+```text
+152 passed, 1 warning in 6.50s
+```
