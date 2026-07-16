@@ -726,6 +726,12 @@ def _turn_from_step(
     if not content.strip():
         raise DatasetValidationError(f"{conversation_id}: step {turn_id} content is empty")
 
+    # 公开 marker：True ⇔ 该 turn 的 turn_time 由其 content 内完整 time marker
+    # 解析得到。content-only renderer（Mem0 等）据此跳过重复的 [Turn time] 前缀；
+    # typed-timestamp method（LightMem/A-Mem/MemoryOS）继续读 turn.turn_time。
+    # 不要把 QA.time、place-only、模板占位或自然语言单词 time 误标 True。
+    metadata["source_timestamp_embedded_in_content"] = bool(turn_time)
+
     return Turn(
         turn_id=turn_id,
         speaker="user",

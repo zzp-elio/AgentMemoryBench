@@ -308,15 +308,147 @@ def test_membench_parses_both_embedded_time_formats_and_keeps_content(
     assert "I loved the show." in colon_turn.content
     assert "place: Boston, MA" in colon_turn.content
     assert "time: '2024-10-01 08:00'" in colon_turn.content
+    assert colon_turn.metadata["source_timestamp_embedded_in_content"] is True
 
     # 无冒号格式
     assert nocolon_turn.turn_time == "2024-10-02 09:30"
     assert "They loved it." in nocolon_turn.content
     assert "place: Austin, TX" in nocolon_turn.content
     assert "time'2024-10-02 09:30'" in nocolon_turn.content
+    assert nocolon_turn.metadata["source_timestamp_embedded_in_content"] is True
 
     # 结构化只是 additive：session_time 仍为 None，不因存在 turn 时间而被兜底填充
     assert session.session_time is None
+
+
+def test_membench_marker_states_cover_first_third_and_noise(tmp_path: Path) -> None:
+    """MemBench adapter 应在 `Turn.metadata` 写明 source time 嵌入事实，三种态全部覆盖。
+
+    强反例 1：first-person dict step 内嵌完整 time marker → marker=True，
+    turn_time 取到具体时间，原 content 保留 place/time/具体值。
+    强反例 2：third-person string step 无冒号格式 `time'…'` → marker=True。
+    强反例 3：噪声 step（无 time marker） → marker=False，turn_time=None；
+    QA.time 只在 question_time 出现，绝不进入 turn metadata / content。
+    """
+
+    first_message = (
+        f"I went there. (place: Boston, MA; time: '{_MSG_EMBEDDED_TIME}' Monday)"
+    )
+    third_message = (
+        f"They went there. (place: Austin, TX; time'{_MSG_EMBEDDED_TIME}' Monday)"
+    )
+    noise_message = "Just a noise step without any timestamp."
+    payload = {
+        "simple": {
+            "roles": [
+                {
+                    "tid": "t-marker",
+                    "message_list": [
+                        {"user": first_message, "agent": "ok first"},
+                        third_message,
+                        noise_message,
+                    ],
+                    "QA": {
+                        "qid": 1,
+                        "question": "q?",
+                        "answer": "a",
+                        "target_step_id": [0, 1],
+                        "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
+                        "ground_truth": "A",
+                        "time": _QA_FUTURE_TIME_RAW,
+                    },
+                }
+            ]
+        }
+    }
+    # FirstAgent 源会同时含 PS dict step 与 OS string step，正好覆盖 first/third 两种
+    # 人称；放入临时 0-10k 文件以走真实 adapter mapping。
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, payload)
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+    conversation = dataset.conversations[0]
+    session = conversation.sessions[0]
+    first_turn, third_turn, noise_turn = session.turns
+
+    # 强反例 1：first-person dict step 解析到 turn_time，marker=True，原文全保留
+    assert first_turn.turn_time == _MSG_EMBEDDED_TIME
+    assert first_turn.metadata["source_timestamp_embedded_in_content"] is True
+    assert "place: Boston, MA" in first_turn.content
+    assert f"time: '{_MSG_EMBEDDED_TIME}'" in first_turn.content
+    # 未来 QA 日期不得反向串进 turn metadata / content
+    assert "2099" not in first_turn.content
+    assert "2099" not in str(first_turn.metadata)
+
+    # 强反例 2：third-person string step 无冒号格式也 marker=True
+    assert third_turn.turn_time == _MSG_EMBEDDED_TIME
+    assert third_turn.metadata["source_timestamp_embedded_in_content"] is True
+    assert "place: Austin, TX" in third_turn.content
+    assert f"time'{_MSG_EMBEDDED_TIME}'" in third_turn.content
+    assert "2099" not in third_turn.content
+
+    # 强反例 3：无时间 noise 保持 turn_time=None，marker=False，QA.time 不入
+    assert noise_turn.turn_time is None
+    assert noise_turn.metadata["source_timestamp_embedded_in_content"] is False
+    assert noise_turn.content == noise_message
+    assert "2099" not in noise_turn.content
+    assert "2099" not in str(noise_turn.metadata)
+
+    # QA.time 只进入 question_time，turn 侧全部不沾
+    question = conversation.questions[0]
+    assert question.question_time == _QA_FUTURE_TIME_RAW
+    for turn in (first_turn, third_turn, noise_turn):
+        assert "2099" not in str(turn.metadata)
+        assert "2099" not in turn.content
+
+    # session_time 仍 None（无原生 session 时间）
+    assert session.session_time is None
+
+    # marker 必须 JSON-safe boolean：序列化往返仍严格为 True/False 而非 truthy 字符串
+    import json as _json
+
+    roundtrip = _json.loads(_json.dumps(first_turn.metadata))
+    assert roundtrip["source_timestamp_embedded_in_content"] is True
+    roundtrip_noise = _json.loads(_json.dumps(noise_turn.metadata))
+    assert roundtrip_noise["source_timestamp_embedded_in_content"] is False
+
+
+def test_membench_marker_survives_event_stream_roundtrip(tmp_path: Path) -> None:
+    """强反例 1 改用 `build_turn_events` 路径：marker 仍有效，event.metadata 透传。
+
+    锁住 v3 `TurnEvent.metadata["turn_metadata"]` 必须保留原
+    `source_timestamp_embedded_in_content` 值，content-only renderer
+    走事件流后还能读到 marker。
+    """
+
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, _future_time_counterexample_payload(first_person=True))
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+    conversation = dataset.conversations[0]
+
+    events = list(build_turn_events(conversation, isolation_key="run_marker"))
+    first_event, second_event = events
+
+    # 噪声 turn 走事件流：marker 仍 False
+    assert (
+        first_event.metadata["turn_metadata"]["source_timestamp_embedded_in_content"]
+        is False
+    )
+    # 嵌入时间 turn 走事件流：marker 仍 True，值不变
+    assert (
+        second_event.metadata["turn_metadata"]["source_timestamp_embedded_in_content"]
+        is True
+    )
+    # 原文仍保留
+    assert f"time: '{_MSG_EMBEDDED_TIME}'" in second_event.content
+    assert "place: Boston, MA" in second_event.content
 
 
 def test_question_public_fields_and_private_gold_are_split(tmp_path: Path) -> None:

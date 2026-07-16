@@ -68,7 +68,7 @@ from memory_benchmark.observability.efficiency import (
 
 
 MEM0_METHOD_DIRECTORY = "mem0-main"
-MEM0_ADAPTER_VERSION = "conversation-qa-v1"
+MEM0_ADAPTER_VERSION = "conversation-qa-v2"
 MEM0_READER_PROMPT_VERSION = "mem0-memory-benchmarks-reader-v4"
 MEM0_PROVENANCE_SIDECAR_SCHEMA_VERSION = 1
 MEM0_PROVENANCE_SIDECAR_FILENAME = "provenance-sidecar.json"
@@ -1445,7 +1445,16 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         speaker_roles: dict[str, str],
         session_time: str | None = None,
     ) -> dict[str, str]:
-        """把统一 Turn 转成 Mem0 message，并显式保留 speaker 和时间语义。"""
+        """把统一 Turn 转成 Mem0 message，并显式保留 speaker 和时间语义。
+
+        唯一 effective timestamp fallback：非空 `turn.turn_time` 优先，否则才
+        用 `session_time`；两者都缺则不追加时间头。该契约覆盖 BEAM/HaluMem
+        turn+session 并存（取 turn）、LoCoMo/LongMemEval session-only（取 session）、
+        MemBench 内嵌时间（marker=True 跳过前缀，原文里的 place/time 已是唯一正文
+        表示）三种形态。Mem0 旧版本会在 turn/session 同时有值时双前缀；这里替换为
+        唯一渲染。marker 由 benchmark adapter 通过公开 `turn.metadata` 写入
+        `source_timestamp_embedded_in_content`，不写 `if benchmark == ...` 特判。
+        """
 
         normalized_role = (turn.normalized_role or "").strip().lower()
         role = (
@@ -1461,16 +1470,34 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         )
         if not content_parts:
             raise ConfigurationError(f"Mem0 turn has no text content: {turn.turn_id}")
-        time_parts: list[str] = []
-        if session_time:
-            time_parts.append(f"[Session time: {session_time}]")
-        if turn.turn_time:
-            time_parts.append(f"[Turn time: {turn.turn_time}]")
-        prefix = f"{' '.join(time_parts)} " if time_parts else ""
+        prefix = Mem0._effective_time_prefix(
+            turn.turn_time,
+            session_time,
+            turn.metadata.get("source_timestamp_embedded_in_content"),
+        )
         return {
             "role": role,
             "content": f"{prefix}{turn.speaker}: {' '.join(content_parts)}",
         }
+
+    @staticmethod
+    def _effective_time_prefix(
+        turn_time: str | None,
+        session_time: str | None,
+        source_timestamp_embedded: object,
+    ) -> str:
+        """按 `turn → session → None` 唯一渲染一个时间头，marker=True 时整段跳过。
+
+        marker 必须严格为 `True` 才跳过：缺键、False、字符串 "true" 等均视为未嵌入。
+        """
+
+        if turn_time and turn_time.strip():
+            if source_timestamp_embedded is True:
+                return ""
+            return f"[Turn time: {turn_time.strip()}] "
+        if session_time and session_time.strip():
+            return f"[Session time: {session_time.strip()}] "
+        return ""
 
     @staticmethod
     def _turn_metadata(

@@ -590,7 +590,6 @@ def test_add_writes_each_turn_separately_with_conversation_namespace() -> None:
         {
             "role": "user",
             "content": (
-                "[Session time: 2023-05-08T13:56:00] "
                 "[Turn time: 2023-05-08T13:56:01] "
                 "Alice: I like jasmine tea."
             ),
@@ -674,6 +673,292 @@ def test_add_batches_longmemeval_turns_as_user_assistant_pairs() -> None:
         "session_time": "2024-01-01",
     }
     assert all(call["run_id"] == "lme-q1" for call in backend.add_calls)
+
+
+# ---- MemBench source-time 单次渲染（Phase C）强反例 ---------------------------------
+# 这些测试只覆盖 renderer 契约，不调真实 API；marker 由真实 MemBench adapter
+#（`tests/test_membench_conversation_adapter.py`）独立验证。两条路径（legacy add
+# 与 v3 ingest）必须产出字节完全一致的 message，证明 marker 在事件层往返后未丢失。
+_MEMBENCH_TURN_CONTENT = (
+    "'user': I watched it. (place: Boston, MA; time: '2024-10-01 08:00' Monday); "
+    "'agent': Noted. (place: Boston, MA; time: '2024-10-01 08:00' Monday)"
+)
+_MEMBENCH_TURN_TIME = "2024-10-01 08:00"
+
+
+def _build_membench_turn_conversation() -> Conversation:
+    """构造 MemBench 风格 conversation：turn_time 与 content 内嵌时间一致，marker=True。"""
+
+    return Conversation(
+        conversation_id="membench-c1",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time=None,
+                turns=[
+                    Turn(
+                        turn_id="t1",
+                        speaker="user",
+                        normalized_role="user",
+                        content=_MEMBENCH_TURN_CONTENT,
+                        turn_time=_MEMBENCH_TURN_TIME,
+                        metadata={"source_timestamp_embedded_in_content": True},
+                    )
+                ],
+            )
+        ],
+    )
+
+
+def test_mem0_legacy_add_skips_duplicate_turn_time_when_content_has_marker() -> None:
+    """legacy add 路径：MemBench 原文已带 time 时 Mem0 message 不再前置 [Turn time]。
+
+    first-person dict step 把 user/agent 拼成一行，时间字面值 `2024-10-01 08:00`
+    在原 content 内出现 2 次（user 段、agent 段各 1 次）。renderer marker 触发跳过
+    `[Turn time]` 前缀，故最终 message 中该时间字面值仍只出现 2 次（来自原文），
+    不含 `[Turn time:` 前缀；place 子串（`Boston, MA`）仍保留。
+    """
+
+    backend = FakeMemoryBackend()
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+    )
+
+    result = system.add([_build_membench_turn_conversation()])
+
+    assert result.conversation_ids == ["membench-c1"]
+    assert len(backend.add_calls) == 1
+    message_content = backend.add_calls[0]["messages"][0]["content"]
+    # 单一渲染：marker 触发跳过 [Turn time]；session_time 也不会越权前置
+    assert "[Turn time:" not in message_content
+    assert "[Session time:" not in message_content
+    # 原文时间字面值只来自 content（first-person dict 拼接后 user+agent 各 1 次）
+    # 关键断言：renderer 没有再前置一遍，否则会出现 3 次
+    assert message_content.count("2024-10-01 08:00") == 2
+    assert "place: Boston, MA" in message_content
+    # 不删除原文——speaker 前缀是 renderer 既有行为
+    assert message_content.startswith("user: 'user': ")
+
+
+def test_mem0_v3_ingest_dedups_marker_after_event_stream() -> None:
+    """v3 build_turn_events -> Mem0.ingest 路径同样去重，证明 marker 在事件层未丢失。
+
+    喂一条 MemBench 风格 conversation 走 v3 provider 的 `ingest(SessionBatch)`，
+    断言最终 `_memory.add()` 收到的 message 与 legacy add 完全一致。`_turn_from_event`
+    重建 Turn 时必须保留 `turn.metadata["source_timestamp_embedded_in_content"]`，
+    否则 renderer 会回退到 `[Turn time:]` 重复前缀。
+    """
+
+    backend = FakeMemoryBackend()
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        consume_granularity="session",
+    )
+    conversation = _build_membench_turn_conversation()
+    events = tuple(
+        build_turn_events(conversation, isolation_key="v3_run_membench-c1")
+    )
+    batch = SessionBatch(
+        isolation_key="v3_run_membench-c1",
+        session_id="s1",
+        events=events,
+        session_time=None,
+    )
+
+    system.ingest(batch)
+
+    assert len(backend.add_calls) == 1
+    v3_message_content = backend.add_calls[0]["messages"][0]["content"]
+    assert "[Turn time:" not in v3_message_content
+    assert "[Session time:" not in v3_message_content
+    # 原文时间字面值在 content 中出现 2 次（first-person dict 拼接 user+agent），
+    # renderer 没再前置一遍，所以仍是 2 次（legacy 路径同数）
+    assert v3_message_content.count("2024-10-01 08:00") == 2
+    assert "place: Boston, MA" in v3_message_content
+    # 事件层 metadata 也必须透传 marker；防止事件流重建 Turn 时丢键
+    rebuilt_turn = Mem0._turn_from_event(events[0])
+    assert rebuilt_turn.metadata.get("source_timestamp_embedded_in_content") is True
+
+
+def test_mem0_renderer_falls_back_to_turn_when_both_turn_and_session_set() -> None:
+    """非 MemBench turn 同时有 typed turn_time 和 session_time：只一个 [Turn time]。
+
+    覆盖 BEAM/HaluMem 形态（BEAM turn 自带时间、session 也有时间；HaluMem 整 session
+    batch）。legacy add 走 `add_from_turn`，v3 路径走 `ingest(SessionBatch)`，两条
+    路径必须产出一致结果。session time 永远不与 turn time 共存于同一 message。
+    """
+
+    backend_legacy = FakeMemoryBackend()
+    legacy_system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend_legacy,
+        reader_client=FakeReaderClient(),
+    )
+    legacy_conversation = _build_conversation()  # t1 同时有 turn_time + session_time
+    legacy_system.add([legacy_conversation])
+    legacy_first_message = backend_legacy.add_calls[0]["messages"][0]["content"]
+    assert "[Turn time: 2023-05-08T13:56:01]" in legacy_first_message
+    assert "[Session time:" not in legacy_first_message
+
+    backend_v3 = FakeMemoryBackend()
+    v3_system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend_v3,
+        reader_client=FakeReaderClient(),
+        consume_granularity="session",
+    )
+    v3_events = tuple(
+        build_turn_events(_build_conversation(), isolation_key="v3_run_conv-1")
+    )
+    v3_batch = SessionBatch(
+        isolation_key="v3_run_conv-1",
+        session_id="s1",
+        events=v3_events[:1],
+        session_time="2023-05-08T13:56:00",
+    )
+    v3_system.ingest(v3_batch)
+    v3_first_message = backend_v3.add_calls[0]["messages"][0]["content"]
+    assert v3_first_message == legacy_first_message
+    assert "[Session time:" not in v3_first_message
+
+
+def test_mem0_renderer_session_only_and_no_time_byte_stable() -> None:
+    """turn_time 缺失、session_time 有值时 `[Session time]` 字节级保持现状；两者都缺无 header。
+
+    LoCoMo/LongMemEval session-only 形态（t2/t3 of `_build_conversation`）必须继续
+    出现 `[Session time: 2023-05-08T13:56:00] Bob: ...`；新增第三条全空 turn 验证
+    无 header。同时确认 marker 必须严格为 True 才跳过（字符串 "true" / 1 / 缺键都
+    不触发 dedup）。
+    """
+
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+    )
+    conversation = _build_conversation()  # 已有 s1/t1 (turn+session), s1/t2 (session only)
+
+    # 额外加一个全空 turn（turn_time=None, session_time=None）— 抽到独立 session 以
+    # 保证不污染既有断言
+    conversation.sessions.append(
+        Session(
+            session_id="s_empty",
+            session_time=None,
+            turns=[
+                Turn(
+                    turn_id="t_empty",
+                    speaker="Alice",
+                    content="No time at all.",
+                )
+            ],
+        )
+    )
+    backend = system._memory  # type: ignore[attr-defined]
+    backend.add_calls.clear()
+    system.add([conversation])
+
+    # 现有 session-only 形态字节级保持
+    s1_messages = [
+        call["messages"][0]["content"]
+        for call in backend.add_calls
+        if call["metadata"]["session_id"] == "s1" and call["metadata"]["turn_id"] == "t2"
+    ]
+    assert s1_messages == [
+        "[Session time: 2023-05-08T13:56:00] Bob: I will remember that."
+    ]
+
+    # 全空 turn 不应有 header
+    empty_messages = [
+        call["messages"][0]["content"]
+        for call in backend.add_calls
+        if call["metadata"].get("turn_id") == "t_empty"
+    ]
+    assert empty_messages == ["Alice: No time at all."]
+
+    # marker 严格 True：字符串 "true" / 1 / 缺键 / None 都不应触发 dedup
+    marker_cases: list[tuple[object, str]] = [
+        ("true", "[Turn time: 2024-01-01 00:00:00] "),
+        (1, "[Turn time: 2024-01-01 00:00:00] "),
+        (None, "[Turn time: 2024-01-01 00:00:00] "),
+    ]
+    base_turn = Turn(
+        turn_id="t_marker",
+        speaker="Alice",
+        content="hello",
+        turn_time="2024-01-01 00:00:00",
+    )
+    for marker_value, expected_prefix in marker_cases:
+        probe_turn = Turn(
+            turn_id=base_turn.turn_id,
+            speaker=base_turn.speaker,
+            content=base_turn.content,
+            turn_time=base_turn.turn_time,
+            metadata={"source_timestamp_embedded_in_content": marker_value},
+        )
+        probe_message = Mem0._turn_to_message(
+            probe_turn,
+            speaker_roles={"Alice": "user"},
+            session_time="2024-01-02 00:00:00",
+        )
+        assert probe_message["content"].startswith(expected_prefix), (
+            f"marker={marker_value!r} should not dedup, got {probe_message['content']!r}"
+        )
+
+    # 反例：marker=True 时确实跳过
+    true_turn = Turn(
+        turn_id=base_turn.turn_id,
+        speaker=base_turn.speaker,
+        content=base_turn.content,
+        turn_time=base_turn.turn_time,
+        metadata={"source_timestamp_embedded_in_content": True},
+    )
+    true_message = Mem0._turn_to_message(
+        true_turn,
+        speaker_roles={"Alice": "user"},
+        session_time="2024-01-02 00:00:00",
+    )
+    assert true_message["content"] == "Alice: hello"
+
+
+def test_mem0_observation_time_prompt_text_unchanged() -> None:
+    """`_observation_time_prompt()` 既有 batch/session 语义与文本零变化。
+
+    这次修复只改 `_turn_to_message` 单条 message 的前缀，不触及 batch 相对时间
+    锚点；session time 缺值仍返回 None，session time 有值仍产出原样 prompt。MemBench
+    session_time=None，所以无时间 MemBench message 的 prompt 必须为 None。
+    """
+
+    assert Mem0._observation_time_prompt(None) is None
+    assert Mem0._observation_time_prompt("") is None
+    assert Mem0._observation_time_prompt("   ") is None
+    assert Mem0._observation_time_prompt("2023-05-08T13:56:00") == (
+        "The observation date and time for this message is "
+        "'2023-05-08T13:56:00'. Resolve relative time expressions such as "
+        "'yesterday', 'today', and 'last week' only against this observation "
+        "time, even if another current or observation date appears elsewhere "
+        "in the extraction prompt."
+    )
+
+
+def test_mem0_adapter_version_bumped_to_v2_with_v1_legacy_mention() -> None:
+    """adapter manifest 版本为 v2（manifest 严格比较拒绝旧 run resume）。
+
+    不删除旧值—只升当前 `MEM0_ADAPTER_VERSION`；旧 v1 既不能用 import-time
+    旧值诱导，也不应通过 sidecar 或 file artifact 重建。直接断言 to_manifest()
+    与模块全局值都等于 v2。
+    """
+
+    from memory_benchmark.methods.mem0_adapter import MEM0_ADAPTER_VERSION
+
+    assert MEM0_ADAPTER_VERSION == "conversation-qa-v2"
+    manifest = Mem0Config.smoke().to_manifest()
+    assert manifest["adapter_version"] == "conversation-qa-v2"
+    # 显式不再声明 v1，防止未来误降回旧版
+    assert manifest["adapter_version"] != "conversation-qa-v1"
 
 
 def test_native_mem0_locomo_matches_bridge_add_and_search_sequence() -> None:
