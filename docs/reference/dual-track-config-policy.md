@@ -176,11 +176,12 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
   且同一实现要铺五 benchmark。benchmark harness 只作配置/prompt/调用序列证据；若它复用
   产品 core，可以抽取 native 配置；若它是 fork，则另建 `reproduction_variant` 身份，不能
   替换 unified 的底座。
-- **A-Mem 判例**（已一手核实，纠正用户口径的方向）：
+- **A-Mem 双仓现状**（目录身份已一手核实，算法等价性尚未裁）：
   - `third_party/methods/A-mem` = **复现版**（README: "specifically designed to
     reproduce the results presented in our paper"，含 `memory_layer_robust.py` +
-    `run_all_experiments.sh` + 论文 PDF）。**adapter 已接这份**（`amem_adapter.py:3`、
-    `AMEM_METHOD_DIRECTORY="A-mem"`、import `memory_layer_robust`）——**接对了**。
+    `run_all_experiments.sh` + 论文 PDF）。**adapter 当前接这份**（`amem_adapter.py:3`、
+    `AMEM_METHOD_DIRECTORY="A-mem"`、import `memory_layer_robust`）；这是待 M 阶段审计的现状，
+    不能在通用版/复现版算法身份未核前预判为“接对了”。
   - `third_party/A-mem`（顶层，2026-07-09 新加，untracked）= **通用库版**（README 指
     引你去别处复现，含 `agentic_memory/` 包）。**adapter 未用**，对本项目冗余。
   - A-Mem 整治（M 阶段）待办：① 确认复现版 `memory_layer_robust.py` 与通用版
