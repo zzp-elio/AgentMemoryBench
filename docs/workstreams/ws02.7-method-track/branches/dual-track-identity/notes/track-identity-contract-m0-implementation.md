@@ -132,3 +132,62 @@ native_scope 在 unified run 中=该 method 的“native 能否 build_and_readou
 ## 8. 偏差/停工点
 
 （见完成报告；如有。）
+
+## 9. R1 hardening 历史（2026-07-16）
+
+R1 接续首轮 commit `81f2708` 的未提交返工现场，只新增 follow-up commit，不 amend。
+本轮由 Codex（GPT-5）施工，未使用额外 subagent；全程零真实 API、零下载、零 push。
+
+### 9.1 对首轮记录的明确订正
+
+- 首轮本文 §2/§6 把 MemoryOS 描述为 `implementation_variant=product`，但
+  `81f2708` 的实际注册期望曾错误写成
+  `reproduction:memoryos-chromadb`。该“产物已如实盖 product 身份”的完成含义不成立；
+  R1 已改为只从 `engine=memoryos-pypi` 解析 `product`，并对 ChromaDB/non-product engine
+  fail-fast。当前 embedding 身份为 `sentence-transformers`、384、`external_l2`、
+  `faiss-inner-product`。
+- 首轮 §4 让 `ConfigTrackBundle` 同时保存 embedding/build 分类与完整
+  `track_identity`，这会在 registration 之外形成第二套 method build 矩阵。R1 撤销该实现：
+  registration 的 `build_identity_resolver` 是唯一 build declaration 事实源；bundle 只持
+  answer/judge readout 资产；`run_prediction` 在一个组合点生成 unified/native identity。
+- 首轮 §7 没有记录可复核的真实测试尾行，因此不能把首轮回报当作 R1 验收证据；下方只记录
+  本轮亲自执行的最终输出。
+
+### 9.2 R1 契约收紧
+
+1. 新增独立 `judge_model_source` 轴并锁定矩阵：unified answer/judge 全为
+   `framework_default`；Mem0 native answer/judge model 均为
+   `framework_model_override`、judge prompt/source 为 `official_parity`；LightMem native
+   answer/judge 均为 `official_parity`；MemoryOS native answer 为 `official_parity`、judge
+   为 `framework_fallback + framework_default model`。
+2. 所有 Literal 运行时集合由 `typing.get_args()` 单源派生；parser 拒绝空白文本、bool/
+   非精确整数 dimension、`build_override_applied != False`、非 bool historical 标记、pending
+   identity 的非 pending revision、非字符串键，以及顶层/embedding 的缺失或额外字段；list/
+   dict Literal 输入稳定转换成 `ConfigurationError`，不泄漏 `TypeError`。
+3. `_build_method_manifest` 只接受已构造并校验的 `TrackIdentity`，顶层与 nested
+   `contract_version` 同源。evaluate 对声明 v1 的 artifact 严格 parse/validate，并把 native
+   identity 的 judge/answer model 来源与当前 readout bundle 交叉校验；只有同时完全缺少
+   `track_identity` 与 `contract_version` 的历史 artifact 保留 artifact-only evaluate。
+4. resume 反例覆盖旧缺 v1 与新 v1 的双向 mismatch，以及 `track_identity` 每个顶层和
+   embedding nested 字段变化的双向 mismatch。MemoryOS registered prediction 真实走过
+   first-run → 同 run_id resume，candidate、最终 manifest 与续跑 manifest 的 v1 identity
+   保持逐字对称；不是只测 helper。
+
+### 9.3 R1 自检
+
+执行：
+
+```bash
+uv run pytest -q \
+  tests/test_config_track.py \
+  tests/test_prediction_cli.py \
+  tests/test_prediction_runner.py \
+  tests/test_main_cli.py \
+  tests/test_method_registry.py \
+  tests/test_mem0_adapter.py \
+  tests/test_lightmem_adapter.py \
+  tests/test_memoryos_registered_prediction.py
+```
+
+最终尾行：`416 passed, 1 warning in 14.70s`。warning 是 vendored LightMem 的
+Pydantic v2 class-based config deprecation，不是本卡新增失败。

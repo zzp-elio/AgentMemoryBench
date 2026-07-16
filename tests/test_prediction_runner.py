@@ -1212,6 +1212,102 @@ def test_resume_manifest_rejects_missing_retrieval_evidence_contract_version() -
     assert not _manifests_match_for_resume(with_v1, without)
 
 
+def _track_identity_resume_method_manifest() -> dict[str, object]:
+    """返回用于 resume 严格比较的最小合法 v1 method manifest。"""
+
+    return {
+        "protocol_version": "v3",
+        "contract_version": "v1",
+        "track_identity": {
+            "contract_version": "v1",
+            "implementation_variant": "product",
+            "readout_track": "unified",
+            "native_scope": "none",
+            "build_override_applied": False,
+            "embedding_profile": "controlled_embedding_v1",
+            "historical_controlled_build_equivalent_to_current_main": False,
+            "embedding": {
+                "provider": "huggingface",
+                "model": "sentence-transformers/all-MiniLM-L6-v2",
+                "dimension": 384,
+                "revision": None,
+                "revision_status": "local_unpinned",
+                "normalization": None,
+                "instruction": None,
+                "distance": "qdrant-cosine",
+                "identity_status": "declared",
+            },
+            "judge_source": "framework_default",
+            "answer_model_source": "framework_default",
+            "judge_model_source": "framework_default",
+        },
+    }
+
+
+def test_resume_manifest_track_identity_v1_is_strict_and_symmetric() -> None:
+    """旧缺 v1 双向拒绝；相同 v1 接受；任一 nested 身份变化均拒绝。"""
+
+    method_v1 = _track_identity_resume_method_manifest()
+    with_v1 = {"method": method_v1}
+    old = {"method": {"protocol_version": "v3"}}
+    identical = json.loads(json.dumps(with_v1))
+    changed_embedding = json.loads(json.dumps(with_v1))
+    changed_embedding["method"]["track_identity"]["embedding"]["dimension"] = 1536
+    changed_track = json.loads(json.dumps(with_v1))
+    changed_track["method"]["track_identity"]["judge_model_source"] = (
+        "framework_model_override"
+    )
+
+    assert not _manifests_match_for_resume(old, with_v1)
+    assert not _manifests_match_for_resume(with_v1, old)
+    assert _manifests_match_for_resume(with_v1, identical)
+    assert not _manifests_match_for_resume(with_v1, changed_embedding)
+    assert not _manifests_match_for_resume(changed_embedding, with_v1)
+    assert not _manifests_match_for_resume(with_v1, changed_track)
+    assert not _manifests_match_for_resume(changed_track, with_v1)
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    (
+        (("contract_version",), "v2"),
+        (("implementation_variant",), "reproduction:memoryos-chromadb"),
+        (("readout_track",), "native"),
+        (("native_scope",), "readout_only"),
+        (("build_override_applied",), True),
+        (("embedding_profile",), "product_default_v1"),
+        (("historical_controlled_build_equivalent_to_current_main",), True),
+        (("embedding", "provider"), "openai"),
+        (("embedding", "model"), "text-embedding-3-small"),
+        (("embedding", "dimension"), 1536),
+        (("embedding", "revision"), "revision-1"),
+        (("embedding", "revision_status"), "provider_managed_unpinned"),
+        (("embedding", "normalization"), "external_l2"),
+        (("embedding", "instruction"), "query:"),
+        (("embedding", "distance"), "faiss-inner-product"),
+        (("embedding", "identity_status"), "pending"),
+        (("judge_source",), "official_parity"),
+        (("answer_model_source",), "framework_model_override"),
+        (("judge_model_source",), "framework_model_override"),
+    ),
+)
+def test_resume_manifest_rejects_every_nested_track_identity_change(
+    path: tuple[str, ...],
+    replacement: object,
+) -> None:
+    """track_identity 任一顶层或 embedding nested 字段变化都必须双向 mismatch。"""
+
+    original = {"method": _track_identity_resume_method_manifest()}
+    changed = json.loads(json.dumps(original))
+    cursor = changed["method"]["track_identity"]
+    for key in path[:-1]:
+        cursor = cursor[key]
+    cursor[path[-1]] = replacement
+
+    assert not _manifests_match_for_resume(original, changed)
+    assert not _manifests_match_for_resume(changed, original)
+
+
 def test_runner_uses_membench_unified_prompt_builder_and_choice_parser(
     tmp_path: Path,
 ) -> None:
@@ -3318,6 +3414,10 @@ def test_registered_isolated_prediction_does_not_construct_root_system(
     from memory_benchmark.benchmark_adapters import PreparedBenchmarkRun
     from memory_benchmark.cli import run_prediction as run_prediction_module
     from memory_benchmark.core import MethodCapability, TaskFamily
+    from memory_benchmark.methods.config_track import (
+        BuildIdentityDeclaration,
+        EmbeddingIdentity,
+    )
     from memory_benchmark.methods.registry import MethodBuildContext, MethodRegistration
 
     class _FakeConfig:
@@ -3389,6 +3489,22 @@ def test_registered_isolated_prediction_does_not_construct_root_system(
         display_name="FakeMethod",
         protocol_version="",
         supports_shared_instance_parallelism=False,
+        build_identity_resolver=lambda config_manifest: BuildIdentityDeclaration(
+            implementation_variant="product",
+            embedding_profile="unclassified_pending",
+            historical_controlled_build_equivalent_to_current_main=False,
+            embedding=EmbeddingIdentity(
+                provider=None,
+                model=None,
+                dimension=None,
+                revision=None,
+                revision_status="pending",
+                normalization=None,
+                instruction=None,
+                distance=None,
+                identity_status="pending",
+            ),
+        ),
     )
     monkeypatch.setattr(
         run_prediction_module,

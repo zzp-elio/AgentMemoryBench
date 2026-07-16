@@ -19,7 +19,12 @@ from memory_benchmark.evaluators.registry import (
     load_evaluator_profile,
 )
 from memory_benchmark.evaluators.locomo_judge import LoCoMoJudgeEvaluator
-from memory_benchmark.methods.config_track import resolve_config_track
+from memory_benchmark.methods.config_track import (
+    CONTRACT_VERSION,
+    ConfigTrackBundle,
+    TrackIdentity,
+    resolve_config_track,
+)
 from memory_benchmark.cli.run_prediction import (
     PredictionBatchResult,
     run_registered_conversation_qa_prediction,
@@ -181,14 +186,10 @@ def execute_evaluate(command: EvaluateCommand) -> tuple[Any, ...]:
     run_dir = _resolve_run_dir(root, command.run_id)
     manifest = _read_manifest(run_dir)
     benchmark_name = _required_manifest_text(manifest, "benchmark_name")
-    method_manifest = manifest.get("method")
-    native_bundle = None
-    if isinstance(method_manifest, dict) and method_manifest.get("config_track") == "native":
-        native_bundle = resolve_config_track(
-            _required_manifest_text(manifest, "method_name"),
-            benchmark_name,
-            "native",
-        )
+    track_identity, native_bundle = _resolve_evaluation_track_identity(
+        manifest=manifest,
+        benchmark_name=benchmark_name,
+    )
 
     results: list[Any] = []
     for metric_name in command.metrics:
@@ -213,6 +214,10 @@ def execute_evaluate(command: EvaluateCommand) -> tuple[Any, ...]:
             if (
                 native_bundle is not None
                 and native_bundle.judge_profile is not None
+                and (
+                    track_identity is None
+                    or track_identity.judge_source == "official_parity"
+                )
                 and metric_name == "locomo-judge"
             ):
                 native_judge = native_bundle.judge_profile
@@ -233,6 +238,88 @@ def execute_evaluate(command: EvaluateCommand) -> tuple[Any, ...]:
             )
         )
     return tuple(results)
+
+
+def _resolve_evaluation_track_identity(
+    *,
+    manifest: dict[str, Any],
+    benchmark_name: str,
+) -> tuple[TrackIdentity | None, ConfigTrackBundle | None]:
+    """解析并交叉校验 evaluate 所消费的 method track identity。
+
+    缺 v1 的历史 artifact 保留旧 evaluate 兼容；一旦声明 v1，就必须严格解析完整
+    identity，并与当前注册的 native readout bundle 逐轴一致，禁止矛盾身份继续评测。
+    """
+
+    method_manifest = manifest.get("method")
+    if not isinstance(method_manifest, dict):
+        return None, None
+    method_name = _required_manifest_text(manifest, "method_name")
+    config_track = method_manifest.get("config_track")
+    contract_version = method_manifest.get("contract_version")
+    raw_identity = method_manifest.get("track_identity")
+
+    if contract_version is None:
+        if raw_identity is not None:
+            raise ConfigurationError(
+                "method.track_identity requires method.contract_version"
+            )
+        # 历史 artifact-only evaluate：保持既有 native bundle 解析行为，不把旧产物
+        # 冒充 v1，也不允许它 resume 到新契约。
+        if config_track == "native":
+            return None, resolve_config_track(
+                method_name,
+                benchmark_name,
+                "native",
+            )
+        return None, None
+
+    if contract_version != CONTRACT_VERSION:
+        raise ConfigurationError(
+            f"Unsupported method track identity contract_version={contract_version!r}"
+        )
+    if not isinstance(raw_identity, dict):
+        raise ConfigurationError(
+            "method.contract_version='v1' requires method.track_identity object"
+        )
+    identity = TrackIdentity.from_manifest_dict(raw_identity)
+    if identity.contract_version != contract_version:
+        raise ConfigurationError(
+            "method contract_version disagrees with track_identity.contract_version"
+        )
+
+    if config_track == "native":
+        if identity.readout_track != "native":
+            raise ConfigurationError(
+                "method config_track='native' requires track identity readout_track='native'"
+            )
+        bundle = resolve_config_track(method_name, benchmark_name, "native")
+        if bundle is None:  # pragma: no cover - native resolver contract guard
+            raise ConfigurationError("native config-track bundle unexpectedly missing")
+        expected = {
+            "judge_source": bundle.judge_source,
+            "answer_model_source": bundle.answer_model_source,
+            "judge_model_source": bundle.judge_model_source,
+        }
+        actual = {
+            "judge_source": identity.judge_source,
+            "answer_model_source": identity.answer_model_source,
+            "judge_model_source": identity.judge_model_source,
+        }
+        if actual != expected:
+            raise ConfigurationError(
+                "native track identity disagrees with registered readout bundle: "
+                f"expected={expected}, actual={actual}"
+            )
+        return identity, bundle
+
+    if config_track not in (None, "unified"):
+        raise ConfigurationError(f"Unknown method config_track={config_track!r}")
+    if identity.readout_track != "unified":
+        raise ConfigurationError(
+            "unified method manifest requires track identity readout_track='unified'"
+        )
+    return identity, None
 
 
 def execute_run(command: RunCommand) -> RunCommandResult:

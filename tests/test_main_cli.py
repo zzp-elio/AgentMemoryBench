@@ -29,6 +29,11 @@ from memory_benchmark.cli.run_prediction import (
     PredictionVariantResult,
 )
 from memory_benchmark.core import ConfigurationError
+from memory_benchmark.methods.config_track import (
+    build_native_track_identity,
+    resolve_config_track,
+)
+from memory_benchmark.methods.registry import resolve_registered_build_identity
 from memory_benchmark.runners import EvaluationRunSummary
 from memory_benchmark.runners.prediction import PredictionRunSummary
 
@@ -450,6 +455,227 @@ def test_memoryos_native_evaluate_falls_back_to_framework_default_judge(
     )
 
     assert observed == [default_evaluator]
+
+
+def _native_track_identity_dict(
+    method: str,
+    benchmark: str,
+    config_manifest: dict[str, object],
+) -> dict[str, object]:
+    """构造 command evaluate 测试使用的合法 registered native identity。"""
+
+    bundle = resolve_config_track(method, benchmark, "native")
+    assert bundle is not None
+    return build_native_track_identity(
+        build_identity=resolve_registered_build_identity(method, config_manifest),
+        bundle=bundle,
+    ).to_manifest_dict()
+
+
+def test_memoryos_v1_native_evaluate_validates_identity_and_uses_framework_judge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MemoryOS v1 明确 fallback 时必须验证身份并保留 framework evaluator。"""
+
+    run_dir = _write_manifest(tmp_path, "memoryos-v1-native")
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["method_name"] = "MemoryOS"
+    track_identity = _native_track_identity_dict(
+        "memoryos",
+        "locomo",
+        {
+            "engine": "memoryos-pypi",
+            "embedding_model_name": "sentence-transformers/all-MiniLM-L6-v2",
+        },
+    )
+    manifest["method"] = {
+        "config_track": "native",
+        "contract_version": "v1",
+        "track_identity": track_identity,
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    default_evaluator = object()
+    observed: list[object] = []
+    monkeypatch.setattr(
+        commands,
+        "load_evaluator_profile",
+        lambda **kwargs: SimpleNamespace(mode="compact", model="gpt-4o-mini"),
+    )
+    monkeypatch.setattr(
+        commands,
+        "create_evaluator",
+        lambda *args, **kwargs: default_evaluator,
+    )
+    monkeypatch.setattr(
+        commands,
+        "run_artifact_evaluation",
+        lambda run_dir, evaluator, benchmark, max_workers=1: (
+            observed.append(evaluator) or SimpleNamespace(metric_name="locomo_judge")
+        ),
+    )
+
+    execute_evaluate(
+        EvaluateCommand(
+            project_root=tmp_path,
+            run_id="memoryos-v1-native",
+            metrics=("locomo-judge",),
+            confirm_api=True,
+        )
+    )
+    assert observed == [default_evaluator]
+
+
+def test_mem0_v1_native_evaluate_uses_registered_official_judge_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """只有 identity 声明 official_parity 时才应用 Mem0 native judge prompt。"""
+
+    run_dir = _write_manifest(tmp_path, "mem0-v1-native")
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    track_identity = _native_track_identity_dict(
+        "mem0",
+        "locomo",
+        {
+            "embedding_provider": "huggingface",
+            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "embedding_dimensions": 384,
+        },
+    )
+    manifest["method"] = {
+        "config_track": "native",
+        "contract_version": "v1",
+        "track_identity": track_identity,
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    default_evaluator = object()
+    native_evaluator = object()
+    observed: list[object] = []
+    monkeypatch.setattr(
+        commands,
+        "load_evaluator_profile",
+        lambda **kwargs: SimpleNamespace(mode="compact", model="gpt-4o-mini"),
+    )
+    monkeypatch.setattr(
+        commands,
+        "create_evaluator",
+        lambda *args, **kwargs: default_evaluator,
+    )
+    monkeypatch.setattr(
+        commands,
+        "LoCoMoJudgeEvaluator",
+        lambda **kwargs: native_evaluator,
+    )
+    monkeypatch.setattr(
+        commands,
+        "run_artifact_evaluation",
+        lambda run_dir, evaluator, benchmark, max_workers=1: (
+            observed.append(evaluator) or SimpleNamespace(metric_name="locomo_judge")
+        ),
+    )
+
+    execute_evaluate(
+        EvaluateCommand(
+            project_root=tmp_path,
+            run_id="mem0-v1-native",
+            metrics=("locomo-judge",),
+            confirm_api=True,
+        )
+    )
+    assert observed == [native_evaluator]
+
+
+def test_v1_native_evaluate_rejects_identity_bundle_contradiction(
+    tmp_path: Path,
+) -> None:
+    """v1 manifest 的 judge/model 来源与注册 readout bundle 冲突时 fail-fast。"""
+
+    run_dir = _write_manifest(tmp_path, "mem0-v1-contradiction")
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    track_identity = _native_track_identity_dict(
+        "mem0",
+        "locomo",
+        {
+            "embedding_provider": "huggingface",
+            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "embedding_dimensions": 384,
+        },
+    )
+    track_identity["judge_model_source"] = "official_parity"
+    manifest["method"] = {
+        "config_track": "native",
+        "contract_version": "v1",
+        "track_identity": track_identity,
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match="disagrees with registered"):
+        execute_evaluate(
+            EvaluateCommand(
+                project_root=tmp_path,
+                run_id="mem0-v1-contradiction",
+                metrics=("locomo-f1",),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "malformation",
+    (
+        "identity_without_version",
+        "version_without_identity",
+        "inner_version_skew",
+        "identity_extra_field",
+        "embedding_missing_field",
+    ),
+)
+def test_v1_evaluate_strictly_parses_identity_and_version_pair(
+    tmp_path: Path,
+    malformation: str,
+) -> None:
+    """evaluate 对声明 v1 的 artifact 必须严格解析，只有完全旧 artifact 可兼容。"""
+
+    run_id = f"malformed-{malformation}"
+    run_dir = _write_manifest(tmp_path, run_id)
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    identity = _native_track_identity_dict(
+        "mem0",
+        "locomo",
+        {
+            "embedding_provider": "huggingface",
+            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "embedding_dimensions": 384,
+        },
+    )
+    method_manifest: dict[str, object] = {"config_track": "native"}
+    if malformation != "identity_without_version":
+        method_manifest["contract_version"] = "v1"
+    if malformation != "version_without_identity":
+        method_manifest["track_identity"] = identity
+    if malformation == "inner_version_skew":
+        identity["contract_version"] = "v2"
+    elif malformation == "identity_extra_field":
+        identity["unexpected"] = True
+    elif malformation == "embedding_missing_field":
+        embedding = identity["embedding"]
+        assert isinstance(embedding, dict)
+        embedding.pop("instruction")
+    manifest["method"] = method_manifest
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ConfigurationError):
+        execute_evaluate(
+            EvaluateCommand(
+                project_root=tmp_path,
+                run_id=run_id,
+                metrics=("locomo-f1",),
+            )
+        )
 
 
 def test_execute_run_stops_when_prediction_fails(

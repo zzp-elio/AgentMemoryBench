@@ -43,16 +43,18 @@ from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySyste
 from memory_benchmark.core.provider_protocol import MemoryProvider
 from memory_benchmark.methods.custom_loader import load_custom_memory_provider
 from memory_benchmark.methods.config_track import (
-    CONTRACT_VERSION,
+    TrackIdentity,
+    build_native_track_identity,
     build_unified_track_identity,
     resolve_config_track,
+    validate_track_identity,
 )
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.methods.registry import (
     MethodBuildContext,
     get_method_registration,
     load_method_profile,
-    resolve_registered_embedding_identity,
+    resolve_registered_build_identity,
 )
 from memory_benchmark.observability import RunContext
 from memory_benchmark.observability.efficiency import (
@@ -372,10 +374,18 @@ def run_registered_conversation_qa_prediction(
         profile_name=profile_name,
         project_root=path_settings.project_root,
     )
-    # 从当前强类型 config manifest 抽取 concrete embedding 身份（与 method.config 同一
-    # 真实值），供 track identity 契约注入；不得提前写入未来配置。
-    concrete_embedding = resolve_registered_embedding_identity(
-        method_name, config.to_manifest()
+    # 注册表是 build identity 的单一事实源：从当前强类型 config manifest 解析，
+    # 不由 config_track 再维护一份 method 静态矩阵。
+    config_manifest = config.to_manifest()
+    build_identity_resolver = getattr(
+        method_registration,
+        "build_identity_resolver",
+        None,
+    )
+    build_identity = (
+        resolve_registered_build_identity(method_name, config_manifest)
+        if build_identity_resolver is None
+        else build_identity_resolver(config_manifest)
     )
     config_track_bundle = (
         None
@@ -384,13 +394,16 @@ def run_registered_conversation_qa_prediction(
             method_name,
             benchmark_name,
             config_track,
-            concrete_embedding=concrete_embedding,
         )
     )
-    # unified 也产出如实 track identity；native bundle 已自带 bundle.track_identity。
-    unified_track_identity = build_unified_track_identity(
-        method=method_name,
-        concrete_embedding=concrete_embedding,
+    # bundle 只保存 readout 资产；完整身份在同一处把当前 build 与 readout 组合。
+    track_identity = (
+        build_unified_track_identity(build_identity=build_identity)
+        if config_track_bundle is None
+        else build_native_track_identity(
+            build_identity=build_identity,
+            bundle=config_track_bundle,
+        )
     )
     run_scope = _resolve_profile_run_scope(config.profile_name)
     selector = variant or benchmark_registration.default_variant
@@ -500,7 +513,7 @@ def run_registered_conversation_qa_prediction(
             config=config,
         )
         method_manifest = _build_method_manifest(
-            config_manifest=config.to_manifest(),
+            config_manifest=config_manifest,
             source_identity=source_identity,
             workload_estimate=workload_estimate,
             answer_reader_manifest=answer_reader_manifest,
@@ -517,11 +530,7 @@ def run_registered_conversation_qa_prediction(
                 "retrieval_evidence_contract_version",
                 None,
             ),
-            track_identity=(
-                config_track_bundle.track_identity
-                if config_track_bundle is not None
-                else unified_track_identity
-            ),
+            track_identity=track_identity,
         )
         policy = PredictionRunPolicy(
             max_workers=max_workers,
@@ -1588,7 +1597,7 @@ def _build_method_manifest(
     prompt_track: str | None = None,
     config_track: str | None = None,
     retrieval_evidence_contract_version: str | None = None,
-    track_identity: object | None = None,
+    track_identity: TrackIdentity | None = None,
 ) -> dict[str, object]:
     """构造不含 secret、可供 registered preflight 直接比较的 method manifest。"""
 
@@ -1607,13 +1616,11 @@ def _build_method_manifest(
             retrieval_evidence_contract_version
         )
     if track_identity is not None:
-        track_identity_dict = (
-            track_identity.to_manifest_dict()
-            if hasattr(track_identity, "to_manifest_dict")
-            else track_identity
-        )
-        manifest["track_identity"] = track_identity_dict
-        manifest["contract_version"] = CONTRACT_VERSION
+        if not isinstance(track_identity, TrackIdentity):
+            raise ConfigurationError("track_identity must be TrackIdentity or None")
+        validate_track_identity(track_identity)
+        manifest["track_identity"] = track_identity.to_manifest_dict()
+        manifest["contract_version"] = track_identity.contract_version
     if workload_estimate is not None:
         manifest["workload_estimate"] = workload_estimate
     return manifest

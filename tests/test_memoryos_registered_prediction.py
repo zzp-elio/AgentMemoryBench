@@ -619,13 +619,10 @@ def test_memoryos_registered_prediction_uses_generic_runner_with_smoke_crop_resu
         },
         "contract_version": CONTRACT_VERSION,
         "track_identity": build_unified_track_identity(
-            method="memoryos",
-            concrete_embedding=(
-                "memoryos-pypi",
-                _FakeMemoryOS.instances[0].config.embedding_model_name,
-                384,
-                None,
-            ),
+            build_identity=method_registry_module.resolve_registered_build_identity(
+                "memoryos",
+                _FakeMemoryOS.instances[0].config.to_manifest(),
+            )
         ).to_manifest_dict(),
     }
     assert captured["source_paths"] == (tmp_path / LOCOMO_SOURCE_PATH,)
@@ -750,6 +747,41 @@ def test_new_memoryos_run_writes_only_canonical_prediction_artifacts(
             "metadata": {},
         }
     ]
+
+    # registered preflight candidate 与 runner 最终 manifest 必须共用同一 v1 identity；
+    # 再用同一 run_id 真正走一次 resume，证明首跑/续跑身份对称。
+    first_manifest = json.loads(canonical_paths["manifest"].read_text(encoding="utf-8"))
+    first_identity = first_manifest["method"]["track_identity"]
+    assert first_manifest["method"]["contract_version"] == "v1"
+    assert first_identity["contract_version"] == "v1"
+    assert first_identity["implementation_variant"] == "product"
+    assert first_identity["embedding"] == {
+        "provider": "sentence-transformers",
+        "model": "sentence-transformers/all-MiniLM-L6-v2",
+        "dimension": 384,
+        "revision": None,
+        "revision_status": "local_unpinned",
+        "normalization": "external_l2",
+        "instruction": None,
+        "distance": "faiss-inner-product",
+        "identity_status": "declared",
+    }
+    resumed = run_prediction_module.run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name="memoryos",
+        benchmark_name="locomo",
+        profile_name="smoke",
+        run_id="memoryos-canonical-run",
+        resume=True,
+        confirm_api=True,
+        smoke_turn_limit=2,
+        smoke_conversation_limit=1,
+        enable_efficiency_observability=False,
+    )
+    second_manifest = json.loads(canonical_paths["manifest"].read_text(encoding="utf-8"))
+    assert resumed.runs[0].summary.completed_conversations == 1
+    assert second_manifest["method"]["track_identity"] == first_identity
+    assert second_manifest == first_manifest
 
 
 def test_memoryos_resume_manifest_mismatch_fails_before_factory_attach_or_directory_creation(
