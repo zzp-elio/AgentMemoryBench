@@ -82,16 +82,26 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   MiniLM/384（零重建），ChromaDB 是 reproduction variant。现行裁决见
   `branches/dual-track-identity/notes/product-default-embedding-ruling.md`。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
-  提醒可用；恢复是后台动作，不自动向用户播报机械台词。**当前只需用户派一张离线卡**：
-  `branches/dual-track-identity/cards/actor-prompt-track-identity-contract-m0.md`，让 manifest
-  如实声明 implementation/build/readout/judge 身份并严格参与 resume；不切 embedding、不跑
-  API。M0 强验收后架构师再起草 Mem0 product-default 迁移卡，并继续 RetrievalEvidence M1；
-  M1 未遗忘但现在不抢跑。MemoryOS 五格 smoke 仍需身份门 + 用户
-  明确预算、规模与 run_id，禁止自行调用 API。
+  提醒可用；恢复是后台动作，不自动向用户播报机械台词。Track identity M0 首轮
+  `81f2708` **未通过架构师验收**；用户已明确授权当前 Codex 启动一个 subagent，在原
+  worktree 追加 R1，不再需要用户转发卡。R1 不切 embedding、不跑 API。共享门关闭后不再
+  先抢跑 Mem0，而按 `branches/method-recertification/` 严格串行：LightMem 第一家完整
+  重认证 → Mem0（含 product-default 迁移）→ MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-16）
+
+- 2026-07-16（**Track identity M0 首轮未通过；Codex R1 施工中**，GPT-5 架构师）：
+  混合入口先后经历 CC+GLM-5.2 崩溃、用户切 MiniMax M3、会话压缩，最终首轮 commit
+  `81f2708`；无法核实唯一模型而未写 Co-Authored-By 是正确做法，但 actor 报告的 author
+  email 与 `git show` 实盘仍不一致。架构师复现卡内 `282 passed, 1 warning`，full diff 与
+  现场反例判定不合入：当前 PyPI MemoryOS 被错误标成 ChromaDB reproduction variant；
+  build override/history/pending revision 非法组合仍可构造；manifest 可出现 top=v1、inner=bogus；
+  commands/evaluate 和 strict resume 强反例在 note 中宣称完成、实盘却没有。用户明确授权
+  架构师启动一个 Codex subagent，在同一 branch/worktree 追加 R1，不 amend、不 push。
+  同轮用户纠正 actor 经济学：Fable 只给高判断密度任务，不给纯繁琐大活。共享修复完成后
+  从 LightMem 起逐 method 重走 B1-B11，旧证据逐项 revalidate/retest，不盲目全删重跑。
 
 - 2026-07-16（**Mem0 source-time + 三家 identity 审计强验收；track identity M0 待派**，
   GPT-5 架构师）：Fable 5 `82ffd8c` docs-only 审计经逐锚复核与文档标准门合入 `4a0533f`；
