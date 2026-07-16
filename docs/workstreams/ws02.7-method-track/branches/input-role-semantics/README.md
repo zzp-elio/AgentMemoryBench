@@ -20,15 +20,19 @@ method×benchmark 专用 runner，也不把 benchmark canonical 修复藏进 Lig
    [`cards/actor-prompt-evidence-unit-contract-audit.md`](cards/actor-prompt-evidence-unit-contract-audit.md)
    → [`notes/evidence-unit-contract-audit.md`](notes/evidence-unit-contract-audit.md)
 3. 当前依赖顺序：
-   - [gold evidence 私有 schema/manifest M0](cards/actor-prompt-gold-evidence-contract-m0.md)；
-   - M0 验收后拆 MemBench FirstAgent canonical role + step-qrel；
+   - [gold evidence 私有 schema/manifest M0](cards/actor-prompt-gold-evidence-contract-m0.md)
+     已完成并经架构师 R1 强验收；
+   - 当前下一门是拆 MemBench FirstAgent canonical role，同时保持一个官方 pair-step
+     对应一个 gold group；
    - [LightMem role-complete build profile](../method-recertification/lightmem/cards/actor-prompt-lightmem-hybrid-role-profile.md)
-     与 M0 文件正交，可并行；
-   - 两线合流后再做 RetrievalEvidence M1 evaluator 消费。
+     已与 M0 合流并完成 hybrid/pair-lineage R1；
+   - MemBench split 验收后再做 RetrievalEvidence M1 的逐题资格消费。
 
 ## 当前状态
 
 Fable docs-only 审计已由架构师强验收并纠正 BEAM 全量统计：1M 当前为 41 个含歧义题、
-198 个歧义 gold 原子；LME canonical 分母裁为 419。gold evidence group 方案正式采用，
-生产 M0 卡可与 LightMem hybrid 卡并行派发。MemBench canonical split 仍须等 M0 验收，
-不得抢跑；零真实 API。权威实时断点仍只写父 workstream `../../README.md`。
+198 个歧义 gold 原子；LME canonical 分母裁为 419。Gold Evidence Group M0 首轮经
+Opus 4.8 → DeepSeek V4 Pro 接力完成，架构师强验收发现 singleton 冒充 multi-child、
+unmatched 被移出 NDCG ideal 分母、identity gate 被 N/A 短路等 false-green；Codex R1
+关闭后已合入主线。MemBench canonical split 现已解锁，但尚未施工；零真实 API。
+权威实时断点仍只写父 workstream `../../README.md`。

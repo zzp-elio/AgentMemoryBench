@@ -726,3 +726,22 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   架构师若只按函数名裁决，会把官方模式误判成不存在。模式审计必须闭合
   “论文定义 → reproduction 命令/中间状态 → 实际调用链”，并用行为名写项目 profile，
   不能把第三方的命名债传播进实验声明。
+
+### 14.2 2026-07-16：并行契约卡的强验收必须过五道反证
+
+- **测试名不是证据，fixture 的结构才是。**声称验证 multi-child any-of 时，先数实际
+  group 数与每组 child 数；两个 singleton 不能冒充一个 multi-child group。声称使用
+  production id 时，必须从 adapter 产出的公开 id 反推，不能由 legacy evidence 与目标列表
+  `zip()` 合成一个恰好能过的私有世界。
+- **版本/身份门必须先于能力 N/A。**旧 manifest 不能因为 method 的 provenance 恰为 none
+  就绕过新 contract gate；否则同一份旧 artifact 会随 method 能力不同而时而可评、时而拒绝。
+  evaluator 的顺序固定为“验证 artifact identity → 再判本 method×metric 是否 N/A”。
+- **lineage 校验是 all-or-nothing。**`["u1", None]` 不能过滤成 `["u1"]`；那不是健壮降级，
+  而是制造部分真相。任一元素非法就令本题 provenance 不可用，且不得回读旧 singular 冒充
+  exact；合法列表才允许稳定去重。
+- **输入语义修复不得偷偷改变 method 调用边界。**把 HaluMem 一个 session 的单次
+  `add_memory()` 拆成逐 pair 调用，会改变 buffer/segment/extract 触发时机，即使最终文本看似
+  相同也不是等价修复。强验收必须比较完整调用序列与 force flags。
+- **文件正交不等于契约正交。**两张 actor 卡可在不同 worktree 各自全绿，合流后仍可能因
+  manifest/private-label schema 演进让另一张卡的旧 fixture 失败。并行交付合入后必须跑两张
+  定向清单的并集；这种失败优先修 fixture 到新真实契约，不得放宽生产 fail-fast。

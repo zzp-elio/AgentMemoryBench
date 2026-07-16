@@ -29,6 +29,10 @@
 | 2026-07-16 | 混合入口：CC+GLM-5.2 → MiniMax M3；中途崩溃/压缩；唯一模型归因不可核 | Track identity M0 首轮 | `81f2708` → `dcd3e7b`（须 R1/R2 收口） | actor `282 passed`；架构师 full diff 抓 MemoryOS 假身份、双事实源、evaluate/resume 缺口 | **6.0** | rework；不计入任何模型聚合 |
 | 2026-07-16 | Codex subagent；用户指定 5.6 sol/medium，平台细分档位未独立核实 | Track identity M0 R1 + R2 | `cba25a8` + `2beda2d` → `d6fd56f` + `d032d45` | R1 `416 passed`；首次主树全量 `4 failed/1302 passed`；R2 定点 `5 passed`；最终主树 `1307 passed` | **9.2** | accepted after full-suite rework |
 | 2026-07-16 | Fable 5；约 10min；授权并使用 3 个 Opus 只读 subagent；约耗 Claude 5h 窗口 50%（用户提供） | 五 benchmark gold evidence-unit 高判断审计 | `0e38358` → `8e108e4` | actor/架构师 docs `5 passed`；架构师重算 LME 419，并推翻 BEAM singleton 全量结论 | **8.6** | accepted with material architect correction |
+| 2026-07-16 | Claude Code / Opus 4.8 → DeepSeek V4 Pro 接力；无 subagent | Gold Evidence Group M0 首轮 | `9d06659` → `afb57f3`（重建身份；须 Codex R1） | actor `422 passed, 29 subtests`；架构师同套复现后以手算反例抓 5 类 false-green | **6.6** | rework；不计入单模型聚合 |
+| 2026-07-16 | Codex subagent；提交自标 GPT-5.6 sol | Gold Evidence Group M0 R1 | `6ea644f` + `787398c` → `6d68a51` + `af7157a` | actor `436 passed, 29 subtests`；架构师独立 `436 passed` + NDCG 手算 0.5 | **9.7** | accepted |
+| 2026-07-16 | OpenCode + qwen3.7-max；约 48min；使用 1 个 general subagent（用户/actor 提供） | LightMem unified-hybrid 首轮 | `2463ddb` → `d86b22a`（须 Codex R1） | actor/架构师均 `112 passed, 1 warning`；full diff 抓 6 类未覆盖语义漂移 | **6.5** | rework |
+| 2026-07-16 | Codex subagent；提交自标 GPT-5 | LightMem unified-hybrid R1 + 合流 fixture | `011c265` + `10a5cf5` → `d1c18c4` + `2e78c55` | actor `152 passed`；架构师同套 152、双卡并集 588、主树全量 1435 | **9.8** | accepted after integration rework |
 
 ### 未评分发现记录
 
@@ -172,3 +176,27 @@
   factory/outputs 前 fail-fast 均是正确边界；最后一公里依赖全量才发现，保留 0.2。
 - 总评 **9.2**，accepted after full-suite rework。这是 Codex actor 的单个任务级样本，不与
   架构师本人的工作混算，也不足以形成永久模型排名。
+
+### 2026-07-16：Gold Evidence Group M0 首轮 + Codex R1
+
+- 首轮主体 schema、五家 adapter group view、private artifact 与共享 evaluator 方向成立；但
+  NDCG ideal 分母删掉 unmatched、两个 singleton 冒充一个 ambiguous multi-child、method N/A
+  绕过 manifest v1、policy 整体缺失仍收 v1 label，MemBench fixture 又用 legacy `zip()` 合成
+  非 production id。422 项全绿无法支撑卡内五个承重点，故首轮 **6.6/rework**。
+- 首轮还把 Opus→DeepSeek 接力成果只写成 Opus，并留下 Opus-only `Co-Authored-By`；主线以
+  `cherry-pick --no-commit` 重建，不保留错误身份。Codex R1 用会在首轮失败的强反例逐项关闭，
+  架构师独立复跑 436 项与 mapped+unmatched 手算 NDCG=0.5；仅施工 note 残留一句旧 gate
+  顺序，follow-up 当场勘误，最终 **9.7/accepted**。
+
+### 2026-07-16：LightMem unified-hybrid 首轮 + Codex R1
+
+- Qwen 首轮正确完成 hybrid 配置、通用 role-slot 主体与 plural 观测链，但 mixed-invalid plural
+  会被截成部分 lineage，marker 用 truthiness，role 可从 metadata/speaker 洗白，LoCoMo prompt
+  仍猜 source path，并把 HaluMem 一个 session 拆成逐 pair `add_memory()`；卡明写的 prompt/token
+  parity、病态 role 与真实 lineage 链也未锁，故 **6.5/rework**。允许清单、零 API、subagent
+  披露均正确，不因 48 分钟时长额外扣分。
+- Codex R1 恢复 strict canonical role、all-or-nothing provenance、constructor identity 与
+  HaluMem 单次调用边界，并新增真实 vendored prompt/token/lineage/payload 强反例；架构师独立
+  152 项通过。双卡合流首次 `1 failed, 587 passed` 只暴露一个旧 LoCoMo fixture，窄 subagent
+  把 fixture 升到 Gold v1，未放宽生产门；最终定向并集 588、主树全量 1435，评
+  **9.8/accepted after integration rework**。

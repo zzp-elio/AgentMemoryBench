@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（gold evidence M0 + LightMem hybrid 两卡待并行派发）
+status: in-progress（gold evidence M0 + LightMem hybrid 已验收；下一门 MemBench canonical split）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -34,9 +34,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   身份对称）→ `da81b0f`/`b875879`（MemoryOS manifest fixture 对齐）→ `212d21f`
   （M0 最终验收文档）→ `4a0533f`（双轨身份审计）→ `7752dab`（Mem0 effective-time
   单次渲染）→ `dcd3e7b`（Track identity M0 首轮）→ `d6fd56f`（R1 真实性收紧）→
-  `d032d45`（R2 registration 单事实源）。准确 commit/upstream 状态始终
+  `d032d45`（R2 registration 单事实源）→ `afb57f3`/`6d68a51`（Gold Evidence Group
+  M0 + R1）→ `d86b22a`/`d1c18c4`（LightMem hybrid + R1）→ `2e78c55`（双卡合流
+  fixture v1）。准确 commit/upstream 状态始终
   以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
-  `1307 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.51s`；compileall exit 0。
+  `1435 passed, 3 deselected, 2 warnings, 29 subtests passed in 144.51s`；标准
+  `src+tests` compileall 与本轮四个 vendored LightMem 文件 `py_compile` 均 exit 0。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
   身份裁决与 Track identity M0 已关闭；当前按逐 method 串行顺序排在 LightMem、Mem0 后，
@@ -51,13 +54,15 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   lightmem-update-lifecycle-ruling.md`。
 - **指标资格/top-k**：两张 docs-only audit 已由 Sonnet 5 回卡并经架构师强验收合入。
   Mem0 mutation=ADD-only，但 sidecar 是批归属：LoCoMo/MemBench=turn、LME=session、
-  BEAM recall=N/A。LME 官方剔除无目标题，框架现记 1 分；top_k=10 亦挡死 k30/50。
+  BEAM recall=N/A。Gold Evidence Group M0 已把五个 retrieval evaluator 从扁平 qrel 迁到
+  evaluator-private group view：LME abstention/no-user-target 现按官方主路径剔除，turn 主分母
+  锁为 419；top_k=10 挡死官方 k30/50 的问题仍未修。
   架构采用逐题 `RetrievalEvidence` + evaluator requirement 两层，不建手写笛卡尔积表。
   裁决=`branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`；
   **RetrievalEvidence M0 已强验收合入**：Mem0/LightMem/MemoryOS 每题 artifact 陈述
   semantic provenance + granularity + stable ranking，manifest contract v1 严格参与 resume；
-  无契约的 A-Mem/SimpleMem 不盖章。下一门=M1：迁五个 evaluator 消费逐题事实，并修
-  LongMemEval no-target 分母与 k coverage；M1 卡尚未起草/派发。
+  无契约的 A-Mem/SimpleMem 不盖章。下一门=M1：让 evaluator 消费逐题资格事实并修 k
+  coverage；不再重复改 qrel group 或 LME 419 分母。M1 卡尚未起草/派发。
 - **元学习/过时文档整改**：actor 卡整份即 prompt，禁止卡尾重复 wrapper；不默认要求
   reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
   AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。待派/暂停属于支线
@@ -90,27 +95,29 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   架构师纠正 BEAM 全量结论：LME canonical 分母=419，BEAM 1M 当前为 41 个含歧义题/198
   个歧义原子；采用强类型 evaluator-private gold group。LightMem unified 五格固定 hybrid，
   但 extraction source_id 是 pair index，assistant 可见性不自动证明 turn-level exact lineage。
-  当前可并行派两张正交卡：gold evidence contract M0 与 LightMem hybrid role profile；M0
-  已派 Claude Code + Opus 4.8，约 30 分钟后额度暂停：worktree 有 24 个 tracked 文件改动 +
-  1 个新 helper、约 2051 行新增，尚无 note/commit/test checkpoint。用户指出等待 3 小时会
-  无谓阻塞吞吐后，架构师改判：立即由同会话 DeepSeek V4 Pro 按“先只读全 diff inventory、
-  再继续施工”的跨模型接管协议续跑；模型连续性不能凌驾于磁盘事实源。LightMem hybrid
-  已派 OpenCode + Qwen 3.7 Max，仍在运行。M0 验收后才拆 MemBench canonical pair，再接
-  RetrievalEvidence M1。之后严格串行 Mem0 → MemoryOS → A-Mem → SimpleMem。
+  Gold M0 与 LightMem hybrid 首轮均经 full diff 驳回后由 Codex R1 收口；两张卡的定向并集
+  `588 passed, 29 subtests`，主树全量 1435 项通过。Gold group 现按官方 unit 计分，BEAM
+  重复 raw id 为 multi-child any-of，LME 主 turn 分母 419；LightMem 五格 unified 固定 hybrid，
+  pair lineage 全有或全无，但 LME/BEAM 仍不冒充 turn-exact。当前下一门是 MemBench
+  FirstAgent canonical pair split，完成后接 RetrievalEvidence M1；之后严格串行
+  Mem0 → MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-16）
 
-- 2026-07-16（**双卡已派；Gold M0 额度暂停后改判为受控跨模型接管**，GPT-5 架构师）：
-  Gold M0 已交 Claude Code + Opus 4.8；约 30 分钟时额度耗尽，隔离 worktree 当前为 24 个
-  tracked 文件修改 + 新 `gold_evidence_groups.py`，约 `+2051/-141`，无 implementation note、
-  commit、staged diff 或测试 checkpoint，且 BEAM/MemBench evaluator 尚未施工。架构师首裁
-  等约 3 小时恢复 Opus；用户指出这会让项目吞吐绑定单模型额度，且与“磁盘事实源、actor
-  可替换”相悖，架构师认错改判：现在切同会话 DeepSeek V4 Pro，但第一步必须只读全卡与
-  全 diff，核对现场快照、列完成/缺失项；现场一致即不等回复直接续做，矛盾才停工。禁止
-  reset/丢弃 Opus 改动，最终报告披露 Opus→DeepSeek 切换史。LightMem hybrid 卡已交
-  OpenCode + Qwen 3.7 Max，约 40 分钟时仍在执行；两个 worktree 继续隔离，零真实 API。
+- 2026-07-16（**Gold Evidence Group M0 + LightMem hybrid 双线强验收完成；下一门
+  MemBench canonical split**，GPT-5 架构师）：Gold 首轮 `9d06659` 经 Opus 4.8 →
+  DeepSeek V4 Pro 接力完成，但架构师反例抓到 NDCG ideal 删除 unmatched、两个 singleton
+  冒充 multi-child、旧 manifest 被 method N/A 短路和 MemBench 合成 id fixture；Codex R1
+  `6ea644f` 关闭，主线以无虚假 Opus-only trailer 的 `afb57f3` + `6d68a51` 重建，并以
+  `af7157a` 勘误 note。LightMem 首轮 `2463ddb` 抓到 partial lineage、marker truthiness、
+  role fallback、source-path prompt 猜测与 HaluMem session→pair 调用漂移；Codex R1
+  `011c265` 关闭，主线为 `d86b22a` + `d1c18c4`。两线合流首次得到
+  `1 failed, 587 passed`，正确暴露一个旧 LoCoMo fixture；`2e78c55` 只把 fixture 升到
+  Gold v1，未放宽生产门。最终定向并集 `588 passed, 1 warning, 29 subtests`，主树全量
+  `1435 passed, 3 deselected, 2 warnings, 29 subtests passed in 144.51s`；compile 门通过，
+  零真实 API。下一门只做 MemBench FirstAgent pair 拆分与 gold-group 对齐。
 
 - 2026-07-16（**Fable evidence-unit 回卡强验收完成；gold M0 与 LightMem hybrid 可并行**，
   GPT-5 架构师）：Fable 5 `0e38358` docs-only 审计由架构师复跑 `5 passed in 0.78s` 并合入

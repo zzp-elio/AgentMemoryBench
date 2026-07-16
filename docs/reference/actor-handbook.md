@@ -152,6 +152,17 @@
   `Co-Authored-By`；不能核实时宁可不写 trailer，并在完成报告如实说明入口与可见模型。
   2026-07-16 MiniMax M3 经 Claude Code 施工的提交误带 `Claude Sonnet 4.6` trailer，代码虽
   通过强验收，架构师仍以 `cherry-pick --no-commit` 重建主线 commit，未保留虚假身份。
+- **不要用“形似”的 fixture 证明 group 契约。**multi-child 必须真的是一个 group 含多个
+  child；unmatched 必须与 empty view 分开；公开 id 必须来自 adapter 的 production namespace。
+  测试名写了 ambiguous/production 并不会让两个 singleton 或合成 id 自动变真。
+- **不要把坏 lineage 过滤成好 lineage。**plural 中只要有一个 None、非字符串、空白或首尾
+  空格，整组就不可声称 provenance；禁止留下其余合法 child，也禁止回读 singular 补洞。
+- **默认/角色修复后要锁完整调用边界。**除了比较最终 message，还要断言一次 session 到底
+  调了几次 method、每次携带哪些 force flags。session→pair 的拆调用属于算法时序变化，不能
+  以“内容没丢”自行放行。
+- **并行卡在各自 worktree 绿后，actor 不得声称跨卡集成已绿。**最终合流是架构师责任；若卡
+  内消费了另一条正在演进的 manifest/private schema，fixture 应显式声明当前版本，避免靠
+  legacy 缺字段偶然通过。
 
 ## 7. 好行为（值得学的正例）
 

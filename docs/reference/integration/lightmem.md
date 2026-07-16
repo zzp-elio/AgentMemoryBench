@@ -5,7 +5,8 @@
 > lifecycle 卡已强验收合入主线 `825132f`，B6/lifecycle identity 关闭；LoCoMo
 > post-update 保留为另名补充轨。MemBench 时间语义 Phase A 与 LightMem preserve-none
 > Phase B 的 timestamp 子门仍有效。
-> 2026-07-16 补充：**hybrid role profile 已完成首轮施工，R1 修复待架构师验收**——unified 主 build 已改为
+> 2026-07-16 补充：**hybrid role profile 已强验收合入**（主线 `d86b22a` +
+> `d1c18c4`；双卡定向并集 588 项、主树全量 1435 项通过）——unified 主 build 已改为
 > `messages_use="hybrid"`（adapter version 升至 `conversation-qa-v4`），通用
 > role-slot normalizer 保留真实 role、只补结构占位；pair candidate ids 作为纯观测
 > 链路穿过抽取管线到 Qdrant payload。官方 LongMemEval Table 2 的 `user_only` 仅作
