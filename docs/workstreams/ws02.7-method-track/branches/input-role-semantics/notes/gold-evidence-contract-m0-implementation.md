@@ -93,11 +93,13 @@
 - `group_recall_score()` — 按 group any-of 计算 recall（分母=group 数）
 - `group_first_hit_rank()` — 单 group 的最优名次
 
-五个 evaluator 统一调用，删除对 legacy 扁平 qrel 的读取：
+五个 evaluator 统一调用，删除对 legacy 扁平 qrel 的读取；R1 后一律先校验
+manifest contract v1，identity 通过后才允许 none/undeclared provenance 返回 N/A，
+且该 N/A 分支不读取 evaluator-private label/view：
 
 - `locomo_recall.py`：turn view 读 `locomo_utterance`，session view 读
   `locomo_utterance_session_projection`；空 groups 仍记 1.0（官方 parity）；
-  contract v1 在 none/undeclared 门之后执行
+  contract v1 identity-first
 - `longmemeval_recall.py`：turn view 读 `longmemeval_user_target_turn`（分母
   从 role-agnostic 修正为 user-only 419），session view 独立；无 group 题记
   `official_no_target` N/A；contract v1 校验
