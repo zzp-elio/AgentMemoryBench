@@ -16,6 +16,8 @@ from memory_benchmark.core import (
     DataLeakageError,
     Dataset,
     GoldAnswerInfo,
+    GoldEvidenceGroup,
+    GoldEvidenceGroupSet,
     Question,
     Session,
     Turn,
@@ -543,6 +545,83 @@ class ExperimentStorageTests(unittest.TestCase):
         self.assertEqual(record["evidence"], ["turn-1", "turn-2"])
         self.assertEqual(record["category"], "single-hop")
         self.assertEqual(record["metadata"], {"answer_session_ids": ["session-1"]})
+
+    def test_legacy_label_record_does_not_grow_v1_fields(self):
+        """旧无版本 gold 序列化后保持旧 shape，不凭空加 v1 字段。"""
+
+        gold = GoldAnswerInfo(
+            question_id="conv-1:q1",
+            answer="Alice",
+            evidence=["turn-1"],
+        )
+
+        record = evaluator_private_label_record(gold, category=None)
+
+        self.assertNotIn("gold_evidence_contract_version", record)
+        self.assertNotIn("evidence_group_sets", record)
+        self.assertEqual(
+            sorted(record),
+            ["category", "evidence", "gold_answer", "metadata", "question_id"],
+        )
+
+    def test_v1_label_record_serializes_group_sets_as_json_lists(self):
+        """v1 label 顶层写 version 与 JSON list 形态的 evidence_group_sets。"""
+
+        gold = GoldAnswerInfo(
+            question_id="conv-1:q1",
+            answer="Alice",
+            evidence=["turn-1"],
+            gold_evidence_contract_version="v1",
+            evidence_group_sets=(
+                GoldEvidenceGroupSet(
+                    provenance_granularity="turn",
+                    unit_kind="fake_unit",
+                    groups=(
+                        GoldEvidenceGroup(
+                            unit_id="u1",
+                            child_ids=("turn-1", "turn-2"),
+                            mapping_status="mapped",
+                        ),
+                        GoldEvidenceGroup(
+                            unit_id="u2",
+                            child_ids=(),
+                            mapping_status="unmatched",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        record = evaluator_private_label_record(gold, category="single-hop")
+
+        self.assertEqual(record["gold_evidence_contract_version"], "v1")
+        self.assertIsInstance(record["evidence_group_sets"], list)
+        self.assertEqual(
+            record["evidence_group_sets"],
+            [
+                {
+                    "provenance_granularity": "turn",
+                    "unit_kind": "fake_unit",
+                    "groups": [
+                        {
+                            "unit_id": "u1",
+                            "child_ids": ["turn-1", "turn-2"],
+                            "mapping_status": "mapped",
+                        },
+                        {
+                            "unit_id": "u2",
+                            "child_ids": [],
+                            "mapping_status": "unmatched",
+                        },
+                    ],
+                }
+            ],
+        )
+        # 序列化必须直接 JSON 可写，list/dict 形态在 json.dumps 下无损。
+        self.assertEqual(
+            json.loads(json.dumps(record, ensure_ascii=False))["evidence_group_sets"],
+            record["evidence_group_sets"],
+        )
 
 
 def _build_fingerprint_dataset(gold_answer: str) -> Dataset:

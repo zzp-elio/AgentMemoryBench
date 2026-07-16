@@ -673,6 +673,204 @@ def test_prediction_manifest_keeps_benchmark_policy_outside_method_identity(
     assert "benchmark_policy" not in manifest["method"]
 
 
+def _stamp_v1_gold_labels(dataset: Dataset) -> Dataset:
+    """把测试数据集的全部 gold label 盖上 gold evidence contract v1。"""
+
+    for conversation in dataset.conversations:
+        for question_id, gold in list(conversation.gold_answers.items()):
+            conversation.gold_answers[question_id] = GoldAnswerInfo(
+                question_id=gold.question_id,
+                answer=gold.answer,
+                evidence=list(gold.evidence),
+                metadata=dict(gold.metadata),
+                gold_evidence_contract_version="v1",
+                evidence_group_sets=(),
+            )
+    return dataset
+
+
+_V1_BENCHMARK_POLICY: dict[str, object] = {
+    "smoke": None,
+    "resume": None,
+    "gold_evidence_contract_version": "v1",
+}
+
+
+def test_gold_evidence_alignment_accepts_matching_v1_sides() -> None:
+    """policy v1 + 全部 label v1 应通过交叉校验。"""
+
+    from memory_benchmark.runners.prediction import (
+        validate_gold_evidence_contract_alignment,
+    )
+
+    validate_gold_evidence_contract_alignment(
+        dataset=_stamp_v1_gold_labels(_build_two_question_dataset()),
+        benchmark_policy=dict(_V1_BENCHMARK_POLICY),
+    )
+
+
+def test_gold_evidence_alignment_rejects_v1_policy_with_unversioned_label() -> None:
+    """policy v1 而 label 缺版本必须 fail-fast。"""
+
+    from memory_benchmark.runners.prediction import (
+        validate_gold_evidence_contract_alignment,
+    )
+
+    with pytest.raises(ConfigurationError, match="mixed versions"):
+        validate_gold_evidence_contract_alignment(
+            dataset=_build_two_question_dataset(),
+            benchmark_policy=dict(_V1_BENCHMARK_POLICY),
+        )
+
+
+def test_gold_evidence_alignment_rejects_v1_label_without_policy_version() -> None:
+    """label 声明 v1 而 policy 缺版本同样必须 fail-fast。"""
+
+    from memory_benchmark.runners.prediction import (
+        validate_gold_evidence_contract_alignment,
+    )
+
+    with pytest.raises(ConfigurationError, match="mixed versions"):
+        validate_gold_evidence_contract_alignment(
+            dataset=_stamp_v1_gold_labels(_build_two_question_dataset()),
+            benchmark_policy={"smoke": None, "resume": None},
+        )
+
+
+def test_gold_evidence_alignment_rejects_bogus_policy_version() -> None:
+    """policy 携带未知版本字符串必须拒绝。"""
+
+    from memory_benchmark.runners.prediction import (
+        validate_gold_evidence_contract_alignment,
+    )
+
+    with pytest.raises(ConfigurationError, match="gold_evidence_contract_version"):
+        validate_gold_evidence_contract_alignment(
+            dataset=_build_two_question_dataset(),
+            benchmark_policy={"gold_evidence_contract_version": "bogus"},
+        )
+
+
+def test_gold_evidence_alignment_skips_unregistered_policy() -> None:
+    """benchmark_policy=None 的 legacy/测试路径保持现状兼容。"""
+
+    from memory_benchmark.runners.prediction import (
+        validate_gold_evidence_contract_alignment,
+    )
+
+    validate_gold_evidence_contract_alignment(
+        dataset=_build_two_question_dataset(),
+        benchmark_policy=None,
+    )
+
+
+def test_preflight_rejects_v1_policy_mismatch_before_any_write(
+    tmp_path: Path,
+) -> None:
+    """v1 policy + 未盖章 dataset 必须在目录/manifest 写入前拒绝。"""
+
+    from memory_benchmark.runners import prediction as prediction_module
+
+    run_context = RunContext.create(
+        run_id="prediction-run",
+        benchmark_name="fake-conversation-qa",
+        method_name="recording",
+        model_name="fake-reader",
+        output_root=tmp_path,
+        ensure_directories=False,
+    )
+
+    with pytest.raises(ConfigurationError, match="mixed versions"):
+        prediction_module._preflight_prediction_run(
+            dataset=_build_two_question_dataset(),
+            run_context=run_context,
+            policy=PredictionRunPolicy(max_workers=1),
+            method_manifest={"adapter": "recording-v1"},
+            benchmark_variant="test_variant",
+            run_scope=RunScope.FULL,
+            benchmark_policy=dict(_V1_BENCHMARK_POLICY),
+        )
+
+    assert not run_context.run_dir.exists()
+
+
+def test_first_run_and_same_v1_resume_succeed_and_legacy_manifest_mismatches(
+    tmp_path: Path,
+) -> None:
+    """新 v1 首跑成功、同 v1 resume 成功；旧缺 v1 的 manifest 必须 mismatch。
+
+    禁止把 gold_evidence_contract_version 加入任何“任一侧缺失就双删”的兼容集合。
+    """
+
+    from memory_benchmark.runners import prediction as prediction_module
+
+    dataset = _stamp_v1_gold_labels(_build_two_question_dataset())
+    run_context = RunContext.create(
+        run_id="prediction-run",
+        benchmark_name="fake-conversation-qa",
+        method_name="recording",
+        model_name="fake-reader",
+        output_root=tmp_path,
+        ensure_directories=False,
+    )
+    policy = PredictionRunPolicy(max_workers=1)
+    _, manifest = prediction_module._build_prediction_resume_artifacts(
+        dataset=dataset,
+        run_context=run_context,
+        policy=policy,
+        method_manifest={"adapter": "recording-v1"},
+        benchmark_variant="test_variant",
+        run_scope=RunScope.FULL,
+        benchmark_policy=dict(_V1_BENCHMARK_POLICY),
+    )
+    assert manifest["benchmark_policy"]["gold_evidence_contract_version"] == "v1"
+    assert "gold_evidence_contract_version" not in manifest["method"]
+
+    # 同 v1 manifest 严格相等 → resume 允许。
+    assert _manifests_match_for_resume(
+        json.loads(json.dumps(manifest)),
+        json.loads(json.dumps(manifest)),
+    )
+
+    # 旧 run 的 benchmark_policy 缺 v1 → 与新 v1 manifest 必须 mismatch。
+    legacy_manifest = json.loads(json.dumps(manifest))
+    legacy_manifest["benchmark_policy"].pop("gold_evidence_contract_version")
+    assert not _manifests_match_for_resume(legacy_manifest, manifest)
+    assert not _manifests_match_for_resume(manifest, legacy_manifest)
+
+    # 旧 manifest 整体缺 benchmark_policy 也必须 mismatch。
+    no_policy_manifest = json.loads(json.dumps(manifest))
+    no_policy_manifest.pop("benchmark_policy")
+    assert not _manifests_match_for_resume(no_policy_manifest, manifest)
+
+    # 首跑落盘后，同 v1 preflight resume 应通过。
+    run_context.run_dir.mkdir(parents=True)
+    atomic_write_json(run_context.run_dir / "manifest.json", manifest)
+    resume_policy = PredictionRunPolicy(max_workers=1, resume=True)
+    prediction_module._preflight_prediction_run(
+        dataset=dataset,
+        run_context=run_context,
+        policy=resume_policy,
+        method_manifest={"adapter": "recording-v1"},
+        benchmark_variant="test_variant",
+        run_scope=RunScope.FULL,
+        benchmark_policy=dict(_V1_BENCHMARK_POLICY),
+    )
+
+    # 把已落盘 manifest 改成旧缺 v1 形态 → resume 必须拒绝。
+    atomic_write_json(run_context.run_dir / "manifest.json", legacy_manifest)
+    with pytest.raises(ConfigurationError, match="Resume manifest mismatch"):
+        prediction_module._preflight_prediction_run(
+            dataset=dataset,
+            run_context=run_context,
+            policy=resume_policy,
+            method_manifest={"adapter": "recording-v1"},
+            benchmark_variant="test_variant",
+            run_scope=RunScope.FULL,
+            benchmark_policy=dict(_V1_BENCHMARK_POLICY),
+        )
+
+
 def test_preflight_prediction_run_rejects_changed_source_file_on_resume(
     tmp_path: Path,
 ) -> None:

@@ -1,8 +1,10 @@
 """MemBench 条件式 retrieval recall（artifact-only，离线）。
 
 匹配键统一在公开 turn-id 空间（1 基），官方 0 基 `target_step_id` 仅作
-metadata 留档。MemBench 单 session，session 粒度声明视同 conversation 级
-记 N/A（数据无 session 结构可召回）。
+metadata 留档。权威 qrel 是 gold evidence contract v1 的 `evidence_group_sets`
+（`membench_step` turn view）：每个去重 step 一个 group，越界 target 记
+unmatched，空 target 记 N/A（不再错误记 1.0）。
+MemBench 单 session，session 粒度声明视同 conversation 级记 N/A。
 """
 
 from __future__ import annotations
@@ -11,6 +13,12 @@ from collections import Counter
 from typing import Any
 
 from memory_benchmark.core import ConfigurationError
+from memory_benchmark.evaluators.gold_evidence_groups import (
+    group_recall_score,
+    parse_evidence_group_sets,
+    require_manifest_gold_evidence_contract_v1,
+    select_group_set,
+)
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 
@@ -54,6 +62,7 @@ class MemBenchRetrievalRecallEvaluator:
                 provenance_granularity=provenance_granularity,
                 official_source=self.official_source,
             )
+        require_manifest_gold_evidence_contract_v1(manifest)
         if provenance_granularity != "turn":
             raise ConfigurationError(
                 f"Unknown provenance_granularity {provenance_granularity!r} in "
@@ -72,7 +81,7 @@ class MemBenchRetrievalRecallEvaluator:
         score_records: list[dict[str, Any]] = []
         scored_records: list[dict[str, Any]] = []
         top_k_values: list[int] = []
-        empty_evidence_count = 0
+        empty_gold_count = 0
         unmatched_gold_total = 0
         out_of_bounds_gold_total = 0
 
@@ -84,69 +93,82 @@ class MemBenchRetrievalRecallEvaluator:
                 provenance_granularity,
             )
             source_ids = _source_turn_ids(retrieved_items, top_k)
-            private_record = private_by_id[question_id]
-            private_metadata = private_record.get("metadata")
-            if not isinstance(private_metadata, dict):
-                raise ConfigurationError(
-                    f"question {question_id}: private label metadata must be an object"
+            groups = select_group_set(
+                parse_evidence_group_sets(
+                    private_by_id[question_id], question_id
+                ),
+                provenance_granularity="turn",
+                unit_kind="membench_step",
+                question_id=question_id,
+            ).groups
+
+            # 旧 metadata 中的 target_step_id 只留审计；权威 qrel 来自 groups。
+            private_metadata = private_by_id[question_id].get("metadata")
+            oob_ids: list[int] = []
+            if isinstance(private_metadata, dict):
+                target_step_ids = _required_int_list(
+                    private_metadata,
+                    "target_step_id",
+                    question_id,
                 )
-            # evidence（公开 turn-id 空间的 gold）在 private label 的**顶层**——
-            # `storage/artifacts.py:evaluator_private_label_record` 把
-            # `GoldAnswerInfo.evidence` 序列化为顶层键；metadata 只存官方
-            # 0 基原值 target_step_id 等对照记录（D5 停工裁决，勿读 metadata）。
-            evidence = _required_string_list(
-                private_record,
-                "evidence",
-                question_id,
-            )
-            target_step_ids = _required_int_list(
-                private_metadata,
-                "target_step_id",
-                question_id,
-            )
-            oob_ids = _out_of_bounds_target_step_ids(
-                target_step_ids,
-                answer_record,
-                question_id,
-            )
-            out_of_bounds_gold_total += len(oob_ids)
+                oob_ids = _out_of_bounds_target_step_ids(
+                    target_step_ids,
+                    answer_record,
+                    question_id,
+                )
+                out_of_bounds_gold_total += len(oob_ids)
 
-            if not evidence:
-                empty_evidence_count += 1
-                score = 1.0
+            if not groups:
+                empty_gold_count += 1
+                score_records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer_record.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": "n/a",
+                        "reason": "MemBench question has no matchable gold evidence",
+                        "category": category,
+                        "provenance_granularity": provenance_granularity,
+                        "details": {
+                            "out_of_bounds_target_step_ids": oob_ids,
+                            "official_source": self.official_source,
+                        },
+                    }
+                )
             else:
-                hits = sum(evidence_id in source_ids for evidence_id in evidence)
-                unmatched = [eid for eid in evidence if eid not in source_ids]
-                unmatched_gold_total += len(unmatched)
-                score = hits / len(evidence)
-
-            top_k_values.append(top_k)
-            record = {
-                "question_id": question_id,
-                "conversation_id": answer_record.get("conversation_id"),
-                "metric_name": self.metric_name,
-                "score": score,
-                "status": "ok",
-                "category": category,
-                "requested_top_k": top_k,
-                "provenance_granularity": provenance_granularity,
-                "details": {
-                    "gold_evidence_turn_ids": evidence,
-                    "target_step_id_original": target_step_ids,
-                    "out_of_bounds_target_step_ids": oob_ids,
-                    "retrieved_source_turn_ids": sorted(source_ids),
-                    "official_source": self.official_source,
-                },
-            }
-            score_records.append(record)
-            scored_records.append(record)
+                score = group_recall_score(groups, source_ids)
+                unmatched_count = sum(
+                    1 for group in groups if group.mapping_status == "unmatched"
+                )
+                unmatched_gold_total += unmatched_count
+                top_k_values.append(top_k)
+                record = {
+                    "question_id": question_id,
+                    "conversation_id": answer_record.get("conversation_id"),
+                    "metric_name": self.metric_name,
+                    "score": score,
+                    "status": "ok",
+                    "category": category,
+                    "requested_top_k": top_k,
+                    "provenance_granularity": provenance_granularity,
+                    "details": {
+                        "gold_unit_ids": [group.unit_id for group in groups],
+                        "unmatched_gold_unit_count": unmatched_count,
+                        "out_of_bounds_target_step_ids": oob_ids,
+                        "retrieved_source_turn_ids": sorted(source_ids),
+                        "official_source": self.official_source,
+                    },
+                }
+                score_records.append(record)
+                scored_records.append(record)
 
         return _scored_payload(
             metric_name=self.metric_name,
             score_records=score_records,
             scored_records=scored_records,
             top_k_values=top_k_values,
-            empty_evidence_count=empty_evidence_count,
+            empty_gold_count=empty_gold_count,
             unmatched_gold_total=unmatched_gold_total,
             out_of_bounds_gold_total=out_of_bounds_gold_total,
             provenance_granularity=provenance_granularity,
@@ -320,7 +342,7 @@ def _scored_payload(
     score_records: list[dict[str, Any]],
     scored_records: list[dict[str, Any]],
     top_k_values: list[int],
-    empty_evidence_count: int,
+    empty_gold_count: int,
     unmatched_gold_total: int,
     out_of_bounds_gold_total: int,
     provenance_granularity: str,
@@ -351,7 +373,7 @@ def _scored_payload(
             "status": "ok" if scored_records else "n/a",
             "provenance_granularity": provenance_granularity,
             "scored_question_count": len(scored_records),
-            "empty_evidence_question_count": empty_evidence_count,
+            "empty_gold_question_count": empty_gold_count,
             "unmatched_gold_total": unmatched_gold_total,
             "out_of_bounds_gold_total": out_of_bounds_gold_total,
             "overall_mean_recall_at_requested_k": mean_score,

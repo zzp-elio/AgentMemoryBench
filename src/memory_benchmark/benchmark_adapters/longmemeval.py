@@ -20,6 +20,8 @@ from memory_benchmark.core import (
     Conversation,
     Dataset,
     GoldAnswerInfo,
+    GoldEvidenceGroup,
+    GoldEvidenceGroupSet,
     Question,
     Session,
     Turn,
@@ -219,6 +221,7 @@ class LongMemEvalAdapter(BenchmarkAdapter):
             deduplicated_session_id_count,
             evidence_turn_ids,
             evidence_turn_corpus_ids,
+            user_target_turns,
         ) = self._sessions_from_instance(instance, question_id)
         answer_session_ids = _string_list(instance.get("answer_session_ids"))
         evidence_session_public_ids = _evidence_session_public_ids(
@@ -245,6 +248,12 @@ class LongMemEvalAdapter(BenchmarkAdapter):
                 "evidence_turn_corpus_ids": evidence_turn_corpus_ids,
                 "evidence_session_public_ids": evidence_session_public_ids,
             },
+            gold_evidence_contract_version="v1",
+            evidence_group_sets=_longmemeval_evidence_group_sets(
+                sessions=sessions,
+                answer_session_ids=answer_session_ids,
+                user_target_turns=user_target_turns,
+            ),
         )
 
         return Conversation(
@@ -266,7 +275,7 @@ class LongMemEvalAdapter(BenchmarkAdapter):
         self,
         instance: dict[str, Any],
         question_id: str,
-    ) -> tuple[list[Session], int, int, list[str], list[str]]:
+    ) -> tuple[list[Session], int, int, list[str], list[str], list[tuple[str, bool]]]:
         """把 LongMemEval 三个 haystack 并行列表转成 Session 列表。
 
         输入:
@@ -275,7 +284,9 @@ class LongMemEvalAdapter(BenchmarkAdapter):
 
         输出:
             tuple: sessions、空 turn 数、重复 session id 数、公开 evidence turn ids、
-            官方 evidence corpus ids。
+            官方 evidence corpus ids、官方口径 user 侧 target turn 记录
+            （`(turn_id, retained)`；retained=False 表示该 turn 因空内容被跳过，
+            公开对话中不存在对应 canonical turn）。
         """
 
         session_ids = _required_list(instance, "haystack_session_ids", question_id)
@@ -293,6 +304,7 @@ class LongMemEvalAdapter(BenchmarkAdapter):
         deduplicated_session_id_count = 0
         evidence_turn_ids: list[str] = []
         evidence_turn_corpus_ids: list[str] = []
+        user_target_turns: list[tuple[str, bool]] = []
         seen_session_ids: dict[str, int] = {}
         for session_index, (session_id_raw, session_date_raw, turns_raw) in enumerate(
             zip(session_ids, session_dates, sessions_raw),
@@ -306,26 +318,32 @@ class LongMemEvalAdapter(BenchmarkAdapter):
             if occurrence > 1:
                 deduplicated_session_id_count += 1
             session_time = _optional_text(session_date_raw)
-            session, skipped_count, session_evidence_ids, session_corpus_ids = (
-                self._session_from_raw(
-                    session_id,
-                    session_time,
-                    turns_raw,
-                    original_session_id=original_session_id,
-                    session_index=session_index,
-                    occurrence=occurrence,
-                )
+            (
+                session,
+                skipped_count,
+                session_evidence_ids,
+                session_corpus_ids,
+                session_user_targets,
+            ) = self._session_from_raw(
+                session_id,
+                session_time,
+                turns_raw,
+                original_session_id=original_session_id,
+                session_index=session_index,
+                occurrence=occurrence,
             )
             skipped_blank_turn_count += skipped_count
             sessions.append(session)
             evidence_turn_ids.extend(session_evidence_ids)
             evidence_turn_corpus_ids.extend(session_corpus_ids)
+            user_target_turns.extend(session_user_targets)
         return (
             sessions,
             skipped_blank_turn_count,
             deduplicated_session_id_count,
             evidence_turn_ids,
             evidence_turn_corpus_ids,
+            user_target_turns,
         )
 
     def _session_from_raw(
@@ -337,7 +355,7 @@ class LongMemEvalAdapter(BenchmarkAdapter):
         original_session_id: str,
         session_index: int,
         occurrence: int,
-    ) -> tuple[Session, int, list[str], list[str]]:
+    ) -> tuple[Session, int, list[str], list[str], list[tuple[str, bool]]]:
         """把一个 haystack session 转成统一 Session。
 
         输入:
@@ -349,7 +367,8 @@ class LongMemEvalAdapter(BenchmarkAdapter):
             occurrence: 同一个原始 session id 在当前 instance 中第几次出现。
 
         输出:
-            tuple: Session、空 turn 数、公开 evidence turn ids、官方 corpus ids。
+            tuple: Session、空 turn 数、公开 evidence turn ids、官方 corpus ids、
+            官方口径 user 侧 target turn 记录（`(turn_id, retained)`）。
         """
 
         if not isinstance(turns_raw, list):
@@ -359,16 +378,23 @@ class LongMemEvalAdapter(BenchmarkAdapter):
         skipped_blank_turn_count = 0
         evidence_turn_ids: list[str] = []
         evidence_turn_corpus_ids: list[str] = []
+        user_target_turns: list[tuple[str, bool]] = []
         for turn_index, turn_raw in enumerate(turns_raw):
             turn_id = f"{session_id}:t{turn_index}"
             if not isinstance(turn_raw, dict):
                 raise DatasetValidationError(f"{turn_id}: turn must be a dict")
+            blank_content = _has_blank_message_content(turn_raw)
             if turn_raw.get("has_answer") is True:
                 evidence_turn_ids.append(turn_id)
                 evidence_turn_corpus_ids.append(
                     f"{original_session_id}_{turn_index + 1}"
                 )
-            if _has_blank_message_content(turn_raw):
+                # 官方 retrieval corpus 只收 role=='user' 的 turn
+                # （LongMemEval-main/src/retrieval/run_retrieval.py:214），
+                # assistant 侧 has_answer 不属于官方 turn 级 gold。
+                if turn_raw.get("role") == "user":
+                    user_target_turns.append((turn_id, not blank_content))
+            if blank_content:
                 skipped_blank_turn_count += 1
                 continue
             turns.append(_turn_from_raw(turn_raw, session_id, turn_index))
@@ -392,6 +418,7 @@ class LongMemEvalAdapter(BenchmarkAdapter):
             skipped_blank_turn_count,
             evidence_turn_ids,
             evidence_turn_corpus_ids,
+            user_target_turns,
         )
 
 
@@ -459,6 +486,80 @@ def _evidence_session_public_ids(
                 public_ids.append(public_id)
                 seen.add(public_id)
     return public_ids
+
+
+def _longmemeval_evidence_group_sets(
+    *,
+    sessions: list[Session],
+    answer_session_ids: list[str],
+    user_target_turns: list[tuple[str, bool]],
+) -> tuple[GoldEvidenceGroupSet, ...]:
+    """构造 LongMemEval 双 view 的 evaluator-private gold evidence groups。
+
+    输入:
+        sessions: 当前 instance 转换后的公开 sessions。
+        answer_session_ids: 官方 session 级 gold（原始 id 空间）。
+        user_target_turns: 官方口径 user 侧 has_answer turn 记录
+            （`(turn_id, retained)`）。
+
+    输出:
+        tuple[GoldEvidenceGroupSet, ...]: turn view
+        （`longmemeval_user_target_turn`，只收 role=='user' 的官方 target；
+        因空内容未保留的 turn 记 unmatched）与 session view
+        （`longmemeval_answer_session`，每个官方 answer_session_id 一个 unit，
+        child 为公开 session id；找不到公开 session 记 unmatched，不静默删分母）。
+    """
+
+    turn_groups = tuple(
+        GoldEvidenceGroup(
+            unit_id=turn_id,
+            child_ids=(turn_id,),
+            mapping_status="mapped",
+        )
+        if retained
+        else GoldEvidenceGroup(
+            unit_id=turn_id,
+            child_ids=(),
+            mapping_status="unmatched",
+        )
+        for turn_id, retained in user_target_turns
+    )
+
+    public_ids_by_original: dict[str, list[str]] = {}
+    for session in sessions:
+        original_id = str(session.metadata.get("original_session_id", ""))
+        public_ids_by_original.setdefault(original_id, []).append(session.session_id)
+    session_groups: list[GoldEvidenceGroup] = []
+    for original_id in dict.fromkeys(answer_session_ids):
+        public_ids = tuple(dict.fromkeys(public_ids_by_original.get(original_id, [])))
+        if public_ids:
+            session_groups.append(
+                GoldEvidenceGroup(
+                    unit_id=original_id,
+                    child_ids=public_ids,
+                    mapping_status="mapped",
+                )
+            )
+        else:
+            session_groups.append(
+                GoldEvidenceGroup(
+                    unit_id=original_id,
+                    child_ids=(),
+                    mapping_status="unmatched",
+                )
+            )
+    return (
+        GoldEvidenceGroupSet(
+            provenance_granularity="turn",
+            unit_kind="longmemeval_user_target_turn",
+            groups=turn_groups,
+        ),
+        GoldEvidenceGroupSet(
+            provenance_granularity="session",
+            unit_kind="longmemeval_answer_session",
+            groups=tuple(session_groups),
+        ),
+    )
 
 
 def _turn_from_raw(raw_turn: object, session_id: str, turn_index: int) -> Turn:

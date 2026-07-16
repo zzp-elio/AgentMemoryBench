@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from memory_benchmark.core import GoldAnswerInfo, Question
+from memory_benchmark.core import GOLD_EVIDENCE_CONTRACT_V1, GoldAnswerInfo, Question
 from memory_benchmark.core.validators import validate_no_private_keys
 
 
@@ -50,12 +50,21 @@ def evaluator_private_label_record(
 
     说明:
         这是明确的 evaluator 私有边界，因此允许保留 gold_answer 和 evidence。
+        gold evidence contract v1 的 label 顶层额外携带
+        `gold_evidence_contract_version` 与 JSON list 形态的
+        `evidence_group_sets`；旧无版本 gold 保持旧 shape，不凭空加字段。
     """
 
-    return {
+    record = {
         "question_id": gold.question_id,
         "gold_answer": gold.answer,
         "category": category,
         "evidence": gold.evidence,
         "metadata": gold.metadata,
     }
+    if gold.gold_evidence_contract_version == GOLD_EVIDENCE_CONTRACT_V1:
+        record["gold_evidence_contract_version"] = GOLD_EVIDENCE_CONTRACT_V1
+        record["evidence_group_sets"] = [
+            group_set.to_dict() for group_set in gold.evidence_group_sets
+        ]
+    return record

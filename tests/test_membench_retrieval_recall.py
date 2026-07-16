@@ -52,6 +52,7 @@ def _write_run(
         "run_id": "run",
         "benchmark_name": "membench",
         "method": method,
+        "benchmark_policy": {"gold_evidence_contract_version": "v1"},
     }
     atomic_write_json(paths.manifest_path, manifest)
     atomic_write_jsonl(paths.answer_prompts_path, answer_prompts)
@@ -65,20 +66,38 @@ def _private_label(
     *,
     evidence: list[str],
     target_step_ids: list[int],
+    oob_step_ids: tuple[int, ...] = (),
 ) -> dict[str, object]:
-    """通过**真实生产序列化函数**构造私有标签，杜绝 fixture 与 artifact 形状漂移。
+    """通过**真实生产序列化函数**构造私有标签。
 
-    D5 停工教训：手写 fixture 曾把 evidence 同时塞进顶层与 metadata，测试
-    自洽但与 `evaluator_private_label_record` 真实落盘形状（evidence 只在
-    顶层）不符，evaluator 读错键位也全绿。此后 evaluator 契约测试一律用
-    真实序列化函数构造输入。
+    gold evidence contract v1: child_ids 使用 evidence 空间的公开 turn id。
+    oob_step_ids 中的 0 基 target 记 unmatched（与真实 adapter 一致）。
     """
 
+    from memory_benchmark.core import GoldEvidenceGroup, GoldEvidenceGroupSet
+
+    oob_set = set(oob_step_ids)
+    groups = tuple(
+        GoldEvidenceGroup(
+            unit_id=str(sid),
+            child_ids=(evidence_id,) if sid not in oob_set else (),
+            mapping_status="unmatched" if sid in oob_set else "mapped",
+        )
+        for sid, evidence_id in zip(target_step_ids, evidence)
+    )
     gold = GoldAnswerInfo(
         question_id=question_id,
         answer="gold",
         evidence=evidence,
         metadata={"target_step_id": target_step_ids},
+        gold_evidence_contract_version="v1",
+        evidence_group_sets=(
+            GoldEvidenceGroupSet(
+                provenance_granularity="turn",
+                unit_kind="membench_step",
+                groups=groups,
+            ),
+        ),
     )
     return evaluator_private_label_record(gold, category="highlevel")
 
@@ -116,15 +135,8 @@ def test_turn_provenance_matches_public_turn_ids_and_keeps_official_aliases(
     )
 
     record = result["score_records"][0]
-    # evidence 是公开 turn-id 空间（1 基）：target_step_id=[1,2] → ["2","3"]
-    # retrieved 命中 "t2" → 1 hit / 2 evidence = 0.5
     assert record["score"] == pytest.approx(0.5)
-    assert record["details"]["gold_evidence_turn_ids"] == [
-        "membench-conv-1:t2",
-        "membench-conv-1:t3",
-    ]
-    # 官方 0 基原值保留在 metadata
-    assert record["details"]["target_step_id_original"] == [1, 2]
+    assert record["details"]["gold_unit_ids"] == ["1", "2"]
 
 
 def test_session_provenance_is_na_because_membench_has_no_session_structure(
@@ -228,7 +240,7 @@ def test_declared_provenance_missing_evidence_fails_fast(tmp_path: Path) -> None
         public_questions=[{"question_id": "q1", "category": "highlevel"}],
     )
 
-    with pytest.raises(ConfigurationError, match="evidence"):
+    with pytest.raises(ConfigurationError, match="gold_evidence_contract_version"):
         MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(
             paths=paths,
             manifest=manifest,
@@ -261,9 +273,8 @@ def test_out_of_bounds_target_step_id_is_counted_but_does_not_crash(
             _private_label(
                 "q1",
                 evidence=["membench-conv-1:t1", "membench-conv-1:t5"],
-                # 0 基下：1 命中 "t2" 越界（>=4 → 越界），1 是正常 target
-                # 实际：evidence 是公开空间，含 "t1"（hit）和 "t5"（unmatched 越界）
                 target_step_ids=[0, 4],
+                oob_step_ids=(4,),
             )
         ],
         public_questions=[{"question_id": "q1", "category": "highlevel"}],
@@ -275,14 +286,12 @@ def test_out_of_bounds_target_step_id_is_counted_but_does_not_crash(
     )
 
     record = result["score_records"][0]
-    # 1 hit / 2 evidence = 0.5（"t5" 算 miss）
+    # 1 hit / 2 gold unit = 0.5；group unit_id=0 mapped→hit, unit_id=4 OOB→unmatched→miss
     assert record["score"] == pytest.approx(0.5)
-    # 越界 id 单独记录
+    # 越界 id 单独记录（旧 metadata 通道）
     assert record["details"]["out_of_bounds_target_step_ids"] == [4]
-    assert record["details"]["gold_evidence_turn_ids"] == [
-        "membench-conv-1:t1",
-        "membench-conv-1:t5",
-    ]
+    assert record["details"]["gold_unit_ids"] == ["0", "4"]
+    assert record["details"]["unmatched_gold_unit_count"] == 1
     summary = result["summary"]
     assert summary["status"] == "ok"
     assert summary["out_of_bounds_gold_total"] == 1
@@ -290,7 +299,7 @@ def test_out_of_bounds_target_step_id_is_counted_but_does_not_crash(
 
 
 def test_empty_evidence_scores_one_and_keeps_zero_unmatched(tmp_path: Path) -> None:
-    """空 evidence（highlevel_rec 等 task_type）应记 score=1.0 且 unmatched 不增加。"""
+    """v1 下空 target 产生空 groups → evaluator 记 N/A，不再是旧框架错误记 1.0。"""
 
     paths, manifest = _write_run(
         tmp_path,
@@ -320,7 +329,6 @@ def test_empty_evidence_scores_one_and_keeps_zero_unmatched(tmp_path: Path) -> N
     )
 
     record = result["score_records"][0]
-    assert record["score"] == 1.0
-    summary = result["summary"]
-    assert summary["empty_evidence_question_count"] == 1
-    assert summary["unmatched_gold_total"] == 0
+    assert record["status"] == "n/a"
+    assert record["score"] is None
+    assert result["summary"]["empty_gold_question_count"] == 1

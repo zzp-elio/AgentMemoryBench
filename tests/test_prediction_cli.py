@@ -92,6 +92,36 @@ def test_beam_registered_policy_serializes_into_manifest_top_level() -> None:
     assert prediction_cli._build_benchmark_policy_manifest(registration) == {
         "smoke": registration.smoke_policy.to_dict(),
         "resume": registration.resume_policy.to_dict(),
+        "gold_evidence_contract_version": "v1",
+    }
+
+
+def test_benchmark_policy_manifest_rejects_bogus_gold_evidence_version() -> None:
+    """伪造 registration 携带非法 gold evidence version 必须在 manifest 构造期拒绝。"""
+
+    registration = SimpleNamespace(
+        smoke_policy=None,
+        resume_policy=None,
+        gold_evidence_contract_version="bogus",
+    )
+
+    with pytest.raises(ConfigurationError, match="gold_evidence_contract_version"):
+        prediction_cli._build_benchmark_policy_manifest(registration)
+
+
+def test_benchmark_policy_manifest_carries_version_without_policies() -> None:
+    """只声明 gold evidence contract 的 registration 也必须把版本落 manifest。"""
+
+    registration = SimpleNamespace(
+        smoke_policy=None,
+        resume_policy=None,
+        gold_evidence_contract_version="v1",
+    )
+
+    assert prediction_cli._build_benchmark_policy_manifest(registration) == {
+        "smoke": None,
+        "resume": None,
+        "gold_evidence_contract_version": "v1",
     }
 
 
@@ -942,6 +972,122 @@ def test_registered_prediction_omits_benchmark_policy_when_unregistered(
 
     assert "benchmark_policy" not in runner_calls[0]["method_manifest"]
     assert runner_calls[0]["benchmark_policy"] is None
+
+
+def test_registered_prediction_rejects_v1_registration_with_unversioned_labels(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """registration 声明 v1 而 dataset gold label 未声明时，必须在 factory/preflight
+    之前 fail-fast，且不得创建任何 run 目录。"""
+
+    config = Mem0Config.smoke()
+    factory_calls: list[object] = []
+    runner_calls: list[dict[str, object]] = []
+    path_settings = SimpleNamespace(
+        project_root=tmp_path,
+        outputs_root=tmp_path / "outputs",
+    )
+    prepared_run = _build_prepared_run(
+        dataset_name="locomo",
+        variant="locomo10",
+        run_scope=RunScope.SMOKE,
+    )
+    benchmark_registration = SimpleNamespace(
+        name="locomo",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        default_variant="locomo10",
+        variant_names=lambda: ("locomo10",),
+        prepare=lambda project_root, request: prepared_run,
+        prediction_enabled=True,
+        gold_evidence_contract_version="v1",
+    )
+    method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
+        name="mem0",
+        display_name="Mem0",
+        task_families=frozenset({TaskFamily.CONVERSATION_QA}),
+        provided_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        requires_api=True,
+        resolve_profile_section=lambda profile_name: profile_name,
+        system_factory=lambda context: factory_calls.append(context) or object(),
+        source_identity_factory=lambda settings: {"source_sha256": "abc"},
+        model_name_getter=lambda selected: selected.reader_model,
+        max_workers_getter=lambda selected: selected.max_workers,
+        workload_estimator=None,
+        allow_smoke_worker_override=True,
+        efficiency_model_inventory_getter=lambda selected: (),
+        efficiency_instrumentation_identity_getter=lambda settings, selected, source_identity: {
+            "collector_schema": 1,
+        },
+        retrieval_observation_contract_getter=lambda selected: RetrievalObservationContract(
+            required_by_profile=False,
+            supported_by_method=True,
+        ),
+        clean_failed_ingest_state=None,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_benchmark_registration",
+        lambda name: benchmark_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_method_registration",
+        lambda name: method_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_method_profile",
+        lambda **kwargs: config,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_path_settings",
+        lambda project_root: path_settings,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_openai_settings",
+        lambda project_root: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "run_predictions",
+        lambda **kwargs: runner_calls.append(kwargs),
+    )
+
+    with pytest.raises(ConfigurationError, match="gold evidence"):
+        run_registered_conversation_qa_prediction(
+            project_root=tmp_path,
+            method_name="mem0",
+            benchmark_name="locomo",
+            profile_name="smoke",
+            run_id="run-1",
+            confirm_api=True,
+            confirm_full=False,
+            smoke_turn_limit=1,
+            smoke_conversation_limit=1,
+            smoke_max_workers=None,
+            enable_efficiency_observability=False,
+        )
+
+    assert factory_calls == []
+    assert runner_calls == []
+    assert not (tmp_path / "outputs").exists()
 
 
 def test_custom_method_class_runs_without_builtin_registry(

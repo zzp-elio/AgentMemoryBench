@@ -2,6 +2,7 @@
 
 from .capabilities import MethodCapability, TaskFamily, validate_compatibility
 from .entities import (
+    GOLD_EVIDENCE_CONTRACT_V1,
     AddResult,
     AnswerPromptResult,
     AnswerResult,
@@ -9,6 +10,8 @@ from .entities import (
     Dataset,
     EvaluationResult,
     GoldAnswerInfo,
+    GoldEvidenceGroup,
+    GoldEvidenceGroupSet,
     ImageRef,
     MetricResult,
     PromptMessage,
@@ -52,7 +55,10 @@ __all__ = [
     "DatasetValidationError",
     "DryRunSummary",
     "EvaluationResult",
+    "GOLD_EVIDENCE_CONTRACT_V1",
     "GoldAnswerInfo",
+    "GoldEvidenceGroup",
+    "GoldEvidenceGroupSet",
     "ImageRef",
     "JudgeOutputError",
     "MethodCapability",

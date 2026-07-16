@@ -6,12 +6,17 @@
 `third_party/benchmarks/locomo-main/task_eval/evaluation.py:189-241`
 （dia_id recall 公式，含 evidence 为空时记 1.0 的官方行为）。
 
+权威 qrel 是 gold evidence contract v1 的 `evidence_group_sets`（每个官方
+dia_id 一个 unit，分母按稳定去重后的官方 unit 数）；旧扁平 `evidence` 只留
+历史审计，不再参与计分。
+
 provenance 分级：
 - provider 声明 `provenance_granularity="turn"`：取有序
-  `retrieved_items[:retrieval_query_top_k]` 的 `source_turn_ids` 并集，与私有
-  `evidence` dia_id 精确匹配。
-- provider 声明 `provenance_granularity="session"`：把 source turn id 与
-  evidence dia_id 都向上聚合为 `D<n>` session 前缀再匹配，summary 明确标注
+  `retrieved_items[:retrieval_query_top_k]` 的 `source_turn_ids` 并集，与
+  turn view（`locomo_utterance`）group 匹配。
+- provider 声明 `provenance_granularity="session"`：把 source turn id 向上聚合
+  为 `D<n>` session 前缀，与 session view
+  （`locomo_utterance_session_projection`）group 匹配，summary 明确标注
   session-level，不冒充 turn-level。
 - provider 声明 `provenance_granularity="none"`：写结构化 N/A，不计 0 分。
 """
@@ -23,6 +28,13 @@ from typing import Any
 
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
+
+from .gold_evidence_groups import (
+    group_recall_score,
+    parse_evidence_group_sets,
+    require_manifest_gold_evidence_contract_v1,
+    select_group_set,
+)
 
 
 class LoCoMoRetrievalRecallEvaluator:
@@ -63,6 +75,7 @@ class LoCoMoRetrievalRecallEvaluator:
                 provenance_granularity=provenance_granularity,
                 official_source=self.official_source,
             )
+        require_manifest_gold_evidence_contract_v1(manifest)
         if provenance_granularity not in ("turn", "session"):
             raise ConfigurationError(
                 f"Unknown provenance_granularity {provenance_granularity!r} in "
@@ -129,18 +142,28 @@ class LoCoMoRetrievalRecallEvaluator:
                     )
 
             top_k_values.append(top_k)
-            evidence = private.get("evidence") or []
+            group_sets = parse_evidence_group_sets(private, question_id)
+            unit_kind = (
+                "locomo_utterance"
+                if provenance_granularity == "turn"
+                else "locomo_utterance_session_projection"
+            )
+            groups = select_group_set(
+                group_sets,
+                provenance_granularity=provenance_granularity,
+                unit_kind=unit_kind,
+                question_id=question_id,
+            ).groups
             source_ids = _source_turn_ids(retrieved_items, top_k)
+            if provenance_granularity == "session":
+                source_ids = {_session_prefix(source_id) for source_id in source_ids}
 
-            if not evidence:
+            if not groups:
+                # 官方原生行为：空 evidence 记 1（evaluation.py:237），保留披露。
                 empty_evidence_count += 1
                 score = 1.0
             else:
-                score = _recall_score(
-                    evidence=evidence,
-                    source_ids=source_ids,
-                    provenance_granularity=provenance_granularity,
-                )
+                score = group_recall_score(groups, source_ids)
                 non_empty_evidence_scores.append(score)
 
             score_records.append(
@@ -151,7 +174,8 @@ class LoCoMoRetrievalRecallEvaluator:
                     "score": score,
                     "category": category_by_id.get(question_id),
                     "requested_top_k": top_k,
-                    "empty_evidence": not evidence,
+                    "empty_evidence": not groups,
+                    "gold_unit_count": len(groups),
                     "provenance_granularity": provenance_granularity,
                 }
             )
@@ -197,24 +221,6 @@ def _session_prefix(dia_id: str) -> str:
 
     prefix, _, _rest = dia_id.partition(":")
     return prefix if _rest else dia_id
-
-
-def _recall_score(
-    *,
-    evidence: list[str],
-    source_ids: set[str],
-    provenance_granularity: str,
-) -> float:
-    """按官方公式计算单题 recall：命中 evidence 数 / evidence 总数。"""
-
-    if provenance_granularity == "turn":
-        hits = sum(1 for dia_id in evidence if dia_id in source_ids)
-    else:
-        source_sessions = {_session_prefix(turn_id) for turn_id in source_ids}
-        hits = sum(
-            1 for dia_id in evidence if _session_prefix(dia_id) in source_sessions
-        )
-    return hits / len(evidence)
 
 
 def _na_payload(

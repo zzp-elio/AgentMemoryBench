@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from memory_benchmark.core import GoldAnswerInfo, Question
+from memory_benchmark.core import GoldAnswerInfo, GoldEvidenceGroup, GoldEvidenceGroupSet, Question
 from memory_benchmark.evaluators.longmemeval_retrieval_rank import (
     LongMemEvalRetrievalRankEvaluator,
 )
@@ -21,6 +21,38 @@ from memory_benchmark.storage import (
 
 
 pytestmark = pytest.mark.unit
+
+V1_BENCHMARK_POLICY = {"gold_evidence_contract_version": "v1"}
+
+
+def _v1_gold(qid: str, gold: list[str]) -> GoldAnswerInfo:
+    """构造带 v1 turn view groups 的 gold label。"""
+
+    groups = tuple(
+        GoldEvidenceGroup(
+            unit_id=gid,
+            child_ids=(gid,),
+            mapping_status="mapped",
+        )
+        for gid in gold
+    )
+    return GoldAnswerInfo(
+        qid,
+        "gold",
+        metadata={
+            "evidence_turn_ids": gold,
+            "evidence_turn_corpus_ids": [],
+            "evidence_session_public_ids": [],
+        },
+        gold_evidence_contract_version="v1",
+        evidence_group_sets=(
+            GoldEvidenceGroupSet(
+                provenance_granularity="turn",
+                unit_kind="longmemeval_user_target_turn",
+                groups=groups,
+            ),
+        ),
+    )
 
 
 def test_ndcg_matches_official_formula_hand_computed(tmp_path: Path) -> None:
@@ -114,8 +146,10 @@ def _write_run(
     paths = ExperimentPaths.create(tmp_path / "run")
     method = {} if provenance is None else {"provenance_granularity": provenance}
     manifest: dict[str, object] = {
-        "run_id": "rank-run", "benchmark_name": "longmemeval", "method": method
+        "run_id": "rank-run", "benchmark_name": "longmemeval", "method": method,
     }
+    if provenance is not None:
+        manifest["benchmark_policy"] = V1_BENCHMARK_POLICY
     atomic_write_json(paths.manifest_path, manifest)
     questions = [Question(qid, qid, "Question?", category="multi-session") for qid, _, _ in rows]
     atomic_write_jsonl(
@@ -126,15 +160,7 @@ def _write_run(
         paths.evaluator_private_labels_path,
         [
             evaluator_private_label_record(
-                GoldAnswerInfo(
-                    qid,
-                    "gold",
-                    metadata={
-                        "evidence_turn_ids": gold,
-                        "evidence_turn_corpus_ids": [],
-                        "evidence_session_public_ids": [],
-                    },
-                ),
+                _v1_gold(qid, gold),
                 category="multi-session",
             )
             for qid, gold, _ in rows

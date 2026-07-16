@@ -1,6 +1,11 @@
 """LongMemEval 双粒度条件式 retrieval recall（artifact-only，离线）。
 
-匹配只使用 method 可见的公开 id 空间；官方 corpus id 仅写入 details 供审计。
+匹配只使用 method 可见的公开 id 空间。权威 qrel 是 gold evidence contract v1
+的 `evidence_group_sets`：turn view 只含官方口径 user 侧 target
+（`longmemeval_user_target_turn`），session view 以官方 answer_session_id 为
+unit（`longmemeval_answer_session`）。`_abs` 题不评分；非 abs 且当前 view 无
+gold unit 的题按官方 `run_retrieval.py:389-410` 剔除口径记 N/A（canonical 分母
+=419），不再错误记 1.0。
 """
 
 from __future__ import annotations
@@ -10,6 +15,13 @@ from typing import Any
 
 from memory_benchmark.core import ConfigurationError
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
+
+from .gold_evidence_groups import (
+    group_recall_score,
+    parse_evidence_group_sets,
+    require_manifest_gold_evidence_contract_v1,
+    select_group_set,
+)
 
 
 class LongMemEvalRetrievalRecallEvaluator:
@@ -33,6 +45,7 @@ class LongMemEvalRetrievalRecallEvaluator:
         provenance_granularity = _method_provenance_granularity(manifest)
         if provenance_granularity in {"none", "undeclared"}:
             return _na_payload(self.metric_name, provenance_granularity)
+        require_manifest_gold_evidence_contract_v1(manifest)
         if provenance_granularity not in {"turn", "session"}:
             raise ConfigurationError(
                 f"Unknown provenance_granularity {provenance_granularity!r} in "
@@ -51,7 +64,7 @@ class LongMemEvalRetrievalRecallEvaluator:
         score_records: list[dict[str, Any]] = []
         scored_records: list[dict[str, Any]] = []
         top_k_values: list[int] = []
-        empty_evidence_count = 0
+        no_target_count = 0
         abstention_count = 0
 
         for answer_record in answer_records:
@@ -74,41 +87,45 @@ class LongMemEvalRetrievalRecallEvaluator:
                 )
                 continue
 
+            groups = select_group_set(
+                parse_evidence_group_sets(private_by_id[question_id], question_id),
+                provenance_granularity=provenance_granularity,
+                unit_kind=(
+                    "longmemeval_user_target_turn"
+                    if provenance_granularity == "turn"
+                    else "longmemeval_answer_session"
+                ),
+                question_id=question_id,
+            ).groups
+            if not groups:
+                # 官方 run_retrieval.py:389-410 聚合口径：无官方 gold unit 的题
+                # 整题剔除（turn 主路径 canonical 分母 419），不再错误记 1.0。
+                no_target_count += 1
+                score_records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer_record.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": "n/a",
+                        "reason": "official_no_target",
+                        "abstention": False,
+                        "category": category,
+                        "provenance_granularity": provenance_granularity,
+                    }
+                )
+                continue
+
             top_k, retrieved_items = _validated_retrieval_fields(
                 answer_record,
                 provenance_granularity,
             )
             source_ids = _source_ids(retrieved_items, top_k)
-            private_metadata = private_by_id[question_id].get("metadata")
-            if not isinstance(private_metadata, dict):
-                raise ConfigurationError(
-                    f"question {question_id}: private label metadata must be an object"
-                )
-            evidence_key = (
-                "evidence_turn_ids"
-                if provenance_granularity == "turn"
-                else "evidence_session_public_ids"
-            )
-            evidence = _required_string_list(
-                private_metadata,
-                evidence_key,
-                question_id,
-            )
-            official_corpus_ids = _required_string_list(
-                private_metadata,
-                "evidence_turn_corpus_ids",
-                question_id,
-            )
-
-            if not evidence:
-                empty_evidence_count += 1
-                score = 1.0
-            else:
-                score = _recall_score(
-                    evidence=evidence,
-                    source_ids=source_ids,
-                    provenance_granularity=provenance_granularity,
-                )
+            if provenance_granularity == "session":
+                source_ids = {
+                    _public_session_id(source_id) for source_id in source_ids
+                }
+            score = group_recall_score(groups, source_ids)
 
             top_k_values.append(top_k)
             record = {
@@ -122,8 +139,10 @@ class LongMemEvalRetrievalRecallEvaluator:
                 "requested_top_k": top_k,
                 "provenance_granularity": provenance_granularity,
                 "details": {
-                    "gold_evidence_ids": evidence,
-                    "evidence_turn_corpus_ids": official_corpus_ids,
+                    "gold_unit_ids": [group.unit_id for group in groups],
+                    "unmatched_gold_unit_count": sum(
+                        1 for group in groups if group.mapping_status == "unmatched"
+                    ),
                     "retrieved_source_ids": sorted(source_ids),
                     "official_corpus_id_source": self.official_corpus_id_source,
                     "framework_supplementary": True,
@@ -137,7 +156,7 @@ class LongMemEvalRetrievalRecallEvaluator:
             score_records=score_records,
             scored_records=scored_records,
             top_k_values=top_k_values,
-            empty_evidence_count=empty_evidence_count,
+            no_target_count=no_target_count,
             abstention_count=abstention_count,
             provenance_granularity=provenance_granularity,
             official_corpus_id_source=self.official_corpus_id_source,
@@ -205,21 +224,6 @@ def _validated_retrieval_fields(
     return top_k, retrieved_items
 
 
-def _required_string_list(
-    metadata: dict[str, Any],
-    key: str,
-    question_id: str,
-) -> list[str]:
-    """读取 evaluator-private metadata 中必需的字符串列表。"""
-
-    value = metadata.get(key)
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-        raise ConfigurationError(
-            f"question {question_id}: private label metadata requires {key} list"
-        )
-    return value
-
-
 def _source_ids(retrieved_items: list[dict[str, Any]], top_k: int) -> set[str]:
     """合并有序 top-k retrieved items 的公开 source ids。"""
 
@@ -237,22 +241,6 @@ def _public_session_id(source_id: str) -> str:
     if separator and suffix.isdigit():
         return prefix
     return source_id
-
-
-def _recall_score(
-    *,
-    evidence: list[str],
-    source_ids: set[str],
-    provenance_granularity: str,
-) -> float:
-    """计算命中 gold evidence 数除以 gold evidence 总数。"""
-
-    if provenance_granularity == "turn":
-        hits = sum(evidence_id in source_ids for evidence_id in evidence)
-    else:
-        source_sessions = {_public_session_id(source_id) for source_id in source_ids}
-        hits = sum(evidence_id in source_sessions for evidence_id in evidence)
-    return hits / len(evidence)
 
 
 def _na_payload(metric_name: str, provenance_granularity: str) -> dict[str, Any]:
@@ -278,12 +266,12 @@ def _scored_payload(
     score_records: list[dict[str, Any]],
     scored_records: list[dict[str, Any]],
     top_k_values: list[int],
-    empty_evidence_count: int,
+    no_target_count: int,
     abstention_count: int,
     provenance_granularity: str,
     official_corpus_id_source: str,
 ) -> dict[str, Any]:
-    """聚合已评分问题，保留 abstention N/A records。"""
+    """聚合已评分问题，保留 abstention 与官方 no-target 剔除的 N/A records。"""
 
     scores = [float(record["score"]) for record in scored_records]
     mean_score = sum(scores) / len(scores) if scores else 0.0
@@ -311,7 +299,12 @@ def _scored_payload(
             "provenance_granularity": provenance_granularity,
             "scored_question_count": len(scored_records),
             "abstention_question_count": abstention_count,
-            "empty_evidence_question_count": empty_evidence_count,
+            "official_no_target_question_count": no_target_count,
+            "official_denominator_source": (
+                "LongMemEval-main/src/retrieval/run_retrieval.py:389-410 "
+                "(canonical 419; print_retrieval_metrics.py:12 的 470 只是"
+                "官方辅助脚本冲突披露，不用于主口径)"
+            ),
             "overall_mean_recall_at_requested_k": mean_score,
             "by_category": by_category,
             "requested_top_k_distribution": dict(Counter(top_k_values)),

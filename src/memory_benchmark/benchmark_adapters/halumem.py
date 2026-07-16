@@ -484,6 +484,10 @@ def _questions_from_raw(
                 "session_memory_points": copy.deepcopy(memory_points),
                 "persona_info": persona_info,
             },
+            # HaluMem 的 gold 是 memory-point fact，官方数据没有任何 turn 回指；
+            # 声明 v1 但保持零 qrel view，禁止从答案/evidence 文本反推合成 qrel。
+            gold_evidence_contract_version="v1",
+            evidence_group_sets=(),
         )
 
     return questions, gold_answers

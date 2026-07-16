@@ -1,4 +1,10 @@
-"""BEAM turn-provenance 条件式 retrieval recall（artifact-only）。"""
+"""BEAM turn-provenance 条件式 retrieval recall（artifact-only）。
+
+权威 qrel 是 gold evidence contract v1 的 `evidence_group_sets`（`beam_source_message`
+turn view）：每个稳定去重的官方 raw source id 是一个 group，单一 location →
+singleton mapped，重复 raw id → multi-child mapped any-of，
+unmatched → 分母保留 miss。abstention 与空 group 记 N/A，不做 0 分。
+"""
 
 from __future__ import annotations
 
@@ -6,6 +12,12 @@ from collections import Counter
 from typing import Any
 
 from memory_benchmark.core import ConfigurationError
+from memory_benchmark.evaluators.gold_evidence_groups import (
+    group_recall_score,
+    parse_evidence_group_sets,
+    require_manifest_gold_evidence_contract_v1,
+    select_group_set,
+)
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 
@@ -31,6 +43,7 @@ class BeamRetrievalRecallEvaluator:
         provenance = _provenance_granularity(manifest)
         if provenance in {"none", "undeclared"}:
             return _na_payload(provenance)
+        require_manifest_gold_evidence_contract_v1(manifest)
         if provenance != "turn":
             raise ConfigurationError(
                 f"Unknown provenance_granularity {provenance!r} for BEAM recall; "
@@ -53,22 +66,28 @@ class BeamRetrievalRecallEvaluator:
 
         for answer in answers:
             question_id = str(answer["question_id"])
+            groups = select_group_set(
+                parse_evidence_group_sets(private_by_id[question_id], question_id),
+                provenance_granularity="turn",
+                unit_kind="beam_source_message",
+                question_id=question_id,
+            ).groups
+
+            # 兼容旧 metadata 字段，仅作审计披露，不参与权威 qrel。
             metadata = private_by_id[question_id].get("metadata")
-            if not isinstance(metadata, dict):
-                raise ConfigurationError(
-                    f"question {question_id}: private label metadata must be an object"
+            unmatched_count = 0
+            ambiguous_count = 0
+            if isinstance(metadata, dict):
+                unmatched_count = _non_negative_int(
+                    metadata, "unmatched_gold_id_count", question_id
                 )
-            evidence = _string_list(metadata, "evidence_turn_ids", question_id)
-            unmatched_count = _non_negative_int(
-                metadata, "unmatched_gold_id_count", question_id
-            )
-            ambiguous_count = _non_negative_int(
-                metadata, "ambiguous_gold_id_count", question_id
-            )
+                ambiguous_count = _non_negative_int(
+                    metadata, "ambiguous_gold_id_count", question_id
+                )
             unmatched_gold_total += unmatched_count
             ambiguous_gold_total += ambiguous_count
 
-            if not evidence:
+            if not groups:
                 abstention_count += 1
                 score_records.append(
                     {
@@ -93,21 +112,28 @@ class BeamRetrievalRecallEvaluator:
                 for item in items[:top_k]
                 for source_id in item["source_turn_ids"]
             }
-            hits = sum(gold_id in source_ids for gold_id in evidence)
+            score = group_recall_score(groups, source_ids)
+
             record = {
                 "question_id": question_id,
                 "conversation_id": answer.get("conversation_id"),
                 "metric_name": self.metric_name,
-                "score": hits / len(evidence),
+                "score": score,
                 "status": "ok",
                 "category": category_by_id[question_id],
                 "requested_top_k": top_k,
                 "details": {
-                    "gold_evidence_turn_ids": evidence,
+                    "gold_unit_ids": [group.unit_id for group in groups],
+                    "unmatched_gold_unit_count": sum(
+                        1 for group in groups if group.mapping_status == "unmatched"
+                    ),
+                    "ambiguous_gold_unit_count": sum(
+                        1
+                        for group in groups
+                        if group.mapping_status == "mapped"
+                        and len(group.child_ids) > 1
+                    ),
                     "retrieved_source_turn_ids": sorted(source_ids),
-                    "unmatched_gold_id_count": unmatched_count,
-                    "ambiguous_gold_id_count": ambiguous_count,
-                    "ambiguous_match_policy": "any-match",
                     "framework_supplementary": True,
                 },
             }

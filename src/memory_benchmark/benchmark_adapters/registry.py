@@ -351,12 +351,24 @@ class BenchmarkRegistration:
     # 未注册的 benchmark 保持现状兼容路径（CLI 沿用全局默认值/legacy 行为）。
     smoke_policy: BenchmarkSmokePolicy | None = None
     resume_policy: BenchmarkResumePolicy | None = None
+    # gold evidence contract 属于 benchmark/private-label identity：声明 v1 表示
+    # 该 benchmark 的 adapter 在 load 时为每个 gold label 落 evaluator-private
+    # `evidence_group_sets`，并要求 manifest benchmark_policy 携带同一版本。
+    gold_evidence_contract_version: str | None = None
 
     def __post_init__(self) -> None:
         """在注册阶段校验 variant 声明是否自洽。"""
 
         if not self.name:
             raise ConfigurationError("benchmark registration name is required")
+        if self.gold_evidence_contract_version is not None and (
+            not isinstance(self.gold_evidence_contract_version, str)
+            or self.gold_evidence_contract_version != "v1"
+        ):
+            raise ConfigurationError(
+                f"{self.name}: gold_evidence_contract_version must be None or 'v1', "
+                f"got {self.gold_evidence_contract_version!r}"
+            )
         if not self.variants:
             raise ConfigurationError(f"{self.name}: at least one variant is required")
 
@@ -537,6 +549,7 @@ def _try_register_adapter(
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
     smoke_policy: BenchmarkSmokePolicy | None = None,
     resume_policy: BenchmarkResumePolicy | None = None,
+    gold_evidence_contract_version: str | None = None,
 ) -> None:
     """尝试注册一个已迁移 adapter。"""
 
@@ -562,6 +575,7 @@ def _try_register_adapter(
             prediction_transform=prediction_transform,
             smoke_policy=smoke_policy,
             resume_policy=resume_policy,
+            gold_evidence_contract_version=gold_evidence_contract_version,
         )
     )
 
@@ -613,6 +627,7 @@ def _build_default_registry() -> BenchmarkRegistry:
         resume_policy=LOCOMO_RESUME_POLICY,
         prompt_track="unified",
         unified_prompt_builder=build_locomo_unified_answer_prompt,
+        gold_evidence_contract_version="v1",
     )
     _try_register_adapter(
         registry,
@@ -628,6 +643,7 @@ def _build_default_registry() -> BenchmarkRegistry:
         resume_policy=LONGMEMEVAL_RESUME_POLICY,
         prompt_track="unified",
         unified_prompt_builder=build_longmemeval_unified_answer_prompt,
+        gold_evidence_contract_version="v1",
     )
     _try_register_adapter(
         registry,
@@ -644,6 +660,7 @@ def _build_default_registry() -> BenchmarkRegistry:
         prompt_track="unified",
         unified_prompt_builder=build_membench_unified_answer_prompt,
         prediction_transform=normalize_membench_choice_prediction,
+        gold_evidence_contract_version="v1",
     )
     _try_register_adapter(
         registry,
@@ -660,6 +677,7 @@ def _build_default_registry() -> BenchmarkRegistry:
         prompt_track="unified",
         operation_level=True,
         unified_prompt_builder=build_halumem_unified_answer_prompt,
+        gold_evidence_contract_version="v1",
     )
     _try_register_adapter(
         registry,
@@ -675,6 +693,7 @@ def _build_default_registry() -> BenchmarkRegistry:
         resume_policy=BEAM_RESUME_POLICY,
         prompt_track="unified",
         unified_prompt_builder=build_beam_unified_answer_prompt,
+        gold_evidence_contract_version="v1",
     )
     return registry
 

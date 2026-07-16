@@ -116,6 +116,7 @@ def _make_registration(
     prepare_run=None,
     smoke_policy: BenchmarkSmokePolicy | None = None,
     resume_policy: BenchmarkResumePolicy | None = None,
+    gold_evidence_contract_version: str | None = None,
 ) -> BenchmarkRegistration:
     """构造用于测试的最小 registration。"""
 
@@ -150,6 +151,7 @@ def _make_registration(
         prediction_enabled=True,
         smoke_policy=smoke_policy,
         resume_policy=resume_policy,
+        gold_evidence_contract_version=gold_evidence_contract_version,
     )
 
 
@@ -1194,3 +1196,45 @@ def test_beam_registration_prepares_smoke_with_declared_round_policy() -> None:
     assert total_turns == 2
     assert len(conversation.questions) >= 1
     assert registration.smoke_policy.default_question_limit == 1
+
+
+def test_phase1_registrations_declare_gold_evidence_contract_v1() -> None:
+    """Phase 1 五家 benchmark 必须显式声明 gold evidence contract v1。"""
+
+    for name in ("beam", "halumem", "locomo", "longmemeval", "membench"):
+        registration = get_benchmark_registration(name)
+        assert registration.gold_evidence_contract_version == "v1", name
+
+
+@pytest.mark.parametrize("bogus_version", ["", " ", "v2", "V1", "bogus"])
+def test_registration_rejects_unknown_gold_evidence_contract_version(
+    bogus_version: str,
+) -> None:
+    """未知/空白 gold evidence contract version 必须在构造期拒绝。"""
+
+    with pytest.raises(ConfigurationError):
+        _make_registration(
+            variants=(
+                BenchmarkVariantSpec(
+                    name="demo",
+                    source_relative_paths=(Path("data/demo/one.json"),),
+                ),
+            ),
+            default_variant="demo",
+            gold_evidence_contract_version=bogus_version,
+        )
+
+
+def test_registration_accepts_none_gold_evidence_contract_version() -> None:
+    """未声明 gold evidence contract 的 registration 保持 None 合法。"""
+
+    registration = _make_registration(
+        variants=(
+            BenchmarkVariantSpec(
+                name="demo",
+                source_relative_paths=(Path("data/demo/one.json"),),
+            ),
+        ),
+        default_variant="demo",
+    )
+    assert registration.gold_evidence_contract_version is None

@@ -644,3 +644,148 @@ def test_beam_adapter_rejects_json_loads_approach(tmp_path: Path) -> None:
     result = ast.literal_eval(probing_str)
     assert isinstance(result, dict)
     assert "abstention" in result
+
+
+# ---------------------------------------------------------------------------
+# gold evidence contract v1 group views
+# ---------------------------------------------------------------------------
+
+
+def _turn_view(gold) -> object:
+    """取出 BEAM gold 的唯一 turn view。"""
+
+    assert gold.gold_evidence_contract_version == "v1"
+    views = [
+        group_set
+        for group_set in gold.evidence_group_sets
+        if group_set.provenance_granularity == "turn"
+        and group_set.unit_kind == "beam_source_message"
+    ]
+    assert len(views) == 1
+    return views[0]
+
+
+def test_gold_evidence_groups_dedup_ambiguous_and_unmatched(tmp_path: Path) -> None:
+    """同 raw id 两位置只算一个 multi-child group；`--` 记 unmatched group。"""
+
+    row = _minimal_row(num_sessions=2, turns_per_session=2)
+    for session_index, session in enumerate(row["chat"]):
+        for turn_index, turn in enumerate(session):
+            turn["id"] = session_index * 10 + turn_index
+    row["chat"][0][0]["id"] = 7
+    row["chat"][1][0]["id"] = 7
+    row["probing_questions"] = str(
+        {
+            "event_ordering": [
+                {
+                    "question": "What happened first?",
+                    "answer": "The first event.",
+                    "difficulty": "medium",
+                    "rubric": ["orders the events"],
+                    "source_chat_ids": [[7, 7], [1], ["--"]],
+                }
+            ]
+        }
+    )
+    _make_beam_arrow(
+        tmp_path / "data" / "BEAM" / "beam_dataset" / "100K",
+        [row],
+    )
+
+    conversation = BeamAdapter(tmp_path, variant="100k").load().conversations[0]
+    gold = conversation.gold_answers[conversation.questions[0].question_id]
+    turn_view = _turn_view(gold)
+
+    groups = {group.unit_id: group for group in turn_view.groups}
+    # raw id 稳定去重：7 只出现一个 group，且携带两个歧义位置 child。
+    assert [group.unit_id for group in turn_view.groups] == ["7", "1", "--"]
+    assert groups["7"].mapping_status == "mapped"
+    assert groups["7"].child_ids == ("s1:t1", "s2:t1")
+    assert groups["1"].mapping_status == "mapped"
+    assert groups["1"].child_ids == ("s1:t2",)
+    assert groups["--"].mapping_status == "unmatched"
+    assert groups["--"].child_ids == ()
+
+
+def test_gold_evidence_groups_abstention_none_yields_empty_groups(
+    tmp_path: Path,
+) -> None:
+    """abstention 的 source_chat_ids=None → 空 groups，不合成 qrel。"""
+
+    _make_beam_arrow(
+        tmp_path / "data" / "BEAM" / "beam_dataset" / "100K",
+        [_minimal_row()],
+    )
+    conversation = BeamAdapter(tmp_path, variant="100k").load().conversations[0]
+    abstention_question = next(
+        question
+        for question in conversation.questions
+        if question.category == "abstention"
+    )
+    gold = conversation.gold_answers[abstention_question.question_id]
+
+    assert _turn_view(gold).groups == ()
+
+
+def test_gold_evidence_groups_do_not_cross_conversations(tmp_path: Path) -> None:
+    """跨 conversation 的相同 raw id 不得串线到别的 conversation 的 turn。"""
+
+    rows = []
+    for conversation_id in (1, 2):
+        row = _minimal_row(
+            conversation_id=conversation_id,
+            num_sessions=1,
+            turns_per_session=2,
+        )
+        for turn_index, turn in enumerate(row["chat"][0]):
+            turn["id"] = turn_index
+        row["probing_questions"] = str(
+            {
+                "event_ordering": [
+                    {
+                        "question": "What happened first?",
+                        "answer": "The first event.",
+                        "difficulty": "medium",
+                        "rubric": ["orders the events"],
+                        "source_chat_ids": [0],
+                    }
+                ]
+            }
+        )
+        rows.append(row)
+    _make_beam_arrow(tmp_path / "data" / "BEAM" / "beam_dataset" / "100K", rows)
+
+    dataset = BeamAdapter(tmp_path, variant="100k").load()
+    for conversation in dataset.conversations:
+        gold = conversation.gold_answers[conversation.questions[0].question_id]
+        turn_view = _turn_view(gold)
+        assert len(turn_view.groups) == 1
+        # singleton mapped：raw id 只映射到本 conversation 的公开 turn。
+        assert turn_view.groups[0].child_ids == ("s1:t1",)
+
+
+def test_beam_1m_real_data_locks_ambiguous_group_counts() -> None:
+    """真实 1M 全量：41 个含歧义题、逐题累计 198 个歧义 raw-id 原子。
+
+    2026-07-16 架构师全量 Arrow 重扫的现行数字（evidence-unit-contract-audit §2.2/
+    §8）；歧义题 = 至少一个 multi-child mapped group 的题。
+    """
+
+    dataset = BeamAdapter(Path("."), variant="1m").load()
+
+    ambiguous_question_count = 0
+    ambiguous_atom_total = 0
+    for conversation in dataset.conversations:
+        for gold in conversation.gold_answers.values():
+            turn_view = _turn_view(gold)
+            multi_child_groups = [
+                group
+                for group in turn_view.groups
+                if group.mapping_status == "mapped" and len(group.child_ids) > 1
+            ]
+            if multi_child_groups:
+                ambiguous_question_count += 1
+                ambiguous_atom_total += len(multi_child_groups)
+
+    assert ambiguous_question_count == 41
+    assert ambiguous_atom_total == 198

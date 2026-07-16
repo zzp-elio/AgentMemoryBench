@@ -6,10 +6,18 @@ from pathlib import Path
 
 import pytest
 
-from memory_benchmark.core import ConfigurationError, GoldAnswerInfo
+from memory_benchmark.core import (
+    ConfigurationError,
+    GoldAnswerInfo,
+    GoldEvidenceGroup,
+    GoldEvidenceGroupSet,
+)
 from memory_benchmark.evaluators.beam_recall import BeamRetrievalRecallEvaluator
 from memory_benchmark.storage import ExperimentPaths, atomic_write_jsonl
 from memory_benchmark.storage.artifacts import evaluator_private_label_record
+
+
+V1_MANIFEST_BENCHMARK_POLICY = {"gold_evidence_contract_version": "v1"}
 
 
 def _item(*source_ids: str) -> dict[str, object]:
@@ -25,8 +33,21 @@ def _gold(
     unmatched: int = 0,
     ambiguous: int = 0,
 ) -> GoldAnswerInfo:
-    """构造 adapter 已映射的 evaluator-private gold。"""
+    """构造带 v1 group sets 的 evaluator-private gold。
 
+    输入:
+        evidence: 扁平 turn-id 列表；每个 id 建一个 singleton mapped child 的
+            group。空 evidence 对应空 groups（abstention）。
+    """
+
+    groups = tuple(
+        GoldEvidenceGroup(
+            unit_id=evidence_id,
+            child_ids=(evidence_id,),
+            mapping_status="mapped",
+        )
+        for evidence_id in evidence
+    )
     return GoldAnswerInfo(
         question_id=question_id,
         answer="gold",
@@ -36,6 +57,14 @@ def _gold(
             "unmatched_gold_id_count": unmatched,
             "ambiguous_gold_id_count": ambiguous,
         },
+        gold_evidence_contract_version="v1",
+        evidence_group_sets=(
+            GoldEvidenceGroupSet(
+                provenance_granularity="turn",
+                unit_kind="beam_source_message",
+                groups=groups,
+            ),
+        ),
     )
 
 
@@ -66,8 +95,11 @@ def _run(
     )
     atomic_write_jsonl(paths.answer_prompts_path, answers)
     method = {} if provenance is None else {"provenance_granularity": provenance}
+    manifest: dict[str, object] = {"method": method}
+    if provenance is not None:
+        manifest["benchmark_policy"] = V1_MANIFEST_BENCHMARK_POLICY
     return BeamRetrievalRecallEvaluator().evaluate_run_artifacts(
-        paths=paths, manifest={"method": method}
+        paths=paths, manifest=manifest,
     )
 
 
@@ -89,7 +121,7 @@ def test_turn_recall_matches_public_ids_and_any_ambiguous_position(tmp_path: Pat
         categories=["knowledge_update"],
     )
     assert result["score_records"][0]["score"] == 0.5
-    assert result["summary"]["ambiguous_gold_id_count"] == 1
+    assert result["score_records"][0]["details"]["gold_unit_ids"] == ["s1:t1", "s2:t1"]
 
 
 def test_empty_evidence_is_na_and_unmatched_is_counted(tmp_path: Path) -> None:
@@ -102,6 +134,7 @@ def test_empty_evidence_is_na_and_unmatched_is_counted(tmp_path: Path) -> None:
         answers=[{"question_id": "q1", "conversation_id": "c1"}],
         categories=["event_ordering"],
     )
+    assert result["score_records"][0]["status"] == "n/a"
     assert result["score_records"][0]["status"] == "n/a"
     assert result["summary"]["abstention_question_count"] == 1
     assert result["summary"]["unmatched_gold_id_count"] == 1

@@ -76,6 +76,7 @@ from memory_benchmark.runners.prediction import (
     PredictionRunSummary,
     _preflight_prediction_run,
     run_predictions,
+    validate_gold_evidence_contract_alignment,
 )
 
 
@@ -593,6 +594,13 @@ def run_registered_conversation_qa_prediction(
         )
 
     for child in children:
+        # gold evidence contract 交叉校验必须发生在任何目录创建、method factory
+        # 构造和真实 API 调用之前；operation-level benchmark 不走 preflight，
+        # 因此这里对全部 child 显式执行一次。
+        validate_gold_evidence_contract_alignment(
+            dataset=child.dataset,
+            benchmark_policy=child.benchmark_policy,
+        )
         if not getattr(benchmark_registration, "operation_level", False):
             _preflight_prediction_run(
                 dataset=child.dataset,
@@ -1573,20 +1581,42 @@ def _build_benchmark_policy_manifest(
         benchmark_registration: 当前 benchmark 的静态注册声明。
 
     输出:
-        dict | None: 尚未声明 policy 的 benchmark（B2-B5 待审计）返回 None，
-        manifest 不新增字段，保持既有兼容路径；已注册的 benchmark（当前只有
-        LoCoMo）返回稳定 `{"smoke": ..., "resume": ...}` 字典，供审计和 resume
-        一致性检查复用，不再只存在于 CLI `--help` 文本里。
+        dict | None: 尚未声明 policy 也未声明 gold evidence contract 的
+        benchmark 返回 None，manifest 不新增字段，保持既有兼容路径；已注册的
+        benchmark 返回稳定 `{"smoke": ..., "resume": ...}` 字典，声明 gold
+        evidence contract v1 时额外携带 `gold_evidence_contract_version`。
+        版本只落 benchmark_policy，禁止混进 method manifest；这里只出现版本
+        字符串，绝不出现任何私有 group/unit 内容。
     """
 
     smoke_policy = getattr(benchmark_registration, "smoke_policy", None)
     resume_policy = getattr(benchmark_registration, "resume_policy", None)
-    if smoke_policy is None and resume_policy is None:
+    gold_evidence_contract_version = getattr(
+        benchmark_registration,
+        "gold_evidence_contract_version",
+        None,
+    )
+    if gold_evidence_contract_version is not None and (
+        not isinstance(gold_evidence_contract_version, str)
+        or gold_evidence_contract_version != "v1"
+    ):
+        raise ConfigurationError(
+            "benchmark registration gold_evidence_contract_version must be None "
+            f"or 'v1', got {gold_evidence_contract_version!r}"
+        )
+    if (
+        smoke_policy is None
+        and resume_policy is None
+        and gold_evidence_contract_version is None
+    ):
         return None
-    return {
+    manifest: dict[str, object] = {
         "smoke": None if smoke_policy is None else smoke_policy.to_dict(),
         "resume": None if resume_policy is None else resume_policy.to_dict(),
     }
+    if gold_evidence_contract_version is not None:
+        manifest["gold_evidence_contract_version"] = gold_evidence_contract_version
+    return manifest
 
 
 def _build_method_manifest(

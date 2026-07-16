@@ -51,6 +51,7 @@ def _write_run(
         "run_id": "run",
         "benchmark_name": "longmemeval",
         "method": method,
+        "benchmark_policy": {"gold_evidence_contract_version": "v1"},
     }
     atomic_write_json(paths.manifest_path, manifest)
     atomic_write_jsonl(paths.answer_prompts_path, answer_prompts)
@@ -66,13 +67,41 @@ def _private_label(
     corpus_ids: list[str],
     session_ids: list[str],
 ) -> dict[str, object]:
-    """构造同时含公开匹配键和官方对照键的私有标签。"""
+    """构造同时含 v1 group sets 和旧 metadata 的私有标签。"""
 
+    groups = [
+        {
+            "unit_id": turn_id,
+            "child_ids": [turn_id],
+            "mapping_status": "mapped",
+        }
+        for turn_id in turn_ids
+    ]
     return {
         "question_id": question_id,
         "gold_answer": "gold",
         "category": "multi-session",
         "evidence": ["original-session"],
+        "gold_evidence_contract_version": "v1",
+        "evidence_group_sets": [
+            {
+                "provenance_granularity": "turn",
+                "unit_kind": "longmemeval_user_target_turn",
+                "groups": groups,
+            },
+            {
+                "provenance_granularity": "session",
+                "unit_kind": "longmemeval_answer_session",
+                "groups": [
+                    {
+                        "unit_id": sid,
+                        "child_ids": [sid],
+                        "mapping_status": "mapped",
+                    }
+                    for sid in session_ids
+                ],
+            },
+        ],
         "metadata": {
             "evidence_turn_ids": turn_ids,
             "evidence_turn_corpus_ids": corpus_ids,
@@ -115,13 +144,9 @@ def test_turn_provenance_matches_public_turn_ids_and_reports_official_aliases(
 
     record = result["score_records"][0]
     assert record["score"] == pytest.approx(0.5)
-    assert record["details"]["gold_evidence_ids"] == [
+    assert record["details"]["gold_unit_ids"] == [
         "session-a:t1",
         "session-b:t0",
-    ]
-    assert record["details"]["evidence_turn_corpus_ids"] == [
-        "session-a_2",
-        "session-b_1",
     ]
 
 
@@ -324,7 +349,7 @@ def test_declared_provenance_missing_private_gold_fails_fast(tmp_path: Path) -> 
         public_questions=[{"question_id": "q1", "category": "multi-session"}],
     )
 
-    with pytest.raises(ConfigurationError, match="evidence_turn_ids"):
+    with pytest.raises(ConfigurationError, match="old or mixed version"):
         LongMemEvalRetrievalRecallEvaluator().evaluate_run_artifacts(
             paths=paths,
             manifest=manifest,

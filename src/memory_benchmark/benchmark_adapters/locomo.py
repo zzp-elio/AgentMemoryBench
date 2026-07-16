@@ -18,6 +18,8 @@ from memory_benchmark.core import (
     Conversation,
     Dataset,
     GoldAnswerInfo,
+    GoldEvidenceGroup,
+    GoldEvidenceGroupSet,
     ImageRef,
     Question,
     Session,
@@ -144,9 +146,17 @@ class LoCoMoAdapter(BenchmarkAdapter):
             self._session_from_raw(conversation_raw, session_key)
             for session_key in _session_keys(conversation_raw)
         ]
+        canonical_turn_ids = {
+            turn.turn_id for session in sessions for turn in session.turns
+        }
+        canonical_session_prefixes = {
+            _evidence_session_prefix(turn_id) for turn_id in canonical_turn_ids
+        }
         questions, gold_answers, skipped_adversarial_count = self._questions_from_raw(
             sample.get("qa", []),
             conversation_id,
+            canonical_turn_ids=canonical_turn_ids,
+            canonical_session_prefixes=canonical_session_prefixes,
         )
 
         return Conversation(
@@ -200,12 +210,17 @@ class LoCoMoAdapter(BenchmarkAdapter):
         self,
         qa_raw: object,
         conversation_id: str,
+        *,
+        canonical_turn_ids: set[str],
+        canonical_session_prefixes: set[str],
     ) -> tuple[list[Question], dict[str, GoldAnswerInfo], int]:
         """把 LoCoMo QA 标注拆成公开 Question 和私有 GoldAnswerInfo。
 
         输入:
             qa_raw: 原始 sample["qa"]，应为 list[dict]。
             conversation_id: 当前 conversation 的 id。
+            canonical_turn_ids: 当前 conversation 的全部公开 turn id。
+            canonical_session_prefixes: 公开 turn id 的 `D<n>` session 前缀集合。
 
         输出:
             tuple: `(questions, gold_answers, skipped_adversarial_count)`。
@@ -241,14 +256,21 @@ class LoCoMoAdapter(BenchmarkAdapter):
                     metadata={"source_index": index},
                 )
             )
+            evidence = _evidence_to_list(qa_item.get("evidence"))
             gold_answers[question_id] = GoldAnswerInfo(
                 question_id=question_id,
                 answer=_answer_to_text(qa_item.get("answer")),
-                evidence=_evidence_to_list(qa_item.get("evidence")),
+                evidence=evidence,
                 metadata={
                     "category": category,
                     "source_index": index,
                 },
+                gold_evidence_contract_version="v1",
+                evidence_group_sets=_locomo_evidence_group_sets(
+                    evidence,
+                    canonical_turn_ids=canonical_turn_ids,
+                    canonical_session_prefixes=canonical_session_prefixes,
+                ),
             )
 
         return questions, gold_answers, skipped_adversarial_count
@@ -672,3 +694,83 @@ def _evidence_to_list(value: object) -> list[str]:
         return [str(item) for item in value if str(item).strip()]
     text = str(value).strip()
     return [text] if text else []
+
+
+def _evidence_session_prefix(dia_id: str) -> str:
+    """把 `D<n>:<turn>` 形式的 dia_id 向上聚合为 `D<n>` session 前缀。
+
+    与 `evaluators/locomo_recall.py` 的官方 session 上卷语义保持一字节不差：
+    无冒号的 token 原样返回（畸形 token 永不命中，但保留在分母中）。
+    """
+
+    prefix, _, rest = dia_id.partition(":")
+    return prefix if rest else dia_id
+
+
+def _locomo_evidence_group_sets(
+    evidence: list[str],
+    *,
+    canonical_turn_ids: set[str],
+    canonical_session_prefixes: set[str],
+) -> tuple[GoldEvidenceGroupSet, ...]:
+    """把官方 evidence dia_id 展开为 evaluator-private gold evidence group views。
+
+    输入:
+        evidence: 官方 QA evidence dia_id 列表（未去重）。
+        canonical_turn_ids: 当前 conversation 全部公开 turn id。
+        canonical_session_prefixes: 公开 turn id 的 `D<n>` session 前缀集合。
+
+    输出:
+        tuple[GoldEvidenceGroupSet, ...]: turn view（`locomo_utterance`，同名
+        canonical turn 为 child）与 session view
+        （`locomo_utterance_session_projection`，每个官方 dia_id 仍是一个 unit，
+        child 是其 `D<n>` 前缀）。官方 dia_id 稳定去重；无法映射为 unmatched；
+        空 evidence 保留空 groups。
+    """
+
+    deduped_dia_ids = list(dict.fromkeys(evidence))
+    turn_groups = tuple(
+        GoldEvidenceGroup(
+            unit_id=dia_id,
+            child_ids=(dia_id,),
+            mapping_status="mapped",
+        )
+        if dia_id in canonical_turn_ids
+        else GoldEvidenceGroup(
+            unit_id=dia_id,
+            child_ids=(),
+            mapping_status="unmatched",
+        )
+        for dia_id in deduped_dia_ids
+    )
+    session_groups: list[GoldEvidenceGroup] = []
+    for dia_id in deduped_dia_ids:
+        session_prefix = _evidence_session_prefix(dia_id)
+        if session_prefix in canonical_session_prefixes:
+            session_groups.append(
+                GoldEvidenceGroup(
+                    unit_id=dia_id,
+                    child_ids=(session_prefix,),
+                    mapping_status="mapped",
+                )
+            )
+        else:
+            session_groups.append(
+                GoldEvidenceGroup(
+                    unit_id=dia_id,
+                    child_ids=(),
+                    mapping_status="unmatched",
+                )
+            )
+    return (
+        GoldEvidenceGroupSet(
+            provenance_granularity="turn",
+            unit_kind="locomo_utterance",
+            groups=turn_groups,
+        ),
+        GoldEvidenceGroupSet(
+            provenance_granularity="session",
+            unit_kind="locomo_utterance_session_projection",
+            groups=tuple(session_groups),
+        ),
+    )

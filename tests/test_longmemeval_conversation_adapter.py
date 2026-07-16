@@ -402,5 +402,142 @@ class LongMemEvalConversationAdapterTest(unittest.TestCase):
         self.assertEqual(smoke_run.dataset.conversations[0].metadata["variant"], "m_cleaned")
 
 
+class LongMemEvalGoldEvidenceGroupTest(unittest.TestCase):
+    """验证 LongMemEval gold evidence contract v1 group views。"""
+
+    def _convert(self, instance: dict[str, Any]):
+        """用 s_cleaned adapter 把 synthetic instance 转成 conversation。"""
+
+        return LongMemEvalAdapter(ROOT)._conversation_from_instance(instance, 0)
+
+    def test_assistant_has_answer_turn_is_not_a_turn_gold_unit(self):
+        """assistant 侧 has_answer 不得进入官方 turn view（官方只收 user）。"""
+
+        instance = _minimal_instance()
+        instance["haystack_sessions"] = [
+            [
+                {"role": "user", "content": "I like tea.", "has_answer": True},
+                {"role": "assistant", "content": "You like tea.", "has_answer": True},
+            ]
+        ]
+        conversation = self._convert(instance)
+        gold = conversation.gold_answers["synthetic_q1"]
+
+        self.assertEqual(gold.gold_evidence_contract_version, "v1")
+        views = {
+            (group_set.provenance_granularity, group_set.unit_kind): group_set
+            for group_set in gold.evidence_group_sets
+        }
+        self.assertEqual(
+            set(views),
+            {
+                ("turn", "longmemeval_user_target_turn"),
+                ("session", "longmemeval_answer_session"),
+            },
+        )
+        turn_view = views[("turn", "longmemeval_user_target_turn")]
+        self.assertEqual(len(turn_view.groups), 1)
+        self.assertEqual(turn_view.groups[0].unit_id, "session_a:t0")
+        self.assertEqual(turn_view.groups[0].child_ids, ("session_a:t0",))
+        self.assertEqual(turn_view.groups[0].mapping_status, "mapped")
+        # 旧 role-agnostic metadata 仍保留供审计，但权威 qrel 不再收 assistant。
+        self.assertEqual(
+            gold.metadata["evidence_turn_ids"],
+            ["session_a:t0", "session_a:t1"],
+        )
+
+    def test_no_user_target_question_has_empty_turn_view(self):
+        """只有 assistant 侧 target 的题在 turn view 得到空 groups。"""
+
+        instance = _minimal_instance()
+        instance["haystack_sessions"] = [
+            [
+                {"role": "user", "content": "I like tea."},
+                {"role": "assistant", "content": "Noted.", "has_answer": True},
+            ]
+        ]
+        conversation = self._convert(instance)
+        gold = conversation.gold_answers["synthetic_q1"]
+        turn_view = next(
+            group_set
+            for group_set in gold.evidence_group_sets
+            if group_set.provenance_granularity == "turn"
+        )
+
+        self.assertEqual(turn_view.groups, ())
+
+    def test_session_view_maps_official_session_to_public_ids(self):
+        """session view 以官方 answer_session_id 为 unit，child 为公开 session id。"""
+
+        instance = _minimal_instance()
+        instance["haystack_session_ids"] = ["session_a", "session_a", "session_b"]
+        instance["haystack_dates"] = ["d1", "d2", "d3"]
+        instance["haystack_sessions"] = [
+            [{"role": "user", "content": "one", "has_answer": True}],
+            [{"role": "user", "content": "two"}],
+            [{"role": "user", "content": "three"}],
+        ]
+        instance["answer_session_ids"] = ["session_a", "session_a", "missing_session"]
+        conversation = self._convert(instance)
+        gold = conversation.gold_answers["synthetic_q1"]
+        session_view = next(
+            group_set
+            for group_set in gold.evidence_group_sets
+            if group_set.provenance_granularity == "session"
+        )
+
+        groups = {group.unit_id: group for group in session_view.groups}
+        # 官方 id 稳定去重：session_a 只出现一次。
+        self.assertEqual(
+            [group.unit_id for group in session_view.groups],
+            ["session_a", "missing_session"],
+        )
+        # 重复 haystack session id 的两个公开 occurrence 都是合法 child。
+        self.assertEqual(
+            groups["session_a"].child_ids,
+            ("session_a", "session_a#occurrence_2"),
+        )
+        self.assertEqual(groups["session_a"].mapping_status, "mapped")
+        # 找不到公开 session 的官方 id 记 unmatched，不静默删分母。
+        self.assertEqual(groups["missing_session"].mapping_status, "unmatched")
+
+    def test_blank_user_target_turn_becomes_unmatched(self):
+        """因空内容被跳过的 user 侧 target turn 记 unmatched，不制造伪 child。"""
+
+        instance = _minimal_instance()
+        instance["haystack_sessions"] = [
+            [
+                {"role": "user", "content": "   ", "has_answer": True},
+                {"role": "user", "content": "I like tea.", "has_answer": True},
+                {"role": "assistant", "content": "Noted."},
+            ]
+        ]
+        conversation = self._convert(instance)
+        gold = conversation.gold_answers["synthetic_q1"]
+        turn_view = next(
+            group_set
+            for group_set in gold.evidence_group_sets
+            if group_set.provenance_granularity == "turn"
+        )
+
+        self.assertEqual(
+            [(group.unit_id, group.mapping_status) for group in turn_view.groups],
+            [("session_a:t0", "unmatched"), ("session_a:t1", "mapped")],
+        )
+
+    def test_real_data_first_instance_declares_v1_views(self):
+        """真实 s_cleaned 首条 instance 应声明 v1 且公开 payload 无泄漏。"""
+
+        conversation = LongMemEvalAdapter(ROOT).load(limit=1).conversations[0]
+        gold = next(iter(conversation.gold_answers.values()))
+
+        self.assertEqual(gold.gold_evidence_contract_version, "v1")
+        self.assertEqual(len(gold.evidence_group_sets), 2)
+        keys = _collect_keys(conversation.to_public_dict())
+        self.assertNotIn("evidence_group_sets", keys)
+        self.assertNotIn("unit_id", keys)
+        self.assertNotIn("gold_evidence_contract_version", keys)
+
+
 if __name__ == "__main__":
     unittest.main()

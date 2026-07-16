@@ -461,3 +461,22 @@ def test_halumem_medium_real_data_smoke_prefix_anchor() -> None:
     assert len(smoke_first.sessions) == 4
     assert sum(len(session.turns) for session in smoke_first.sessions) == 8
     assert len(smoke_first.questions) == 1
+
+
+def test_halumem_gold_declares_v1_with_zero_group_sets(tmp_path: Path) -> None:
+    """HaluMem gold 声明 v1 但零 qrel view：fact 无 turn 回指，禁止合成 qrel。"""
+
+    source = tmp_path / "data" / "halumem" / "HaluMem-Medium.jsonl"
+    _write_jsonl(source, [_user_row()])
+    conversation = HaluMemAdapter(tmp_path, variant="medium").load().conversations[0]
+
+    for gold in conversation.gold_answers.values():
+        assert gold.gold_evidence_contract_version == "v1"
+        assert gold.evidence_group_sets == ()
+
+    # 公开 payload 不得出现 contract/group 键。
+    import json as _json
+
+    public_text = _json.dumps(conversation.to_public_dict(), ensure_ascii=False)
+    assert "evidence_group_sets" not in public_text
+    assert "gold_evidence_contract_version" not in public_text

@@ -21,6 +21,8 @@ from memory_benchmark.core import (
     Conversation,
     Dataset,
     GoldAnswerInfo,
+    GoldEvidenceGroup,
+    GoldEvidenceGroupSet,
     PromptMessage,
     Question,
     Session,
@@ -636,6 +638,7 @@ def _conversation_from_trajectory(
         question_type=question_type,
         scenario=scenario,
         tid=tid,
+        public_turn_count=len(turns),
     )
 
     # MemBench trajectory 没有原生 session 时间：这里的单 Session 只是统一 schema 的
@@ -749,6 +752,7 @@ def _question_and_gold_from_qa(
     question_type: str,
     scenario: str,
     tid: str,
+    public_turn_count: int,
 ) -> tuple[Question, GoldAnswerInfo]:
     """把 MemBench QA 拆成公开 Question 和私有 GoldAnswerInfo。"""
 
@@ -797,8 +801,59 @@ def _question_and_gold_from_qa(
             "source_qid": qid,
             "source_tid": tid,
         },
+        gold_evidence_contract_version="v1",
+        evidence_group_sets=_membench_evidence_group_sets(
+            target_step_ids,
+            public_turn_count=public_turn_count,
+        ),
     )
     return question, gold
+
+
+def _membench_evidence_group_sets(
+    target_step_ids: list[int],
+    *,
+    public_turn_count: int,
+) -> tuple[GoldEvidenceGroupSet, ...]:
+    """把官方 0 基 target_step_id 展开为 evaluator-private gold evidence groups。
+
+    输入:
+        target_step_ids: 官方 `QA.target_step_id`（0 基，未去重）。
+        public_turn_count: 当前 trajectory 的公开 turn 总数。
+
+    输出:
+        tuple[GoldEvidenceGroupSet, ...]: 单个 turn view（`membench_step`）。
+        官方 target 按首次出现顺序去重，一个 step 一个 group；当前 composite
+        turn（一 step 一 Turn）下合法 target 退化 singleton child（1 基公开
+        turn id）；`target_step_id >= public_turn_count` 的越界 target 建
+        unmatched group，不制造不存在的 child；空 target → 空 groups。
+    """
+
+    groups: list[GoldEvidenceGroup] = []
+    for step_id in dict.fromkeys(target_step_ids):
+        if step_id < public_turn_count:
+            groups.append(
+                GoldEvidenceGroup(
+                    unit_id=str(step_id),
+                    child_ids=(str(step_id + 1),),
+                    mapping_status="mapped",
+                )
+            )
+        else:
+            groups.append(
+                GoldEvidenceGroup(
+                    unit_id=str(step_id),
+                    child_ids=(),
+                    mapping_status="unmatched",
+                )
+            )
+    return (
+        GoldEvidenceGroupSet(
+            provenance_granularity="turn",
+            unit_kind="membench_step",
+            groups=tuple(groups),
+        ),
+    )
 
 
 def _source_profile_from_path(path: Path) -> dict[str, str]:

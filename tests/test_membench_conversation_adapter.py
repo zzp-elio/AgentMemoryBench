@@ -800,3 +800,106 @@ def test_out_of_bounds_target_step_id_maps_to_nonexistent_turn_id(tmp_path: Path
     assert gold.evidence == ["3"]
     assert "3" not in all_turn_ids  # 公开空间确实无对应 turn
     assert gold.metadata["target_step_id"] == [2]  # 官方 0 基原值保留
+
+
+# ---------------------------------------------------------------------------
+# gold evidence contract v1 group views
+# ---------------------------------------------------------------------------
+
+
+def _membench_turn_view(gold) -> object:
+    """取出 MemBench gold 的唯一 turn view。"""
+
+    assert gold.gold_evidence_contract_version == "v1"
+    views = [
+        group_set
+        for group_set in gold.evidence_group_sets
+        if group_set.provenance_granularity == "turn"
+        and group_set.unit_kind == "membench_step"
+    ]
+    assert len(views) == 1
+    return views[0]
+
+
+def _load_with_qa_override(tmp_path: Path, qa_override: dict[str, Any]):
+    """以覆盖 QA 字段后的 synthetic FirstAgent payload 加载首条 conversation。"""
+
+    payload = _synthetic_payload()
+    payload["simple"]["roles"][0]["QA"].update(qa_override)
+    payload["simple"].pop("observations")
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, payload)
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+    return dataset.conversations[0]
+
+
+def test_membench_step_stays_single_composite_turn_with_singleton_group(
+    tmp_path: Path,
+) -> None:
+    """本卡不拆 FirstAgent：一 step 仍一 composite turn，group 退化 singleton。"""
+
+    conversation = _load_with_qa_override(tmp_path, {"target_step_id": [1]})
+    # canonical 结构未变：两 step → 两 turn，公开 id 1 基。
+    assert [turn.turn_id for session in conversation.sessions for turn in session.turns] == [
+        "1",
+        "2",
+    ]
+    gold = conversation.gold_answers[conversation.questions[0].question_id]
+    turn_view = _membench_turn_view(gold)
+
+    assert len(turn_view.groups) == 1
+    group = turn_view.groups[0]
+    assert group.unit_id == "1"  # 官方 0 基 step id 作私有 unit_id
+    assert group.child_ids == ("2",)  # 1 基公开 turn id 作 child
+    assert group.mapping_status == "mapped"
+
+
+def test_membench_duplicate_targets_dedup_to_one_group(tmp_path: Path) -> None:
+    """重复官方 target 稳定去重，一个 step 一个 group。"""
+
+    conversation = _load_with_qa_override(tmp_path, {"target_step_id": [1, 0, 1]})
+    gold = conversation.gold_answers[conversation.questions[0].question_id]
+    turn_view = _membench_turn_view(gold)
+
+    assert [group.unit_id for group in turn_view.groups] == ["1", "0"]
+    assert all(group.mapping_status == "mapped" for group in turn_view.groups)
+
+
+def test_membench_out_of_bounds_target_becomes_unmatched_group(
+    tmp_path: Path,
+) -> None:
+    """`target_step_id == len(message_list)` 建 unmatched group，不造伪 child。"""
+
+    conversation = _load_with_qa_override(tmp_path, {"target_step_id": [2]})
+    gold = conversation.gold_answers[conversation.questions[0].question_id]
+    turn_view = _membench_turn_view(gold)
+
+    assert len(turn_view.groups) == 1
+    assert turn_view.groups[0].unit_id == "2"
+    assert turn_view.groups[0].mapping_status == "unmatched"
+    assert turn_view.groups[0].child_ids == ()
+
+
+def test_membench_empty_target_keeps_empty_groups(tmp_path: Path) -> None:
+    """空 target（highlevel_rec 孤例形态）→ 空 groups，不合成 qrel。"""
+
+    conversation = _load_with_qa_override(tmp_path, {"target_step_id": []})
+    gold = conversation.gold_answers[conversation.questions[0].question_id]
+
+    assert _membench_turn_view(gold).groups == ()
+
+
+def test_membench_public_payload_has_no_group_keys(tmp_path: Path) -> None:
+    """公开 payload 不得出现 group/unit/version 键。"""
+
+    conversation = _load_with_qa_override(tmp_path, {"target_step_id": [1]})
+    public_text = json.dumps(conversation.to_public_dict(), ensure_ascii=False)
+
+    assert "evidence_group_sets" not in public_text
+    assert "unit_id" not in public_text
+    assert "gold_evidence_contract_version" not in public_text
+    validate_no_private_keys(conversation.to_public_dict())

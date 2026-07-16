@@ -331,5 +331,129 @@ class LoCoMoOfficialSourceIdentityAndFullDataProfileTest(unittest.TestCase):
                     previous_speaker = turn.speaker
 
 
+class LoCoMoGoldEvidenceGroupTest(unittest.TestCase):
+    """验证 LoCoMo gold evidence contract v1 group views。"""
+
+    def _synthetic_conversation(self, evidence: list[str]):
+        """用固定两 session 样本构造 conversation，并注入指定 evidence。"""
+
+        sample = {
+            "sample_id": "conv-synthetic",
+            "conversation": {
+                "speaker_a": "Alice",
+                "speaker_b": "Bob",
+                "session_1": [
+                    {"speaker": "Alice", "dia_id": "D1:1", "text": "hello"},
+                    {"speaker": "Bob", "dia_id": "D1:2", "text": "hi"},
+                ],
+                "session_1_date_time": "1:00 pm on 1 May, 2023",
+                "session_2": [
+                    {"speaker": "Alice", "dia_id": "D2:1", "text": "news"},
+                ],
+                "session_2_date_time": "2:00 pm on 2 May, 2023",
+            },
+            "qa": [
+                {
+                    "question": "What was said?",
+                    "answer": "hello",
+                    "evidence": evidence,
+                    "category": 1,
+                }
+            ],
+        }
+        return LoCoMoAdapter(ROOT)._conversation_from_sample(sample, "0")
+
+    def test_real_data_gold_declares_v1_with_dual_views(self):
+        """真实数据每个 gold 都应声明 v1 并携带 turn/session 两个 view。"""
+
+        conversation = LoCoMoAdapter(ROOT).load(limit=1).conversations[0]
+        canonical_turn_ids = {
+            turn.turn_id
+            for session in conversation.sessions
+            for turn in session.turns
+        }
+        for gold in conversation.gold_answers.values():
+            self.assertEqual(gold.gold_evidence_contract_version, "v1")
+            views = {
+                (group_set.provenance_granularity, group_set.unit_kind): group_set
+                for group_set in gold.evidence_group_sets
+            }
+            self.assertEqual(
+                set(views),
+                {
+                    ("turn", "locomo_utterance"),
+                    ("session", "locomo_utterance_session_projection"),
+                },
+            )
+            turn_view = views[("turn", "locomo_utterance")]
+            session_view = views[("session", "locomo_utterance_session_projection")]
+            # 两个 view 的分母都是稳定去重后的官方 dia_id 数。
+            deduped = list(dict.fromkeys(gold.evidence))
+            self.assertEqual([g.unit_id for g in turn_view.groups], deduped)
+            self.assertEqual([g.unit_id for g in session_view.groups], deduped)
+            for group in turn_view.groups:
+                if group.mapping_status == "mapped":
+                    self.assertEqual(group.child_ids, (group.unit_id,))
+                    self.assertIn(group.unit_id, canonical_turn_ids)
+                else:
+                    self.assertNotIn(group.unit_id, canonical_turn_ids)
+            for group in session_view.groups:
+                if group.mapping_status == "mapped":
+                    self.assertEqual(len(group.child_ids), 1)
+                    self.assertTrue(group.child_ids[0].startswith("D"))
+                    self.assertNotIn(":", group.child_ids[0])
+
+    def test_synthetic_dedup_mapping_and_session_projection(self):
+        """重复 dia_id 稳定去重；不可映射 token 两个 view 都记 unmatched。"""
+
+        conversation = self._synthetic_conversation(
+            ["D1:2", "D1:2", "D2:1", "D9:9", "D"],
+        )
+        gold = next(iter(conversation.gold_answers.values()))
+        views = {
+            group_set.provenance_granularity: group_set
+            for group_set in gold.evidence_group_sets
+        }
+
+        turn_groups = {g.unit_id: g for g in views["turn"].groups}
+        self.assertEqual(
+            [g.unit_id for g in views["turn"].groups],
+            ["D1:2", "D2:1", "D9:9", "D"],
+        )
+        self.assertEqual(turn_groups["D1:2"].mapping_status, "mapped")
+        self.assertEqual(turn_groups["D1:2"].child_ids, ("D1:2",))
+        self.assertEqual(turn_groups["D9:9"].mapping_status, "unmatched")
+        self.assertEqual(turn_groups["D"].mapping_status, "unmatched")
+
+        session_groups = {g.unit_id: g for g in views["session"].groups}
+        # D1:2 与 D2:1 的 session 前缀存在 → mapped 到前缀 child。
+        self.assertEqual(session_groups["D1:2"].child_ids, ("D1",))
+        self.assertEqual(session_groups["D2:1"].child_ids, ("D2",))
+        # D9:9 前缀 D9 不存在、"D" 无冒号 → unmatched。
+        self.assertEqual(session_groups["D9:9"].mapping_status, "unmatched")
+        self.assertEqual(session_groups["D"].mapping_status, "unmatched")
+
+    def test_synthetic_empty_evidence_keeps_empty_groups(self):
+        """空 evidence 在两个 view 都保留空 groups，不合成 qrel。"""
+
+        conversation = self._synthetic_conversation([])
+        gold = next(iter(conversation.gold_answers.values()))
+
+        self.assertEqual(gold.gold_evidence_contract_version, "v1")
+        for group_set in gold.evidence_group_sets:
+            self.assertEqual(group_set.groups, ())
+
+    def test_public_payload_has_no_group_or_unit_keys(self):
+        """公开 payload 不得出现 group/unit_id/raw qrel 键。"""
+
+        conversation = self._synthetic_conversation(["D1:2"])
+        keys = _collect_keys(conversation.to_public_dict())
+
+        self.assertNotIn("evidence_group_sets", keys)
+        self.assertNotIn("unit_id", keys)
+        self.assertNotIn("gold_evidence_contract_version", keys)
+        self.assertNotIn("evidence", keys)
+
+
 if __name__ == "__main__":
     unittest.main()

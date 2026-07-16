@@ -22,6 +22,8 @@ from memory_benchmark.core import (
     Conversation,
     Dataset,
     GoldAnswerInfo,
+    GoldEvidenceGroup,
+    GoldEvidenceGroupSet,
     PromptMessage,
     Question,
     Session,
@@ -427,6 +429,11 @@ def _conversation_from_row(
                 answer=gold_answer_text,
                 evidence=[],
                 metadata=gold_metadata,
+                gold_evidence_contract_version="v1",
+                evidence_group_sets=_beam_evidence_group_sets(
+                    q_obj.get("source_chat_ids"),
+                    raw_id_to_public_turn_ids,
+                ),
             )
 
     return Conversation(
@@ -517,6 +524,63 @@ def _flatten_evidence_atoms(value: Any) -> list[Any]:
     if isinstance(value, (list, tuple)):
         return [atom for nested in value for atom in _flatten_evidence_atoms(nested)]
     return [] if value is None else [value]
+
+
+def _beam_evidence_group_sets(
+    source_chat_ids: Any,
+    raw_id_to_public_turn_ids: dict[int, list[str]],
+) -> tuple[GoldEvidenceGroupSet, ...]:
+    """把官方 raw source id 展开为 evaluator-private gold evidence groups。
+
+    输入:
+        source_chat_ids: 官方 `source_chat_ids` 原始结构（flat list / 语义分组
+            dict / None）。
+        raw_id_to_public_turn_ids: 当前 conversation 内 raw id 到全部公开 turn id
+            的映射（1M 四个异常 conversation 中一个 raw id 可对应多个位置）。
+
+    输出:
+        tuple[GoldEvidenceGroupSet, ...]: 单个 turn view
+        （`beam_source_message`）。每个稳定去重后的官方 raw id 是一个 unit：
+        单一位置 → singleton mapped；重复 raw id → multi-child mapped any-of；
+        找不到（含 10M `'--'`）→ unmatched；`None` → 空 groups。canonical turn
+        id namespace 保持现状（`s1:t1` / `p1:s1:t1`），raw id 只作私有 unit_id。
+    """
+
+    groups: list[GoldEvidenceGroup] = []
+    seen_unit_ids: set[str] = set()
+    for atom in _flatten_evidence_atoms(source_chat_ids):
+        unit_id = str(atom)
+        if unit_id in seen_unit_ids:
+            continue
+        seen_unit_ids.add(unit_id)
+        public_ids = (
+            raw_id_to_public_turn_ids.get(atom, [])
+            if isinstance(atom, int) and not isinstance(atom, bool)
+            else []
+        )
+        if public_ids:
+            groups.append(
+                GoldEvidenceGroup(
+                    unit_id=unit_id,
+                    child_ids=tuple(dict.fromkeys(public_ids)),
+                    mapping_status="mapped",
+                )
+            )
+        else:
+            groups.append(
+                GoldEvidenceGroup(
+                    unit_id=unit_id,
+                    child_ids=(),
+                    mapping_status="unmatched",
+                )
+            )
+    return (
+        GoldEvidenceGroupSet(
+            provenance_granularity="turn",
+            unit_kind="beam_source_message",
+            groups=tuple(groups),
+        ),
+    )
 
 
 def _map_evidence_turn_ids(

@@ -1,11 +1,21 @@
 """测试 conversation-QA 数据强约束校验。"""
 
+import json
 import unittest
 
 import pytest
 
 from memory_benchmark.benchmark_adapters.base import BenchmarkAdapter
-from memory_benchmark.core import Conversation, Dataset, GoldAnswerInfo, Question, Session, Turn
+from memory_benchmark.core import (
+    Conversation,
+    Dataset,
+    GoldAnswerInfo,
+    GoldEvidenceGroup,
+    GoldEvidenceGroupSet,
+    Question,
+    Session,
+    Turn,
+)
 from memory_benchmark.core.exceptions import DataLeakageError, DatasetValidationError
 from memory_benchmark.core.validators import (
     validate_dataset,
@@ -122,6 +132,255 @@ class ConversationDatasetValidationTest(unittest.TestCase):
 
         with self.assertRaises(DataLeakageError):
             adapter.load()
+
+
+def _mapped_group(unit_id: str = "u1", child_ids: tuple[str, ...] = ("t1",)) -> GoldEvidenceGroup:
+    """构造一个合法 mapped group，供反例测试逐字段污染。"""
+
+    return GoldEvidenceGroup(
+        unit_id=unit_id,
+        child_ids=child_ids,
+        mapping_status="mapped",
+    )
+
+
+def _turn_group_set(groups: tuple[GoldEvidenceGroup, ...]) -> GoldEvidenceGroupSet:
+    """构造一个 turn 粒度合法 group set。"""
+
+    return GoldEvidenceGroupSet(
+        provenance_granularity="turn",
+        unit_kind="fake_unit",
+        groups=groups,
+    )
+
+
+class GoldEvidenceGroupEntityTest(unittest.TestCase):
+    """GoldEvidenceGroup/GoldEvidenceGroupSet 的运行时强反例。"""
+
+    def test_valid_mapped_and_unmatched_groups_pass(self):
+        """mapped 至少一个 child；unmatched 零 child；同名退化 unit 合法。"""
+
+        mapped = GoldEvidenceGroup(
+            unit_id="D1:2",
+            child_ids=("D1:2",),
+            mapping_status="mapped",
+        )
+        unmatched = GoldEvidenceGroup(
+            unit_id="--",
+            child_ids=(),
+            mapping_status="unmatched",
+        )
+        self.assertEqual(mapped.unit_id, "D1:2")
+        self.assertEqual(unmatched.child_ids, ())
+
+    def test_unknown_mapping_status_rejected(self):
+        """未知 mapping status 必须构造期拒绝。"""
+
+        for status in ("bogus", "MAPPED", "", None, 1):
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                GoldEvidenceGroup(unit_id="u1", child_ids=("t1",), mapping_status=status)
+
+    def test_blank_or_padded_ids_rejected(self):
+        """空串或带首尾空白的 unit/child id 拒绝，不做宽松正规化。"""
+
+        for bad_id in ("", " u1", "u1 ", "\tu1", "u1\n"):
+            with self.subTest(unit_id=bad_id), self.assertRaises(ValueError):
+                GoldEvidenceGroup(unit_id=bad_id, child_ids=("t1",), mapping_status="mapped")
+            with self.subTest(child_id=bad_id), self.assertRaises(ValueError):
+                GoldEvidenceGroup(unit_id="u1", child_ids=(bad_id,), mapping_status="mapped")
+
+    def test_non_string_ids_rejected(self):
+        """unit/child id 类型必须严格是 str。"""
+
+        with self.assertRaises(ValueError):
+            GoldEvidenceGroup(unit_id=1, child_ids=("t1",), mapping_status="mapped")
+        with self.assertRaises(ValueError):
+            GoldEvidenceGroup(unit_id="u1", child_ids=(1,), mapping_status="mapped")
+
+    def test_list_cannot_impersonate_child_tuple(self):
+        """child_ids 必须是 tuple，list 冒充直接拒绝。"""
+
+        with self.assertRaises(ValueError):
+            GoldEvidenceGroup(unit_id="u1", child_ids=["t1"], mapping_status="mapped")
+
+    def test_mapped_requires_child_and_unmatched_forbids_child(self):
+        """mapped 空 child、unmatched 非空 child 都是非法状态。"""
+
+        with self.assertRaises(ValueError):
+            GoldEvidenceGroup(unit_id="u1", child_ids=(), mapping_status="mapped")
+        with self.assertRaises(ValueError):
+            GoldEvidenceGroup(unit_id="u1", child_ids=("t1",), mapping_status="unmatched")
+
+    def test_duplicate_child_ids_rejected(self):
+        """同一 group 内 child id 不得重复。"""
+
+        with self.assertRaises(ValueError):
+            GoldEvidenceGroup(
+                unit_id="u1",
+                child_ids=("t1", "t1"),
+                mapping_status="mapped",
+            )
+
+    def test_group_set_rejects_unknown_granularity(self):
+        """granularity 只接受 turn/session。"""
+
+        for granularity in ("pair", "conversation", "", None, "TURN"):
+            with self.subTest(granularity=granularity), self.assertRaises(ValueError):
+                GoldEvidenceGroupSet(
+                    provenance_granularity=granularity,
+                    unit_kind="fake_unit",
+                    groups=(_mapped_group(),),
+                )
+
+    def test_group_set_rejects_blank_unit_kind_and_list_groups(self):
+        """unit_kind 必须非空未 padded；groups 必须是强类型 tuple。"""
+
+        with self.assertRaises(ValueError):
+            GoldEvidenceGroupSet(
+                provenance_granularity="turn",
+                unit_kind=" fake",
+                groups=(),
+            )
+        with self.assertRaises(ValueError):
+            GoldEvidenceGroupSet(
+                provenance_granularity="turn",
+                unit_kind="fake_unit",
+                groups=[_mapped_group()],
+            )
+        with self.assertRaises(ValueError):
+            GoldEvidenceGroupSet(
+                provenance_granularity="turn",
+                unit_kind="fake_unit",
+                groups=({"unit_id": "u1"},),
+            )
+
+    def test_group_set_rejects_duplicate_unit_ids(self):
+        """同一 set 内 unit id 不得重复。"""
+
+        with self.assertRaises(ValueError):
+            _turn_group_set((_mapped_group("u1"), _mapped_group("u1", ("t2",))))
+
+    def test_empty_group_set_is_legal(self):
+        """groups=() 合法，表示该 view 确实没有 gold。"""
+
+        group_set = _turn_group_set(())
+        self.assertEqual(group_set.groups, ())
+
+
+class GoldAnswerInfoContractTest(unittest.TestCase):
+    """GoldAnswerInfo 的 gold evidence contract v1 强校验。"""
+
+    def test_version_only_accepts_none_or_v1(self):
+        """未知 version（含空白与 v2）全部拒绝。"""
+
+        for version in ("", " ", "v2", "V1", "bogus"):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                GoldAnswerInfo(
+                    question_id="q1",
+                    answer="tea",
+                    gold_evidence_contract_version=version,
+                )
+
+    def test_group_sets_require_v1(self):
+        """携带 group sets 时 version 必须显式 v1。"""
+
+        with self.assertRaises(ValueError):
+            GoldAnswerInfo(
+                question_id="q1",
+                answer="tea",
+                evidence_group_sets=(_turn_group_set((_mapped_group(),)),),
+            )
+
+    def test_group_sets_must_be_typed_tuple(self):
+        """evidence_group_sets 必须是 GoldEvidenceGroupSet tuple。"""
+
+        with self.assertRaises(ValueError):
+            GoldAnswerInfo(
+                question_id="q1",
+                answer="tea",
+                gold_evidence_contract_version="v1",
+                evidence_group_sets=[_turn_group_set(())],
+            )
+        with self.assertRaises(ValueError):
+            GoldAnswerInfo(
+                question_id="q1",
+                answer="tea",
+                gold_evidence_contract_version="v1",
+                evidence_group_sets=({"provenance_granularity": "turn"},),
+            )
+
+    def test_duplicate_view_rejected(self):
+        """同一 GoldAnswerInfo 内 (granularity, unit_kind) 不得重复。"""
+
+        with self.assertRaises(ValueError):
+            GoldAnswerInfo(
+                question_id="q1",
+                answer="tea",
+                gold_evidence_contract_version="v1",
+                evidence_group_sets=(_turn_group_set(()), _turn_group_set(())),
+            )
+
+    def test_v1_with_zero_group_sets_is_legal(self):
+        """HaluMem 形态：声明 v1 但没有任何 qrel view。"""
+
+        gold = GoldAnswerInfo(
+            question_id="q1",
+            answer="tea",
+            gold_evidence_contract_version="v1",
+            evidence_group_sets=(),
+        )
+        self.assertEqual(gold.evidence_group_sets, ())
+
+    def test_json_round_trip_preserves_groups(self):
+        """to_dict → json → 重建后 group 结构逐字段一致。"""
+
+        gold = GoldAnswerInfo(
+            question_id="q1",
+            answer="tea",
+            gold_evidence_contract_version="v1",
+            evidence_group_sets=(
+                GoldEvidenceGroupSet(
+                    provenance_granularity="turn",
+                    unit_kind="fake_unit",
+                    groups=(
+                        GoldEvidenceGroup(
+                            unit_id="u1",
+                            child_ids=("t1", "t2"),
+                            mapping_status="mapped",
+                        ),
+                        GoldEvidenceGroup(
+                            unit_id="u2",
+                            child_ids=(),
+                            mapping_status="unmatched",
+                        ),
+                    ),
+                ),
+                GoldEvidenceGroupSet(
+                    provenance_granularity="session",
+                    unit_kind="fake_session_unit",
+                    groups=(),
+                ),
+            ),
+        )
+
+        payload = json.loads(json.dumps(gold.to_dict(), ensure_ascii=False))
+        rebuilt_sets = tuple(
+            GoldEvidenceGroupSet(
+                provenance_granularity=raw_set["provenance_granularity"],
+                unit_kind=raw_set["unit_kind"],
+                groups=tuple(
+                    GoldEvidenceGroup(
+                        unit_id=raw_group["unit_id"],
+                        child_ids=tuple(raw_group["child_ids"]),
+                        mapping_status=raw_group["mapping_status"],
+                    )
+                    for raw_group in raw_set["groups"]
+                ),
+            )
+            for raw_set in payload["evidence_group_sets"]
+        )
+        self.assertEqual(payload["gold_evidence_contract_version"], "v1")
+        self.assertEqual(rebuilt_sets, gold.evidence_group_sets)
 
 
 if __name__ == "__main__":

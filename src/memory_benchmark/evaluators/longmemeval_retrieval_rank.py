@@ -1,4 +1,10 @@
-"""LongMemEval 官方检索排名指标的 artifact-only 实现。"""
+"""LongMemEval 官方检索排名指标的 artifact-only 实现。
+
+权威 qrel 是 gold evidence contract v1 的 `evidence_group_sets`；一个 group 的
+rank 是其任一 child 首次出现的最小 rank，同 group 多 child 与同 child 重复命中
+都只计一次；unmatched group 留在 ideal gold 数中但永远不命中。`_abs` 与官方
+no-target 题（turn 主路径 canonical 分母 419）都记 N/A 不评分。
+"""
 
 from __future__ import annotations
 
@@ -7,7 +13,15 @@ from math import log2
 from typing import Any
 
 from memory_benchmark.core import ConfigurationError
+from memory_benchmark.core.entities import GoldEvidenceGroup
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
+
+from .gold_evidence_groups import (
+    group_first_hit_rank,
+    parse_evidence_group_sets,
+    require_manifest_gold_evidence_contract_v1,
+    select_group_set,
+)
 
 
 OFFICIAL_K = (1, 3, 5, 10, 30, 50)
@@ -31,6 +45,7 @@ class LongMemEvalRetrievalRankEvaluator:
         granularity = _provenance_granularity(manifest)
         if granularity in {"none", "undeclared"}:
             return _na_payload(granularity)
+        require_manifest_gold_evidence_contract_v1(manifest)
         if granularity not in {"turn", "session"}:
             raise ConfigurationError(
                 f"Unknown provenance_granularity {granularity!r} in manifest['method']; "
@@ -51,7 +66,7 @@ class LongMemEvalRetrievalRankEvaluator:
         skipped_k: set[int] = set()
         skipped_k_count = 0
         abstention_count = 0
-        empty_gold_count = 0
+        no_target_count = 0
         for answer in answers:
             question_id = str(answer["question_id"])
             if "_abs" in question_id:
@@ -69,21 +84,36 @@ class LongMemEvalRetrievalRankEvaluator:
                 )
                 continue
 
+            groups = select_group_set(
+                parse_evidence_group_sets(private_by_id[question_id], question_id),
+                provenance_granularity=granularity,
+                unit_kind=(
+                    "longmemeval_user_target_turn"
+                    if granularity == "turn"
+                    else "longmemeval_answer_session"
+                ),
+                question_id=question_id,
+            ).groups
+            if not groups:
+                # 官方 run_retrieval.py:389-410 聚合口径：无官方 gold unit 的题
+                # 整题剔除，不参与任何 k 的均值。
+                no_target_count += 1
+                records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": "n/a",
+                        "reason": "official_no_target",
+                        "abstention": False,
+                        "category": category_by_id.get(question_id),
+                    }
+                )
+                continue
+
             top_k, items = _retrieval_fields(answer, granularity)
             ranked_ids = _ranked_source_ids(items, top_k, granularity)
-            metadata = private_by_id[question_id].get("metadata")
-            if not isinstance(metadata, dict):
-                raise ConfigurationError(
-                    f"question {question_id}: private label metadata must be an object"
-                )
-            evidence_key = (
-                "evidence_turn_ids"
-                if granularity == "turn"
-                else "evidence_session_public_ids"
-            )
-            gold = _required_string_list(metadata, evidence_key, question_id)
-            if not gold:
-                empty_gold_count += 1
 
             metrics: dict[str, float] = {}
             available_k = [k for k in OFFICIAL_K if k <= top_k]
@@ -91,7 +121,7 @@ class LongMemEvalRetrievalRankEvaluator:
             skipped_k.update(unavailable_k)
             skipped_k_count += len(unavailable_k)
             for k in available_k:
-                values = _evaluate_at_k(ranked_ids, gold, k)
+                values = _evaluate_groups_at_k(ranked_ids, groups, k)
                 metrics.update(values)
                 participating[k].append(values)
             records.append(
@@ -133,13 +163,14 @@ class LongMemEvalRetrievalRankEvaluator:
                     str(k): len(rows) for k, rows in sorted(participating.items())
                 },
                 "abstention_excluded_count": abstention_count,
-                "empty_gold_question_count": empty_gold_count,
+                "official_no_target_question_count": no_target_count,
                 "skipped_k_above_top_k": sorted(skipped_k),
                 "skipped_k_above_top_k_count": skipped_k_count,
                 "turn2session_view": "not_artifact_computable",
-                "official_empty_gold_note": (
-                    "Framework follows longmemeval-recall empty-gold score=1.0; "
-                    "official eval_utils.py:19-20 returns ndcg=0.0 when ideal_dcg is zero."
+                "group_rank_semantics": (
+                    "group rank = min(first-appearance rank of any child); "
+                    "same-group multi-child or repeated child only counts once; "
+                    "unmatched groups stay in ideal gold count but never hit"
                 ),
                 "official_sources": {
                     "formula": "src/retrieval/eval_utils.py:4-29",
@@ -150,25 +181,48 @@ class LongMemEvalRetrievalRankEvaluator:
         }
 
 
-def _evaluate_at_k(ranked_ids: list[str], gold: list[str], k: int) -> dict[str, float]:
-    """按官方二值相关性公式计算一个 k；空 gold 延续既有 recall 满分边界。"""
+def _evaluate_groups_at_k(
+    ranked_ids: list[str],
+    groups: tuple[GoldEvidenceGroup, ...],
+    k: int,
+) -> dict[str, float]:
+    """按 gold evidence group any-of 语义计算一个 k 的官方三指标。
 
-    if not gold:
-        return {
-            f"recall_any@{k}": 1.0,
-            f"recall_all@{k}": 1.0,
-            f"ndcg_any@{k}": 1.0,
-        }
-    recalled = set(ranked_ids[:k])
-    relevances = [1.0 if item in gold else 0.0 for item in ranked_ids[:k]]
-    actual_dcg = _dcg(relevances)
-    # 官方 eval_utils.py:14-18 对全 corpus 二值相关性降序。无需 corpus 的等价式：
-    # ideal relevance 即 [1] * min(n_gold, k)，其余零不贡献 DCG。
-    ideal_dcg = _dcg([1.0] * min(len(set(gold)), k))
+    每个 mapped group 的 rank = 其任一 child 首次出现的最小 rank（0 基），
+    同 group 多 child 与同 child 重复命中都只计一次；unmatched 留在 ideal gold
+    数中但永远不命中，对任何 k 都贡献 recall 0 + NDCG 0。
+    """
+
+    window_ids = set(ranked_ids[:k])
+    # recall_any：至少一个 group 命中；recall_all：全部 mapped group 命中
+    # （unmatched 不算命中，但它已永久扣在分母中）
+    any_hit = any(
+        group.mapping_status == "mapped"
+        and any(child_id in window_ids for child_id in group.child_ids)
+        for group in groups
+    )
+    all_hit = all(
+        group.mapping_status == "mapped"
+        and any(child_id in window_ids for child_id in group.child_ids)
+        for group in groups
+    )
+
+    # NDCG：每个 group 的二值相关性由其最优（最小）命中 rank 折损
+    actual_hits: list[float] = [0.0] * k
+    for group in groups:
+        rank = group_first_hit_rank(group, ranked_ids[:k])
+        if rank is not None:
+            actual_hits[rank] = 1.0
+    actual_dcg = _dcg(actual_hits)
+    # ideal：全部 mapped group 优先于 unmatched，排在 rank 0,1,2,...
+    mapped_count = sum(1 for group in groups if group.mapping_status == "mapped")
+    ideal_dcg = _dcg([1.0] * min(mapped_count, k))
+    ndcg = actual_dcg / ideal_dcg if ideal_dcg else 0.0
+
     return {
-        f"recall_any@{k}": float(any(item in recalled for item in gold)),
-        f"recall_all@{k}": float(all(item in recalled for item in gold)),
-        f"ndcg_any@{k}": actual_dcg / ideal_dcg if ideal_dcg else 0.0,
+        f"recall_any@{k}": float(any_hit),
+        f"recall_all@{k}": float(all_hit),
+        f"ndcg_any@{k}": ndcg,
     }
 
 
