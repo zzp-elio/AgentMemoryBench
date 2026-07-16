@@ -127,8 +127,8 @@ build profile 尚未接入，因此只可称 **readout-native**。
 - **现有实现不因政策文字自动合规**：Mem0 当前 unified 显式换成 shared MiniLM，而其
   通用 OSS 默认已知为 `text-embedding-3-small`；当前结果保留为 controlled 身份，主轨迁移
   已定。2026-07-16 三家 build-axis 审计与架构裁决已核实精确默认、实现等价性、manifest
-  缺口与重建/复证范围；下一门先落 truthful track identity，再单独迁 Mem0，不在身份门前
-  改配置或重烧实验。
+  缺口与重建/复证范围；truthful track identity M0 已由 R1/R2 关闭，下一门按 method
+  重认证顺序单独迁 Mem0，不把身份落盘误当 build 已切换，也不提前重烧实验。
 - **全局模型锁优先于 native 口号**：当前真实调用只能是 `gpt-4o-mini`。若官方 harness
   使用 GPT-5/Qwen/Claude 等，只抽取其可复用 prompt/decoding/metric 资产并在 coverage 中
   标模型 override；不得为追论文数字绕过 AGENTS 硬规则。
@@ -214,7 +214,8 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
 - **benchmark 级 `prompt_track`（run_prediction.py，默认 "native"）与本文的 method
   级 config-track 正交**，别混：前者管"answer prompt 用 benchmark 注册的 unified
   builder 还是 provider 自己的 prompt_messages"；后者管"整条读出+构建配置走框架轨
-  还是 method paper 轨"。运行时机制设计要显式区分二者（架构师待办，M0-2 前）。
+  还是 method paper 轨"。运行时已分别保留 `prompt_track` 与 typed `track_identity`，后者再拆
+  build/readout/judge/model source；两者不得重新合并成一个 native 布尔值。
 - **run_id 命名**：`{method}/{benchmark}/{mode}/{track}/{run_id}`，track ∈
   {unified, native}，从一开始就进命名空间，两轨产物物理隔离、可分别 resume。
 
@@ -225,7 +226,7 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
 | LightMem | locomo, longmemeval | 官方 experiments 目录 | ingest core 等价，但官方 LoCoMo retrieval 为 harness-local brute-force cosine；当前 native 只 readout，未来 wiring build 才重建；StructMem 是另一 variant，不接 |
 | A-Mem | locomo | 复现版仓库（现状） | 见 §7；通用版/复现版算法身份待 A-Mem M 阶段审计，不能把现状反写成永久政策 |
 | MemoryOS | locomo | eval answer 资产 + paper 超参候选 | 当前只 readout-native；eval 与 pypi 已有算法差异；PyPI 是 canonical，ChromaDB 是 reproduction variant |
-| mem0 | locomo, longmemeval, beam | `memory-benchmarks` 当前 eval | oss harness 已证实调用同一 `Memory.add/search` core；current MiniLM 是 controlled，product-default OpenAI/1536 迁移待 identity M0 后施工 |
+| mem0 | locomo, longmemeval, beam | `memory-benchmarks` 当前 eval | oss harness 已证实调用同一 `Memory.add/search` core；current MiniLM 已盖 controlled identity，product-default OpenAI/1536 迁移待 Mem0 重认证阶段施工 |
 | SimpleMem | locomo, longmemeval, membench | `simplemem/evolver` 等 | 逐格 M 阶段核 |
 | MemOS | locomo, longmemeval | 待 M 阶段一手 | — |
 | EverOS | locomo | 待 M 阶段一手（排最后） | — |

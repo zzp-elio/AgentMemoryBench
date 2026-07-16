@@ -311,6 +311,19 @@
     产物的新身份、manifest 区分字段、重建/复证面；先由 actor 查事实，最终政策不能下放给
     actor 投票。
 
+32. **Run identity 是跨层产品契约，不是多写一个 manifest 标签**（2026-07-16 Track
+    identity M0 判例）。架构师原卡只列 `answer_model_source`，漏了对称的
+    `judge_model_source`；这是卡设计错误，不能要求 actor 凭空补轴。首轮又把 build 分类同时
+    放进 config-track 静态矩阵和 registry，MemoryOS 甚至把正在运行的 PyPI product 错盖成
+    未接入的 ChromaDB reproduction。R1 虽修正主体，定向测试仍漏掉 registered fake 的旧
+    fallback；主树全量才发现它在当前 registration 缺声明时回查另一张全局表猜身份。
+    **以后 identity/schema 卡先画完整轴，再按五层验收**：① 当前强类型 config 对应的单一
+    producer；② typed serializer + strict parser（缺键/多键/类型/组合反例）；③ preflight 与
+    final manifest 同源；④ evaluate 等消费者真正解析并按身份选路；⑤ old/new resume 双向 +
+    至少一条 registered 首跑→续跑。测试 fake 也是 registration，必须显式声明 pending；缺声明
+    就在 factory/outputs 前 fail-fast，禁止 generic 默认和“按名字去别处找”。定向绿之后仍要跑
+    全量，因为跨层契约最容易在未列入卡的旧 fake/consumer 处暴露最后一公里。
+
 ## 4. 审查手艺（隐性知识核心）
 
 ### 4.1 三层审查法

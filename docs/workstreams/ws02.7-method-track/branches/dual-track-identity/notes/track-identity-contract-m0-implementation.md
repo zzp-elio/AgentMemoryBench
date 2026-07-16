@@ -5,6 +5,11 @@
 > 零真实 API、零下载、零 push、单批 5h。本卡未实质使用 subagent。
 > 输入裁决：`product-default-embedding-ruling.md`、`dual-track-config-policy.md`、
 > `integrated-method-dual-track-identity-audit.md`（含架构师订正）。
+>
+> **阅读规则：§1-§8 是首轮 `81f2708` 的历史实现记录，其中 getter/bundle、MemoryOS variant、
+> model-source 与 evaluate 完成度已经被后续验收否定，不得再当现行 spec。当前真实契约以
+> §9（R1）、§10（R2）、§11（架构师终验）和主线代码为准。**保留旧段是为了留住错误如何被
+> 发现和订正，不是让两套描述并存投票。
 
 ## 0. 目标回顾
 
@@ -70,7 +75,7 @@ Mem0 unified 走 controlled MiniLM、product-default 是 OpenAI/1536，二者不
 mem0=embedding_provider/embedding_model/embedding_dimensions、
 lightmem=embedding_provider(huggingface-local)/embedding_model_path/embedding_dimensions、
 memoryos=engine memoryos-pypi + embedding_model_name + 模型固有 384）。值缺失（A-Mem/
-SimpleMem 未裁])[时用显式 None + `identity_status=pending`，不得编字符串填满。
+SimpleMem 未裁）时用显式 None + `identity_status=pending`，不得编字符串填满。
 
 静态语义 normalization/instruction/distance 从裁决表（按注册注入，见下）：
 - 三家 embedding 均 `normalization=None`、`instruction=None`（审计一致）。
@@ -239,3 +244,20 @@ registration，错误回查全局 registry，最终报 `Unknown method`。该 fa
   `72 failed, 1224 passed, 3 deselected, 2 warnings, 11 errors, 4 subtests passed in 34.76s`。
   这些环境失败不授权修改 data/models/third_party；具备完整 ignored 资产的 main 全量仍由
   架构师复跑验收。
+
+## 11. 架构师最终验收（2026-07-16）
+
+1. 线性合入：actor `81f2708` + `cba25a8` + `2beda2d` 对应主线 `dcd3e7b` +
+   `d6fd56f` + `d032d45`；保留首轮/R1/R2 历史，不 amend。
+2. R1 独立复跑：八文件 `416 passed, 1 warning in 19.68s`；另从五家真实 smoke TOML
+   直接构造 unified/native identity，确认 MemoryOS 是 PyPI product、LightMem canonical-required、
+   Mem0 current controlled，A-Mem/SimpleMem 只写 pending。六个绕过静态类型的非法对象全部
+   `ConfigurationError`。
+3. R1 首次主树全量不是通过：`4 failed, 1302 passed, 3 deselected, 2 warnings,
+   4 subtests passed`，由此触发 R2，而非把定向绿等同于验收。
+4. R2 合入后，原四失败与新缺声明反例 `5 passed in 3.25s`；最终主树
+   `1307 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.51s`，
+   `uv run python -m compileall -q src tests` exit 0。
+5. 裁定：M0 关闭。它只让 run identity 说真话，不代表 Mem0 已迁 product-default build，
+   也不替 A-Mem/SimpleMem 的 B9/B10 审计提前打勾。后续消费者是 LightMem 起始的逐 method
+   重认证、Mem0 build 迁移和各 method B11。

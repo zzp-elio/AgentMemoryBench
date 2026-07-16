@@ -26,6 +26,8 @@
 | 2026-07-15 | Claude Code / Opus 4.8；约 30min（用户提供）；reasoning 未提供 | RetrievalEvidence M0 + R1 | `5fd5ac1` + `1999f56` → `352ed3c` + `6b4fd4e` | actor R1 `34 passed in 0.05s`；架构师 R1 `34 passed`；M0 七文件 `307 passed`；主树 `1235 passed` | **9.1** | accepted after architect hardening |
 | 2026-07-16 | Fable 5；约 10min；授权 3 个只读 subagent（用户提供） | 三家 dual-track/build identity 一手审计 | `82ffd8c` → `4a0533f` | actor/架构师 docs `5 passed`；架构师逐锚复核；主树 `1243 passed` | **9.2** | accepted with architect corrections |
 | 2026-07-16 | Claude Code / MiniMax M3；时长/reasoning 未提供 | Mem0 source-time 单次渲染 | `6af75a3` → `7752dab`（重建 commit identity） | actor/架构师 `61 passed`；架构师五 benchmark 扩展 `170 passed`；主树 `1243 passed` | **9.3** | accepted |
+| 2026-07-16 | 混合入口：CC+GLM-5.2 → MiniMax M3；中途崩溃/压缩；唯一模型归因不可核 | Track identity M0 首轮 | `81f2708` → `dcd3e7b`（须 R1/R2 收口） | actor `282 passed`；架构师 full diff 抓 MemoryOS 假身份、双事实源、evaluate/resume 缺口 | **6.0** | rework；不计入任何模型聚合 |
+| 2026-07-16 | Codex subagent；用户指定 5.6 sol/medium，平台细分档位未独立核实 | Track identity M0 R1 + R2 | `cba25a8` + `2beda2d` → `d6fd56f` + `d032d45` | R1 `416 passed`；首次主树全量 `4 failed/1302 passed`；R2 定点 `5 passed`；最终主树 `1307 passed` | **9.2** | accepted after full-suite rework |
 
 ### 2026-07-15：LightMem online-soft
 
@@ -116,3 +118,31 @@
   renderer 不再生成第三份，而非机械把次数降到一；实现说明清楚。错误身份 trailer 扣 0.2。
 - 总评：代码与反例质量非常高，身份纪律是唯一明显短板；这是 MiniMax M3 首个已验收样本，
   暂不据单样本做模型总排名。
+
+### 2026-07-16：混合入口 Track identity M0 首轮
+
+- 正确性 1.9/4：typed identity、manifest 落盘和三家大体矩阵已搭出，但把当前
+  `memoryos-pypi` 错盖成 ChromaDB reproduction，build 分类在 registry/config-track 双写并已
+  漂移；卡明写的 evaluate 消费没有实现。`judge_model_source` 是架构师原卡漏轴，不扣 actor。
+- 证据 1.2/2：`282 passed` 可复现，但强反例未覆盖 bool/非法 pending/top-inner version，note
+  又把未完成的 evaluate/resume 写成已完成，测试绿不能支撑完成声明。
+- 纪律 1.8/2：允许文件、未 push、无猜测 Co-Authored-By 是对的；但完成报告所称 author email
+  与 `git show` 不一致，身份审计仍需扣分。
+- 判断/交接 1.1/2：报告主动披露 evaluate 裁剪偏差和混合模型冲突有价值；然而核心假身份与
+  note/实盘矛盾本应在自检发现。总分 **6.0**，须 R1/R2；因 GLM/MiniMax/入口贡献无法分段
+  独立核实，绝不把该分数归到某一个模型，也不能据一次崩溃推断 GLM 的代码质量。
+
+### 2026-07-16：Codex Track identity M0 R1/R2
+
+- 正确性 3.8/4：修回 MemoryOS product + external-L2/FAISS-IP，拆除 build 双事实源，补齐
+  answer/judge model 双轴、strict parser、evaluate consumer 与 registered resume；R2 再删除
+  fake registration 回查全局表的猜测 fallback。
+- 证据 1.6/2：R1 八文件 `416 passed`、字段全变 resume 参数化与真实 MemoryOS
+  first-run→resume 很强；但定向清单未覆盖 artifact-runner fakes，首次主树全量仍有 4 个回归，
+  故不满分。R2 后原失败 + 新反例 5 项与最终全量 1307 项通过。
+- 纪律 2/2：始终在原隔离 worktree 线性 follow-up，不 amend、不 push、零 API/下载；第一次
+  subagent 回合异常中断后保留 WIP，由接力会话继续，没有 reset 或丢失用户现场。
+- 判断/交接 1.8/2：单 registration producer、old artifact-only evaluate、pending fake 声明与
+  factory/outputs 前 fail-fast 均是正确边界；最后一公里依赖全量才发现，保留 0.2。
+- 总评 **9.2**，accepted after full-suite rework。这是 Codex actor 的单个任务级样本，不与
+  架构师本人的工作混算，也不足以形成永久模型排名。

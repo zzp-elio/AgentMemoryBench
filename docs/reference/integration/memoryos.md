@@ -2,7 +2,8 @@
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：
 > `../integration-status.md`。
-> 状态：**M1 一手取证 + M2 离线施工/强验收通过；track identity M0 后进入 B11 五格真实 smoke。**
+> 状态：**M1 一手取证 + M2 离线施工/强验收 + Track identity M0 均通过；按逐 method
+> 串行顺序等待 B11 五格真实 smoke。**
 > 证据底：`ws02.7/notes/m1-memoryos-evidence.md`、
 > `ws02.7/notes/m2-memoryos-adapter.md`。
 
@@ -58,11 +59,13 @@
   product-default embedding。现行 PyPI 签名默认与当前 profile 同为
   SentenceTransformer all-MiniLM-L6-v2/384、外部 L2 normalize + FAISS IP，build 字节不变，
   无需重建；裸名/限定名等价仍须以本地模型 revision/hash 进 identity。
-- **B10 双轨 🟡 readout-native 身份 M0 待落**：LoCoMo 官方 system/user prompt 由 AST parity 锁逐字
+- **B10 双轨 ✅ truthful v1；readout-only + framework judge fallback**：LoCoMo 官方 system/user prompt 由 AST parity 锁逐字
   核对，answer=`gpt-4o-mini`, temperature=0.7, max_tokens=2000。官方无 LLM judge，
   bundle `judge_profile=None` 时回落框架默认 judge。paper build 超参只登记资产，当前
-  config-track 尚不消费 build override；这是与 LightMem/Mem0 共用的框架级缺口。新 manifest
-  必须显式 `native_scope=readout_only`、`judge_source=framework_fallback`，不再只靠 None 推断。
+  config-track 尚不消费 build override，因此真实范围仍只是 readout；M0 R1/R2 已在新 manifest
+  显式写 `implementation_variant=product`、PyPI embedding、`native_scope=readout_only`、
+  `judge_source=framework_fallback` 与 answer/judge model source，并由 evaluate/resume 严格消费，
+  不再只靠 `judge_profile=None` 推断。
 - **B11 smoke+冻结 🟡**：离线代码门已过；还缺五格真实 predict、产物开箱、免费
   evaluator、付费 judge（如适用）与并行/operation-level 既定门。用户未确认预算、规模、
   run_id 前不得执行。全部通过后才写 `memoryos-frozen-v1.md`。

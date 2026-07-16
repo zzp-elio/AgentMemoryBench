@@ -47,9 +47,9 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅timestamped + explicit-None online-soft | ✅online-soft turn；consolidated N/A | ✅online-soft | ✅ | ✅ | ✅canonical-required MiniLM；零重建 | 🟡readout-only 身份 M0 待落 | 🟡M1 evaluator + identity 后主轨复证 | **v1 suspended** |
-| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅effective time 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(native计量=R0前置,声明2) | ✅B8+清单落档(M5,下载点声明4) | 🟡OpenAI product-default 迁移待施工/预算 | 🟡readout-only 身份 M0 待落 | 🟡13格 controlled 证据保留；主轨复证 | **v1 局部重开** |
-| [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅product-default MiniLM；零重建 | 🟡readout-only 身份 M0 待落 | 🟡身份门后五格 smoke | 待 B11 |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅timestamped + explicit-None online-soft | ✅online-soft turn；consolidated N/A | ✅online-soft | ✅ | ✅ | ✅canonical-required MiniLM；零重建 | ✅truthful v1；native=readout-only | 🟡M1 evaluator + 当前主轨复证 | **v1 suspended** |
+| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅effective time 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(native计量=R0前置,声明2) | ✅B8+清单落档(M5,下载点声明4) | 🟡OpenAI product-default 迁移待施工/预算 | 🟡truthful v1 已落；product build 未迁 | 🟡13格 controlled 证据保留；主轨复证 | **v1 局部重开** |
+| [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅product-default MiniLM；零重建 | ✅truthful v1；readout-only + judge fallback | 🟡五格 smoke | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | MemOS | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -61,9 +61,12 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 > "适配器 ✅" 只代表代码入口存在，不代表冻结。Mem0 原 frozen-v1 的大部分证据保留，
 > MemBench/BEAM/HaluMem B4 effective-time 离线修复已验收，内容抽查并入后续 B11；三家 B9
 > 精确身份审计与架构裁决已完成，旧 shared MiniLM 证据保留为 controlled 而非删除。Mem0
-> product-default 迁移待身份 M0 后另施工；LightMem/MemoryOS 与现 build 字节重合，无需重建。
-> MemoryOS 已完成 M1 一手取证与 M2 离线施工/全量门，只差身份
-> 审计后的 B11 真实 smoke；LightMem 因 2026-07-15
+> Track identity M0 已以 `dcd3e7b` + `d6fd56f` + `d032d45` 关闭；LightMem/MemoryOS 的
+> B10 可按 truthful readout-only 身份关闭。Mem0 虽已如实标 current controlled build，
+> product-default 迁移仍未发生，故 B9/B10/B11 保持部分完成。LightMem/MemoryOS 与现 build
+> 字节重合，无需重建。
+> MemoryOS 已完成 M1 一手取证与 M2 离线施工/全量门，只差排到其顺序后的 B11 真实 smoke；
+> LightMem 因 2026-07-15
 > 发现 LoCoMo post-update 无 semantic source mapping 而重开 B5/B11；逐题 M0 声明机制已落，
 > 现待 M1 evaluator 消费。A-Mem/SimpleMem 待各自 M 阶段。N/A 是能力结论，不是强造指标。
 

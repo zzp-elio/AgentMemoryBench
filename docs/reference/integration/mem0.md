@@ -1,7 +1,7 @@
 # Mem0 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**method-frozen-v1 局部重开（2026-07-16：product-default build/B10 identity）**。
+> 状态：**method-frozen-v1 局部重开（2026-07-16：product-default build 与 B10 build 轴）**。
 > source-time B4 离线修复已验收；冻结证据与九项声明缺口见
 > `../../workstreams/ws02.7-method-track/notes/mem0-frozen-v1.md`；下列 B1-B11 是现行
 > 结论，不再把 2026-07-13 的预填风险冒充当前状态。2026-07-15 ADD-only/provenance
@@ -63,13 +63,15 @@
   `controlled_embedding_v1`，不再冒充 unified 产品默认；现行主轨须迁到 vendored Mem0 的
   `product_default_v1`：OpenAI `text-embedding-3-small`、1536、Qdrant cosine；托管权重
   revision 不可 pin，manifest 另以正交字段声明 `revision_status=provider_managed_unpinned`，不能误称权重级
-  可复现。迁移会全量重建并重开 B8+/B11，须先完成 track identity M0，再单独派卡；真实 API
-  仍待用户确认预算、规模、run_id。官方 0.1
+  可复现。Track identity M0 已关闭；迁移仍会全量重建并重开 B8+/B11，须在 Mem0 重认证顺序
+  到达后单独派卡，真实 API 仍待用户确认预算、规模、run_id。官方 0.1
   相关性门槛导致空检索仍属于方法语义，不当作框架故障。
-- **B10 🟡 双轨语义已取证，truthful identity M0 待落**：native 注册 LoCoMo、LongMemEval、
-  BEAM；当前真实覆盖仅 readout，embedding/build override 未生效。新 manifest 必须声明
-  `native_scope=readout_only` 与 framework model override，不能再由裸 `config_track=native`
-  暗示 full-native。judge 路由泛化和旧论文校准仍属于 R0 前置包。
+- **B10 🟡 truthful v1 已落，product-default build 未迁**：native 注册 LoCoMo、LongMemEval、
+  BEAM；当前真实覆盖仅 readout，embedding/build override 未生效。新 manifest 已声明
+  `native_scope=readout_only`、current controlled MiniLM 与 answer/judge
+  `framework_model_override`，不再由裸 `config_track=native` 暗示 full-native。B10 暂不打 ✅
+  的原因不是身份仍含糊，而是 unified product-default OpenAI build 尚未施工；judge 路由泛化
+  和旧论文校准仍属于 R0 前置包。
 - **B11 🟡 既有 13 格 controlled 证据保留；product-default 主轨待复证**：13 格 predict、免费/付费指标与既定
   并行门完成；冻结时基线 1164 passed。既有 BEAM provenance recall 与 LongMemEval
   turn-level/rank 数字不再作可信指标声明。逐题 RetrievalEvidence contract v1 已由 M0

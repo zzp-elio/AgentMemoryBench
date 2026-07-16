@@ -45,8 +45,10 @@ ingestion wall clock。该值属于 method-native 创建时间，不能回写为
 - **B8**：⬜。检索 find_related_memories_raw 是否触发 memory evolution（A-Mem 的
   卖点机制）**必须核**——若触发，属"算法固有状态变化"保留，但要留档声明。
 - **B9**：⬜。内部 LLM（notes 构造/evolution）模型口径待声明。
-- **B10**：⬜。native=locomo，来源=复现版仓库 `run_all_experiments.sh` 附近配置；
-  reproduce-vs-paper 按 policy §5。
+- **B10**：⬜。Track identity M0 只让当前 unified run 如实盖
+  `implementation_variant=product + embedding_profile=unclassified_pending`，这不是 B10
+  通过；native=locomo，来源=复现版仓库 `run_all_experiments.sh` 附近配置，仍须在 A-Mem
+  阶段完成算法身份与 reproduce-vs-paper 核查（policy §5/§7）。
 - **B11**：⬜。
 
 ## 特殊情况（M 阶段待办，policy §7 已登记）

@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（Method Track M0 启动；benchmark 侧五家已 frozen-v1 + B6 完成）
+status: in-progress（Track identity M0 已关闭；LightMem 逐项重认证准备中）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -33,13 +33,14 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   （status R1）→ `afd4040`（不可哈希 status hardening）→ `c879343`（preflight/resume
   身份对称）→ `da81b0f`/`b875879`（MemoryOS manifest fixture 对齐）→ `212d21f`
   （M0 最终验收文档）→ `4a0533f`（双轨身份审计）→ `7752dab`（Mem0 effective-time
-  单次渲染）。准确 commit/upstream 状态始终
+  单次渲染）→ `dcd3e7b`（Track identity M0 首轮）→ `d6fd56f`（R1 真实性收紧）→
+  `d032d45`（R2 registration 单事实源）。准确 commit/upstream 状态始终
   以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
-  `1243 passed, 3 deselected, 2 warnings, 4 subtests passed in 132.54s`；compileall exit 0。
+  `1307 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.51s`；compileall exit 0。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
-  `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。下一门是
-  五格真实 smoke；但先完成 `branches/dual-track-identity/` 的 PyPI/ChromaDB/eval 身份裁决，
-  避免为可能变化的 build profile 重烧费用。未获用户预算/规模/run_id 确认，禁止 API。
+  `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
+  身份裁决与 Track identity M0 已关闭；当前按逐 method 串行顺序排在 LightMem、Mem0 后，
+  到站后进入五格真实 smoke。未获用户预算/规模/run_id 确认，禁止 API。
 - **LightMem lifecycle 现行裁决**：论文第 5/7/8 页与官方脚本复证，paper online soft
   是“抽取后直接 LTM insert”，在 vendored 代码中反而由
   `update="offline" → offline_update(memory_entries)` 实现；`online_update()` 空壳只是
@@ -82,17 +83,30 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   MiniLM/384（零重建），ChromaDB 是 reproduction variant。现行裁决见
   `branches/dual-track-identity/notes/product-default-embedding-ruling.md`。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
-  提醒可用；恢复是后台动作，不自动向用户播报机械台词。Track identity M0 首轮
-  `81f2708` **未通过架构师验收**；用户已明确授权当前 Codex 启动一个 subagent，在原
-  worktree 追加 R1，不再需要用户转发卡。R1 不切 embedding、不跑 API。共享门关闭后不再
-  先抢跑 Mem0，而按 `branches/method-recertification/` 严格串行：LightMem 第一家完整
-  重认证 → Mem0（含 product-default 迁移）→ MemoryOS → A-Mem → SimpleMem。
+  提醒可用；恢复是后台动作，不自动向用户播报机械台词。Track identity M0 已经 R1/R2
+  强验收关闭：新 registered run 统一盖 typed v1 identity，旧缺 v1 不得 resume，evaluate
+  严格消费，fake registration 也须显式声明 pending、不得回查另一张全局表猜身份。当前唯一
+  method 主线转入 `branches/method-recertification/`：架构师先对 LightMem 按现行 commit
+  生成 B1-B11 gap matrix，再把 RetrievalEvidence M1 作为其 metric 资格门收口；尚无需要用户
+  派发的新卡。之后严格串行 Mem0（含 product-default 迁移）→ MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-16）
 
-- 2026-07-16（**Track identity M0 首轮未通过；Codex R1 施工中**，GPT-5 架构师）：
+- 2026-07-16（**Track identity M0 R1/R2 强验收完成；下一站 LightMem 重认证**，GPT-5
+  架构师）：首轮 `81f2708` 经 full diff 驳回后，用户授权 Codex subagent 在原 worktree
+  线性追加 `cba25a8`；架构师独立复跑 R1 八文件 `416 passed, 1 warning` 并用五家真实
+  TOML/六个非法对象探针复核。首次主树全量又抓到 fake registration 错回查全局 registry，
+  尾行 `4 failed, 1302 passed`；R2 `2beda2d` 删除猜测 fallback，要求当前 registration
+  显式声明 build identity，并锁 factory/outputs 前 fail-fast。三批线性合入主线为
+  `dcd3e7b` + `d6fd56f` + `d032d45`；原四失败 + 新反例 `5 passed`，最终全量
+  **`1307 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.51s`**，compileall exit 0。
+  M0 不切 embedding、不调用 API；LightMem/MemoryOS B10 truthful readout-only 身份门关闭，
+  Mem0 仍因 product-default OpenAI build 未迁移而保持部分完成。下一动作不是盲跑 smoke，
+  而是先产出 LightMem 当前 commit 的 B1-B11 revalidated/retested/N/A/pending gap matrix。
+
+- 2026-07-16（**历史断点，已被上方 R1/R2 最终验收取代；当时首轮未通过**，GPT-5 架构师）：
   混合入口先后经历 CC+GLM-5.2 崩溃、用户切 MiniMax M3、会话压缩，最终首轮 commit
   `81f2708`；无法核实唯一模型而未写 Co-Authored-By 是正确做法，但 actor 报告的 author
   email 与 `git show` 实盘仍不一致。架构师复现卡内 `282 passed, 1 warning`，full diff 与
@@ -103,7 +117,7 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   同轮用户纠正 actor 经济学：Fable 只给高判断密度任务，不给纯繁琐大活。共享修复完成后
   从 LightMem 起逐 method 重走 B1-B11，旧证据逐项 revalidate/retest，不盲目全删重跑。
 
-- 2026-07-16（**Mem0 source-time + 三家 identity 审计强验收；track identity M0 待派**，
+- 2026-07-16（**历史断点，已被上方 M0 R1/R2 验收取代；当时 track identity M0 待派**，
   GPT-5 架构师）：Fable 5 `82ffd8c` docs-only 审计经逐锚复核与文档标准门合入 `4a0533f`；
   架构师订正两处：托管 OpenAI embedding 只可称 API identity 公开、revision
   `provider_managed_unpinned`，不能称权重级可复现；MemoryOS native `max_tokens=2000`

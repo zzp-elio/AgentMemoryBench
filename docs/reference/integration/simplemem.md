@@ -44,8 +44,9 @@
   embedding 是本地路径模型——现行 unified 主轨须锁 vendored product default；2026-07-09
   all-MiniLM 配置只作 `controlled_embedding_v1`。精确默认及迁移面在 SimpleMem 自身 M 阶段
   取证，不外推三家 Fable 审计结论；不得按 benchmark 调参。
-- **B10**：⬜。native 3 格（locomo/longmemeval/membench）来源逐格取证；
-  reproduce-vs-paper 按 policy §5。
+- **B10**：⬜。Track identity M0 只保留当前 config 的 provider/model/dimension 并盖
+  `unclassified_pending`，未替 SimpleMem 裁 product-default 或 native；native 3 格
+  （locomo/longmemeval/membench）仍须逐格取证，reproduce-vs-paper 按 policy §5。
 - **B11**：⬜。
 
 ## 特殊情况

@@ -8,8 +8,8 @@
 | [`lightmem-lifecycle`](lightmem-lifecycle/README.md) | 论文 online soft 与 offline consolidation 的术语、主 profile、provenance 边界 | lifecycle profile 是 retrieval M0 的前置门 |
 | [`membench-time-semantics`](membench-time-semantics/README.md) | 100k message/question 时间隔离、LightMem preserve-none、Mem0 effective-time 渲染 | Phase A+B+C 离线验收；三格内容抽查并入后续 product-default B11 |
 | [`retrieval-metrics`](retrieval-metrics/README.md) | 逐题 RetrievalEvidence、Recall/NDCG 资格、LongMemEval depth/分母 | M0 已验收 → evaluator M1 待架构师起草 |
-| [`dual-track-identity`](dual-track-identity/README.md) | 通用产品/eval 实现身份、product-default build 轴、partial-native、MemoryOS reproduction variant | M0 首轮未通过 → 用户授权 Codex subagent 在原分支追加 R1 |
-| [`method-recertification`](method-recertification/README.md) | 共享修复完成后按现行 commit 逐 method 重走 B1-B11，不靠历史 frozen 惯性 | Track identity M0 等共享门关闭 → LightMem 首个压实，严格串行 |
+| [`dual-track-identity`](dual-track-identity/README.md) | 通用产品/eval 实现身份、product-default build 轴、partial-native、MemoryOS reproduction variant | M0 R1/R2 已关闭；作为稳定判例供 B9/B10/B11 消费 |
+| [`method-recertification`](method-recertification/README.md) | 共享修复完成后按现行 commit 逐 method 重走 B1-B11，不靠历史 frozen 惯性 | LightMem 当前唯一 active method；先 gap matrix，后决定施工卡，严格串行 |
 
 每条支线用自身 README 记录范围、文档索引和稳定依赖顺序，`cards/` 放可整份复制给
 actor 的卡，`notes/` 放一手审计、架构裁决与施工记录。**权威当前动作、commit/test
