@@ -9,15 +9,24 @@
 
 | 轨 | 别名 | 目的 | 配置来源 |
 |----|------|------|----------|
-| **unified**（轨1） | 产品公平轨 | method 之间**公平横向对比**（同一 benchmark 读出尺子） | 通用 OSS 产品实现 + benchmark-scoped method-neutral answer/judge；官方资产优先，缺失 fallback 必须标 tier/source |
+| **unified**（轨1） | 产品公平轨 | method 之间**公平横向对比**（同一 benchmark 读出尺子） | 通用 OSS 产品实现 + pinned product-default build + benchmark-scoped method-neutral answer/judge；官方资产优先，缺失 fallback 必须标 tier/source |
 | **native**（轨2） | 官方配置校准轨 | 在**同一产品算法实现**可表达的范围内对齐 method 官方实验配置 | method 官方实验的 build/readout 配置；覆盖不全就明确 partial-native |
 
 **公平 ≠ 所有 build 组件也相同**。unified 的硬公平面是 method 外部的 answer/judge
 LLM、prompt 与 metric 语义；embedding、build LLM、update/retrieval 超参都属于 method
-如何建库和检索，不能再误称 readout。原则上采用通用产品 repo 默认；若 Phase 1 因模型
-预算/控制变量显式覆盖（例如统一 `gpt-4o-mini`，或历史上的 shared embedder），必须把
-`product_default` 与 `framework_override` 分开盖章。覆盖可以是合法实验设计，但不能继续
-写成“repo 默认”。
+如何建库和检索，不能再误称 readout。
+
+> **2026-07-16 embedding 新裁决（用户授权架构师作判断）：**unified 主轨采用每个 method
+> 在当前 vendored 版本上的 **pinned product-default embedding**，同一 method 跨全部 benchmark
+> 固定一套，不做 benchmark-specific tuning。2026-07-09 的 shared `all-MiniLM-L6-v2` 是当时
+> 明确执行且有效的控制变量政策，不倒写为“早已过时”；从本裁决起，其既有配置/产物保留并
+> 标作 `controlled_embedding_v1` 补充消融。理由是 embedding 参与抽取、合并、索引与排序，
+> 属于 method 能力本体；强制同一 backbone 会对不同架构造成不对称改造，也无法自然覆盖十家
+> 异构 method。common embedding 仍有因果控制价值，但不是产品公平主估计量。
+
+产品默认必须锁 provider/model/revision/dimension/normalization/instruction/distance 等身份；若
+默认依赖不可公开服务、无法复现，或替换会触碰算法核心，不得静默找近似替代，须停工裁定。
+全局 `gpt-4o-mini` 仍是 Phase 1 明示的 build/readout LLM override，不受 embedding 改判影响。
 
 > **2026-07-16 纠偏：**旧版 §7 写“多仓库优先复现版，两轨都跑在它上”，与项目
 > “通用产品接口”主线冲突，现已撤销。复现目录若改变算法流程，属于另一个
@@ -99,17 +108,17 @@ build profile 尚未接入，因此只可称 **readout-native**。
   冒充官方。LoCoMo 没有官方 LLM judge，当前 `locomo-judge` 使用 LightMem prompt 参考并标
   `framework_auxiliary`，它可横向统一使用，但不是 LoCoMo official parity。
 - **method 实现 = 通用 OSS 产品接口**，不用 benchmark eval 专用算法副本。
-- **embedding/build LLM/内部超参 = 官方产品 repo 默认优先**（**非** paper、**非** benchmark 专用调参、
-  跨全部 benchmark 同一套）。这是 ws02.5 已锁政策，见 `docs/roadmap.md` 全局约束
-  与 `ws02.5-method-interface-audit/README.md` "超参数政策"。全局模型名
-  `gpt-4o-mini` 是 Phase 1 显式覆盖，不冒充产品默认。
+- **embedding/内部超参 = 官方产品 repo 默认主轨**（**非** paper、**非** benchmark 专用调参，
+  同一 method 跨全部 benchmark 同一套）。embedding 必须按上方新裁决盖精确 build identity；
+  shared `all-MiniLM-L6-v2` 只在兼容 method 上作为 `controlled_embedding_v1` 补充轨，不要求
+  强铺 5×10。build LLM 的全局模型名 `gpt-4o-mini` 是 Phase 1 显式 override，不冒充产品默认。
 - **"repo 默认"要操作化**：= "不加任何特殊 flag、开箱即用"的那套。它本身要一次
   **每-method 小审计**——LightMem 的 `--enable-summary` `store_true` 默认 False
   就是判例（Task 1 的核查本质是"repo 默认到底是哪套"）。
 - **现有实现不因政策文字自动合规**：Mem0 当前 unified 显式换成 shared MiniLM，而其
-  通用 OSS 默认是 `text-embedding-3-small`；这是待 build-axis 审计裁决的历史
-  framework override。审计前不悄悄改配置、不重烧实验，审计后决定保留为受控 ablation
-  还是迁回 product-default。
+  通用 OSS 默认已知为 `text-embedding-3-small`；当前结果保留为 controlled 身份，主轨迁移
+  已定。三家 build-axis 审计只负责核实精确默认值、实现等价性、manifest 与重建/复证范围，
+  不再决定“是否迁移”；审计前仍不悄悄改配置或重烧实验。
 - **全局模型锁优先于 native 口号**：当前真实调用只能是 `gpt-4o-mini`。若官方 harness
   使用 GPT-5/Qwen/Claude 等，只抽取其可复用 prompt/decoding/metric 资产并在 coverage 中
   标模型 override；不得为追论文数字绕过 AGENTS 硬规则。

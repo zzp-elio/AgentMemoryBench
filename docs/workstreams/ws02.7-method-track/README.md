@@ -66,8 +66,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   相同 `[Turn time]`，又会在 turn/session 同时存在时双前置；故局部重开 Mem0 的
   MemBench/BEAM/HaluMem B4/B11 输入形态，LoCoMo/LongMemEval session-only 字节不变。卡见
   `branches/membench-time-semantics/cards/actor-prompt-mem0-membench-time-dedup.md`。
-- **双轨/指标现行裁决**：unified=通用 OSS 产品实现 + benchmark-scoped method-neutral
-  answer/judge（官方优先，fallback 标 tier/source）；native
+- **双轨/指标现行裁决**：unified=通用 OSS 产品实现 + 每家 pinned product-default embedding
+  + benchmark-scoped method-neutral answer/judge（官方优先，fallback 标 tier/source）；
+  2026-07-09 shared MiniLM 既有资产保留为 `controlled_embedding_v1` 补充轨。native
   按 implementation/build/retrieval/answer/judge/metric 六轴声明，算法 fork 另列
   `reproduction_variant`。LoCoMo canonical answer 仍是 32-token 单一 prediction，各答案指标
   共用它；Precision/F1@k 在 relevance gold 未证明穷尽时 N/A。artifact-only 新指标走独立
@@ -79,7 +80,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   提醒可用；恢复是后台动作，不自动向用户播报机械台词。**当前需要用户并行派两卡**：
   ① Mem0 source-time 正文单次渲染（MemBench 去重 + turn→session fallback，代码卡）；
   ② 三家双轨实现身份/build-axis（高难度
-  docs-only，推荐 Fable 5）。两卡回收强验收后，架构师裁 build identity 并起草
+  docs-only，推荐 Fable 5，明确允许其自启 subagent 分包）。两卡回收强验收后，架构师按
+  已裁 product-default 主轨起草迁移卡，并继续起草
   RetrievalEvidence M1；M1 未遗忘但现在不抢跑。MemoryOS 五格 smoke 仍需身份门 + 用户
   明确预算、规模与 run_id，禁止自行调用 API。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
@@ -87,7 +89,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-16）
 
-- 2026-07-16（**Mem0 B4 局部重开 + 三家双轨身份审计待用户派发**，GPT-5 架构师）：
+- 2026-07-16（**embedding 新政策落盘；Mem0 B4 + 三家身份审计两卡待并行派发**，GPT-5
+  架构师）：
   用户纠正“原文 + typed timestamp”不等于要求正文双拼；源码复核确认 MemBench adapter
   无损保留 place/time 并抽取 turn time，但 Mem0 `_turn_to_message()` 又前置同一
   `[Turn time]`；同时 `_turn_to_message()` 在 turn/session 并存时会双前置，与用户明确的
@@ -97,7 +100,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   HaluMem B4/B11 输入形态，LoCoMo/LongMemEval 与其余证据保留。另撤销“native 是一个全套布尔值”和“多仓库优先复现版”
   的旧政策：unified 主 identity 是通用 OSS 产品实现；native 只容纳同算法的官方配置，
   eval fork 另列 reproduction variant；MemoryOS 当前只 readout-native，PyPI 暂为 canonical，
-  ChromaDB 等价性待审。两张自包含卡已落入上述支线，可并行派发；零真实 API。
+  ChromaDB 等价性待审。另经用户授权作出新政策变更：unified embedding 主轨采用每家 pinned
+  product default，同一 method 跨 benchmark 固定；2026-07-09 shared MiniLM 决策在当时有效，
+  既有配置/结果不删除，改标 `controlled_embedding_v1`。Fable 卡只查精确默认、算法身份与
+  重跑面，不替架构师二次裁政策。两张自包含卡使用独立 worktree/branch，可并行派发；零真实
+  API。
 
 - 2026-07-15（**RetrievalEvidence M0 强验收完成；M1 解锁、尚未派发**，GPT-5 架构师）：
   Opus 4.8 首轮/R1 `5fd5ac1` + `1999f56` 线性合入为 `352ed3c` + `6b4fd4e`；架构师复现

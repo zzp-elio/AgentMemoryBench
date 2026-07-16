@@ -6,9 +6,10 @@ created: 2026-07-08
 ---
 # ws02.5 Method 接口保真审计（5×5 smoke 前置门）
 
-> **2026-07-16 现行解释：**本页 `embedder 统一 all-MiniLM` 是 2026-07-09 已执行配置的历史
-> 记录，不再自动等于 unified 政策。embedding 属 build identity；产品默认、framework
-> override 与 controlled ablation 的现行裁决见
+> **2026-07-16 现行解释：**本页 `embedder 统一 all-MiniLM` 是 2026-07-09 经明确拍板并已执行
+> 的历史控制变量政策，不是当时写错，也不因今天改判而回写历史。经用户授权，现行 unified
+> 主轨改为每个 method 的 pinned product-default embedding；旧配置/结果保留为
+> `controlled_embedding_v1` 补充消融。embedding 属 build identity；完整裁决见
 > `docs/reference/dual-track-config-policy.md` 及 ws02.7 `dual-track-identity` 支线。历史 commit
 > 不改写，但后续 method 不得照抄“统一 embedder”而跳过逐轴声明。
 

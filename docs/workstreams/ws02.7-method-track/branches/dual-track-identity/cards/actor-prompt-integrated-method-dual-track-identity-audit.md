@@ -19,12 +19,17 @@
 3. MemoryOS `memoryos-pypi`、`memoryos-chromadb`、`eval/` 在 storage/update/retrieval 上哪些
    等价、哪些是不同 variant。
 
-另有 build identity 冲突：旧 unified 政策统一 embedding，但用户与现行产品接口原则要求
-repo default；Mem0 当前 shared MiniLM 与产品默认 `text-embedding-3-small` 已知不同。项目
-还硬锁所有真实 LLM 为 `gpt-4o-mini`；官方 harness 若使用别的 answer/judge model，只能形成
-partial-native，不能在审计表里被抹成 full parity。
+另有已经裁定、但尚未迁移的 build identity：2026-07-09 的 unified shared
+`all-MiniLM-L6-v2` 是当时明确执行的控制变量政策，不得倒写成“当时就是过时文字”；
+2026-07-16 架构师经用户授权作出**新政策变更**：Phase 1 unified 主轨采用每个 method
+**固定版本的 product-default embedding**，现有 shared MiniLM 配置与结果保留并改身份为
+`CONTROLLED_EMBEDDING_V1` 补充消融，不删除、不冒充 product default。产品默认必须按 vendored
+版本锁定，且同一 method 跨五个 benchmark 只用一套，禁止 benchmark-specific tuning。
 
-你的任务是产出一手证据表，不替架构师拍最终实验政策，不改任何生产代码/配置/既有政策。
+项目仍硬锁所有真实 LLM 为 `gpt-4o-mini`；官方 harness 若使用别的 answer/judge model，只能
+形成 partial-native，不能在审计表里被抹成 full parity。你的任务是为已定政策补齐一手事实：
+查出三家真正的产品默认、当前 override、官方 harness 以及迁移/复证面；**不重新投票决定
+embedding 主轨**，不改任何生产代码、配置或既有结果。
 
 ## 1. 上工、隔离与最小读序
 
@@ -99,16 +104,22 @@ integrated-method-dual-track-identity-audit.md`
 2. 当前框架 unified TOML/adapter 实际传值；
 3. 官方 benchmark harness/native 实际传值。
 
-至少列：implementation variant、storage backend、embedding provider/model/dimension、method
-build LLM/model、extraction prompt、update lifecycle、chunk/segment、retrieval top-k/threshold、
-summary/consolidation、并发，以及 answer/judge 各自的 model、decoding、prompt、parse/metric
-semantics。每格必须区分：签名默认、README demo 覆盖、实际 CLI 默认、调用点显式传值；不能
-把其中一种冒充另一种。官方 model 非 `gpt-4o-mini` 时明确标
-`FRAMEWORK_MODEL_OVERRIDE / PARTIAL_NATIVE`，不得建议绕过当前硬规则。
+至少列：implementation variant、storage backend、embedding provider/model/revision/dimension、
+normalization、query/document instruction 或 prefix、distance metric、远端/本地执行、网络/费用
+路径、method build LLM/model、extraction prompt、update lifecycle、chunk/segment、retrieval
+top-k/threshold、summary/consolidation、并发，以及 answer/judge 各自的 model、decoding、prompt、
+parse/metric semantics。每格必须区分：签名默认、README demo 覆盖、实际 CLI 默认、调用点显式
+传值；不能把其中一种冒充另一种。产品默认要给出可锁定到 vendored commit/package 的精确身份；
+若默认依赖联网、闭源服务或运行时下载，只做静态取证，不调用、不下载。官方 model 非
+`gpt-4o-mini` 时明确标 `FRAMEWORK_MODEL_OVERRIDE / PARTIAL_NATIVE`，不得建议绕过当前硬规则。
 
-输出明确标记：`PRODUCT_DEFAULT` / `FRAMEWORK_OVERRIDE` / `BENCHMARK_NATIVE` /
-`SOURCE_UNDETERMINED`。若当前文档/TOML 注释把 framework override 写成 repo default，列入
-“需要架构师勘误”的精确路径/行号清单，不直接修改。
+输出明确标记：产品默认=`UNIFIED_PRODUCT_DEFAULT`；当前 shared MiniLM override=
+`CONTROLLED_EMBEDDING_V1`；官方 benchmark 配置=`BENCHMARK_NATIVE`；算法分叉=
+`REPRODUCTION_VARIANT`；证据不足=`SOURCE_UNDETERMINED`。核查每家 product-default 是否能作为
+同一套 profile 跨五 benchmark 使用；不得提出按 benchmark 换 embedding。若 embedding 与算法
+硬耦合、替换会改核心流程，或默认不可公开/不可复现，写停点交回架构师，禁止静默代换。
+若当前文档/TOML 注释把 framework override 写成 repo default，列入“需要架构师勘误”的精确
+路径/行号清单，不直接修改。
 
 ## 5. 审计 C：MemoryOS pypi / ChromaDB 专项
 
@@ -126,25 +137,30 @@ semantics。每格必须区分：签名默认、README demo 覆盖、实际 CLI 
 
 ## 6. 审计 D：实验身份与复证影响
 
-给出不含预算数字的影响表：
+主政策已经要求由 current controlled override 迁到 product default；本卡只给出不含预算数字的
+实施影响表，不改配置：
 
-- 若把 current unified 的 framework override 改回 product default，是否必须重建 memory；
-- 哪些既有 LightMem/Mem0/MemoryOS smoke artifact 失去可比性；
+- 三家迁移到 product default 是否必须重建 memory，最小实现/manifest 改动面是什么；
+- 哪些既有 LightMem/Mem0/MemoryOS smoke artifact 应保留并重标
+  `controlled_embedding_v1`，哪些门必须在 product-default 主轨复证；
 - 哪些只需 readout 重跑，哪些必须 build+retrieve+answer 全重跑；
-- 建议 manifest 至少新增哪些静态 identity 字段，才能区分
-  `product_default / controlled_backbone / benchmark_native / reproduction_variant`。
+- 建议 manifest 至少新增哪些静态 identity 字段，才能区分 `product_default /
+  controlled_embedding_v1 / benchmark_native / reproduction_variant`；至少评估
+  `embedding_track/provider/model/revision/dimension/normalization/instruction/distance` 与
+  `implementation_variant`。
 
 这是审计建议，不改协议。特别检查 current `config_track=native` 是否会把 partial-native
 过度标成 full-native。
 
 ## 7. 强反证与停工条件
 
-必须主动寻找至少四类反证：
+必须主动寻找至少五类反证：
 
 1. README 说“默认”，但实际入口显式覆盖；
 2. eval 文件名相似，但 update/retrieval 顺序不同；
-3. 同 embedder 名但 provider/dimension/normalization 不同；
-4. answer/judge 资产存在，但 build 或 judge 缺失，属于 partial-native。
+3. 同 embedder 名但 provider/dimension/normalization/instruction 不同；
+4. answer/judge 资产存在，但 build 或 judge 缺失，属于 partial-native；
+5. product-default embedding 与 method 核心算法硬耦合，不能安全替换或无法公开复现。
 
 以下任一命中则在 note 写清断点并停止对应 method，不猜：关键目录缺失；活跃入口无法在
 5h 内确定；需要联网/真实 API/下载模型；一手源与本卡的硬架构边界冲突。可继续完成其他
@@ -152,9 +168,10 @@ method，但报告必须逐项标 `UNDETERMINED`，不得为了填表推断。
 
 ## 8. note 结构、唯一自检与提交
 
-note 必须按以下结构：结论摘要 → 三家 implementation 表 → 三家 build-axis 表 → MemoryOS
-专项 → 复证/manifest 影响 → 过时文字清单 → 来源待溯/停工点。所有关键结论给文件:行号；
-PDF 事实用页码 + 可复算提取命令。
+note 必须按以下结构：结论摘要 → 三家 implementation 表 → 三家 build-axis 表 → 三家
+product-default 精确身份与跨 benchmark 可用性 → MemoryOS 专项 → controlled 旧产物保留与
+product-default 复证/manifest 影响 → 需要架构师勘误的文字清单 → 来源待溯/停工点。所有关键
+结论给文件:行号；PDF 事实用页码 + 可复算提取命令。
 
 只跑一次最小自检：
 

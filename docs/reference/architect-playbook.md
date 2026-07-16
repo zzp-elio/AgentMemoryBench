@@ -294,6 +294,17 @@
     exit condition”。压缩恢复只读活跃 README，故任何真正要继续的支线都必须在其索引出现；
     完成后则把状态改成 closed/历史，不靠继任者猜文件名。
 
+31. **“事实分类纠正”与“实验政策改判”必须分开写，不能把旧拍板倒写成过时错误**
+    （2026-07-16 unified embedding 判例）。embedding 属 build identity 是事实分类；主轨究竟
+    统一 backbone 还是采用各 method product default，是研究 estimand 的政策选择。2026-07-09
+    shared `all-MiniLM-L6-v2` 是用户明确拍板、实现和验收过的控制变量政策；新架构师若认为
+    产品公平轨应测“通用 OSS 方法整体能力”，可以在说明理由并获用户授权后**从今日改判**，
+    但不能声称旧文当时已过时。现行做法：unified 主轨用 vendored 版本的 pinned
+    product-default embedding，同一 method 跨 benchmark 固定；旧 shared embedding 产物保留并
+    重标 `controlled_embedding_v1`，作为因果消融。任何政策改判都要同时写清：生效日期、旧
+    产物的新身份、manifest 区分字段、重建/复证面；先由 actor 查事实，最终政策不能下放给
+    actor 投票。
+
 ## 4. 审查手艺（隐性知识核心）
 
 ### 4.1 三层审查法

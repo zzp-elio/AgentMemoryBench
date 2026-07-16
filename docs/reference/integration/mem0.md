@@ -56,15 +56,19 @@
 - **B8 ✅ 副作用/韧性**：失败清理为 `delete_all(run_id)` + 批准的 third_party
   `SQLiteManager.delete_messages(session_scope)` 最小 diff + sidecar 清除；两类业务 API
   点有 timeout/retry。首次模型下载仍需新机器预热预检。
-- **B9 ✅ 模型/超参口径**：unified 与 native 分叉均已声明；官方 0.1 相关性门槛导致
-  空检索属于方法语义，不当作框架故障。
+- **B9 🟡 product-default 主轨迁移待审计**：2026-07-09 shared MiniLM 配置/产物保留为
+  `controlled_embedding_v1`，不再冒充 unified 产品默认；现行主轨须迁到 vendored Mem0 的
+  pinned product-default embedding。三家 build-axis 卡先查 provider/model/revision/dimension/
+  normalization、generic/eval 同核关系与必须重建/复证的门，不在审计前静默改配置。官方 0.1
+  相关性门槛导致空检索仍属于方法语义，不当作框架故障。
 - **B10 ✅ 双轨**：native 注册 LoCoMo、LongMemEval、BEAM；judge 路由泛化和旧论文
   校准配置属于 R0 前置包，不伪装成已消费。
-- **B11 🟡 既有 13 格证据保留，受影响三 benchmark B4 修复后局部复证**：13 格 predict、免费/付费指标与既定
+- **B11 🟡 既有 13 格 controlled 证据保留；B4 与 product-default 主轨均待复证**：13 格 predict、免费/付费指标与既定
   并行门完成；冻结时基线 1164 passed。既有 BEAM provenance recall 与 LongMemEval
   turn-level/rank 数字不再作可信指标声明。逐题 RetrievalEvidence contract v1 已由 M0
   落盘，现待 M1 evaluator 消费；MemBench/BEAM/HaluMem 新输入字节须局部复证，LoCoMo/
-  LongMemEval 的 session-only 输入及既有 add-only 证据继续有效。
+  LongMemEval 的 session-only 输入及既有 add-only 证据继续有效。embedding 迁移会影响 build/
+  retrieve，不能只重跑 readout；精确范围待 Fable 审计后另发施工卡。
 
 ## 特殊情况
 1. Mem0 是当前唯一混合隔离方法，不能把 worker 内逻辑隔离误写成全局纯逻辑隔离。

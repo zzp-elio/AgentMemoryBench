@@ -52,10 +52,11 @@
   `get_response` 末尾把 eval 问答写回。三路 future 吞异常的官方降级由 adapter 包装
   实际任务方法审计，metadata 写 `degraded_retrieval*`；合法空命中不误标。LLM 有
   timeout/retry/clean-retry；首次 embedding 模型下载缺显式 offline/timeout 仍是声明缺口。
-- **B9 模型/超参口径 ✅分叉声明（build-axis 终裁待三家审计）**：unified build 使用当前
-  产品 profile；paper、eval、pypi 默认三岔已留档，不把其中一套冒充另一套。当前 profile
-  与真正无覆盖 product default 的逐轴关系、PyPI/ChromaDB variant 身份，交
-  `dual-track-identity` 支线裁定；审计前不静默换配置或重烧 smoke。
+- **B9 模型/超参口径 🟡（product-default 政策已定，精确身份待审计）**：paper、eval、pypi
+  默认三岔已留档，不把其中一套冒充另一套。unified 主轨必须使用 vendored 产品实现的 pinned
+  product-default embedding；当前 profile 与无覆盖默认的 provider/model/revision/dimension/
+  normalization 关系、PyPI/ChromaDB variant 身份，交 `dual-track-identity` 支线取证。actor
+  不再裁主轨；审计前不静默换配置或重烧 smoke。
 - **B10 双轨 ✅ readout-native**：LoCoMo 官方 system/user prompt 由 AST parity 锁逐字
   核对，answer=`gpt-4o-mini`, temperature=0.7, max_tokens=2000。官方无 LLM judge，
   bundle `judge_profile=None` 时回落框架默认 judge。paper build 超参只登记资产，当前
