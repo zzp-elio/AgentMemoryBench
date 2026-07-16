@@ -114,6 +114,10 @@ class MethodRegistration:
         retrieval_observation_contract_getter: 启用观测时生成 retrieval 强契约。
         clean_failed_ingest_state: 可选 clean retry hook；只有内置 method 能证明可
             conversation 级安全清理半写入状态时才声明。
+        embedding_identity_getter: 可选回调，从 ``config.to_manifest()`` 字典抽取当前
+            build 的 ``(provider, model, dimension, revision)``，供给 track identity
+            契约的 concrete embedding 身份；未声明时返回 None 表示 pending。值必须与
+            method.config 同一真实值，不得提前写入未来配置。
     """
 
     name: str
@@ -145,6 +149,10 @@ class MethodRegistration:
     supports_shared_instance_parallelism: bool = False
     clean_failed_ingest_state: (
         Callable[[MethodBuildContext, Conversation, dict[str, Any]], None] | None
+    ) = None
+    embedding_identity_getter: (
+        Callable[[dict[str, Any]], tuple[str | None, str | None, int | None, str | None] | None]
+        | None
     ) = None
 
     @property
@@ -743,6 +751,115 @@ def _estimate_memoryos_update_batches(
     ).update_batch_count
 
 
+def _mem0_embedding_identity(
+    config_manifest: dict[str, Any],
+) -> tuple[str | None, str | None, int | None, str | None] | None:
+    """从 Mem0 config manifest 抽取当前 build 的 embedding 身份四元组。
+
+    Mem0 ``to_manifest`` 暴露 ``embedding_provider``、``embedding_model``、
+    ``embedding_dimensions``；revision 由 provider 管理（HuggingFace local 时无 pin），
+    本 getter 返回 None，由 config_track 按静态期望标 ``local_unpinned``。
+    """
+
+    if not isinstance(config_manifest, dict):
+        return None
+    provider = config_manifest.get("embedding_provider")
+    model = config_manifest.get("embedding_model")
+    dimension = config_manifest.get("embedding_dimensions")
+    return (
+        str(provider) if provider is not None else None,
+        str(model) if model is not None else None,
+        int(dimension) if isinstance(dimension, int) else None,
+        None,
+    )
+
+
+def _lightmem_embedding_identity(
+    config_manifest: dict[str, Any],
+) -> tuple[str | None, str | None, int | None, str | None] | None:
+    """从 LightMem config manifest 抽取 embedding 身份四元组。
+
+    LightMem ``to_manifest`` 暴露 ``embedding_provider``、``embedding_model_path``、
+    ``embedding_dimensions``；provider 取为 manifest 的 ``embedding_provider``
+    （HuggingFace local）。
+    """
+
+    if not isinstance(config_manifest, dict):
+        return None
+    provider = config_manifest.get("embedding_provider")
+    model = config_manifest.get("embedding_model_path")
+    dimension = config_manifest.get("embedding_dimensions")
+    return (
+        str(provider) if provider is not None else None,
+        str(model) if model is not None else None,
+        int(dimension) if isinstance(dimension, int) else None,
+        None,
+    )
+
+
+def _memoryos_embedding_identity(
+    config_manifest: dict[str, Any],
+) -> tuple[str | None, str | None, int | None, str | None] | None:
+    """从 MemoryOS config manifest 抽取 embedding 身份四元组。
+
+    MemoryOS ``to_manifest`` 在 asdict 中暴露 ``embedding_model_name``；engine 字段
+    ``memoryos-pypi`` 作为 provider 身份。维度为模型固有值（``all-MiniLM-L6-v2`` 恒为
+    384，审计 §2.3 一手核），manifest 不直接写字段，故按当前注册的唯一模型名回填
+    固有维度——这是与 ``method.config`` 同一真实值（模型名确定 queried 维度），不是
+    提前写入未来配置。当 ``embedding_model_name`` 缺失时返回 None 表示 pending。
+    """
+
+    if not isinstance(config_manifest, dict):
+        return None
+    model = config_manifest.get("embedding_model_name")
+    if not model:
+        return None
+    dimension: int | None = None
+    normalized_model = str(model).split("/")[-1].lower()
+    if "all-minilm-l6-v2" in normalized_model:
+        dimension = 384
+    return (
+        str(config_manifest.get("engine") or "memoryos-pypi"),
+        str(model),
+        dimension,
+        None,
+    )
+
+
+def _simplemem_embedding_identity(
+    config_manifest: dict[str, Any],
+) -> tuple[str | None, str | None, int | None, str | None] | None:
+    """从 SimpleMem config manifest 抽取 embedding 身份四元组。
+
+    SimpleMem ``to_manifest`` 暴露 ``embedding_model_path``、``embedding_dimension``，
+    provider 记为 ``sentence-transformers-local``（与 to_manifest 一致）。
+    """
+
+    if not isinstance(config_manifest, dict):
+        return None
+    model = config_manifest.get("embedding_model_path")
+    dimension = config_manifest.get("embedding_dimension")
+    return (
+        "sentence-transformers-local" if model else None,
+        str(model) if model is not None else None,
+        int(dimension) if isinstance(dimension, int) else None,
+        None,
+    )
+
+
+def _generic_pending_embedding_identity(
+    config_manifest: dict[str, Any],
+) -> tuple[str | None, str | None, int | None, str | None] | None:
+    """未裁 method（A-Mem）的 embedding identity getter：恒返回 None 表示 pending。
+
+    A-Mem 的 product-default embedding 尚未一手核；在各自 M 阶段补完前不得臆造
+    product identity，故统一返回 None，让 track identity 的 embedding identity_status
+    为 pending（A-Mem/SimpleMem 不因同名 MiniLM 自动盖 product-default）。
+    """
+
+    return None
+
+
 _REGISTRATIONS = {
     "amem": MethodRegistration(
         name="amem",
@@ -773,6 +890,7 @@ _REGISTRATIONS = {
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
         clean_failed_ingest_state=_clean_amem_failed_ingest_state,
+        embedding_identity_getter=_generic_pending_embedding_identity,
     ),
     "mem0": MethodRegistration(
         name="mem0",
@@ -806,6 +924,7 @@ _REGISTRATIONS = {
         retrieval_evidence_contract_version="v1",
         clean_failed_ingest_state=_clean_mem0_failed_ingest_state,
         supports_shared_instance_parallelism=False,
+        embedding_identity_getter=_mem0_embedding_identity,
     ),
     "lightmem": MethodRegistration(
         name="lightmem",
@@ -838,6 +957,7 @@ _REGISTRATIONS = {
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
         clean_failed_ingest_state=_clean_lightmem_failed_ingest_state,
+        embedding_identity_getter=_lightmem_embedding_identity,
     ),
     "memoryos": MethodRegistration(
         name="memoryos",
@@ -871,6 +991,7 @@ _REGISTRATIONS = {
         ),
         retrieval_observation_contract_getter=_separable_retrieval_contract,
         clean_failed_ingest_state=_clean_memoryos_failed_ingest_state,
+        embedding_identity_getter=_memoryos_embedding_identity,
     ),
     "simplemem": MethodRegistration(
         name="simplemem",
@@ -902,6 +1023,7 @@ _REGISTRATIONS = {
         retrieval_observation_contract_getter=_separable_retrieval_contract,
         supports_shared_instance_parallelism=False,
         clean_failed_ingest_state=_clean_simplemem_failed_ingest_state,
+        embedding_identity_getter=_simplemem_embedding_identity,
     ),
 }
 
@@ -951,6 +1073,28 @@ def resolve_registered_factory_retrieval_evidence_contract_version(
     return None
 
 
+def resolve_registered_embedding_identity(
+    method_name: str,
+    config_manifest: dict[str, Any],
+) -> tuple[str | None, str | None, int | None, str | None] | None:
+    """按注册方法名从 config manifest 抽取当前 build 的 embedding 身份四元组。
+
+    输入:
+        method_name: method registry 名。
+        config_manifest: ``method.config.to_manifest()`` 产生的公开配置字典。
+
+    输出:
+        ``(provider, model, dimension, revision)``；method 未声明 getter 时返回 None
+        （表示 pending）。值必须与 ``method.config`` 同一真实值，不得提前写入未来
+        配置（如 Mem0 未来 OpenAI/1536 不得写进当前 MiniLM run）。
+    """
+
+    registration = _REGISTRATIONS.get(method_name.strip().lower())
+    if registration is None or registration.embedding_identity_getter is None:
+        return None
+    return registration.embedding_identity_getter(config_manifest)
+
+
 def load_method_profile(
     method_name: str,
     profile_name: str,
@@ -993,4 +1137,5 @@ __all__ = [
     "load_method_profile",
     "resolve_registered_factory_provenance_granularity",
     "resolve_registered_factory_retrieval_evidence_contract_version",
+    "resolve_registered_embedding_identity",
 ]

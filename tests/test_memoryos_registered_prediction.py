@@ -36,6 +36,10 @@ from memory_benchmark.core.interfaces import BaseMemoryProvider
 from memory_benchmark.methods import memoryos_adapter as memoryos_adapter_module
 from memory_benchmark.methods.memoryos_adapter import MemoryOS as RealMemoryOS
 from memory_benchmark.methods import registry as method_registry_module
+from memory_benchmark.methods.config_track import (
+    CONTRACT_VERSION,
+    build_unified_track_identity,
+)
 from memory_benchmark.observability import RunContext
 from memory_benchmark.observability.efficiency.entities import ModelDescriptor
 from memory_benchmark.runners import prediction as prediction_runner_module
@@ -613,6 +617,16 @@ def test_memoryos_registered_prediction_uses_generic_runner_with_smoke_crop_resu
             "total_update_batches": 1,
             "conversation_count": 1,
         },
+        "contract_version": CONTRACT_VERSION,
+        "track_identity": build_unified_track_identity(
+            method="memoryos",
+            concrete_embedding=(
+                "memoryos-pypi",
+                _FakeMemoryOS.instances[0].config.embedding_model_name,
+                384,
+                None,
+            ),
+        ).to_manifest_dict(),
     }
     assert captured["source_paths"] == (tmp_path / LOCOMO_SOURCE_PATH,)
 
