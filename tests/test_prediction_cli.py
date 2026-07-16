@@ -37,6 +37,10 @@ from memory_benchmark.core import (
 )
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemoryProvider
+from memory_benchmark.methods.config_track import (
+    BuildIdentityDeclaration,
+    EmbeddingIdentity,
+)
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.observability.efficiency import (
     ModelDescriptor,
@@ -55,6 +59,29 @@ from memory_benchmark.cli.run_prediction import (
 
 
 pytestmark = pytest.mark.unit
+
+
+def _pending_fake_build_identity(
+    config_manifest: dict[str, object],
+) -> BuildIdentityDeclaration:
+    """为 registered CLI fake 声明显式 pending build，不回查全局注册表。"""
+
+    return BuildIdentityDeclaration(
+        implementation_variant="product",
+        embedding_profile="unclassified_pending",
+        historical_controlled_build_equivalent_to_current_main=False,
+        embedding=EmbeddingIdentity(
+            provider=None,
+            model=None,
+            dimension=None,
+            revision=None,
+            revision_status="pending",
+            normalization=None,
+            instruction=None,
+            distance=None,
+            identity_status="pending",
+        ),
+    )
 
 
 def test_beam_registered_policy_serializes_into_manifest_top_level() -> None:
@@ -517,6 +544,7 @@ def test_registered_prediction_builds_system_from_registry_context(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -695,6 +723,7 @@ def test_registered_prediction_passes_benchmark_policy_separately_from_method_ma
         resume_policy=resume_policy,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -826,6 +855,7 @@ def test_registered_prediction_omits_benchmark_policy_when_unregistered(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1226,6 +1256,7 @@ def test_registered_prediction_builds_framework_answer_reader(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1506,6 +1537,7 @@ def test_registered_prediction_allows_mem0_smoke_worker_override(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1631,6 +1663,7 @@ def test_registered_prediction_wires_efficiency_observability_when_enabled(
     preflight_calls: list[dict[str, object]] = []
     runner_calls: list[dict[str, object]] = []
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1781,6 +1814,7 @@ def test_all_expands_in_registration_order_and_uses_explicit_variant_suffixes(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1898,6 +1932,7 @@ def test_longmemeval_single_variant_run_id_uses_explicit_suffix(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -1982,6 +2017,7 @@ def test_locomo_run_id_does_not_add_single_variant_suffix(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2144,6 +2180,7 @@ def test_hierarchical_output_layout_groups_run_by_method_benchmark_and_mode(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -2243,6 +2280,7 @@ def test_duplicate_variant_suffix_is_rejected(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2314,6 +2352,7 @@ def test_other_registered_variant_suffix_is_rejected(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2454,6 +2493,7 @@ def test_second_child_preflight_failure_creates_no_output_or_method(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2564,6 +2604,7 @@ def test_openai_settings_load_only_after_all_preflights(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2668,6 +2709,7 @@ def test_symlink_child_run_path_outside_outputs_fails_before_prepare(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2746,6 +2788,7 @@ def test_case_insensitive_child_run_destination_collision_fails_before_prepare(
         prediction_enabled=True,
     )
     method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(

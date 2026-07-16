@@ -3405,6 +3405,113 @@ def test_isolated_worker_stops_after_consecutive_failure_threshold(
     assert "conv-3" not in conversation_status
 
 
+def test_registered_prediction_missing_build_identity_fails_before_side_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """当前 registration 缺 build 声明时，必须在 factory 与 outputs 写入前失败。"""
+
+    from memory_benchmark.cli import run_prediction as run_prediction_module
+    from memory_benchmark.core import MethodCapability, TaskFamily
+    from memory_benchmark.methods.registry import MethodBuildContext, MethodRegistration
+
+    class _FakeConfig:
+        """缺 build declaration 反例使用的最小配置。"""
+
+        profile_name = "smoke"
+
+        def to_manifest(self) -> dict[str, object]:
+            """返回稳定公开配置。"""
+
+            return {"profile_name": self.profile_name}
+
+    factory_calls: list[MethodBuildContext] = []
+
+    def forbidden_factory(context: MethodBuildContext) -> BaseMemorySystem:
+        """记录任何越过身份门的错误 factory 调用。"""
+
+        factory_calls.append(context)
+        return RecordingPredictionSystem()
+
+    method_registration = MethodRegistration(
+        name="missing-build",
+        task_families=frozenset({TaskFamily.CONVERSATION_QA}),
+        provided_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        profile_sections=(("smoke", "smoke"),),
+        profile_relative_path=Path("configs/methods/missing-build.toml"),
+        config_type=_FakeConfig,
+        requires_api=False,
+        system_factory=forbidden_factory,
+        source_identity_factory=lambda path_settings: {"source_sha256": "fake"},
+        model_name_getter=lambda config: "fake-model",
+        max_workers_getter=lambda config: 1,
+        display_name="FakeMissingBuild",
+        protocol_version="",
+        build_identity_resolver=None,
+    )
+    benchmark_registration = SimpleNamespace(
+        name="fake-benchmark",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.ANSWER_GENERATION,
+            }
+        ),
+        prediction_enabled=True,
+        prepare=lambda project_root, request: (_ for _ in ()).throw(
+            AssertionError("prepare must not run before build identity validation")
+        ),
+    )
+    outputs_root = tmp_path / "outputs"
+    monkeypatch.setattr(
+        run_prediction_module,
+        "load_path_settings",
+        lambda project_root: SimpleNamespace(
+            project_root=tmp_path,
+            outputs_root=outputs_root,
+        ),
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "get_benchmark_registration",
+        lambda benchmark_name: benchmark_registration,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "get_method_registration",
+        lambda method_name: method_registration,
+    )
+    monkeypatch.setattr(
+        run_prediction_module,
+        "load_method_profile",
+        lambda **kwargs: _FakeConfig(),
+    )
+
+    with pytest.raises(
+        ConfigurationError,
+        match="does not declare build identity",
+    ) as exc_info:
+        run_prediction_module.run_registered_conversation_qa_prediction(
+            project_root=tmp_path,
+            method_name="missing-build",
+            benchmark_name="fake-benchmark",
+            profile_name="smoke",
+            run_id="missing-build-run",
+            enable_efficiency_observability=False,
+        )
+
+    assert "missing-build" in str(exc_info.value)
+    assert "FakeMissingBuild" in str(exc_info.value)
+    assert factory_calls == []
+    assert not outputs_root.exists()
+
+
 def test_registered_isolated_prediction_does_not_construct_root_system(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

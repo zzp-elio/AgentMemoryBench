@@ -54,7 +54,6 @@ from memory_benchmark.methods.registry import (
     MethodBuildContext,
     get_method_registration,
     load_method_profile,
-    resolve_registered_build_identity,
 )
 from memory_benchmark.observability import RunContext
 from memory_benchmark.observability.efficiency import (
@@ -382,11 +381,13 @@ def run_registered_conversation_qa_prediction(
         "build_identity_resolver",
         None,
     )
-    build_identity = (
-        resolve_registered_build_identity(method_name, config_manifest)
-        if build_identity_resolver is None
-        else build_identity_resolver(config_manifest)
-    )
+    if not callable(build_identity_resolver):
+        display_name = getattr(method_registration, "display_name", method_name)
+        raise ConfigurationError(
+            f"Registered method '{method_name}' ({display_name}) does not declare "
+            "build identity"
+        )
+    build_identity = build_identity_resolver(config_manifest)
     config_track_bundle = (
         None
         if config_track == "unified"

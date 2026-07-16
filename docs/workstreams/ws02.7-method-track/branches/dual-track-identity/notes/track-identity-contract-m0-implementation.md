@@ -191,3 +191,51 @@ uv run pytest -q \
 
 最终尾行：`416 passed, 1 warning in 14.70s`。warning 是 vendored LightMem 的
 Pydantic v2 class-based config deprecation，不是本卡新增失败。
+
+## 10. R2 registration truth-source 修复（2026-07-16）
+
+R2 继续在 `cba25a8` 后追加 follow-up，不 amend、不 push；由 Codex（GPT-5）施工，未使用
+额外 subagent，零真实 API、零下载。
+
+### 10.1 全量触发与根因
+
+架构师把 R1 cherry-pick 到具备 ignored 数据资产的 main 后，全量原文尾行为：
+
+`4 failed, 1302 passed, 3 deselected, 2 warnings, 4 subtests passed in 134.50s (0:02:14)`
+
+四个失败都来自 `tests/test_artifact_evaluation_runner.py` 的 registered fake method
+（`mock-v3` / `offline-fake`）。R1 在当前 registration 缺 `build_identity_resolver` 时调用
+`resolve_registered_build_identity(method_name, config_manifest)`，绕过已经解析出的 fake
+registration，错误回查全局 registry，最终报 `Unknown method`。该 fallback 不只是测试夹具
+遗漏，也违反“当前 registration 是单一 build declaration 事实源”的架构裁决：不能从另一张
+全局表猜同名身份。
+
+### 10.2 R2 裁决与实现
+
+1. registered prediction 只调用当前 `method_registration.build_identity_resolver`；字段缺失、
+   `None` 或不可调用时统一 `ConfigurationError` fail-fast，错误同时包含 registry method name、
+   display name 与 `does not declare build identity`。不回查全局 registry、不造 generic pending、
+   不允许 track identity 缺席。
+2. artifact runner 的三处实际 registered fake registration 显式绑定同一个 pending
+   `BuildIdentityDeclaration` helper；prediction CLI 中 16 个确实会越过成本/resume 前置门并进入
+   identity 组合的 fake registration 同样显式绑定。两个在身份解析前即按原断言退出的 fake
+   未作无关补写。
+3. 新增强反例：registration 明确缺 resolver 时，benchmark `prepare`、method factory 与
+   outputs 目录写入均未发生，并验证错误同时携带 method/display identity。
+
+### 10.3 R2 验证
+
+- 架构师原四个失败点在 actor worktree 定向执行：三个通过；LongMemEval 用例在进入 R2
+  production 路径前因缺少 gitignored
+  `data/longmemeval/longmemeval_s_cleaned.json` 失败，尾行为
+  `1 failed, 3 passed in 2.76s`。未创建、复制或伪造 data。
+- 所有受影响 prediction CLI fakes + 新 fail-fast 反例：`43 passed in 2.81s`。
+- R1 八文件原集合：`417 passed, 1 warning in 16.32s`。
+- artifact runner 排除上述唯一缺 data 用例：`22 passed, 1 deselected in 2.61s`。
+- R1 八文件 + 完整 artifact runner：仅同一缺 data 用例失败，尾行
+  `1 failed, 439 passed, 1 warning in 14.51s`。
+- actor worktree 额外执行 `uv run pytest -q`；因该隔离 worktree 同时缺 LoCoMo、LongMemEval、
+  HaluMem/MemBench benchmark assets 与 SimpleMem local model 等 ignored 依赖，尾行为
+  `72 failed, 1224 passed, 3 deselected, 2 warnings, 11 errors, 4 subtests passed in 34.76s`。
+  这些环境失败不授权修改 data/models/third_party；具备完整 ignored 资产的 main 全量仍由
+  架构师复跑验收。

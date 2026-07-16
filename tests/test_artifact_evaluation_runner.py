@@ -32,6 +32,10 @@ from memory_benchmark.core import (
     Turn,
 )
 from memory_benchmark.core.provider_protocol import BRIDGE_EMPTY_MEMORY_SENTINEL
+from memory_benchmark.methods.config_track import (
+    BuildIdentityDeclaration,
+    EmbeddingIdentity,
+)
 from memory_benchmark.methods.registry import MethodBuildContext
 from memory_benchmark.benchmark_adapters import (
     BenchmarkLoadRequest,
@@ -55,6 +59,29 @@ from memory_benchmark.storage import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _pending_fake_build_identity(
+    config_manifest: dict[str, object],
+) -> BuildIdentityDeclaration:
+    """为 registered fake 声明显式 pending build，不猜测产品 embedding。"""
+
+    return BuildIdentityDeclaration(
+        implementation_variant="product",
+        embedding_profile="unclassified_pending",
+        historical_controlled_build_equivalent_to_current_main=False,
+        embedding=EmbeddingIdentity(
+            provider=None,
+            model=None,
+            dimension=None,
+            revision=None,
+            revision_status="pending",
+            normalization=None,
+            instruction=None,
+            distance=None,
+            identity_status="pending",
+        ),
+    )
 
 
 class FakeEvaluator:
@@ -512,6 +539,7 @@ def test_registered_mock_v3_prediction_can_be_evaluated_offline(
     )
     fake_method_registration = SimpleNamespace(
         name="mock-v3",
+        build_identity_resolver=_pending_fake_build_identity,
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
             {
@@ -963,6 +991,7 @@ def test_longmemeval_s_smoke_registered_prediction_stays_offline_and_separates_p
 
     fake_method_registration = SimpleNamespace(
         name="offline-fake",
+        build_identity_resolver=_pending_fake_build_identity,
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
             {
@@ -1498,6 +1527,7 @@ def _patch_membench_mock_prediction(
     )
     fake_method_registration = SimpleNamespace(
         name="mock-v3",
+        build_identity_resolver=_pending_fake_build_identity,
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
             {
