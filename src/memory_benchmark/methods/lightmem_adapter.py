@@ -1014,8 +1014,9 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     def _native_pair_batch(self, pair: TurnPair) -> list[dict[str, object]] | None:
         """把 v3 TurnPair 转成 LightMem pair batch。
 
-        orphan pair（session 开头无 user 锚点的 turn）经正常化后没有
-        可写消息时返回 None——与旧路径整段 session 裁剪行为等价。
+        unified hybrid 主 profile 不复刻 author harness 的开头裁剪：orphan
+        assistant 会被规范成 ``[placeholder user, real assistant]``，保留真实
+        turn。``None`` 仅保留为防御性空结果分支；现行非空 TurnPair 不应命中。
         """
 
         conversation = self._native_conversation_from_events(pair.turns)

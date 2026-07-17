@@ -129,8 +129,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   丢 2,020/20,283 个 raw turn，其中 3 个 `has_answer=True` assistant turn 位于 answer session；
   当前 hybrid bridge 则用 1,986/20,126 个 placeholder pair 保住所有 retained canonical turn。
   另证实 placeholder 只在 token/render 边界过滤，仍参与 `MessageNormalizer(500ms)` 与后续
-  sequence timestamp 分配；现有 assistant-first 测试名/docstring 还错误声称“skips orphan”，
-  与断言保留 orphan 相反。故 B2 保持 retested、B4 局部重开，不先改算法。自包含 docs-only
+  sequence timestamp 分配；现场还发现 assistant-first 测试名与 `_native_pair_batch` docstring
+  错称“skips orphan”，已按现行 unified 保留语义更正，不改算法。故 B2 保持 retested、B4
+  局部重开。自包含 docs-only
   卡=`branches/method-recertification/lightmem/cards/
   actor-prompt-lightmem-longmemeval-input-time-audit.md`；推荐 Sonnet 5，独立 worktree，零真实
   API。回卡后架构师强验收并把稳定结论回填 survey/integration，再决定是否另发最小代码卡。

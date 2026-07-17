@@ -2308,13 +2308,14 @@ def test_native_lightmem_turn_path_preserves_public_external_id(
     ] == [turn_id, turn_id]
 
 
-def test_native_lightmem_longmemeval_assistant_first_skips_orphan_like_official_trim() -> None:
-    """assistant 开头 session 的原生 pair 路径必须等价官方整段开头裁剪。
+def test_native_lightmem_longmemeval_assistant_first_preserves_orphan_with_placeholder() -> None:
+    """assistant 开头 session 在 unified hybrid 中应以 placeholder 保留 orphan。
 
     对照 smoke 抓到的真实回归：LongMemEval 约 8% 的 session 以 assistant
     开头（如 e47becba/sharegpt_qRdLQvN_7），位置两两切分产出反序 pair，
-    官方裁剪后剩 1 条 → 奇数报错。user 锚定配对 + orphan 跳过后，原生
-    调用序列必须与桥接（官方整段处理）一致。
+    官方 author-reproduction harness 会裁掉开头非 user；unified hybrid 主
+    profile 则有意保留真实 assistant，用 placeholder user 满足上游 pair 结构。
+    原生调用序列必须与 framework bridge 的这一现行语义一致。
     """
 
     question = Question(
