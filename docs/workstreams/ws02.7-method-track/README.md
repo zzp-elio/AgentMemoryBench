@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（RetrievalEvidence M1 已强验收；LightMem B4 timestamp/输入语义门局部重开）
+status: in-progress（LightMem B1-B10 已重认证；B11 五格 smoke 待预算）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -108,51 +108,34 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   官方 unit 计分，BEAM 重复 raw id 为 multi-child any-of，LME 主 turn 分母 419。MemBench
   canonical split 也已关闭：一个 dict step 变为真实 user/assistant 两 turn，但仍由一个
   private any-of group 计一次；LightMem 两 pair 同批抽取没有跨 step lineage union。
-  RetrievalEvidence M1 已关闭。当前回到唯一 active method **LightMem**：LongMemEval 新证据
-  显示 author harness 会丢异形 role turn，而 unified hybrid 用 placeholder 保留；LightMem
-  预期把 session time 按 message slot 每次 +500ms 派生 turn time，但 placeholder 与第二层
-  regroup 的真实作用域仍待核，故 B4 局部重开。LongMemEval cleaned JSON 虽显式含 `HH:MM`，
-  OWNER 所说“只标 date、未标 specific time”指问题标注的**语义精度**，不是字段没有时分；
-  同日 question clock 错序并非有意，应把 question 视为 final conversation 之后，无 temporal
-  constraints 的日期还可随机赋值。**实现只认数据集原值**：原样传 `question_date` / session
-  time，不另造 `final+epsilon` 或 corrected timestamp；同时不得用 raw question time 截断
-  history。输入/时间审计卡
-  已由用户派发、actor 正在执行；OWNER 回复已作为中途证据增补发送，不停工重启。回卡后先
-  完成 S/M + production helper 离线强验收，再重验其余 gap matrix，最后才向
-  用户给五格付费 smoke 命令；未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
+  RetrievalEvidence M1 已关闭。当前唯一 active method **LightMem** 的 LongMemEval input-time
+  审计也已由 Opus 4.8 主体 + 架构师 R1 强验收：S/M 每个 retained turn 恰一次，官方
+  user_only 会丢 2,020/20,283 raw turn（含 3+3 assistant target），unified hybrid 全保留。
+  cleaned JSON 的同日 question clock 错序按 OWNER 解释只作 raw artifact；实现原样传 dataset
+  timestamp、完整 history 不截断，retrieve 明确 `filters=None`。LightMem 的 500ms 只在相同
+  raw timestamp key 内递增，distinct turn timestamp 保持原值；placeholder 保 lineage/speaker，
+  但会影响 method-derived slot time，必须在 report 披露。B2/B4/B5 已关闭，无代码返工卡。
+  下一步按当前 smoke identity 准备 B11 五格付费命令；B9/B10 效果配置迁移按既有政策不阻塞
+  smoke，但首个效果 full/author calibration 前必须完成。未批预算前不调用 API。LightMem
+  关闭后才严格串行 Mem0 →
   MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-17）
 
-- 2026-07-17（**LightMem B4 timestamp/输入语义局部重开；审计卡待用户派发**，GPT-5
-  架构师）：对 LongMemEval S/M 做只读流式预扫并亲读官方 benchmark、官方 LightMem 与当前
-  pair bridge。官方 README/论文示意把问题放在全部 sessions 之后，但数据中 S/M 分别有
-  76/118 题 `question_date < latest history`，其中 44/42 题至少一个 gold session 位于问题时间
-  之后。GitHub 网页摘要曾漏掉 comments；直接读取 issue comments API 后确认仓库 OWNER 已
-  两次裁决：最终 JSON 虽序列化了 `HH:MM`，问题标注时只确定 date、未确定可靠的 specific
-  time；同日具体时刻错序并非有意，question 应视为紧接 final conversation；无 temporal
-  constraints 的题可能由 haystack algorithm 随机赋 question date，正确性不应受影响（issue
-  comments `2895395636`、`2936960111`）。issue 早于 2025-09 cleaned release，但当前官方
-  cleaned S 仍有 76 题 `question_date < latest history` 且全部为同一日，issue 后续点名的
-  `gpt4_2487a7cb` 日期差异也仍存在，故该 OWNER 解释没有被新版数据取代。因此撤销“有意
-  within-history temporal as-of”假说。
-  框架仍原样保留完整 history 与 raw question time，禁止改数据、重排或生成 corrected time；
-  “question after final conversation”只解释 visibility/同日错序，不产生新字段。同时必须核对
-  method 是否把 raw clock 错当 retrieval cutoff。
-  官方 LightMem LME harness 采用 user_only、裁开头非 user、跳过非法 pair，S/M 分别
-  丢 2,020/20,283 个 raw turn，其中 3 个 `has_answer=True` assistant turn 位于 answer session；
-  当前 hybrid bridge 则用 1,986/20,126 个 placeholder pair 保住所有 retained canonical turn。
-  LightMem 的预期机制是同 session 的首 message slot=source time、后续 slot 每次 +500ms；
-  placeholder 只在 token/render 边界过滤，仍参与 normalizer/sequence，因此需核清它是否把
-  相邻真实 turn 的派生间隔扩大及第二层 regroup 的实际边界。现场还发现 assistant-first 测试
-  名与 `_native_pair_batch` docstring
-  错称“skips orphan”，已按现行 unified 保留语义更正，不改算法。故 B2 保持 retested、B4
-  局部重开。自包含 docs-only
-  卡=`branches/method-recertification/lightmem/cards/
-  actor-prompt-lightmem-longmemeval-input-time-audit.md`；推荐 Sonnet 5，独立 worktree，零真实
-  API。回卡后架构师强验收并把稳定结论回填 survey/integration，再决定是否另发最小代码卡。
+- 2026-07-17（**LightMem LongMemEval input-time 审计经 R1 强验收；B4 关闭**，GPT-5
+  架构师）：Opus 4.8 基于旧卡 `914a198` 交付 `0b1ca2e`，363 行主体计数与机制图扎实，架构师
+  复跑文档门 `5 passed in 0.85s` 并独立复算 q<latest same-day=`76/118`、max slot=132、跨
+  minute=`2/7`、跨 hour/day=`0/0`。首轮因未收到中途 OWNER 增补而误写 public unresolved；
+  另把“固定 pair 结构不再额外拉宽”过度概括成 placeholder 对 derived time 零影响，并漏查
+  query cutoff。R1 已逐项订正：OWNER 公开裁决有效；raw timestamp 原样传且 retrieve
+  `filters=None`；placeholder 保 lineage/speaker，但连续同 role 会相对 canonical real-turn
+  adjacency 多占 500ms，assistant-first fact time 锚到 pair base。官方 LightMem
+  `main@4372c8e` 与 vendored 零 API 探针又确认：500ms 只作用于 repeated raw timestamp key，
+  distinct per-turn timestamp 两层均保持。最终 B2/B4/B5 retested，无代码修复卡；稳定摘要已
+  回填 survey/integration，完整证据=`branches/method-recertification/lightmem/notes/
+  lightmem-longmemeval-input-time-audit.md`。下一动作是 B11 五格 smoke 预算/命令。
 
 - 2026-07-17（**RetrievalEvidence M1 + R1 已强验收；下一步回到 LightMem 重认证**，GPT-5
   架构师）：Sonnet 5 首轮 `b6c4b32` 完成严格 v1 parser、逐题 eligibility 与五 evaluator

@@ -1,6 +1,6 @@
 # LongMemEval Dataset 结构卡（现行契约）
 
-更新日期：2026-07-16（retrieval gold/分母定点解冻；现场剖面全量数字见
+更新日期：2026-07-17（retrieval gold/分母 + question-time 语义定点解冻；现场剖面全量数字见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/longmemeval-b2-audit.md`，
 逐文件身份见同目录 `longmemeval-source-lock.json`）
 
@@ -69,6 +69,21 @@ adapter：`src/memory_benchmark/benchmark_adapters/longmemeval.py`。
 - official retrieval 主路径剔除全部 `_abs` 题，并额外剔除 51 个 non-abs
   no-user-target 题；`print_retrieval_metrics.py` 只剔 abs 得 470，作为官方辅助脚本矛盾
   披露，不作为 canonical parity。
+
+### 2.1 question time 与 history visibility
+
+- cleaned JSON 的 `question_date` 与 `haystack_dates` 都含 `HH:MM`，但官方仓库 OWNER 在
+  issue #8 明确说明：question annotation 只确定 date、未确定可靠的 specific time；question
+  与 final conversation 同日时，分钟错序并非有意，应把 question 视为紧接 final conversation。
+  无 temporal constraints 的题，question date 还可能由 haystack creation algorithm 随机赋值。
+- 当前 official-cleaned S/M 流式复算分别有 **76/118** 题
+  `question_date < max(haystack_dates)`，且两 variant 的这些题全部是**同一 calendar day**；
+  future-gold 分别 44/42。issue 早于 2025-09 cleaned release，但点名样本与该分布仍存在，
+  所以 OWNER 解释没有被新版数据废止。
+- canonical 行为只认 dataset raw timestamp：原样映射 `question_date` 与 session time，turn 无
+  独立时间便继承 session；不生成 corrected time、不重排或清洗。官方 generation 会排序但不按
+  question time filter history，故一个 instance 提供的完整 history 均可见；raw question time
+  仍进入 reader 的 `Current Date`，但不作为 ingestion/retrieval cutoff。
 - 公私边界：`answer`/`answer_session_ids`/`has_answer` 绝不进公开对象；
   官方 generation 自己也在进 prompt 前 pop `has_answer`
   （`run_generation.py:182`）。公开泄漏扫描为冻结验收项。

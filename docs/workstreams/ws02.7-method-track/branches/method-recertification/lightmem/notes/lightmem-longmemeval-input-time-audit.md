@@ -4,6 +4,10 @@
 > 争议；架构师强验收后再决定哪些稳定摘要回填 `docs/survey/datasets/longmemeval.md`
 > 与 `docs/reference/integration/lightmem.md`。裁决权在架构师。
 
+> **架构师 R1（2026-07-17）**：主体计数、两层 timestamp 机制与 no-code-fix 总判词
+> 接收；F2 的公开来源状态、placeholder 对 method-derived time 的影响及 query-time cutoff
+> 负空间由 §8 线性勘误。凡首轮文字与 R1 冲突，以 R1 后的现行正文为准。
+
 ## 0. 基线与 identity
 
 | 项 | 值 |
@@ -18,6 +22,10 @@
 | `longmemeval_m_cleaned.json` | 2,737,100,077 bytes（≈2.5GiB），mtime 2026-06-13 22:58；**只 ijson 流式**，逐文件身份见 `ws02.6-first-smoke-hardening/notes/longmemeval-source-lock.json` |
 
 数据未入 git，扫描/探针直接读主工作区绝对路径；提交前确认无软链/临时脚本被暂存。
+
+架构师 R1 另以 HF HEAD 响应核对：当前官方 cleaned repo 为
+`main@98d7416c24c778c2fee6e6f3006e7a073259d48f`，S blob 的 linked SHA-256
+`d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442` 与本地一致。
 
 ### 可复算命令
 
@@ -182,9 +190,11 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
 - L5c C2：seq0 placeholder=`.000`，seq1 real assistant=`.500`。
 - L5d concatenate：prompt **只出现 real assistant**（`line#0 (seq=1)`）；placeholder 被
   marker 过滤，不进抽取文本、不进 token 计数。
-- source_id=0 → sequence_n=0 → 读 **placeholder slot**，但该 slot 的
-  `source_external_ids=['t0']`、speaker、time 已镜像真实 assistant，所以 lineage/speaker/
-  time **仍解析到真实 assistant t0**。**placeholder 不改 source id / speaker / lineage。**
+- source_id=0 → sequence_n=0 → 读 **placeholder slot**。该 slot 镜像真实 assistant 的
+  `source_external_ids=['t0']`、speaker 与 source `session_time`，所以 lineage/speaker 仍解析
+  到真实 assistant t0；但 layer-2 后 placeholder 的 method-derived `time_stamp=.000`，真实
+  assistant slot 为 `.500`，故 fact time 锚在 **pair base**，不能声称 child-derived time
+  也无失真。**placeholder 不改 source id / speaker / lineage，但会影响派生 time 的 slot 锚点。**
 
 ### 探针 3 — user→user（连续 user）
 
@@ -194,9 +204,10 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
 - L5c **C1**：每 pair 独立，两真实 user 都在各自 pair 的 `.000`。
 - L5c **C2**：seq0 user t0=`.000`，seq1 ph=`.500`，seq2 user t1=`01.000`，seq3 ph=`01.500`。
   → 两真实 user 派生 time 相差 **1000ms**。
-- 关键判断：这个 1000ms **不是 placeholder 造成的额外拉宽**——pair-index 方案下相邻同 role
-  turn 本来就隔 2 个 slot（见探针 5，两真实 user 同样相差 1000ms）。placeholder 只是占了本
-  就属于 assistant slot 的位置，派生间隔与"该位置换成真实 assistant"完全相同。
+- 关键判断：相对 canonical 的两个相邻真实 user（若只按真实 turn 排序，本应相差 500ms），
+  placeholder **确实额外占用一个 layer-2 sequence/time slot**，使两者变成 1000ms。探针 5
+  只能证明它没有比 LightMem 固定 pair-index 结构再多拉宽一层，不能把 framework structural
+  extension 对 canonical real-turn 间隔的影响说成“未改变”。
 
 ### 探针 4 — dangling user（单 user）
 
@@ -214,8 +225,8 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
 
 ## 4. 逐项发现（分类 / severity / confidence / 受影响面）
 
-分类取值：`benchmark-native shape` / `benchmark-native temporal semantics` /
-`public-contract unresolved` / `method-native transformation` / `framework extension` /
+分类取值：`benchmark-native shape` / `raw timestamp artifact` /
+`official effective ordering` / `method-native transformation` / `framework extension` /
 `stale documentation`。
 
 ### F1 · 输入异形（blank / assistant-first / pure-assistant / consecutive-same / odd）
@@ -225,19 +236,24 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
 - severity：**low**。受影响：无（诚实保留，已裁不清洗）。
 
 ### F2 · question_date 落在部分 history 之前/之中
-- 分类：**benchmark-native temporal semantics** + **public-contract unresolved**。
-- 事实：q<latest 76/118，其中 future gold 44/42。分层显示两假说都有支撑：`_s` future gold
-  43/44 是 temporal-reasoning（支持"有意 as-of"），`_m` 则 knowledge-update 也占 58 个 q<latest
-  （支持"非时间题未约束先后"）。唯一 `_s` q<earliest=1 的题（`_m`=0）仍属 temporal-reasoning。
-- 一手交叉核对：官方 `run_generation.py:224-225` 排序全部 session 且**不 filter
-  date>question_date**，即官方本身把完整 history + question date 一起喂给 reader——与本框架
-  "完整保留、只披露"一致。论文符号 `t_q>t_N`、README"answer after all sessions"、生成代码
-  实际行为、用户转述作者口径四者并列：README/论文是**叙述性理想**，生成代码是**实际契约**，
-  两者对少数 as-of/未约束题不一致；用户转述的作者动机**尚无可引用公开原文**。
-- 公开 issue `xiaowu0162/LongMemEval#8`：提问者已指出 S 中 question date 早于最后 session
-  并询问是否有意；**本次审计未在公开页面见 maintainer 回复**（不得把提问者推测当作者答复）。
+- 分类：**raw timestamp artifact** + **official effective ordering**。
+- 事实：q<latest 76/118，且架构师 R1 流式复算确认两 variant 的这些题**全部是同一日内的
+  HH:MM 错序**；future gold 44/42。`_s` future gold 43/44 属 temporal-reasoning，`_m`
+  knowledge-update 也占 58 个 q<latest，但这些分层不能再用来支持“有意 within-history as-of”。
+- 官方仓库 OWNER 在 issue #8 comment `2895395636` 明确裁决：mis-ordering 并非有意；问题
+  annotation 只确定 date、未确定可靠的 specific time；question 与 final conversation 同日时，
+  应视为紧接 final conversation 之后。comment `2936960111` 又说明：无 temporal constraints
+  的题可由 haystack creation algorithm 随机赋 question date，正确性不应受影响。最终 cleaned
+  JSON 确实含 `HH:MM`；OWNER 说的是**标注语义精度**，不是字段格式。
+- issue 早于 2025-09 cleaned release，但当前 official-cleaned S 仍有上述 76 个同日错序；issue
+  点名的 `gpt4_2487a7cb` 在 cleaned S/oracle 中仍保留 `2023/05/24 08:02` /
+  `2023/05/28 06:47` 差异，所以公开裁决没有被新版数据废止。
+- 官方 `run_generation.py:224-225` 排序全部 session 且**不 filter date>question_date**；README
+  也要求在全部 interaction sessions 后答题。实现因此原样传 dataset raw timestamp 与完整
+  history，不生成 corrected time、不重排、不清洗；“after final conversation”只解释可见性与
+  同日错序，不产生第三份 timestamp。
 - severity：**low（仅披露）**。受影响：无代码修复项；框架原样传递 history + question time。
-  建议 report/manifest 披露"存在 q<latest / future-gold 题，按官方 no-filter 口径完整传递"。
+  建议 report 披露“存在 raw q<latest / future-gold 题，按官方 no-filter 口径完整传递”。
 
 ### F3 · 官方 LightMem harness 丢弃异形 turn（reproduction 口径）
 - 分类：**method-native transformation**（author reproduction）。confidence 高（复刻
@@ -257,7 +273,11 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
   time/speaker/external_id/source_external_ids；从 extraction 文本（concatenate_messages
   openai.py:298）和 token 计数（short_term_memory.py:23）中过滤；不新增 source id，不进
   public turn。真实空 content（blank）在 L2 已被跳过，与 placeholder 由 marker 严格区分。
-- severity：**low**。受影响：无。是"完整保留 retained turn"的实现手段，符合既有裁决。
+- 镜像能保住 source `session_time`、speaker 与 lineage；不能保住真实 child 的 layer-2
+  `time_stamp` slot（assistant-first 见探针 2），连续同 role 也会相对 canonical real-turn
+  adjacency 多占一个 500ms slot（探针 3）。
+- severity：**low（披露）**。它仍是“完整保留 retained turn”的必要实现手段，但并非对派生
+  timestamp 零影响。
 
 ### F5 · 两层 timestamp 派生（normalizer per-pair + assign_sequence regroup 覆写）
 - 分类：**method-native transformation**。confidence 高（探针 5 实测覆写）。
@@ -266,9 +286,16 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
   time、次 slot +500ms，**跨 pair 不累积**。(b) `assign_sequence_numbers_with_timestamps`
   在 force_extract 时按 session_time **重新分组**，组内按 extract-list 顺序 base+i·500ms，
   **覆写 layer-1**，写入 `timestamps_list` → `MemoryEntry.time_stamp/float_time_stamp`。
-- placeholder 占一个 sequence/time slot，但（见 F4）它占的正是 pair 结构里 assistant slot 的
-  位置；相邻真实 turn 的派生间隔与"该 slot 换成真实 assistant"相同（探针 3 vs 5 均 1000ms），
-  **placeholder 未在 pair 结构之外额外拉宽真实 turn 间隔**。
+- `+500ms` 只发生在**相同 raw timestamp 字符串**的组内，不是全局改写所有 turn。架构师以
+  官方 `main@4372c8e479932706a61d2e9ec84fd57e4d71e26c` 复核两层源码，并跑 vendored 纯函数
+  探针：输入 `23:44:00/23:44:05/23:44:10` 时 normalizer 与 regroup 后均保持三组原值；输入
+  三个相同 `23:44:00` 时才得到 `.000/.500/01.000`。因此有真实 distinct turn timestamp 的
+  benchmark 通常保持原时间；LongMemEval 因所有 turn 继承 session time 才触发组内递增，
+  placeholder 镜像同一真实 child 时也会制造重复 key。
+- placeholder 占一个 sequence/time slot；相对 canonical real-turn 序列会把连续 user 的派生
+  间隔从 500ms 拉到 1000ms，但相对 LightMem 固定 pair-index 结构不会再额外放大（探针 3 与
+  正常 pair 参照探针 5 均为 1000ms）。这是 framework extension 与 method pair contract 的
+  组合效应，不改 source session time。
 - severity：**low（披露）**。受影响：任何依赖 LightMem `time_stamp/float_time_stamp` 排序或
   展示的检索/consolidated 逻辑——这是 method-derived tie-break，不是 source time。
 
@@ -276,8 +303,9 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
 - 分类：**method-native transformation**。confidence 高。
 - 事实：concatenate 行号=`sequence_id//2`，fact.source_id→`sequence_n=source_id*2` 恒读**偶数
   (user) slot**；assistant-first 时读 placeholder slot，但镜像字段使 lineage 落到真实
-  assistant。plural `source_external_ids` 含 pair 两 id → `MemoryEntry.source_external_id`
-  置 None。
+  assistant；method-derived fact time 同时锚到 placeholder 的偶数 pair-base slot，而非真实
+  assistant 的奇数 slot。plural `source_external_ids` 含 pair 两 id →
+  `MemoryEntry.source_external_id` 置 None。
 - severity：**low**。受影响：**印证 adapter 现有 `_build_retrieval_evidence` 对 longmemeval
   记 `n_a / pair_source_id_not_turn_exact` 是正确的**（lightmem_adapter.py:1284-1293），无需
   改动。LME turn Recall 保持 N/A。
@@ -301,7 +329,19 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
   实际派生 spread ≤ 上界。**不把 worst-case 写成已发生。**
 - severity：**low**。受影响：无 answer session 命中大 group，检索/评测语义不受实质影响。
 
-### F9 · 过时文档已在基线修正（无残留）
+### F9 · raw question_time 不参与 retrieval cutoff
+- 分类：**official effective ordering**。confidence 高（framework→adapter→vendored 负空间
+  逐调用点核对）。
+- 事实：v3 `_retrieve_native()` 虽把 raw `query.question_time` 保留进 `Question`，
+  `_retrieve_with_payload()` 只 embed `question.text`，并明确调用
+  `embedding_retriever.search(..., filters=None, return_full=True)`（adapter:1191-1197,
+  1565-1603）。vendored `LightMemory.retrieve()` 的时间过滤也只能经可选 `filters` 参数进入
+  search（lightmem.py:673-709）；当前 adapter 没传。raw question time 只进入 LME answer
+  prompt 的 `Question time:` 行（adapter:1764），不决定 memory visibility。
+- severity：**无**。76/118 个 raw q<latest instance 不会因该字段丢 session/target；无需代码
+  修复或 corrected timestamp。
+
+### F10 · 过时文档已在基线修正（无残留）
 - 分类：**stale documentation（已消解）**。
 - 事实：本审计按 §3.2 指令搜索残留 "skips orphan / official trim / 等价官方裁剪" 文字：
   - `tests/test_lightmem_adapter.py:2311` 测试名已是
@@ -334,12 +374,12 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
    是 vendored 算法核心，不在本框架修复范围。
 2. **只改稳定文档（经验收后回填，非本卡执行）**：
    - `docs/survey/datasets/longmemeval.md`：补一行"存在 q<latest 76/118、future-gold 44/42
-     题（temporal as-of 与非时间题未约束两类，公开动机待锚 issue#8）；框架按官方 no-filter
-     口径完整传递 history + question date"。
+     题，且均为同日 HH:MM 错序；OWNER 已裁 annotation 只可靠到 date、同日 question 视为
+     final conversation 之后；框架按官方 no-filter 口径原样传 history + question date"。
    - `docs/reference/integration/lightmem.md`：补"LME time_stamp 为 method-derived tie-break
      （normalizer per-pair + assign_sequence regroup 覆写），source time 仅 session-level；
-     placeholder 占结构 slot 但不改真实 turn 的 source id/speaker/lineage，也不在 pair 结构外
-     额外拉宽派生间隔"。
+     placeholder 占结构 slot、保住真实 turn 的 source id/speaker/lineage，但会让连续同 role
+     相对 canonical real-turn 顺序多占 500ms，并使 assistant-first fact time 锚到 pair base"。
 3. **只需 manifest/report 披露**：B11 真实 smoke 报告须声明 (a) unified `hybrid` 与官方
    `user_only` reproduction 的 turn-drop 分叉（2,020/20,283，含 3+3 answer-session assistant
    丢弃）；(b) LME turn Recall 因 pair-source-id 保持 N/A；(c) 时间字段为 method-derived order
@@ -352,12 +392,30 @@ session_time 固定 `2023/05/20 (Sat) 00:44`。
 - 6 个架构师校验点（blank 12/295、q<latest 76/118、q<earliest 1/0、future-gold 44/42、官方
   dropped 2,020/20,283、placeholder pair 1,986/20,126、dropped has_answer=True 3+3 assistant）
   **逐项复算一致**；retained turn 恒等式成立。
-- placeholder **占** sequence/time slot 但（i）从 prompt/token 过滤、（ii）镜像真实 child 使
-  source id/speaker/lineage 不失真、（iii）占的是 pair 结构里本就存在的 assistant slot，故
-  **不在 pair 结构外额外改变相邻真实 turn 的派生间隔**。
+- placeholder **占** sequence/time slot且从 prompt/token 过滤；镜像真实 child 保住 source
+  id/speaker/lineage，但连续同 role 相对 canonical real-turn adjacency 会多占 500ms，
+  assistant-first fact 的 method-derived time 锚到偶数 pair-base placeholder slot。source
+  session time 仍可审计。
 - 两层 timestamp：normalizer per-pair（+500ms，跨 pair 重置）→ assign_sequence regroup
-  **覆写**（session_time 组内 base+i·500ms）；持久化 `time_stamp` 是 method tie-break，source
-  time 仅在 session_time 可审计。
-- question_date 与 history 的交叉属 benchmark-native temporal semantics + public-contract
-  unresolved，框架已按官方 no-filter 完整保留，**无清洗、无代码修复项**。
+  **覆写**（只在相同 raw `session_time` 组内 base+i·500ms；distinct raw timestamp 保持
+  原值）；持久化 `time_stamp` 在重复组内是 method tie-break，source time 仍在
+  `session_time` 可审计。
+- question_date 与 history 的交叉属 raw timestamp artifact + official effective ordering；
+  OWNER 公开裁决已锚，框架按 dataset-raw + official no-filter 完整保留，且检索明确
+  `filters=None`，**无清洗、无 corrected timestamp、无代码修复项**。
 - **本审计结论：B4 无需另发代码修复卡**；剩余为稳定文档回填 + B11 report 披露，交架构师强验收。
+
+## 8. 架构师 R1 强验收
+
+- full diff 逐行审读；actor 唯一文件与 allow-list 一致，commit `0b1ca2e` 线性合入为
+  `aeabb3a`。
+- 架构师复跑 `tests/test_documentation_standards.py`：`5 passed in 0.85s`；
+  `git diff --check` 干净。
+- 独立 ijson 复算：S/M q<latest=`76/118`，其中 same-calendar-day=`76/118`；按 user-anchor
+  pair 规则复算 max real/slot=`132/132`、跨 minute boundary=`2/7`、跨 hour/day=`0/0`，与
+  actor 主体一致。
+- 官方 LightMem `main@4372c8e` 与 vendored 双锚确认 timestamp key 分组机制；零 API 探针
+  实测 distinct raw timestamps 两层均保持，repeated raw timestamps 才按 500ms 递增。
+- R1 驳回三处首轮判词而非主体取证：公开 contract 不是 unresolved；placeholder 对派生 time
+  不是零影响；旧卡漏查 query-time cutoff。现行 F2/F4-F6/F9 已订正。
+- 最终裁决：B4 可按“offline retested + 必披露 method-derived time”关闭；无需代码返工卡。
