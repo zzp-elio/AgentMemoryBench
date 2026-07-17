@@ -96,6 +96,14 @@ LIGHTMEM_MODEL_DOWNLOADS = {
 }
 
 
+def _message_content(turn: Turn) -> str:
+    """仅在存在可渲染 caption 时拼接图片，否则原样保留正文。"""
+
+    if any(image.caption and image.caption.strip() for image in turn.images):
+        return turn_text_with_images(turn)
+    return turn.content
+
+
 @dataclass(frozen=True)
 class _BufferedMemoryManagerUsage:
     """LightMem 子线程中暂存的 memory manager LLM usage。
@@ -578,7 +586,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         )
         return {
             "role": role,
-            "content": turn_text_with_images(turn),
+            "content": _message_content(turn),
             "speaker_id": turn.speaker,
             "speaker_name": turn.speaker,
             "time_stamp": timestamp,
@@ -638,7 +646,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         speaker_name = turn.speaker
         user_msg: dict[str, object] = {
             "role": "user",
-            "content": turn_text_with_images(turn),
+            "content": _message_content(turn),
             "speaker_id": speaker_id,
             "speaker_name": speaker_name,
             "time_stamp": timestamp,

@@ -104,3 +104,33 @@ uv run pytest -q tests/test_image_text.py tests/test_lightmem_adapter.py \
 
 无。全部在允许清单内完成；shared helper 足以表达已裁语义，未改 helper/event_stream/
 benchmark adapter/TOML/third_party。
+
+## 8. 架构师 R1：无 caption 原文 bytes 保真
+
+首轮实现把 `_locomo_pair()` 与 `_real_message()` 直接改为
+`turn_text_with_images(turn)`；该共享 helper 在渲染前会对正文 `.strip()`。因此完全没有
+可渲染 caption（`images=()`，或 caption 为 `None`、空串、纯空白）时，原有正文
+`"  plain text  "` 会被静默改成 `"plain text"`，违反修复卡“无 caption 的普通 turn
+语义保持不变”的边界。
+
+R1 在 LightMem adapter 内新增私有 content 分流并由 `_locomo_pair()`、`_real_message()`
+共用：至少一个 caption 经 `strip()` 后非空时，仍调用共享
+`turn_text_with_images()`，所以 wrapper、caption 顺序和现行 strip 语义不变；完全没有
+可渲染 caption 时直接返回 `turn.content`，逐字节保留首尾空白。未改共享 helper、adapter
+version、role/speaker/time/lineage/placeholder 或其他 memory build 语义。
+
+新增强反例覆盖 LoCoMo `images=()` 与仅纯空白 caption 两种情况，分别断言 legacy/v3
+均保留 `"  plain text  "` 且彼此字节级一致；另覆盖非 LoCoMo `_real_message()` 的无
+caption 首尾空白保真。首轮测试与上方历史自检尾行均保留不变。
+
+R1 定向自检（显式 fake key + invalid base URL，零真实 API）：
+
+```text
+OPENAI_KEY=sk-test BASE_URL=https://example.invalid/v1 uv run pytest -q \
+  tests/test_image_text.py tests/test_lightmem_adapter.py \
+  tests/test_lightmem_registered_prediction.py
+149 passed, 1 warning in 6.27s
+
+git diff --check
+（无输出，退出码 0）
+```

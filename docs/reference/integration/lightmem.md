@@ -26,9 +26,10 @@
 > assistant-first fact 的派生 time 锚到偶数 pair-base slot。该行为只需披露，无代码修复。
 > 2026-07-17 补充：LoCoMo image caption 注入缺口已修复，adapter version 升至
 > `conversation-qa-v6`。canonical adapter 仍保留原文 + 结构化 `ImageRef`；v3
-> `_turn_from_event()` 现从公开 `turn_images` 恢复 `ImageRef`，legacy/v3 的真实消息统一经
-> `methods/image_text.py::turn_text_with_images()` 渲染为 `[Sharing image that shows: {caption}]`，
-> caption 恰渲染一次。`query`/img locator 永不进入 content。
+> `_turn_from_event()` 现从公开 `turn_images` 恢复 `ImageRef`。legacy/v3 中存在可渲染
+> caption 的真实消息经 `methods/image_text.py::turn_text_with_images()` 渲染为
+> `[Sharing image that shows: {caption}]`，caption 恰渲染一次；完全没有可渲染 caption 时
+> 原样保留 `Turn.content` bytes（包括首尾空白）。`query`/img locator 永不进入 content。
 > 更新纪律：每过一项 B 判据 / 发现特殊情况，更新本文对应节。2026-07-13 建。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
@@ -281,7 +282,8 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   LightMem 输入边界消失。全量影响 1,226 turn，默认 1-round smoke 又只含无图 D1:1/D1:2，
   不能靠 flow-through 发现。**caption 修复已在 adapter v6 落地（待架构师强验收）**：v3
   `_turn_from_event()` 现经 `_images_from_event()` 从 `turn_images` 恢复 `ImageRef`，legacy
-  `_locomo_pair()` 与通用 `_real_message()` 统一调用 `turn_text_with_images()`，legacy/v3
+  `_locomo_pair()` 与通用 `_real_message()` 共用 content 分流：caption-bearing turn 调用
+  `turn_text_with_images()`，完全没有可渲染 caption 时原样保留 `Turn.content` bytes；legacy/v3
   payload 字节级一致、caption 恰渲染一次、`query`/img locator 不入 content；不下载图片、不改
   extraction/segment/update/retrieval 算法。完整证据见
   `docs/workstreams/ws02.7-method-track/branches/method-recertification/

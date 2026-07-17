@@ -4506,6 +4506,28 @@ def test_lightmem_locomo_caption_rendering_edge_cases(
     assert v3_user["content"] == expected
 
 
+@pytest.mark.parametrize("captions", [(), ("   ",)])
+def test_lightmem_locomo_plain_content_preserves_bytes_without_renderable_caption(
+    captions: tuple[str | None, ...],
+) -> None:
+    """无图片或仅空白 caption 时，legacy/v3 均逐字节保留正文空白。"""
+
+    system = _caption_lightmem_system("locomo")
+    conversation = _caption_locomo_conversation(
+        content="  plain text  ", captions=captions
+    )
+
+    legacy_user = system._normalize_session_to_pairs(
+        conversation.sessions[0], conversation
+    )[0][0]
+    events = list(build_turn_events(conversation, isolation_key="run_conv-cap"))
+    v3_user = system._native_turn_batch(events[0])[0]
+
+    assert legacy_user["content"] == "  plain text  "
+    assert v3_user["content"] == "  plain text  "
+    assert legacy_user["content"] == v3_user["content"]
+
+
 def test_lightmem_locomo_caption_content_excludes_query_and_image_locators() -> None:
     """query / img_url / path / redownload 字符串都不得进入 method content。"""
 
@@ -4558,3 +4580,32 @@ def test_lightmem_generic_real_message_renders_caption_via_shared_helper() -> No
     assert user_msg["content"] == "see this [Sharing image that shows: a cat]"
     # 无图片 assistant turn 保持原文。
     assert assistant_msg["content"] == "nice"
+
+
+def test_lightmem_generic_real_message_preserves_plain_content_bytes() -> None:
+    """非 LoCoMo `_real_message()` 无可渲染 caption 时保留正文首尾空白。"""
+
+    system = _caption_lightmem_system("longmemeval")
+    session = Session(
+        session_id="s1",
+        session_time="2026-01-01",
+        turns=[
+            Turn(
+                turn_id="u1",
+                speaker="user",
+                normalized_role="user",
+                content="  plain text  ",
+            ),
+            Turn(
+                turn_id="a1",
+                speaker="assistant",
+                normalized_role="assistant",
+                content="reply",
+            ),
+        ],
+    )
+    conversation = Conversation(conversation_id="c1", sessions=[session])
+
+    user_msg = system._normalize_session_to_pairs(session, conversation)[0][0]
+
+    assert user_msg["content"] == "  plain text  "
