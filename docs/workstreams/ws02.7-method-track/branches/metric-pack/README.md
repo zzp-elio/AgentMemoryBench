@@ -21,11 +21,17 @@
 
 ## 依赖顺序
 
-当前唯一施工卡：
-[`actor-prompt-metric-kernels-m0.md`](cards/actor-prompt-metric-kernels-m0.md)。
+首轮卡：
+[`actor-prompt-metric-kernels-m0.md`](cards/actor-prompt-metric-kernels-m0.md)。Opus 4.8 已交付
+`760f251`；架构师 full diff 与定向复跑确认 Recall/EM/registry 主体成立，但
+`SubstringExactMatchEvaluator` 缺首卡明确要求的 `normalized_prediction` / `normalized_gold`
+details 字段，故首轮尚未合入。
 
-该卡可以在独立 worktree 与 LightMem × LoCoMo 真实 smoke 并行，因为 smoke 使用主树、卡内
-零真实 API且不改 method/runner/benchmark adapter。actor 回卡后仍须架构师 full diff、定向与
-全量回归；验收前不得拿新 metric 名执行主树 evaluate。
+当前唯一施工卡是同 worktree 最小 follow-up：
+[`actor-prompt-metric-kernels-m0-r1.md`](cards/actor-prompt-metric-kernels-m0-r1.md)。
+
+R1 零真实 API且不改 method/runner/benchmark adapter。回卡后架构师补齐 gitignored benchmark/
+method 资产运行全量回归；验收前不得拿新 metric 名执行主树 evaluate。LightMem 已冻结为 v2，
+R1/新增离线评分不反向解冻 method build。
 
 权威当前动作、commit/test 快照继续只写父级 `../../README.md`。

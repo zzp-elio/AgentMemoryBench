@@ -1,7 +1,9 @@
 # LightMem × LoCoMo B11 真实 smoke 命令包
 
-> 状态：2026-07-17 架构师已交用户执行，**尚未回收真实输出**。本 note 只固化命令与验收
-> 判据，不代表 B11 已通过。两次 predict 都会调用真实 API；用户须在自己的终端串行执行。
+> 状态：2026-07-17 两次真实 predict 与全部当时适用 evaluator 已执行，架构师完成开箱
+> 验货并裁定通过。正式证据见
+> [`lightmem-frozen-v2.md`](lightmem-frozen-v2.md)。本 note 保留当时命令并修正两处验货
+> 模板错误：terminal log 归入各 run 的 `logs/`，单 worker state 不带 `worker_0/` 子层。
 
 ## 1. 为什么是两次 run
 
@@ -32,11 +34,14 @@ test -d models/llmlingua-2-bert-base-multilingual-cased-meetingbank
 
 RUN_W1=lm-locomo-v6-r3q1-w1
 RUN_W2=lm-locomo-v6-r3q1-c2-w2
-LOG_ROOT=outputs/terminal-logs/lightmem-locomo-v6-b11
+RUN_ROOT=outputs/runs/lightmem/locomo/smoke/unified
+RUN_DIR_W1="$RUN_ROOT/$RUN_W1"
+RUN_DIR_W2="$RUN_ROOT/$RUN_W2"
+TMP_LOG_ROOT="${TMPDIR:-/tmp}/memory-benchmark-lightmem-b11"
 
-test ! -e "outputs/runs/lightmem/locomo/smoke/unified/$RUN_W1"
-test ! -e "outputs/runs/lightmem/locomo/smoke/unified/$RUN_W2"
-mkdir -p "$LOG_ROOT"
+test ! -e "$RUN_DIR_W1"
+test ! -e "$RUN_DIR_W2"
+mkdir -p "$TMP_LOG_ROOT"
 ```
 
 `git status --short` 可以显示用户已有 untracked 私有资产；真正的门是两条
@@ -45,11 +50,15 @@ mkdir -p "$LOG_ROOT"
 ## 3. 单 worker predict + 已实现全部 LoCoMo evaluator
 
 ```bash
-uv run memory-benchmark predict smoke --root . --method lightmem --benchmark locomo --config-track unified --run-id "$RUN_W1" --rounds 3 --conversations 1 --questions-per-conversation 1 --workers 1 --allow-api 2>&1 | tee "$LOG_ROOT/$RUN_W1.predict.log"
+uv run memory-benchmark predict smoke --root . --method lightmem --benchmark locomo --config-track unified --run-id "$RUN_W1" --rounds 3 --conversations 1 --questions-per-conversation 1 --workers 1 --allow-api 2>&1 | tee "$TMP_LOG_ROOT/$RUN_W1.predict.log"
+PREDICT_STATUS=$?
+mkdir -p "$RUN_DIR_W1/logs"
+mv "$TMP_LOG_ROOT/$RUN_W1.predict.log" "$RUN_DIR_W1/logs/terminal.predict.log"
+test "$PREDICT_STATUS" -eq 0
 
-uv run memory-benchmark evaluate --root . --run-id "$RUN_W1" --metric locomo-f1 --metric f1 --metric locomo-recall --workers 1 2>&1 | tee "$LOG_ROOT/$RUN_W1.evaluate-offline.log"
+uv run memory-benchmark evaluate --root . --run-id "$RUN_W1" --metric locomo-f1 --metric f1 --metric locomo-recall --workers 1 2>&1 | tee "$RUN_DIR_W1/logs/terminal.evaluate-offline.log"
 
-uv run memory-benchmark evaluate --root . --run-id "$RUN_W1" --metric locomo-judge --judge-profile compact --workers 1 --allow-api 2>&1 | tee "$LOG_ROOT/$RUN_W1.evaluate-judge.log"
+uv run memory-benchmark evaluate --root . --run-id "$RUN_W1" --metric locomo-judge --judge-profile compact --workers 1 --allow-api 2>&1 | tee "$RUN_DIR_W1/logs/terminal.evaluate-judge.log"
 ```
 
 离线命令包含当前已注册的全部无 API LoCoMo 指标；judge 单独执行，避免付费失败掩盖前三项
@@ -60,11 +69,15 @@ uv run memory-benchmark evaluate --root . --run-id "$RUN_W1" --metric locomo-jud
 只在 §3 三条命令都返回 shell exit 0 后执行：
 
 ```bash
-uv run memory-benchmark predict smoke --root . --method lightmem --benchmark locomo --config-track unified --run-id "$RUN_W2" --rounds 3 --conversations 2 --questions-per-conversation 1 --workers 2 --allow-api 2>&1 | tee "$LOG_ROOT/$RUN_W2.predict.log"
+uv run memory-benchmark predict smoke --root . --method lightmem --benchmark locomo --config-track unified --run-id "$RUN_W2" --rounds 3 --conversations 2 --questions-per-conversation 1 --workers 2 --allow-api 2>&1 | tee "$TMP_LOG_ROOT/$RUN_W2.predict.log"
+PREDICT_STATUS=$?
+mkdir -p "$RUN_DIR_W2/logs"
+mv "$TMP_LOG_ROOT/$RUN_W2.predict.log" "$RUN_DIR_W2/logs/terminal.predict.log"
+test "$PREDICT_STATUS" -eq 0
 
-uv run memory-benchmark evaluate --root . --run-id "$RUN_W2" --metric locomo-f1 --metric f1 --metric locomo-recall --workers 2 2>&1 | tee "$LOG_ROOT/$RUN_W2.evaluate-offline.log"
+uv run memory-benchmark evaluate --root . --run-id "$RUN_W2" --metric locomo-f1 --metric f1 --metric locomo-recall --workers 2 2>&1 | tee "$RUN_DIR_W2/logs/terminal.evaluate-offline.log"
 
-uv run memory-benchmark evaluate --root . --run-id "$RUN_W2" --metric locomo-judge --judge-profile compact --workers 2 --allow-api 2>&1 | tee "$LOG_ROOT/$RUN_W2.evaluate-judge.log"
+uv run memory-benchmark evaluate --root . --run-id "$RUN_W2" --metric locomo-judge --judge-profile compact --workers 2 --allow-api 2>&1 | tee "$RUN_DIR_W2/logs/terminal.evaluate-judge.log"
 ```
 
 ## 5. 机器验货（零 API）
@@ -129,9 +142,22 @@ for run_id, expected_questions, expected_workers in cases:
     assert (run_dir / "artifacts/efficiency_observations.prediction.jsonl").stat().st_size > 0
     assert (run_dir / "artifacts/model_inventory.prediction.json").is_file()
 
-    worker_dirs = sorted((run_dir / "method_state").glob("worker_*"))
-    assert len(worker_dirs) == expected_workers
-    assert all(any((worker / "qdrant").iterdir()) for worker in worker_dirs)
+    state_root = run_dir / "method_state"
+    worker_dirs = sorted(state_root.glob("worker_*"))
+    if expected_workers == 1:
+        # 非 isolated 路径直接使用 run 级 method_state，不额外造 worker_0。
+        assert worker_dirs == []
+        qdrant_roots = (state_root / "qdrant",)
+    else:
+        assert len(worker_dirs) == expected_workers
+        qdrant_roots = tuple(worker / "qdrant" for worker in worker_dirs)
+    assert all(root.is_dir() and any(root.iterdir()) for root in qdrant_roots)
+    for terminal_name in (
+        "terminal.predict.log",
+        "terminal.evaluate-offline.log",
+        "terminal.evaluate-judge.log",
+    ):
+        assert (run_dir / "logs" / terminal_name).is_file()
     print(f"PASS {run_id}: questions={expected_questions}, workers={expected_workers}")
 PY
 ```
@@ -139,8 +165,12 @@ PY
 本脚本只验结构、身份、逐题 Recall 资格、效率记录与 worker state 隔离，不把 smoke 分数高低当作
 效果结论。Recall 可为 0；judge 可判错。只要流程和 artifact 合同正确，低分不是 B11 失败。
 
-## 6. 回收给架构师
+## 6. 架构师回收结果
 
-用户只需回传六份 terminal log 的尾行/报错；架构师会直接开箱检查两个 run 目录和机器验货输出，
-再决定 B11 是否关闭。Answer Metric Pack M0 合入后，可在这两个 run_id 上只追加
+两组 run 均已通过结构、身份、逐题 Recall 复算、效率观测与 worker state 隔离门；六份 terminal
+log 已从旧的全局 `outputs/terminal-logs/` 移入各自 run 的 `logs/`。双 worker terminal tee
+没有显示最终 JSON，但 run 内 `logs/run.log` 与 `logs/events.jsonl` 均有正式 `run_completed`，
+artifact/checkpoint 计数完整，因此裁为显示层缺口而非 prediction 失败。
+
+Answer Metric Pack M0 合入后，可在这两个 run_id 上只追加
 `evaluate --metric normalized-em --metric substring-em`；不重跑 predict。

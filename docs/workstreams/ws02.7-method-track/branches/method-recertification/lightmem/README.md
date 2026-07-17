@@ -27,10 +27,11 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
 8. [LoCoMo smoke 配置离线预检](notes/lightmem-locomo-smoke-config-preflight.md) 抓到的 1,226-turn
    caption 缺口已由 Opus 4.8 主体 `ea08431` + Codex R1 `9f5ef69` 强验收关闭，主线
    `78196bc` + `65f5805`；B2/B4 已 retested。caption-bearing turn 只在 method 边界渲染共享
-   wrapper，无有效 caption 时保留原文 bytes。下一门只剩 B11 最新 build smoke。用户已批准
-   LoCoMo smoke **规模**为 3 rounds / 1 question；用户现已要求执行单 worker 与真实双 worker
-   两次 run，命令与验货脚本固化在
-   [B11 command pack](notes/lightmem-locomo-b11-command-pack.md)。真实输出尚未回收，B11 仍 pending。
+   wrapper，无有效 caption 时保留原文 bytes。LoCoMo 最新 build 的单 worker 与真实双 worker
+   两次 run 已由用户执行，架构师完成 artifact、Recall group、Qdrant lineage、效率与隔离开箱
+   验货；B11 已关闭，LightMem 恢复为 `method-frozen-v2`。完整判词见
+   [frozen-v2 note](notes/lightmem-frozen-v2.md)，命令模板与修正后的 state/log 判据见
+   [B11 command pack](notes/lightmem-locomo-b11-command-pack.md)。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

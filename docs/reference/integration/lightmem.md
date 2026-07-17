@@ -1,7 +1,7 @@
 # LightMem 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**method-frozen-v1 重认证（caption v6 已关闭 B2/B4；B11 待最新 build smoke）**。online-soft
+> 状态：**method-frozen-v2（2026-07-17，B1-B11 重认证完成）**。online-soft
 > lifecycle 卡已强验收合入主线 `825132f`，B6/lifecycle identity 关闭；LoCoMo
 > post-update 保留为另名补充轨。MemBench 时间语义 Phase A 与 LightMem preserve-none
 > Phase B 的 timestamp 子门仍有效。
@@ -218,7 +218,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
 
 - **B1 来源锁与接口选择 ✅**：vendored 路径如上；只用 `retrieve+add_memory`，不用其
   chat 入口（公平性）。审查记录 `docs/workstreams/ws02.7-method-track/notes/lightmem-m0-audit.md`。
-- **B2 注入粒度 ✅（caption v6 离线 retested；B11 仍需真实 artifact）**：2026-07-14
+- **B2 注入粒度 ✅（caption v6 离线 + 真实 artifact retested）**：2026-07-14
   frozen-v1 收口的 halumem=SessionBatch 整批+force
   刷洗已落地实证（M0-8+s2 run），姿态声明齐备；下述历史推理留档：
   locomo=turn/batch、longmemeval=pair。**HaluMem memory_point：
@@ -299,7 +299,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   benchmark 特判。此前唯一需要 LightMem 自身修复的公开 caption 丢失现已由 v6 关闭。
 - **B3 隔离 ✅ 物理**：per-conversation Qdrant collection + 独立路径（adapter:388-390，
   summary 库另置 :390）；clean-retry = 删目录（:1660-1664），干净。并行安全。
-- **B4 formatted_memory+输入内容 ✅（caption/input/time 离线 retested；B11 待实测）**：locomo 官方
+- **B4 formatted_memory+输入内容 ✅（caption/input/time 已完成真实复验）**：locomo 官方
   speaker 分组 + `_format_lightmem_memory`；longmemeval native 已透传
   `prompt_messages` 对齐官方（M0-1b）。**时间戳逐 benchmark 实测**：locomo ✓、
   membench **仅 0-10k smoke 四源 ✓**、beam-100k `15 March 2024` ✓（月名转换端到端）、halumem
@@ -319,8 +319,8 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   assistant-first 的 fact time 锚到 pair base。该差异列入 B11 披露，不需代码修复。
   2026-07-17 canonical split 又以 8 个正式文件全量复验关闭 role/content 映射门：FirstAgent
   的 user/assistant 各自保留原文与自身时间，不读 peer 时间；标准 smoke 按 6 source steps
-  保留为 8 canonical turns，不切半 pair。真实 API 成色仍只在 B11 复验。
-- **B5 provenance 🟡 逐格（2026-07-15 重开）**：M0-7b 已把公开
+  保留为 8 canonical turns，不切半 pair。最新真实 B11 结果见 frozen-v2 note。
+- **B5 provenance ✅ 逐格资格已裁（2026-07-17）**：M0-7b 已把公开
   `external_id` 透传为 `MemoryEntry.source_external_id`，初始 insert 的单来源映射与
   lme/membench/beam 等不跑 post-build merge 的路径仍成立。2026-07-13
   `lm-locomo-unified-prov1` 确实产出非空 items，但当时只验证了 id 空间/字段存在，
@@ -370,21 +370,22 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   如实声明 `local_unpinned`。真实效果实验前再裁 `official_full` 最终数值；作者 LoCoMo/LME
   参数只进入对应 `author_<benchmark>` section，不自动按 benchmark 切换。repo schema 顶层
   `text_embedder=None` 且 compressor/topic 默认 OFF 的事实继续保留，不能把不可运行默认当权威。
-- **B10 🟡（旧 config-track truthful；新 TOML/完整 builder 待迁）**：历史 M0 R1/R2 已让
+- **B10 ✅（当前主 TOML truthful；author builder 按政策延后）**：历史 M0 R1/R2 已让
   manifest 显式写 `native_scope=readout_only`、实际 embedding、answer/judge model source，
   严格参与 evaluate/resume，旧产物身份可信。现行政策不再新增双轨：首个作者校准 run 前，
   LoCoMo/LME 改由 `author_locomo`/`author_longmemeval` section 选择各自完整 answer builder，
   并验收从 speaker/time/retrieved memories 到最终 messages 的变量构造；不能只复用旧
   `ANSWER_PROMPT` 模板或 readout bundle 宣称 parity。
-- **B11 smoke+冻结 🟡（2026-07-15 lifecycle + metric contract 重开）**：2026-07-14
+- **B11 smoke+冻结 ✅（2026-07-17 method-frozen-v2）**：2026-07-14
   五格既有 flow-through 与 answer/judge/成本证据仍有效；既有 LoCoMo post-update recall
   数字撤销。online-soft lifecycle identity 已在 `825132f` 完成；逐题 RetrievalEvidence
   M0/M1 均已强验收，LightMem preserve-none Phase B 与 LongMemEval input-time 离线门也已
-  关闭。LoCoMo caption v6 代码门已经强验收；当前下一门是用最新 hybrid/online-soft/v6 build
-  重跑五格真实 smoke。用户已批准 LoCoMo 覆盖首个 caption 的规模为 3 rounds / 1 question，
-  但预算与 run_id 尚未
-  批准，故不得调用 API，也不为
-  “所有指标都亮”强跑。
+  关闭。LoCoMo caption v6 代码门强验收后，用户又执行最新 hybrid/online-soft/v6 build 的
+  1-conversation/1-worker 与 2-conversation/2-worker 真实 smoke；prediction 1/1、2/2，
+  `locomo-f1`、`f1`、`locomo-recall`、`locomo-judge` 全落盘。架构师逐题从公开 source ids
+  与 private gold groups 独立重算 Recall@10 均为 1，并核实 D1:5 LTM lineage、效率、隐私与
+  worker 物理隔离，正式恢复 frozen-v2。完整证据见
+  `ws02.7/branches/method-recertification/lightmem/notes/lightmem-frozen-v2.md`。
   以下为 2026-07-13~14 的历史 smoke 证据：
   ① unified：空库悬案已关闭（diag-log1 复跑：1 round → force 刷洗 → 抽取 2 条
   记忆 → 检索命中，sentinel=0；此前空库判为抽取 LLM 单次返 0 波动，非结构性 bug）。
@@ -452,12 +453,9 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   provided"，答 "No information available" 判 Correct=真金,不知为不知）**、
   memory-type 0.0/3 型（extraction+update 合成,依赖序=付费先行）。低分=
   LightMem 在线姿态+稀抽取的真实测量（B2 姿态声明覆盖）,smoke 判据是
-  流通不是分数。**B11 smoke 半场完成:五格（locomo/membench/beam/lme/
-  halumem）全绿;冻结半场（frozen-v1 note + B2/B4/B8 残留 🟡 收口核对）
-  待架构师专场。**
-  剩余：frozen-v1 note（含 B2/B4/B8 收口）→ native build profile →
-  cost-probe → method-frozen-v1（真实 resume 验证缓期至预算批复，已声明
-  缺口）。
+  流通不是分数。**这是 2026-07-14 的历史断点：当时五格 smoke 全绿、冻结收口尚未完成；
+  2026-07-17 已由 caption v6 最新 build 复验与 frozen-v2 note 取代。**真实 resume 仍按预算
+  裁决缓期，author profile/builder 与 cost-probe 进入性能阶段，不再写成当前 B11 停工点。
 
 ## 特殊情况
 1. **StructMem（`--enable-summary`）是另一个实验**：换 build+检索+embedding
