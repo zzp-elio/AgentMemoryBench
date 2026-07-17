@@ -19,19 +19,22 @@
    relevance 穷尽性审计。
 5. 通用 token-F1 当前 registry 误覆盖 BEAM；M0 只收窄启用面到短答案 QA，不删除公式组件。
 
-## 依赖顺序
+## M0 验收状态
 
-首轮卡：
-[`actor-prompt-metric-kernels-m0.md`](cards/actor-prompt-metric-kernels-m0.md)。Opus 4.8 已交付
-`760f251`；架构师 full diff 与定向复跑确认 Recall/EM/registry 主体成立，但
-`SubstringExactMatchEvaluator` 缺首卡明确要求的 `normalized_prediction` / `normalized_gold`
-details 字段，故首轮尚未合入。
+首轮卡 [`actor-prompt-metric-kernels-m0.md`](cards/actor-prompt-metric-kernels-m0.md) 与 R1
+[`actor-prompt-metric-kernels-m0-r1.md`](cards/actor-prompt-metric-kernels-m0-r1.md) 已关闭。Opus 4.8
+交付 `760f251` + `2f8a1e1`，架构师 full diff、R1 定向复跑 `44 passed in 2.33s` 后以主线
+`3bc9019` + `54a360e` 合入；主树全量门=`1524 passed, 3 deselected, 2 warnings, 29 subtests
+passed in 166.45s`，`src+tests` compileall exit 0。
 
-当前唯一施工卡是同 worktree 最小 follow-up：
-[`actor-prompt-metric-kernels-m0-r1.md`](cards/actor-prompt-metric-kernels-m0-r1.md)。
+M0 现提供版本化 answer-text-v1 normalized EM、directional gold-in-prediction substring EM，
+并收敛共享 retrieval metric kernel；token-F1 已从 BEAM rubric 任务移除。R1 补齐两种 answer
+metric 统一的 normalized artifact identity，没有改变公式或分数。
 
-R1 零真实 API且不改 method/runner/benchmark adapter。回卡后架构师补齐 gitignored benchmark/
-method 资产运行全量回归；验收前不得拿新 metric 名执行主树 evaluate。LightMem 已冻结为 v2，
-R1/新增离线评分不反向解冻 method build。
+LightMem 两条既有 LoCoMo v6 run 已用新 evaluator 离线追加评分，零真实 API、零 method 重跑：
+单 worker 与双 worker 的 normalized EM / substring EM 均为 0；逐题 details 证明是日期表达/顺序
+不满足 lexical exact/contiguous-token 条件，不是 evaluator 接线失败。该补充分数不反向解冻
+LightMem build。BLEU/ROUGE-L 与 Precision/F1@k 继续受任务匹配/穷尽 relevance 判据约束，不能
+因 M0 关闭而自动实现。
 
 权威当前动作、commit/test 快照继续只写父级 `../../README.md`。

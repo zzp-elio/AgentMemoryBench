@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem method-frozen-v2；Metric Pack M0 R1 待派发；下一 method=Mem0）
+status: in-progress（LightMem method-frozen-v2；Metric Pack M0 已关闭；下一 method=Mem0）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -41,8 +41,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `e10110f`（RetrievalEvidence M1 + 契约收敛 R1）→ `78196bc`/`65f5805`
   （LightMem caption v6 + 无 caption bytes R1）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1500 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 143.47s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮主树全量门=`1524 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 166.45s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
@@ -96,9 +96,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   不整体解冻 benchmark core；M1 后先消费 `docs/reference/metric-extension-plan.md` 的
   normalized EM + directional substring EM。“通用”现明确为公式内核不读取 benchmark/method，
   不代表所有 task 都启用：现有 Recall 已共享 group 公式与资格门，剩余 top-k/结果骨架收敛；
-  F1 对 BEAM 的过宽注册一并在 Metric Pack M0 修正。Opus 4.8 首轮 `760f251` 经 full diff 与
-  定向 159 项复跑后主体成立，但 `substring_em` details 缺卡内要求的 normalized 字符串，故未
-  合入；最小 R1 卡=`branches/metric-pack/cards/actor-prompt-metric-kernels-m0-r1.md`。Fable 5
+  F1 对 BEAM 的过宽注册一并在 Metric Pack M0 修正。Opus 4.8 `760f251` + `2f8a1e1` 已由架构师
+  full diff、R1 `44 passed`、主树全量 `1524 passed, 3 deselected, 2 warnings, 29 subtests passed`
+  强验收，以 `3bc9019` + `54a360e` 合入；两条 LightMem LoCoMo v6 run 已零 API 追加 normalized
+  EM/substring EM，均为 lexical 0 分且逐题原因可审计。Fable 5
   三家 product-default/variant 审计继续
   作为既有 build identity 的历史证据；MemoryOS ChromaDB 仍是 reproduction variant，不能用
   TOML profile 掩盖算法分叉。
@@ -138,6 +139,16 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-17）
+
+- 2026-07-17（**Metric Pack M0 强验收关闭；legacy LightMem native 不重复烧过渡 run；下一家
+  Mem0**，GPT-5 架构师）：Opus 4.8 首轮 `760f251` 与 R1 `2f8a1e1` 已线性合入主线
+  `3bc9019` + `54a360e`；R1 定向=`44 passed in 2.33s`，全量=`1524 passed, 3 deselected,
+  2 warnings, 29 subtests passed in 166.45s`，compileall exit 0。两条既有 LightMem LoCoMo v6
+  run 已 artifact-only 追加 normalized EM/substring EM，零 API/零 method 重跑；逐题 0 分来自日期
+  lexical 表达不匹配，不是接线失败。源码复核确认 legacy `config_track=native` 可运行 LightMem
+  LoCoMo/LME 官方 answer/judge readout，但身份严格为 `readout_only`、不覆盖 build；因历史 smoke
+  已有且新 TOML/builder 政策将取代该入口，本轮不重复付费运行。首次作者校准前再关闭
+  `branches/method-config-profiles/` 实施门。
 
 - 2026-07-17（**LightMem method-frozen-v2；Metric Pack M0 主体成立、R1 待派发；下一家 Mem0**，
   GPT-5 架构师）：用户完成 `lm-locomo-v6-r3q1-w1` 与

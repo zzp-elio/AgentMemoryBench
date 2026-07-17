@@ -37,6 +37,13 @@ builder，不再让新运行依赖全局 `config_track=unified/native` 双分支
 变更、零参数改动、零真实 API。到触发点后，架构师先逐 method 盘点“已暴露字段/仍写死字段/
 官方 builder 所需变量”，再按单 method 小卡串行施工，禁止一次性横扫十家。
 
+现行兼容实现中，LightMem 的 LoCoMo/LongMemEval 已有 `config_track=native` 官方 answer builder
+与 readout bundle，技术上可运行；但 `TrackIdentity v1` 明确把它标为 `native_scope=readout_only`、
+`build_override_applied=false`，不会切换作者 build 超参数/embedding/lifecycle。因此它只能叫“旧
+readout-native 校验”，不能叫 `author_<benchmark>` 复现。两条 benchmark 的该路径已有历史 smoke，
+本轮不为重复覆盖生成即将迁移的付费过渡 run；首次正式作者校准时，先实现 TOML section、完整
+builder/decoding/manifest 身份，再使用新 run_id 执行。
+
 ## 退出条件
 
 - 至少一个 method 用主 section 跑通五格离线/极小 smoke 路由，且不依赖新双轨分支；

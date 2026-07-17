@@ -101,6 +101,20 @@ answer prompt 因而不同；一个答案直接写日期，另一个用“May 8 
 `19 January 2023` 写成 `20230119`。token overlap 会惩罚这些表述，semantic judge 判正确；smoke
 只认证链路与 artifact，不把三题分数当效果结论。
 
+### 4.5 冻结后追加的 artifact-only answer metrics
+
+Metric Pack M0 合入后，架构师直接消费上述既有 prediction/private-label artifact，零 API、零
+method 重跑，追加 `normalized-em` 与 directional `substring-em`：
+
+- `lm-locomo-v6-r3q1-w1`：两项均 0/1；
+- `lm-locomo-v6-r3q1-c2-w2`：两项均 0/2。
+
+逐题 details 已写入 normalized 字符串/token。单 worker 的 `May 7, 2023` 对 gold
+`7 May 2023` 因 token 顺序不同而两项均 0；双 worker 的相对日期叙述与 `20230119` 对自然语言
+日期也不满足 exact/contiguous-token 条件。该结果与既有 semantic judge=1 不矛盾，反而说明不同
+metric 捕捉不同性质；不能为了让 lexical 分数变高而改 normalizer 或答案。terminal receipts 位于
+两条 run 各自的 `logs/terminal.evaluate-answer-metric-pack.log`。
+
 ## 5. 日志归档与已知显示缺口
 
 六份 terminal log 已归入各 run 的 `logs/terminal.*.log`，不再散放在
