@@ -41,12 +41,13 @@
 - **B7**：⬜。配置强校验含 api_timeout/retries（:123-125）；usage 观测路径待审。
 - **B8**：⬜。hybrid_retriever.retrieve 预期只读，待锚。clean-retry 钩子已挂。
 - **B9**：⬜。llm_model/embedding_model_path 均强制显式（:103-105 fail-fast），
-  embedding 是本地路径模型——现行 unified 主轨须锁 vendored product default；2026-07-09
-  all-MiniLM 配置只作 `controlled_embedding_v1`。精确默认及迁移面在 SimpleMem 自身 M 阶段
-  取证，不外推三家 Fable 审计结论；不得按 benchmark 调参。
+  embedding 是本地路径模型。现行政策把它作为 TOML 普通 build 字段；5×10 smoke 保持当前
+  all-MiniLM 配置，真实效果实验前再结合 SimpleMem 自身一手证据裁主配置，不外推三家 Fable
+  审计结论；同一主 section 跨 benchmark 固定，不按结果临时调参。
 - **B10**：⬜。Track identity M0 只保留当前 config 的 provider/model/dimension 并盖
-  `unclassified_pending`，未替 SimpleMem 裁 product-default 或 native；native 3 格
-  （locomo/longmemeval/membench）仍须逐格取证，reproduce-vs-paper 按 policy §5。
+  `unclassified_pending`，未替 SimpleMem 裁最终 TOML 参数。旧 native 三格
+  （locomo/longmemeval/membench）作为作者配置候选，只有一手参数与完整 answer builder
+  取证闭合后才增加对应 `author_<benchmark>` section。
 - **B11**：⬜。
 
 ## 特殊情况

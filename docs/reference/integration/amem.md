@@ -7,7 +7,8 @@
 - adapter：`src/memory_benchmark/methods/amem_adapter.py`（1,273 行）
 - 算法源：vendored `third_party/methods/A-mem`（**复现版**，`memory_layer_robust.py`
   的 `RobustAgenticMemorySystem`，adapter:226）。顶层 `third_party/A-mem` 是**通用库版**，
-  adapter 未用（双仓库判例：`../dual-track-config-policy.md` §7/§10）。
+  adapter 未用（双仓库历史判例：`../dual-track-config-policy.md` §7/§10；现行“实现分叉不能
+  伪装成 TOML profile”规则见 `../method-toml-and-answer-builder-policy.md` §4）。
 - native 格：**locomo**（唯一格）
 
 ## 0. 接口调用面（黑盒拆解，预填）

@@ -1,9 +1,16 @@
-# 双轨配置政策（unified / native）
+# 双轨配置政策（unified / native；历史政策）
 
-> 长效参考文档。2026-07-12 由架构师（Opus 4.8）与用户（zzp）碰撞后成文；
-> 老师 2026-07-12 拍板"每个 method 既能用框架配置跑、也能用它自己的配置跑"。
-> 本文是双轨的**唯一政策事实源**；`method-integration-checklist.md` B10 引用本文，
-> 各 method 的 ws02.x plan 只记"逐格应用结果"，不重述政策。
+> **Superseded（2026-07-17）：**本文保留 2026-07-12 至 2026-07-16 的双轨设计史、
+> build/readout 成本分析和既有产物解释，不再是新运行的配置政策。现行事实源是
+> [`method-toml-and-answer-builder-policy.md`](method-toml-and-answer-builder-policy.md)：
+> 每个 method 一个 TOML、主 section 跨五 benchmark 固定、作者配置用稀疏
+> `author_<benchmark>` section；TOML 选择的是完整 answer builder，不是未填变量的模板。
+> 当前 `config_track` 与旧 track-aware outputs 只作兼容和历史审计，禁止把本文继续复制成
+> 新 method 的双流水线模板。
+
+> 本文最初由架构师（Opus 4.8）与用户（zzp）于 2026-07-12 碰撞后成文；当时的拍板是
+> “每个 method 既能用框架配置跑，也能用自己的配置跑”。2026-07-17 的新裁决保留这一
+> 可配置目标，但把实现从全局 `unified/native` 双轨收敛为 TOML section + answer builder。
 
 ## 0. 两轨定义
 

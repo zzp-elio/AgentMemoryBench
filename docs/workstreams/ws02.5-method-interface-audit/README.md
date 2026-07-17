@@ -6,12 +6,12 @@ created: 2026-07-08
 ---
 # ws02.5 Method 接口保真审计（5×5 smoke 前置门）
 
-> **2026-07-16 现行解释：**本页 `embedder 统一 all-MiniLM` 是 2026-07-09 经明确拍板并已执行
-> 的历史控制变量政策，不是当时写错，也不因今天改判而回写历史。经用户授权，现行 unified
-> 主轨改为每个 method 的 pinned product-default embedding；旧配置/结果保留为
-> `controlled_embedding_v1` 补充消融。embedding 属 build identity；完整裁决见
-> `docs/reference/dual-track-config-policy.md` 及 ws02.7 `dual-track-identity` 支线。历史 commit
-> 不改写，但后续 method 不得照抄“统一 embedder”而跳过逐轴声明。
+> **2026-07-17 现行解释：**本页 `embedder 统一 all-MiniLM` 是 2026-07-09 经明确拍板并已执行
+> 的历史控制变量政策，不是当时写错；2026-07-16 product-default 改判也保留为既有 identity
+> 审计史。新运行不再用 `unified/native` 轨名决定 embedding：它只是每个 method TOML section
+> 的普通 build 字段，共同 embedding 还是产品默认的最终主表选择留到真实效果实验前逐 method
+> 裁定。5×10 smoke 沿用已验收配置。现行政策见
+> `docs/reference/method-toml-and-answer-builder-policy.md`；历史 commit/outputs 均不改写。
 
 ## 为什么有这个 workstream（第一手发现，别只当 MemoryOS 个例）
 

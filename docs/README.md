@@ -31,6 +31,8 @@
 - 想知道"某个决定为什么这样定"：先查 workstream README 的"决策记录"，再查 `archive/`。
 - 想找"某 benchmark/method 以前是否调查过"：先看 `survey/README.md`；benchmark 走三联
   survey，method 走 `reference/integration/<method>.md`，再顺链接读承重 evidence note。
+- 想知道 method 超参数、作者配置与 answer prompt 如何选择：
+  `reference/method-toml-and-answer-builder-policy.md`。
 - 想跑命令、查代码结构：`CLAUDE.md`。
 - 想比较 actor 的真实交付：`reference/actor-performance-ledger.md`（任务级样本，不是
   脱离卡难度的模型神榜）。

@@ -54,17 +54,19 @@
   `get_response` 末尾把 eval 问答写回。三路 future 吞异常的官方降级由 adapter 包装
   实际任务方法审计，metadata 写 `degraded_retrieval*`；合法空命中不误标。LLM 有
   timeout/retry/clean-retry；首次 embedding 模型下载缺显式 offline/timeout 仍是声明缺口。
-- **B9 模型/超参口径 ✅（product-default MiniLM；零重建）**：paper、eval、pypi
-  默认三岔已留档，不把其中一套冒充另一套。unified 主轨必须使用 vendored 产品实现的 pinned
-  product-default embedding。现行 PyPI 签名默认与当前 profile 同为
+- **B9 模型/超参口径 ✅（当前 MiniLM smoke build；零重建）**：paper、eval、pypi
+  默认三岔已留档，不把其中一套冒充另一套。embedding 作为 TOML 普通 build 字段；现行 PyPI
+  签名默认与当前 smoke profile 同为
   SentenceTransformer all-MiniLM-L6-v2/384、外部 L2 normalize + FAISS IP，build 字节不变，
-  无需重建；裸名/限定名等价仍须以本地模型 revision/hash 进 identity。
-- **B10 双轨 ✅ truthful v1；readout-only + framework judge fallback**：LoCoMo 官方 system/user prompt 由 AST parity 锁逐字
+  无需重建；性能主配置仍在真实效果实验前通过 TOML 裁定，裸名/限定名等价须以本地模型
+  revision/hash 进 identity。
+- **B10 历史 config-track ✅ truthful v1；新 author builder 迁移待办**：LoCoMo 官方 system/user prompt 由 AST parity 锁逐字
   核对，answer=`gpt-4o-mini`, temperature=0.7, max_tokens=2000。官方无 LLM judge，
   bundle `judge_profile=None` 时回落框架默认 judge。paper build 超参只登记资产，当前
   config-track 尚不消费 build override，因此真实范围仍只是 readout；M0 R1/R2 已在新 manifest
   显式写 `implementation_variant=product`、PyPI embedding、`native_scope=readout_only`、
   `judge_source=framework_fallback` 与 answer/judge model source，并由 evaluate/resume 严格消费，
+  旧产物身份不改写；首个作者 LoCoMo 校准 run 前改由 `author_locomo` section 选择完整 builder，
   不再只靠 `judge_profile=None` 推断。
 - **B11 smoke+冻结 🟡**：离线代码门已过；还缺五格真实 predict、产物开箱、免费
   evaluator、付费 judge（如适用）与并行/operation-level 既定门。用户未确认预算、规模、

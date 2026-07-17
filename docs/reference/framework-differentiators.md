@@ -48,18 +48,19 @@
   `memory_retrieval_length` = **同一段 token 计两遍，且 api_usage 与
   tokenizer_estimate 两种口径混加**。
 - **我们**：token 一律 api_usage 优先，接口不暴露才 tokenizer_estimate 且逐处
-  留档拦截层（checklist B7）；注入记忆 token 有独立双轨口径政策
-  （`efficiency-injected-tokens-policy.md`），载荷与模板开销分离、native 轨有
+  留档拦截层（checklist B7）；注入记忆 token 有独立跨 builder 口径政策
+  （`efficiency-injected-tokens-policy.md`），载荷与模板开销分离、作者 builder 有
   "统计载荷 ≡ prompt 实际嵌入段"审计项。
 
 ### D4. answer 口径统一 vs per-method 各写各的
 - **他们**：每个 method handler 内嵌自己的 answer prompt 模板与生成参数
   （如 mem0/memoryos handler 各自的 memory_answer_prompt 覆盖链，
   `utils/agent.py:3043-3149,2984-3042`），method 间成绩差里混入 prompt 差异。
-- **我们**：answer/judge 是框架角色，双轨显式分离——unified 轨全 method 同一
-  prompt builder（可比性），native 轨逐字复刻官方复现配置且 parity 锁
-  （可复现性；`dual-track-config-policy.md`）。单轨框架两头都不占：既不保证
-  可比（模板不一），也不保证复现（非论文配置）。
+- **我们**：主 TOML section 在同一 benchmark 上统一使用完整 benchmark answer builder
+  （可比性）；作者确实跑过的 benchmark 才用 `author_<benchmark>` section 选择 method
+  官方完整 builder（可复现性）。parity 验收填完全部变量后的最终 `PromptMessage[]`，不是
+  模板文本；政策见 `method-toml-and-answer-builder-policy.md`。这样既不把 method prompt
+  混入主表，也不为作者校准强铺第二条流水线。
 
 ### D5. 可恢复性与断点工程（正面主张为主）
 - **我们**：manifest 字节级比对 + turn 级检查点状态机（in_flight 永不自动

@@ -30,9 +30,10 @@
    每个官方脚本的调用序列列锚。**
 2. **B2 注入粒度**：优先抄官方 wrapper 喂法（HaluMem 官方六 wrapper 全
    session 级批量=现成判例源,`ws02.7/notes/m0-5-halumem-harness-feeding.md`）。
-3. **B9 模型口径**：answer/judge **模型统一** gpt-4o-mini,参数/prompt
-   native;模型 native 只留给一次性"论文数字校准"用途（用户 2026-07-14
-   拍板;官方结果非 4o-mini 的实验第一阶段不复现）。
+3. **B9/B10 模型与 builder 口径**：当前真实 answer/judge **模型统一**
+   gpt-4o-mini。主 `smoke`/`official_full` 使用 benchmark 统一完整 answer builder 与
+   benchmark judge；有一手作者证据时才增加 `author_<benchmark>` answer builder 校准，
+   不暗换 judge。完整政策见 `method-toml-and-answer-builder-policy.md`。
 4. **B3 隔离**：物理隔离是兜底默认;method 原生支持逻辑隔离时,须过
    **等价性三项**才准采用——①清得干净（failed-ingest 重试时 namespace 可
    完整擦除,等价于删目录）②漏不出去（跨 namespace 检索零泄漏,要测试钉死）

@@ -8,7 +8,7 @@ created: 2026-07-12
 
 benchmark 侧五家 frozen-v1 + B6 横向总验收完成（ws02.6，2026-07-12），
 method 侧解冻。本 workstream 按 `docs/reference/method-integration-checklist.md`
-的 B1-B11 标准，逐个 method 审查 + 双轨接入 + 极小 smoke。
+的 B1-B11 标准，逐个 method 审查 + TOML/builder 配置接入 + 极小 smoke。
 
 活跃支线及依赖顺序统一从 [`branches/README.md`](branches/README.md) 进入；不要再从根目录
 文件名猜哪张卡先做。
@@ -73,20 +73,24 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   full diff + `61 passed` + 五 benchmark 扩展 `170 passed` 强验收，主线 `7752dab`；
   MemBench 原文已含时间时不再加 header，无时间 noise 保持 None，绝不用 QA/question time、
   兄弟 turn、首个有时 turn、wall clock 或 synthetic time。B4 离线门关闭，三格内容抽查并入
-  后续 product-default B11，不单独烧 controlled run。
-- **双轨/指标现行裁决**：unified=通用 OSS 产品实现 + 每家 pinned product-default embedding
-  + benchmark-scoped method-neutral answer/judge（官方优先，fallback 标 tier/source）；
-  2026-07-09 shared MiniLM 既有资产保留为 `controlled_embedding_v1` 补充轨。native
-  按 implementation/build/retrieval/answer/judge/metric 六轴声明，算法 fork 另列
-  `reproduction_variant`。LoCoMo canonical answer 仍是 32-token 单一 prediction，各答案指标
-  共用它；Precision/F1@k 在 relevance gold 未证明穷尽时 N/A。artifact-only 新指标走独立
-  metric-pack，不整体解冻 benchmark core；M1 后先消费
-  `docs/reference/metric-extension-plan.md` 的 normalized EM + directional substring EM。
-  Fable 5 三家审计已验收：Mem0 product default=托管 OpenAI
-  `text-embedding-3-small`/1536（revision unpinned，须重建）；LightMem 顶层无可运行默认，
-  canonical-required=local MiniLM/384（与现 build 同字节、零重建）；MemoryOS PyPI 默认
-  MiniLM/384（零重建），ChromaDB 是 reproduction variant。现行裁决见
-  `branches/dual-track-identity/notes/product-default-embedding-ruling.md`。
+  后续五格主配置 B11，不单独重复烧历史 build。
+- **Method TOML/answer builder 现行裁决（2026-07-17）**：不再把 method 配置硬编码成
+  `unified/native` 两条流水线。每个 method 一个 TOML；`smoke`/`official_full` 是跨五
+  benchmark 固定的主 section，作者确实跑过且有一手参数时才增加稀疏
+  `author_<benchmark>`。CLI 只选择 section，不逐项传参或按 benchmark 暗切。
+  `answer_builder="benchmark"` 选 benchmark 统一的**完整构造器**；作者 section 选 method
+  官方完整 builder，必须填好全部公开变量并产出可直接调用 LLM 的 `PromptMessage[]`，不能把
+  模板文件冒充 parity。现行政策=`docs/reference/method-toml-and-answer-builder-policy.md`；
+  实施支线=`branches/method-config-profiles/README.md`（scheduled，尚未写卡）；
+  旧 `config_track`/TrackIdentity 只作已有产物兼容。5×10 主 smoke 不等待参数调优；首个作者
+  校准或真实效果 full run 前完成 loader/builder/manifest 迁移。embedding 是普通 TOML 字段，
+  最终主表取共同还是产品默认留到效果实验前逐 method 裁定；当前 smoke 保持已验收配置。
+- **指标现行裁决**：LoCoMo canonical answer 仍是 32-token 单一 prediction，各答案指标共用它；
+  Precision/F1@k 在 relevance gold 未证明穷尽时 N/A。artifact-only 新指标走独立 metric-pack，
+  不整体解冻 benchmark core；M1 后先消费 `docs/reference/metric-extension-plan.md` 的
+  normalized EM + directional substring EM。Fable 5 三家 product-default/variant 审计继续
+  作为既有 build identity 的历史证据；MemoryOS ChromaDB 仍是 reproduction variant，不能用
+  TOML profile 掩盖算法分叉。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
   提醒可用；恢复是后台动作，不自动向用户播报机械台词。Track identity M0 已经 R1/R2
   强验收关闭：新 registered run 统一盖 typed v1 identity，旧缺 v1 不得 resume，evaluate
@@ -104,7 +108,27 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
-## 当前断点（2026-07-16）
+## 当前断点（2026-07-17）
+
+- 2026-07-17（**MemBench canonical split 卡已就绪；本轮只派 Sonnet 5 一张**，GPT-5
+  架构师）：依赖复核确认 RetrievalEvidence M1 必须消费 split 后的最终 turn/group 与
+  LightMem 逐题 evidence，若现在并行会同时修改 evaluator fixture 并制造跨卡追赶。自包含卡=
+  `branches/input-role-semantics/cards/actor-prompt-membench-canonical-split.md`；它拆 FirstAgent
+  user/agent、保持 pair-step 单分母、按源 step 做 smoke 裁剪，并删除已过时的
+  `membench_canonical_split_pending`。推荐 Sonnet 5，隔离 worktree=
+  `/Users/wz/Desktop/mb-actor-membench-canonical-split`；零真实 API、不 push。回卡后架构师先
+  full diff + 定向/全量强验收，再写 M1 卡。
+
+- 2026-07-17（**TOML method profile + 完整 answer builder 政策落盘；实施已排期、未派卡**，
+  GPT-5 架构师）：用户纠正全局 `native/unified` 双轨过重，并进一步纠正“选择 prompt 模板”
+  的表述：作者 answer parity 的对象是填完 speaker/time/question/formatted memory/检索条目等
+  全部变量、可直接调用 LLM 的最终 messages。现行裁决写入
+  `docs/reference/method-toml-and-answer-builder-policy.md`，旧双轨政策明确 superseded；
+  实施消费者落在 `branches/method-config-profiles/README.md`，
+  checklist B9-B11、AGENTS、onboarding、playbook 与 dual-track 历史支线入口同步更新。
+  当前不改代码、不派 actor、不调参、不调用 API。施工顺序仍是 MemBench FirstAgent split →
+  RetrievalEvidence M1 → 5×10 主 smoke；旧 `config_track` 迁移与 author section/builder 接线
+  在首个作者校准或真实效果 full run 前完成。
 
 - 2026-07-16（**Gold Evidence Group M0 + LightMem hybrid 双线强验收完成；下一门
   MemBench canonical split**，GPT-5 架构师）：Gold 首轮 `9d06659` 经 Opus 4.8 →

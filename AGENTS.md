@@ -15,7 +15,8 @@
 - 主协议 **v3 provider**：`MemoryProvider.ingest(unit) + retrieve(query) ->
   RetrievalResult`，粒度由实例级 `consume_granularity`（turn/pair/session/
   conversation）声明、框架事件流聚合投递；framework reader 统一执行 answer
-  LLM（双口径 native/unified）。协议全文：
+  LLM。主配置使用 benchmark 统一 answer builder；作者校准配置可选择 method 官方
+  builder。协议全文：
   `docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md`。旧
   `BaseMemorySystem` / `BaseMemoryProvider(add+retrieve)` 仅为兼容桥路径。
 - **运行主线（4 步，2026-07-08 与用户对齐）**：① 给 method 注入记忆（ingest）；
@@ -25,14 +26,20 @@
   （unified 口径，非 method 原生答题——这样只有"记忆质量"在变，隔离出可比性）；
   ④ 从实验结果算 metric，涉及 LLM judge 时用**框架自带的 judge LLM 配置与
   prompt**。
-- **prompt 来源政策**：answer/judge prompt **benchmark 官方仓库有就先用它的**，
-  没有才自研（可参考 method 仓库里的 benchmark 评测代码作**格式**参考）。**红线：
-  answer/judge prompt 必须 per-benchmark、method 无关**（同一 benchmark 上所有
-  method 用同一 prompt），参考 method 代码只借格式、不得引入某 method 的专属优势。
-- **native 口径保留作 sanity 交叉核对**：主线用 unified，但框架仍支持 native
-  （method 原生 prompt_messages）；对 retrieve 与答题耦合的 method（如
-  MemoryOS `get_response`），"忠实抽出 formatted_memory"是难点，正是 ws02.5
-  审计要钉死的，native 数可作旁证。
+- **prompt 来源政策**：主 `smoke`/`official_full` 的 answer prompt 与所有配置的 judge
+  prompt，**benchmark 官方仓库有就先用它的**，没有才自研；二者必须
+  per-benchmark、method 无关（同一 benchmark 上所有 method 用同一把尺子）。只有显式
+  `author_<benchmark>` 校准 section 可选择该 method 官方的**完整 answer builder**，且只能
+  作为补充复现，不能混入主表；judge 仍走 benchmark 统一配置。参考 method 代码只借格式
+  或构造作者校准，禁止暗中给主配置引入某 method 的专属优势。
+- **method 配置不再按 `native/unified` 强铺双轨**（2026-07-17 改判）：每个 method
+  一个 TOML，`smoke`/`official_full` 是跨五 benchmark 固定的主配置；作者确实跑过的
+  benchmark 才增加稀疏 `author_<benchmark>` section。CLI 只选择 section，不逐项传参或
+  暗中按 benchmark 自动切换。answer 配置选择的是填好全部变量、可直接调用 LLM 的完整
+  builder，不是模板文件。现行政策见
+  `docs/reference/method-toml-and-answer-builder-policy.md`；旧 `config_track` 只作历史产物
+  兼容，迁移排在首个作者校准/真实效果 full run 前。对 retrieve 与答题耦合的 method
+  （如 MemoryOS `get_response`），仍须忠实抽出 `formatted_memory` 与公开 builder 变量。
 - 当前所有真实 LLM 调用统一 `gpt-4o-mini`；未经用户改口不得切换模型。
 
 ## 协作模式

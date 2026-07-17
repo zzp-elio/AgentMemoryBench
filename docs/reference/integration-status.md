@@ -10,6 +10,11 @@
 > 一眼看谁过了哪项）→ **`integration/` 逐实体实例文档**（每 method / benchmark 一份，
 > 逐项展开证据 + `文件:行号` 锚 + method 的**接口调用面黑盒拆解**）。表中名字即链接；
 > 勾选变化与实例文档必须同步更新。
+>
+> **2026-07-17 配置政策更新：**B9-B11 不再按全局 `unified/native` 双流水线判定；现行判据是
+> 一个 method TOML、跨五 benchmark 的主 section、稀疏 `author_<benchmark>` section 与
+> 完整 answer builder。表内 `native/readout-only/product-default` 字样只解释既有产物身份，
+> 新门以 `method-toml-and-answer-builder-policy.md` 和 checklist B10 为准。
 
 ## 一、Benchmark 侧（A1-A8）
 
@@ -31,7 +36,8 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
   禁凭文本相似度造 gold 映射）；memory_type 共同分母怪癖按官方原样（evaluation.py:364-383）；
   update 聚合 0 分母优雅处理。冻结限制见 `halumem-frozen-v1.md`。
 - **LoCoMo/LongMemEval judge**：框架 `locomo-judge` 是 lightmem 衍生（7 处文本偏差）；
-  `longmemeval-judge` = 官方 parity。native 轨另注册**逐字无偏差**版（见 method 侧 LightMem）。
+  `longmemeval-judge` = 官方 parity。旧 config-track 另注册的逐字版保留历史身份；未来
+  `author_<benchmark>` 只选择完整 answer builder，judge 仍由 benchmark 统一，不能暗换。
 - **LongMemEval retrieval-rank**：官方 NDCG@k/recall k∈[1,3,5,10,30,50]；`_abs` 与
   无目标 turn 均剔除。旧 3000 例“公式零失配”只证明单题公式，不证明 overall 分母；
   2026-07-15 审计确认框架把无目标题记 1 分且 `top_k=10` 挡死 k30/50，现已重开
@@ -45,11 +51,11 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 
 判据 B1-B11 见 checklist。**method-frozen-v1** = B1-B11 全过 + 架构师验收 + `notes/<m>-frozen-v1.md`。
 
-| method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 双轨 | B11 smoke+冻结 | method-frozen |
+| method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 TOML/builder | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | ✅timestamped + explicit-None online-soft | ✅online-soft turn；consolidated N/A | ✅online-soft | ✅ | ✅ | ✅canonical-required MiniLM；零重建 | ✅truthful v1；native=readout-only | 🟡M1 evaluator + 当前主轨复证 | **v1 suspended** |
-| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅effective time 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(native计量=R0前置,声明2) | ✅B8+清单落档(M5,下载点声明4) | 🟡OpenAI product-default 迁移待施工/预算 | 🟡truthful v1 已落；product build 未迁 | 🟡13格 controlled 证据保留；主轨复证 | **v1 局部重开** |
-| [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅product-default MiniLM；零重建 | ✅truthful v1；readout-only + judge fallback | 🟡五格 smoke | 待 B11 |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | 🟡时间链已验；MemBench canonical split 待关 | 🟡LoCoMo valid；MemBench 待 split；LME/BEAM/HaluMem N/A | ✅online-soft | ✅ | ✅ | ✅当前 MiniLM smoke build | 🟡主 TOML 已有；author builder 待性能阶段迁移 | 🟡M1 evaluator + 五格主复证 | **v1 suspended** |
+| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅effective time 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(旧 native 计量=前置声明2) | ✅B8+清单落档(M5,下载点声明4) | 🟡当前 MiniLM；性能主配置待裁 | 🟡truthful 旧身份已落；author builder 待迁 | 🟡13格历史证据保留；五格主复证 | **v1 局部重开** |
+| [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅当前 MiniLM smoke build | 🟡旧 readout 身份 truthful；author builder 待迁 | 🟡五格主 smoke | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | MemOS | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -62,9 +68,10 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 > MemBench/BEAM/HaluMem B4 effective-time 离线修复已验收，内容抽查并入后续 B11；三家 B9
 > 精确身份审计与架构裁决已完成，旧 shared MiniLM 证据保留为 controlled 而非删除。Mem0
 > Track identity M0 已以 `dcd3e7b` + `d6fd56f` + `d032d45` 关闭；LightMem/MemoryOS 的
-> B10 可按 truthful readout-only 身份关闭。Mem0 虽已如实标 current controlled build，
-> product-default 迁移仍未发生，故 B9/B10/B11 保持部分完成。LightMem/MemoryOS 与现 build
-> 字节重合，无需重建。
+> 旧 Track identity 已如实标出 readout-only/current build，因此历史产物不改写；新 B10
+> 仍需在首个作者校准或真实效果 full run 前迁为 TOML section + 完整 answer builder。当前
+> 5×10 主 smoke 不等待 product-default embedding 迁移，Mem0/LightMem/MemoryOS 沿用已验收
+> build；性能主配置到站后逐 method 裁定。
 > MemoryOS 已完成 M1 一手取证与 M2 离线施工/全量门，只差排到其顺序后的 B11 真实 smoke；
 > LightMem 因 2026-07-15
 > 发现 LoCoMo post-update 无 semantic source mapping 而重开 B5/B11；逐题 M0 声明机制已落，

@@ -91,18 +91,20 @@ BenchmarkAdapter.load() → Dataset（公开 Conversation+Question，无 gold）
 - **两条 runner**：conversation-QA 走 `runners/prediction.py`；HaluMem
   operation-level 走 `runners/operation_level.py`——**独立 runner，任何
   "对所有 benchmark 生效"的改动都要检查它是否也要改**（多次栽过）。
-- **prompt 双口径**：unified=benchmark 官方 prompt（默认，同一把尺子）；
-  native=method 官方 prompt（`--config-track native`，注册面见
-  `methods/config_track.py`）。
+- **answer 构造选择**：主 `smoke`/`official_full` 使用 benchmark 统一的完整 builder；
+  有一手作者参数的 `author_<benchmark>` section 才选择 method 官方完整 builder。
+  TOML 选择 builder，builder 负责填好全部变量并产出最终 `PromptMessage[]`；旧
+  `--config-track native` 只作历史兼容。现行政策见
+  `docs/reference/method-toml-and-answer-builder-policy.md`。
 - **效率观测**：`observability/efficiency/`，`api_usage` vs
   `tokenizer_estimate` 分源。
 
 ## 4. 已定的关键决策（别推翻，除非有新证据+新拍板）
 
 - **接口保真**：method 一律用通用产品接口，不用 benchmark 专用评测副本。
-- **超参政策**：method repo/产品默认，跨全部 benchmark 同一套；paper≠repo
-  时优先 repo 默认+显式记录；统一商品化基座（LLM 模型名+embedder
-  all-MiniLM-L6-v2），算法配置（top_k 等）保留 repo 默认。
+- **超参政策**：每个 method 的主 TOML section 跨全部 benchmark 同一套；5×10 smoke
+  不为追分调参。paper/repo/产品默认差异全部留证，作者确实跑过的 benchmark 才增加
+  `author_<benchmark>` section；最终性能主配置到真实效果实验前逐 method 裁定。
 - **模型口径**：第一阶段只复现"官方结果本身是 gpt-4o-mini"的实验；模型
   native 只留给一次性论文数字校准（2026-07-14 拍板）。
 - **注入粒度跟随 method 原生接口**；拆分由框架 GranularityAggregator 做；

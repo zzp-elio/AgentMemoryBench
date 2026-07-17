@@ -59,25 +59,24 @@
 - **B8 ✅ 副作用/韧性**：失败清理为 `delete_all(run_id)` + 批准的 third_party
   `SQLiteManager.delete_messages(session_scope)` 最小 diff + sidecar 清除；两类业务 API
   点有 timeout/retry。首次模型下载仍需新机器预热预检。
-- **B9 🟡 product-default 主轨迁移待施工/预算**：2026-07-09 shared MiniLM 配置/产物保留为
-  `controlled_embedding_v1`，不再冒充 unified 产品默认；现行主轨须迁到 vendored Mem0 的
-  `product_default_v1`：OpenAI `text-embedding-3-small`、1536、Qdrant cosine；托管权重
-  revision 不可 pin，manifest 另以正交字段声明 `revision_status=provider_managed_unpinned`，不能误称权重级
-  可复现。Track identity M0 已关闭；迁移仍会全量重建并重开 B8+/B11，须在 Mem0 重认证顺序
-  到达后单独派卡，真实 API 仍待用户确认预算、规模、run_id。官方 0.1
-  相关性门槛导致空检索仍属于方法语义，不当作框架故障。
-- **B10 🟡 truthful v1 已落，product-default build 未迁**：native 注册 LoCoMo、LongMemEval、
+- **B9 🟡 当前 smoke 配置已声明；性能主配置待裁**：2026-07-09 shared MiniLM 配置/产物与
+  2026-07-16 product-default 审计都保留为真实历史。现行政策把 embedding 作为 TOML 普通
+  build 字段：5×10 smoke 保持当前 MiniLM，不提前烧 OpenAI embedding；真实效果实验前再裁
+  `official_full` 是否采用 `text-embedding-3-small`/1536/Qdrant cosine。若切换，托管权重
+  revision 只能声明 `provider_managed_unpinned`，并须全量重建、重开 B8+/B11、由用户确认
+  预算/规模/run_id。官方 0.1 相关性门槛导致空检索仍属于方法语义，不当作框架故障。
+- **B10 🟡 truthful v1 已落，TOML/builder 迁移待性能阶段**：旧 native 注册 LoCoMo、LongMemEval、
   BEAM；当前真实覆盖仅 readout，embedding/build override 未生效。新 manifest 已声明
   `native_scope=readout_only`、current controlled MiniLM 与 answer/judge
-  `framework_model_override`，不再由裸 `config_track=native` 暗示 full-native。B10 暂不打 ✅
-  的原因不是身份仍含糊，而是 unified product-default OpenAI build 尚未施工；judge 路由泛化
-  和旧论文校准仍属于 R0 前置包。
-- **B11 🟡 既有 13 格 controlled 证据保留；product-default 主轨待复证**：13 格 predict、免费/付费指标与既定
+  `framework_model_override`，不再由裸 `config_track=native` 暗示 full-native。首个作者校准
+  run 前须把有证据的 LoCoMo/LongMemEval/BEAM 设置改由 `author_<benchmark>` TOML section
+  选择完整 answer builder；旧 judge 路由泛化和论文校准仍属于前置包。
+- **B11 🟡 既有 13 格证据保留；新五格主 smoke 待复证**：13 格 predict、免费/付费指标与既定
   并行门完成；冻结时基线 1164 passed。既有 BEAM provenance recall 与 LongMemEval
   turn-level/rank 数字不再作可信指标声明。逐题 RetrievalEvidence contract v1 已由 M0
-  落盘，现待 M1 evaluator 消费；MemBench/BEAM/HaluMem 新输入字节在 product-default smoke
+  落盘，现待 M1 evaluator 消费；MemBench/BEAM/HaluMem 新输入字节在五格主 smoke
   中抽查，不另烧一轮 controlled；LoCoMo/LongMemEval 的 session-only 输入及既有 add-only
-  证据继续有效。embedding 迁移会影响 build/retrieve，不能只重跑 readout。
+  证据继续有效。未来 embedding 迁移会影响 build/retrieve，不能只重跑 readout。
 
 ## 特殊情况
 1. Mem0 是当前唯一混合隔离方法，不能把 worker 内逻辑隔离误写成全局纯逻辑隔离。
