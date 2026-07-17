@@ -127,6 +127,8 @@ def test_substring_em_gold_contained_in_prediction_scores_one() -> None:
     assert result.details["direction"] == "gold_in_prediction"
     assert result.details["strategy"] == "gold_in_prediction_substring_em"
     assert result.details["metric_pack_version"] == "answer-text-v1"
+    assert result.details["normalized_prediction"] == "alice moved to seattle in 2023"
+    assert result.details["normalized_gold"] == "seattle"
     assert result.details["gold_tokens"] == ["seattle"]
     assert result.details["prediction_tokens"] == [
         "alice",
@@ -184,6 +186,7 @@ def test_substring_em_empty_normalized_gold_scores_zero() -> None:
 
     result = _evaluate(SubstringExactMatchEvaluator(), "anything here", "the")
 
+    assert result.details["normalized_gold"] == ""
     assert result.details["gold_tokens"] == []
     assert result.details["empty_normalized_gold"] is True
     assert result.score == 0.0

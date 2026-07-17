@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from memory_benchmark.core import AnswerResult, GoldAnswerInfo, MetricResult, Question
 
-from .answer_text import ANSWER_TEXT_PACK_VERSION, normalize_answer, normalized_tokens
+from .answer_text import ANSWER_TEXT_PACK_VERSION, normalize_answer
 
 
 def _is_contiguous_token_subsequence(
@@ -106,8 +106,11 @@ class SubstringExactMatchEvaluator:
         边界避免 `cat` 命中 `concatenate`；归一化 gold 为空固定记 0。
         """
 
-        prediction_tokens = normalized_tokens(answer.answer)
-        gold_tokens = normalized_tokens(gold.answer)
+        # 只归一化一次，token 直接由归一化字符串切分，避免二轮归一化。
+        normalized_prediction = normalize_answer(answer.answer)
+        normalized_gold = normalize_answer(gold.answer)
+        prediction_tokens = normalized_prediction.split()
+        gold_tokens = normalized_gold.split()
         empty_normalized_gold = len(gold_tokens) == 0
         if empty_normalized_gold:
             score = 0.0
@@ -129,6 +132,8 @@ class SubstringExactMatchEvaluator:
                 "metric_pack_version": ANSWER_TEXT_PACK_VERSION,
                 "strategy": "gold_in_prediction_substring_em",
                 "direction": "gold_in_prediction",
+                "normalized_prediction": normalized_prediction,
+                "normalized_gold": normalized_gold,
                 "prediction_tokens": prediction_tokens,
                 "gold_tokens": gold_tokens,
                 "empty_normalized_gold": empty_normalized_gold,
