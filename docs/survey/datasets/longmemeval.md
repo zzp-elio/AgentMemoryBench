@@ -62,9 +62,10 @@ adapter：`src/memory_benchmark/benchmark_adapters/longmemeval.py`。
 - gold（`GoldAnswerInfo`，evaluator 私有，随 private label 序列化）：
   - `evidence` = 官方 `answer_session_ids` 原样；
   - `metadata.evidence_session_public_ids` = session 级匹配键（公开 id 空间）；
-  - `metadata.evidence_turn_ids` / `evidence_groups` = turn 级匹配键（**仅 user-role
-    `has_answer=True`**，公开 id 空间）；
-  - `metadata.evidence_turn_corpus_ids` = 官方别名（仅记录）。
+  - `metadata.evidence_turn_ids` / `evidence_turn_corpus_ids` = legacy 审计记录（可含
+    assistant-side `has_answer=True`，不再作为 scorer qrel）；
+  - `evidence_group_sets` 的 `longmemeval_user_target_turn` view = 现行 turn scorer 唯一 qrel，
+    **只收 user-role `has_answer=True`**；session view 按每个官方 answer session 建 group。
 - official retrieval 主路径剔除全部 `_abs` 题，并额外剔除 51 个 non-abs
   no-user-target 题；`print_retrieval_metrics.py` 只剔 abs 得 470，作为官方辅助脚本矛盾
   披露，不作为 canonical parity。
@@ -74,5 +75,6 @@ adapter：`src/memory_benchmark/benchmark_adapters/longmemeval.py`。
 - dataset metadata 带 source identity（repo/paper/HF/license/全文件
   `source_sha256` 分块流式现算）与实际加载计数。
 
-当前 adapter 仍会把 assistant-side `has_answer=True` 收进 turn gold；这是待 ws02.7 M1
-修复的已知偏差，不得用旧 frozen 文字宣布 retrieval parity。
+Gold Evidence Group M0 与 RetrievalEvidence M1 已关闭旧偏差：assistant-side
+`has_answer=True` 仍可留在 legacy audit metadata，但不会进入 turn scorer 的 canonical
+group view。retrieval parity 还必须逐题通过 provider evidence 资格门，不能只凭 qrel 正确宣布。

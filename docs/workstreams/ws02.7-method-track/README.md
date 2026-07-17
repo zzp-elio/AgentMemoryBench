@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（RetrievalEvidence M1 已强验收；LightMem 重认证进入最终离线对表）
+status: in-progress（RetrievalEvidence M1 已强验收；LightMem B4 timestamp/异常输入门局部重开）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -108,13 +108,32 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   官方 unit 计分，BEAM 重复 raw id 为 multi-child any-of，LME 主 turn 分母 419。MemBench
   canonical split 也已关闭：一个 dict step 变为真实 user/assistant 两 turn，但仍由一个
   private any-of group 计一次；LightMem 两 pair 同批抽取没有跨 step lineage union。
-  RetrievalEvidence M1 已关闭。当前回到唯一 active method **LightMem**：先按当前 main
-  重验 B1-B11 离线证据与 gap matrix，再向用户给五格付费 smoke 命令；未批预算前不调用
-  API。LightMem 关闭后才严格串行 Mem0 → MemoryOS → A-Mem → SimpleMem。
+  RetrievalEvidence M1 已关闭。当前回到唯一 active method **LightMem**：LongMemEval 新证据
+  显示 author harness 会丢异常 role turn，而 unified hybrid 用 placeholder 保留；placeholder
+  虽不进 extraction 文本/token，仍参与 upstream 两层 500ms timestamp/sequence 分配，故 B4
+  局部重开。先完成 S/M anomaly + production helper 离线审计，再重验其余 gap matrix，最后才向
+  用户给五格付费 smoke 命令；未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
+  MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-17）
+
+- 2026-07-17（**LightMem B4 timestamp/异常输入局部重开；审计卡待用户派发**，GPT-5
+  架构师）：对 LongMemEval S/M 做只读流式预扫并亲读官方 benchmark、官方 LightMem 与当前
+  pair bridge。官方 README 声称问题发生在全部 sessions 之后，但数据中 S/M 分别有
+  76/118 题 `question_date < latest history`，其中 44/42 题至少一个 gold session 位于问题时间
+  之后；唯一 `question_date < earliest history` 的 S 题是 temporal-reasoning 且问题明确问
+  “most recently”，不能判作无关假异常。框架为 parity 应原样保留并披露，禁止按 method
+  过滤。官方 LightMem LME harness 采用 user_only、裁开头非 user、跳过非法 pair，S/M 分别
+  丢 2,020/20,283 个 raw turn，其中 3 个 `has_answer=True` assistant turn 位于 answer session；
+  当前 hybrid bridge 则用 1,986/20,126 个 placeholder pair 保住所有 retained canonical turn。
+  另证实 placeholder 只在 token/render 边界过滤，仍参与 `MessageNormalizer(500ms)` 与后续
+  sequence timestamp 分配；现有 assistant-first 测试名/docstring 还错误声称“skips orphan”，
+  与断言保留 orphan 相反。故 B2 保持 retested、B4 局部重开，不先改算法。自包含 docs-only
+  卡=`branches/method-recertification/lightmem/cards/
+  actor-prompt-lightmem-longmemeval-input-time-audit.md`；推荐 Sonnet 5，独立 worktree，零真实
+  API。回卡后架构师强验收并把稳定结论回填 survey/integration，再决定是否另发最小代码卡。
 
 - 2026-07-17（**RetrievalEvidence M1 + R1 已强验收；下一步回到 LightMem 重认证**，GPT-5
   架构师）：Sonnet 5 首轮 `b6c4b32` 完成严格 v1 parser、逐题 eligibility 与五 evaluator
