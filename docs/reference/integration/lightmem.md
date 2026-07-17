@@ -24,6 +24,11 @@
 > timestamp helper 内按 500ms 递增；distinct turn timestamp 两层均保持原值。placeholder
 > 保住 lineage/speaker，但连续同 role 会相对 canonical real-turn adjacency 多占 500ms，
 > assistant-first fact 的派生 time 锚到偶数 pair-base slot。该行为只需披露，无代码修复。
+> 2026-07-17 补充：LoCoMo image caption 注入缺口已修复，adapter version 升至
+> `conversation-qa-v6`。canonical adapter 仍保留原文 + 结构化 `ImageRef`；v3
+> `_turn_from_event()` 现从公开 `turn_images` 恢复 `ImageRef`，legacy/v3 的真实消息统一经
+> `methods/image_text.py::turn_text_with_images()` 渲染为 `[Sharing image that shows: {caption}]`，
+> caption 恰渲染一次。`query`/img locator 永不进入 content。
 > 更新纪律：每过一项 B 判据 / 发现特殊情况，更新本文对应节。2026-07-13 建。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
@@ -48,7 +53,8 @@ online-soft 实际由 `update="offline" → offline_update(memory_entries)` 的 
 
 **现状（2026-07-15 online-soft 卡施工落地）**：五格 Phase 1 主 profile 已统一显式
 `lifecycle_profile="online_soft"`（`LightMemConfig`；现行 adapter version 为
-`conversation-qa-v5`：v4 引入 hybrid role，v5 再纳入 MemBench canonical evidence），并显式
+`conversation-qa-v6`：v4 引入 hybrid role，v5 纳入 MemBench canonical evidence，v6 修复
+LoCoMo image caption 注入），并显式
 声明 `messages_use="hybrid"`。LoCoMo 与其余四格同一 direct-insert 时点，conversation 边界
 不再默认追加全库 consolidation。LoCoMo post-update 保留为显式 opt-in
 `locomo_offline_consolidated` 补充轨，只在 `LightMem.__init__` 收到的
@@ -273,9 +279,14 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   `_turn_from_event()` 只取 `original_content`、未恢复公开 `turn_images`，legacy real-message
   也未调用共享 `turn_text_with_images()`；首个 caption turn `conv-26/D1:5` 的 caption 因而在
   LightMem 输入边界消失。全量影响 1,226 turn，默认 1-round smoke 又只含无图 D1:1/D1:2，
-  不能靠 flow-through 发现。B2/B4 在 adapter v6 修复 legacy/v3 caption parity 前为 pending；
-  完整证据见 `docs/workstreams/ws02.7-method-track/branches/method-recertification/
-  lightmem/notes/lightmem-locomo-smoke-config-preflight.md`。
+  不能靠 flow-through 发现。**caption 修复已在 adapter v6 落地（待架构师强验收）**：v3
+  `_turn_from_event()` 现经 `_images_from_event()` 从 `turn_images` 恢复 `ImageRef`，legacy
+  `_locomo_pair()` 与通用 `_real_message()` 统一调用 `turn_text_with_images()`，legacy/v3
+  payload 字节级一致、caption 恰渲染一次、`query`/img locator 不入 content；不下载图片、不改
+  extraction/segment/update/retrieval 算法。完整证据见
+  `docs/workstreams/ws02.7-method-track/branches/method-recertification/
+  lightmem/notes/lightmem-locomo-smoke-config-preflight.md` 与同目录
+  `notes/lightmem-locomo-image-caption-implementation.md`。
   **LoCoMo dataset 异常差分账**：16 个 date-only key 由 canonical adapter 忽略，不生成
   LightMem session；140 个 odd session 不触发跨 utterance 硬配对，因为每条真实 utterance
   各自生成 `[real user, empty assistant]`；无 turn timestamp 时每条继承 source session time。
@@ -335,9 +346,10 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   边界不再追加 queue + all-entry update，LoCoMo 与其余四格同一时点。显式
   `locomo_offline_consolidated` 补充 profile 保留旧行为（要求显式
   `benchmark_name=="locomo"`，否则构造期 fail-fast）。`LIGHTMEM_ADAPTER_VERSION`
-  现为 `conversation-qa-v5`：v2=lifecycle，v3=missing timestamp，v4=hybrid role/plural
-  candidate lineage，v5=MemBench canonical evidence。旧 post-update、缺 policy 或旧 role/
-  canonical contract 的 run 不会误 resume 到新 soft profile。lifecycle 主体
+  现为 `conversation-qa-v6`：v2=lifecycle，v3=missing timestamp，v4=hybrid role/plural
+  candidate lineage，v5=MemBench canonical evidence，v6=LoCoMo image caption 注入。旧
+  post-update、缺 policy、旧 role/canonical contract 或缺 caption 的 run 不会误 resume 到
+  新 build。lifecycle 主体
   `825132f` 与 missing-time `915f73c` + `3968373` 均已通过架构师定向/全量门。
   不 flush 检索到空记忆的历史判例仍有效。
 - **B7 效率插桩 ✅**：build/answer/judge 三角色 api_usage 真 token（2026-07-12 效率审计

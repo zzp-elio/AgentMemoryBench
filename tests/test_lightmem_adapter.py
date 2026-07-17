@@ -25,6 +25,7 @@ from memory_benchmark.core import (
     AnswerResult,
     ConfigurationError,
     Conversation,
+    ImageRef,
     TaskFamily,
     Question,
     Session,
@@ -122,10 +123,10 @@ def test_lightmem_config_accepts_valid_lifecycle_profiles(
     assert config.lifecycle_profile == lifecycle_profile
 
 
-def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version_v4() -> None:
+def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version_v6() -> None:
     """公开 manifest 必须携带 lifecycle_profile、missing_timestamp_policy 与
-    messages_use，adapter_version 升级为 v4（旧 v3 manifest 由全 manifest 比较拒绝
-    resume）。"""
+    messages_use，adapter_version 升级为 v6：LoCoMo image caption 现进入 memory build
+    输入，属 build 输入变化，旧 v5 manifest 必须被全 manifest 比较拒绝 resume。"""
 
     config = LightMemConfig(
         llm_model="gpt-4o-mini",
@@ -143,7 +144,7 @@ def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version
     assert manifest["lifecycle_profile"] == "online_soft"
     assert manifest["missing_timestamp_policy"] == "require"
     assert manifest["messages_use"] == "user_only"
-    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v5"
+    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v6"
 
 
 def test_lightmem_toml_profiles_declare_online_soft_lifecycle_explicitly() -> None:
@@ -4295,3 +4296,265 @@ def test_lightmem_evidence_matrix_per_benchmark() -> None:
     ev = halu._build_retrieval_evidence(items_empty)
     assert ev.semantic_provenance.status == "n_a"
     assert ev.semantic_provenance.reason_code == "halumem_no_turn_qrel"
+
+
+# --- LoCoMo image caption 无损注入（adapter v6，method 注入边界恰渲染一次） ---
+
+
+def _caption_lightmem_system(benchmark_name: str) -> LightMem:
+    """构造带 fake backend 的 LightMem，用于 caption 注入断言（不触真实 API）。"""
+
+    return LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=60,
+            max_workers=1,
+        ),
+        backend_factory=lambda _id: FakeLightMemoryBackend(),
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name=benchmark_name,
+    )
+
+
+def _caption_image_ref(caption: str | None, index: int) -> ImageRef:
+    """构造带 caption 的 canonical ImageRef，并在非 caption 通道埋入干扰字符串。
+
+    `query`/`img_url`/`redownload` 只留在 image 结构/metadata，绝不能进入 method
+    content；本 helper 让强反例可断言它们不泄漏。
+    """
+
+    return ImageRef(
+        image_id=f"img-{index}",
+        path=f"https://images.example/{index}.jpg",
+        caption=caption,
+        metadata={
+            "query": "what is in this photo?",
+            "img_url": f"https://images.example/{index}.jpg",
+            "redownload": True,
+        },
+    )
+
+
+def _caption_locomo_conversation(
+    *,
+    content: str,
+    captions: tuple[str | None, ...],
+    speaker: str = "Alice",
+) -> Conversation:
+    """构造含单个 caption turn 的最小 LoCoMo 风格 conversation。"""
+
+    images = [_caption_image_ref(caption, index) for index, caption in enumerate(captions)]
+    return Conversation(
+        conversation_id="conv-cap",
+        sessions=[
+            Session(
+                session_id="s-1",
+                session_time="2026-01-01",
+                turns=[
+                    Turn(turn_id="t-1", speaker=speaker, content=content, images=images),
+                    Turn(turn_id="t-2", speaker="Bob", content="Nice photo."),
+                ],
+            )
+        ],
+        questions=[
+            Question(question_id="q", conversation_id="conv-cap", text="What is shown?")
+        ],
+        metadata={
+            "source_path": "data/locomo/locomo10.json",
+            "speaker_a": "Alice",
+            "speaker_b": "Bob",
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("speaker", "expected_speaker_id"),
+    [("Alice", "speaker_a"), ("Bob", "speaker_b")],
+)
+def test_lightmem_locomo_legacy_pair_appends_single_caption_wrapper(
+    speaker: str,
+    expected_speaker_id: str,
+) -> None:
+    """legacy LoCoMo：真实 user content 恰为 `正文 [Sharing image that shows: caption]`。
+
+    空 assistant 仍为空且 marker=True；speaker/time/lineage 相对无 caption 基线零变化，
+    named speaker A/B 两侧 speaker_id 均正确。
+    """
+
+    system = _caption_lightmem_system("locomo")
+    with_caption = _caption_locomo_conversation(
+        content="I like tea.", captions=("a red teapot",), speaker=speaker
+    )
+    without_caption = _caption_locomo_conversation(
+        content="I like tea.", captions=(), speaker=speaker
+    )
+
+    user_msg, assistant_msg = system._normalize_session_to_pairs(
+        with_caption.sessions[0], with_caption
+    )[0]
+    baseline_user, baseline_assistant = system._normalize_session_to_pairs(
+        without_caption.sessions[0], without_caption
+    )[0]
+
+    assert user_msg["content"] == "I like tea. [Sharing image that shows: a red teapot]"
+    # caption 之外的每个字段都与无 caption 基线逐字节相等（time/speaker/lineage 零变化）。
+    assert user_msg == {**baseline_user, "content": user_msg["content"]}
+    assert baseline_user["content"] == "I like tea."
+    assert user_msg["speaker_id"] == expected_speaker_id
+    assert user_msg["speaker_name"] == speaker
+    assert user_msg["external_id"] == "t-1"
+    assert user_msg["source_external_ids"] == ["t-1"]
+    # 空 assistant placeholder 不受 caption 影响。
+    assert assistant_msg == baseline_assistant
+    assert assistant_msg["content"] == ""
+    assert assistant_msg[LIGHTMEM_PLACEHOLDER_MARKER] is True
+    assert assistant_msg["source_external_ids"] == ["t-1"]
+    assert user_msg["time_stamp"] == assistant_msg["time_stamp"]
+
+
+def test_lightmem_locomo_v3_event_restores_caption_from_turn_images() -> None:
+    """v3 事件路径必须从公开 `turn_images` 恢复 caption。
+
+    这是锁住本卡核心的强反例：当前 main 的 `_turn_from_event()` 丢弃 `turn_images`，
+    首个 caption turn 的 caption 在 LightMem content 中确定性消失，本断言会失败。
+    """
+
+    system = _caption_lightmem_system("locomo")
+    conversation = _caption_locomo_conversation(
+        content="I like tea.", captions=("a red teapot",)
+    )
+    events = list(build_turn_events(conversation, isolation_key="run_conv-cap"))
+    first_event = events[0]
+
+    # 事件流早已用历史 renderer 把 caption 拼进 event.content；直接用它会绕过共享格式。
+    assert "(image description: a red teapot)" in first_event.content
+    restored = LightMem._turn_from_event(first_event)
+    assert [image.caption for image in restored.images] == ["a red teapot"]
+
+    user_msg = system._native_turn_batch(first_event)[0]
+    assert user_msg["content"] == "I like tea. [Sharing image that shows: a red teapot]"
+    # 绝不同时保留历史包装与共享包装。
+    assert "(image description:" not in user_msg["content"]
+    assert user_msg["content"].count("Sharing image that shows") == 1
+
+
+def test_lightmem_locomo_legacy_and_v3_caption_payloads_are_byte_identical() -> None:
+    """同一 caption turn，legacy `add` 与 v3 `ingest` 的 message payload 字节级一致。
+
+    隔离 key 等非 message 外围字段不参与比较；两条路径 caption 只出现一次。
+    """
+
+    system = _caption_lightmem_system("locomo")
+    conversation = _caption_locomo_conversation(
+        content="I like tea.", captions=("a red teapot",)
+    )
+
+    legacy_pair = system._normalize_session_to_pairs(
+        conversation.sessions[0], conversation
+    )[0]
+    events = list(build_turn_events(conversation, isolation_key="run_conv-cap"))
+    v3_pair = system._native_turn_batch(events[0])
+
+    assert legacy_pair == v3_pair
+    assert legacy_pair[0]["content"] == (
+        "I like tea. [Sharing image that shows: a red teapot]"
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "captions", "expected"),
+    [
+        # caption-only turn（正文为空）合法，只保留 wrapper。
+        ("", ("only caption",), "[Sharing image that shows: only caption]"),
+        # 多个 caption 按公开顺序各渲染一次。
+        (
+            "look",
+            ("first", "second"),
+            "look [Sharing image that shows: first] [Sharing image that shows: second]",
+        ),
+        # 空/纯空白 caption 跳过，其余顺序稳定。
+        (
+            "look",
+            ("real", "   ", ""),
+            "look [Sharing image that shows: real]",
+        ),
+        # 无 caption 的普通 turn 语义不变。
+        ("plain text", (), "plain text"),
+    ],
+)
+def test_lightmem_locomo_caption_rendering_edge_cases(
+    content: str,
+    captions: tuple[str | None, ...],
+    expected: str,
+) -> None:
+    """caption-only、多 caption、空/纯空白 caption、无 caption 的稳定渲染。"""
+
+    system = _caption_lightmem_system("locomo")
+    conversation = _caption_locomo_conversation(content=content, captions=captions)
+
+    legacy_user = system._normalize_session_to_pairs(
+        conversation.sessions[0], conversation
+    )[0][0]
+    events = list(build_turn_events(conversation, isolation_key="run_conv-cap"))
+    v3_user = system._native_turn_batch(events[0])[0]
+
+    assert legacy_user["content"] == expected
+    assert v3_user["content"] == expected
+
+
+def test_lightmem_locomo_caption_content_excludes_query_and_image_locators() -> None:
+    """query / img_url / path / redownload 字符串都不得进入 method content。"""
+
+    system = _caption_lightmem_system("locomo")
+    conversation = _caption_locomo_conversation(
+        content="I like tea.", captions=("a red teapot",)
+    )
+
+    legacy_user = system._normalize_session_to_pairs(
+        conversation.sessions[0], conversation
+    )[0][0]
+    events = list(build_turn_events(conversation, isolation_key="run_conv-cap"))
+    v3_user = system._native_turn_batch(events[0])[0]
+
+    for content in (legacy_user["content"], v3_user["content"]):
+        assert "what is in this photo?" not in content
+        assert "images.example" not in content
+        assert "redownload" not in content
+
+
+def test_lightmem_generic_real_message_renders_caption_via_shared_helper() -> None:
+    """通用 `_real_message()`（非 LoCoMo）也经共享 helper 渲染 caption。
+
+    没有图片的既有 role/pair 语义保持原文；有 caption 时追加统一 wrapper。
+    """
+
+    system = _caption_lightmem_system("longmemeval")
+    session = Session(
+        session_id="s1",
+        session_time="2026-01-01",
+        turns=[
+            Turn(
+                turn_id="u1",
+                speaker="user",
+                normalized_role="user",
+                content="see this",
+                images=[_caption_image_ref("a cat", 0)],
+            ),
+            Turn(
+                turn_id="a1",
+                speaker="assistant",
+                normalized_role="assistant",
+                content="nice",
+            ),
+        ],
+    )
+    conversation = Conversation(conversation_id="c1", sessions=[session])
+
+    user_msg, assistant_msg = system._normalize_session_to_pairs(session, conversation)[0]
+    assert user_msg["content"] == "see this [Sharing image that shows: a cat]"
+    # 无图片 assistant turn 保持原文。
+    assert assistant_msg["content"] == "nice"

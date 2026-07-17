@@ -34,6 +34,7 @@ from memory_benchmark.core import (
     AnswerResult,
     ConfigurationError,
     Conversation,
+    ImageRef,
     Question,
     AnswerPromptResult,
     PromptMessage,
@@ -58,6 +59,7 @@ from memory_benchmark.core.provider_protocol import (
     TurnPair,
     UnitRef,
 )
+from memory_benchmark.methods.image_text import turn_text_with_images
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
@@ -68,7 +70,7 @@ from memory_benchmark.observability.efficiency import (
 
 
 LIGHTMEM_METHOD_DIRECTORY = "LightMem"
-LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v5"
+LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v6"
 LIGHTMEM_MESSAGES_USE_VALUES = ("user_only", "assistant_only", "hybrid")
 LIGHTMEM_LIFECYCLE_PROFILES = ("online_soft", "locomo_offline_consolidated")
 LIGHTMEM_MISSING_TIMESTAMP_POLICIES = ("preserve_none", "require")
@@ -576,7 +578,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         )
         return {
             "role": role,
-            "content": turn.content,
+            "content": turn_text_with_images(turn),
             "speaker_id": turn.speaker,
             "speaker_name": turn.speaker,
             "time_stamp": timestamp,
@@ -636,7 +638,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         speaker_name = turn.speaker
         user_msg: dict[str, object] = {
             "role": "user",
-            "content": turn.content,
+            "content": turn_text_with_images(turn),
             "speaker_id": speaker_id,
             "speaker_name": speaker_name,
             "time_stamp": timestamp,
@@ -1073,8 +1075,33 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             content=LightMem._original_content_from_event(event),
             normalized_role=event.role if event.role in {"user", "assistant"} else None,
             turn_time=LightMem._optional_event_text(event, "original_turn_time"),
+            images=LightMem._images_from_event(event),
             metadata=dict(event.metadata.get("turn_metadata") or {}),
         )
+
+    @staticmethod
+    def _images_from_event(event: TurnEvent) -> list[ImageRef]:
+        """从事件公开 `turn_images` 恢复图片引用，忽略非字典病态项。
+
+        v3 事件流已把 caption 以历史 renderer 拼进 `event.content`，但
+        `_original_content_from_event()` 只取未拼接的原文；caption 必须经这里恢复
+        为结构化 `ImageRef`，再由 `turn_text_with_images()` 在注入边界统一渲染，
+        避免与事件历史格式二次包装。
+        """
+
+        raw_images = event.metadata.get("turn_images")
+        if not isinstance(raw_images, list):
+            return []
+        return [
+            ImageRef(
+                image_id=item.get("image_id"),
+                path=item.get("path"),
+                caption=item.get("caption"),
+                metadata=dict(item.get("metadata") or {}),
+            )
+            for item in raw_images
+            if isinstance(item, dict)
+        ]
 
     @staticmethod
     def _native_public_metadata(event: TurnEvent) -> dict[str, Any]:
