@@ -16,11 +16,11 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
 5. RetrievalEvidence M1 已以 `5d8fce3` + `e10110f` 强验收关闭；
 6. LongMemEval 新发现把 B4 局部重开：官方 author harness 会裁掉异形 role turn，framework
    hybrid 会用 placeholder 保留；placeholder 虽不进 extraction 文本，仍参与 upstream
-   session→turn 500ms timestamp/sequence 分配；question date 与 history 的交叉只作待核生成
-   语义，不作清洗依据；
+   session→turn 500ms timestamp/sequence 分配；官方已裁同日 raw clock 错序不代表 as-of cutoff，
+   question 语义上位于 final conversation 之后，数据仍不作清洗；
 7. [LongMemEval 输入异形与 timestamp 审计卡](cards/actor-prompt-lightmem-longmemeval-input-time-audit.md)
-   已准备，**待用户派发**。审计关闭后继续按最新 main 重验 gap matrix；最后才进入 B11 五格
-   付费 smoke（须用户批准预算/规模/run_id）。
+   是本支线当前依赖；实时派发/回卡状态只记父 workstream README。审计关闭后继续按最新 main
+   重验 gap matrix；最后才进入 B11 五格付费 smoke（须用户批准预算/规模/run_id）。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

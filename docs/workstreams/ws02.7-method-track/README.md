@@ -111,9 +111,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   RetrievalEvidence M1 已关闭。当前回到唯一 active method **LightMem**：LongMemEval 新证据
   显示 author harness 会丢异形 role turn，而 unified hybrid 用 placeholder 保留；LightMem
   预期把 session time 按 message slot 每次 +500ms 派生 turn time，但 placeholder 与第二层
-  regroup 的真实作用域仍待核，故 B4 局部重开。question date 与 history 的交叉原样保留，只核
-  temporal as-of/非时间题未约束等生成语义，不作数据清洗。先完成 S/M + production helper 离线
-  审计，再重验其余 gap matrix，最后才向
+  regroup 的真实作用域仍待核，故 B4 局部重开。LongMemEval OWNER 已裁同日 question clock
+  错序并非有意，应把 question 视为 final conversation 之后；无 temporal constraints 的日期可
+  随机赋值。原始字段仍原样保留，但不得用 raw question time 截断 history。输入/时间审计卡
+  已由用户派发、actor 正在执行；OWNER 回复已作为中途证据增补发送，不停工重启。回卡后先
+  完成 S/M + production helper 离线强验收，再重验其余 gap matrix，最后才向
   用户给五格付费 smoke 命令；未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
   MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
@@ -125,11 +127,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   架构师）：对 LongMemEval S/M 做只读流式预扫并亲读官方 benchmark、官方 LightMem 与当前
   pair bridge。官方 README/论文示意把问题放在全部 sessions 之后，但数据中 S/M 分别有
   76/118 题 `question_date < latest history`，其中 44/42 题至少一个 gold session 位于问题时间
-  之后；官方公开 issue #8 正在询问类似关系是否有意，但公开页面尚无 maintainer 回复。用户
-  补充作者口径：temporal 题可能有意设置 as-of，非时间题生成时未必约束 question/history
-  time；该口径待补可引用原文。唯一 `question_date < earliest history` 的 S 题本身就是
-  temporal-reasoning 并问“most recently”，所以可能恰属有意设置，不能凭顺序判错。无论最终
-  来源解释为何，框架都原样保留完整 history 与 question time，禁止按 method 过滤或改数据。
+  之后。GitHub 网页摘要曾漏掉 comments；直接读取 issue comments API 后确认仓库 OWNER 已
+  两次裁决：同日具体时刻错序并非有意，question 应视为紧接 final conversation；无 temporal
+  constraints 的题可能由 haystack algorithm 随机赋 question date，正确性不应受影响（issue
+  comments `2895395636`、`2936960111`）。因此撤销“有意 within-history temporal as-of”假说。
+  框架仍原样保留完整 history 与 raw question time，禁止改数据；同时必须核对 method 是否把
+  raw clock 错当 retrieval cutoff。
   官方 LightMem LME harness 采用 user_only、裁开头非 user、跳过非法 pair，S/M 分别
   丢 2,020/20,283 个 raw turn，其中 3 个 `has_answer=True` assistant turn 位于 answer session；
   当前 hybrid bridge 则用 1,986/20,126 个 placeholder pair 保住所有 retained canonical turn。
