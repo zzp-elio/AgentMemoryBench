@@ -4,11 +4,21 @@
 rank 是其任一 child 首次出现的最小 rank，同 group 多 child 与同 child 重复命中
 都只计一次；unmatched group 留在 ideal gold 数中但永远不命中。`_abs` 与官方
 no-target 题（turn 主路径 canonical 分母 419）都记 N/A 不评分。
+
+RetrievalEvidence M1 起，rank/NDCG 在 Recall 的 semantic provenance + gold
+granularity 门之上，还要求逐题 `stable_ranking=valid`：`RetrievedItem` 列表
+必须确实是 method 实际检索名次，未被 set 化或展示层二次重排，否则 DCG 折损
+没有意义。stable_ranking 非 valid 时该题原样传播 n_a/pending，不产 metrics、
+不进任何 k 的分母——当前三家真实 provider 的 stable_ranking 都恒为
+`pending`，因此真实 run 的 rank 题应诚实输出 pending。本模块不改
+`RetrievalQuery.top_k=10`，只按已声明的 query depth 报告可用 k，30/50 显式
+标记为 unavailable（`evaluation_depth_not_requested`），不把物理多存的
+items 或缺失名次当作官方 k=30/50 结果。
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from math import log2
 from typing import Any
 
@@ -22,9 +32,20 @@ from .gold_evidence_groups import (
     require_manifest_gold_evidence_contract_v1,
     select_group_set,
 )
+from .retrieval_evidence import (
+    RetrievalEligibilityDecision,
+    decide_retrieval_eligibility,
+    display_status,
+    parse_retrieval_evidence,
+    require_manifest_retrieval_evidence_contract_v1,
+    summary_provenance_granularity,
+    summary_status,
+)
 
 
 OFFICIAL_K = (1, 3, 5, 10, 30, 50)
+_ALLOWED_GRANULARITIES = frozenset({"turn", "session"})
+_EVALUATION_DEPTH_NOT_REQUESTED = "evaluation_depth_not_requested"
 
 
 class LongMemEvalRetrievalRankEvaluator:
@@ -43,14 +64,7 @@ class LongMemEvalRetrievalRankEvaluator:
 
         del max_workers
         require_manifest_gold_evidence_contract_v1(manifest)
-        granularity = _provenance_granularity(manifest)
-        if granularity in {"none", "undeclared"}:
-            return _na_payload(granularity)
-        if granularity not in {"turn", "session"}:
-            raise ConfigurationError(
-                f"Unknown provenance_granularity {granularity!r} in manifest['method']; "
-                "expected 'none', 'session' or 'turn'"
-            )
+        require_manifest_retrieval_evidence_contract_v1(manifest)
 
         answers = read_jsonl(paths.answer_prompts_path)
         private = read_jsonl(paths.evaluator_private_labels_path)
@@ -61,15 +75,22 @@ class LongMemEvalRetrievalRankEvaluator:
             record["question_id"]: record.get("category") for record in public
         }
 
+        decisions_by_id = _decisions_by_question_id(answers)
+
         records: list[dict[str, Any]] = []
         participating: dict[int, list[dict[str, float]]] = defaultdict(list)
         skipped_k: set[int] = set()
         skipped_k_count = 0
         abstention_count = 0
         no_target_count = 0
+        evidence_status_counts: Counter[str] = Counter()
+        evidence_reason_code_counts: Counter[str] = Counter()
+
         for answer in answers:
             question_id = str(answer["question_id"])
             if "_abs" in question_id:
+                # abstention 是官方 benchmark policy 剔除，与 evidence 内容/
+                # stable ranking 无关；不计入 retrieval evidence status 统计。
                 abstention_count += 1
                 records.append(
                     {
@@ -84,6 +105,28 @@ class LongMemEvalRetrievalRankEvaluator:
                 )
                 continue
 
+            decision = decisions_by_id[question_id]
+            evidence_status_counts[decision.status] += 1
+
+            if decision.status != "valid":
+                evidence_reason_code_counts[decision.reason_code] += 1
+                records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": display_status(decision.status),
+                        "retrieval_evidence_status": decision.status,
+                        "reason_code": decision.reason_code,
+                        "reason": decision.reason,
+                        "abstention": False,
+                        "category": category_by_id.get(question_id),
+                    }
+                )
+                continue
+
+            granularity = decision.provenance_granularity
             groups = select_group_set(
                 parse_evidence_group_sets(private_by_id[question_id], question_id),
                 provenance_granularity=granularity,
@@ -96,7 +139,8 @@ class LongMemEvalRetrievalRankEvaluator:
             ).groups
             if not groups:
                 # 官方 run_retrieval.py:389-410 聚合口径：无官方 gold unit 的题
-                # 整题剔除，不参与任何 k 的均值。
+                # 整题剔除，不参与任何 k 的均值。provider 本身没有问题，因此
+                # 仍计入 retrieval_evidence_status_counts=valid。
                 no_target_count += 1
                 records.append(
                     {
@@ -112,7 +156,7 @@ class LongMemEvalRetrievalRankEvaluator:
                 )
                 continue
 
-            top_k, items = _retrieval_fields(answer, granularity)
+            top_k, items = _retrieval_fields(answer, question_id)
             ranked_ids = _ranked_source_ids(items, top_k, granularity)
 
             metrics: dict[str, float] = {}
@@ -131,6 +175,7 @@ class LongMemEvalRetrievalRankEvaluator:
                     "metric_name": self.metric_name,
                     "score": metrics.get(f"ndcg_any@{max(available_k)}") if available_k else None,
                     "status": "ok",
+                    "retrieval_evidence_status": "valid",
                     "abstention": False,
                     "category": category_by_id.get(question_id),
                     "retrieval_query_top_k": top_k,
@@ -145,6 +190,7 @@ class LongMemEvalRetrievalRankEvaluator:
             for metric in (f"recall_any@{k}", f"recall_all@{k}", f"ndcg_any@{k}")
         }
         scored = [record for record in records if record["score"] is not None]
+        pending_count = evidence_status_counts.get("pending", 0)
         return {
             "metric_name": self.metric_name,
             "score_records": records,
@@ -156,8 +202,11 @@ class LongMemEvalRetrievalRankEvaluator:
             ),
             "correct_count": None,
             "summary": {
-                "status": "ok" if scored else "n/a",
-                "provenance_granularity": granularity,
+                "status": summary_status(scored_count=len(scored), pending_count=pending_count),
+                "provenance_granularity": summary_provenance_granularity(
+                    list(decisions_by_id.values())
+                ),
+                "scored_question_count": len(scored),
                 "overall_metrics": means,
                 "participating_question_count_by_k": {
                     str(k): len(rows) for k, rows in sorted(participating.items())
@@ -166,12 +215,17 @@ class LongMemEvalRetrievalRankEvaluator:
                 "official_no_target_question_count": no_target_count,
                 "skipped_k_above_top_k": sorted(skipped_k),
                 "skipped_k_above_top_k_count": skipped_k_count,
+                "skipped_k_above_top_k_reason_code": _EVALUATION_DEPTH_NOT_REQUESTED,
                 "turn2session_view": "not_artifact_computable",
                 "group_rank_semantics": (
                     "group rank = min(first-appearance rank of any child); "
                     "same-group multi-child or repeated child only counts once; "
                     "unmatched groups stay in ideal gold count but never hit"
                 ),
+                "retrieval_evidence_status_counts": dict(evidence_status_counts),
+                "retrieval_evidence_reason_code_counts": dict(evidence_reason_code_counts),
+                "metric_tier": "framework_supplementary",
+                "formula_parity_at_available_k": True,
                 "official_sources": {
                     "formula": "src/retrieval/eval_utils.py:4-29",
                     "k_and_names": "src/retrieval/run_retrieval.py:316-321",
@@ -179,6 +233,27 @@ class LongMemEvalRetrievalRankEvaluator:
                 },
             },
         }
+
+
+def _decisions_by_question_id(
+    answers: list[dict[str, Any]],
+) -> dict[str, RetrievalEligibilityDecision]:
+    """对全部 answer records 做逐题 retrieval evidence preflight + 资格裁决。
+
+    rank 在 recall 语义之上还要求 `stable_ranking=valid`；在进入 `_abs`/
+    no-target 等 benchmark-specific 排除或计分循环前对**全部**记录解析。
+    """
+
+    decisions: dict[str, RetrievalEligibilityDecision] = {}
+    for record in answers:
+        question_id = str(record["question_id"])
+        evidence = parse_retrieval_evidence(record.get("retrieval_evidence"), question_id)
+        decisions[question_id] = decide_retrieval_eligibility(
+            evidence,
+            allowed_granularities=_ALLOWED_GRANULARITIES,
+            requires_stable_ranking=True,
+        )
+    return decisions
 
 
 def _evaluate_groups_at_k(
@@ -256,53 +331,38 @@ def _ranked_source_ids(
 
 
 def _retrieval_fields(
-    record: dict[str, Any], granularity: str
+    record: dict[str, Any], question_id: str
 ) -> tuple[int, list[dict[str, Any]]]:
-    """校验声明 provenance 后所需的 top_k/items/source ids。"""
+    """校验 decision valid 后所需的 top_k/items/source ids。"""
 
-    question_id = record.get("question_id")
     top_k = record.get("retrieval_query_top_k")
     items = record.get("retrieved_items")
     if not isinstance(top_k, int) or top_k < 1:
         raise ConfigurationError(
-            f"question {question_id}: provider declares provenance_granularity="
-            f"{granularity!r} but retrieval_query_top_k is missing or invalid"
+            f"question {question_id}: provider evidence declares semantic "
+            "provenance valid but retrieval_query_top_k is missing or invalid"
         )
     if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
         raise ConfigurationError(
-            f"question {question_id}: provider declares provenance_granularity="
-            f"{granularity!r} but retrieved_items is missing or invalid"
+            f"question {question_id}: provider evidence declares semantic "
+            "provenance valid but retrieved_items is missing or invalid"
         )
     for item in items[:top_k]:
         source_ids = item.get("source_turn_ids")
         if not isinstance(source_ids, list) or not source_ids:
             raise ConfigurationError(
-                f"question {question_id}: provider declares provenance_granularity="
-                f"{granularity!r} but a retrieved item has missing or empty source_turn_ids"
+                f"question {question_id}: provider evidence declares semantic "
+                "provenance valid but a retrieved item has missing or empty "
+                "source_turn_ids"
             )
     return top_k, items
 
 
-def _provenance_granularity(manifest: dict[str, Any]) -> str:
-    """读取 method manifest 的 provenance 声明。"""
+def _public_session_id(source_id: str) -> str:
+    """把公开 turn id 上卷到公开 session id。"""
 
-    method = manifest.get("method")
-    if not isinstance(method, dict) or method.get("provenance_granularity") is None:
-        return "undeclared"
-    return str(method["provenance_granularity"])
-
-
-def _required_string_list(
-    metadata: dict[str, Any], key: str, question_id: str
-) -> list[str]:
-    """读取 evaluator-private metadata 中必需的公开匹配键列表。"""
-
-    value = metadata.get(key)
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-        raise ConfigurationError(
-            f"question {question_id}: private label metadata requires {key} list"
-        )
-    return value
+    prefix, separator, suffix = source_id.rpartition(":t")
+    return prefix if separator and suffix.isdigit() else source_id
 
 
 def _validate_question_ids(
@@ -323,31 +383,6 @@ def _validate_question_ids(
             "LongMemEval retrieval-rank artifact question IDs must match exactly "
             "across answer prompts, private labels and public questions"
         )
-
-
-def _public_session_id(source_id: str) -> str:
-    """把公开 turn id 上卷到公开 session id。"""
-
-    prefix, separator, suffix = source_id.rpartition(":t")
-    return prefix if separator and suffix.isdigit() else source_id
-
-
-def _na_payload(granularity: str) -> dict[str, Any]:
-    """构造 provider 未声明 provenance 时的结构化 N/A。"""
-
-    return {
-        "metric_name": LongMemEvalRetrievalRankEvaluator.metric_name,
-        "score_records": [],
-        "total_questions": 0,
-        "mean_score": 0.0,
-        "correct_count": None,
-        "summary": {
-            "status": "n/a",
-            "reason": "provider provenance is unavailable",
-            "provenance_granularity": granularity,
-            "turn2session_view": "not_artifact_computable",
-        },
-    }
 
 
 __all__ = ["LongMemEvalRetrievalRankEvaluator"]

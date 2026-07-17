@@ -4,7 +4,13 @@
 metadata 留档。权威 qrel 是 gold evidence contract v1 的 `evidence_group_sets`
 （`membench_step` turn view）：每个去重 step 一个 group，越界 target 记
 unmatched，空 target 记 N/A（不再错误记 1.0）。
-MemBench 单 session，session 粒度声明视同 conversation 级记 N/A。
+
+RetrievalEvidence M1 起，MemBench 只接受 turn 粒度 gold view。逐题
+`retrieval_evidence` 经 `evaluators.retrieval_evidence` 严格 preflight 与
+`decide_retrieval_eligibility` 裁决：`session` 粒度（MemBench 单 session，
+没有可召回的 session 结构）与其余非 turn 粒度统一落在共享的
+`gold_granularity_mismatch` N/A 分支，不再由本 evaluator 手写专用判断；
+provider 侧 n_a/pending 同样产生独立的逐题 record。
 """
 
 from __future__ import annotations
@@ -19,11 +25,22 @@ from memory_benchmark.evaluators.gold_evidence_groups import (
     require_manifest_gold_evidence_contract_v1,
     select_group_set,
 )
+from memory_benchmark.evaluators.retrieval_evidence import (
+    RetrievalEligibilityDecision,
+    decide_retrieval_eligibility,
+    display_status,
+    parse_retrieval_evidence,
+    require_manifest_retrieval_evidence_contract_v1,
+    summary_provenance_granularity,
+    summary_status,
+)
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
+
+_ALLOWED_GRANULARITIES = frozenset({"turn"})
 
 
 class MemBenchRetrievalRecallEvaluator:
-    """按 provider 声明的 provenance 粒度计算 MemBench 条件式 recall。"""
+    """按 provider 逐题声明的 retrieval evidence 计算 MemBench 条件式 recall。"""
 
     metric_name = "membench_recall"
     official_source = (
@@ -42,32 +59,7 @@ class MemBenchRetrievalRecallEvaluator:
 
         del max_workers
         require_manifest_gold_evidence_contract_v1(manifest)
-        provenance_granularity = _method_provenance_granularity(manifest)
-        if provenance_granularity in {"none", "undeclared"}:
-            return _na_payload(
-                metric_name=self.metric_name,
-                reason="provider provenance is unavailable; retrieval recall is not evaluable for this run",
-                provenance_granularity=provenance_granularity,
-                official_source=self.official_source,
-            )
-        if provenance_granularity == "session":
-            # MemBench 单 session（每个 conversation 一个 s1 session），
-            # 公开 dataset 层级没有 session 结构可召回；视为 conversation 级 N/A。
-            return _na_payload(
-                metric_name=self.metric_name,
-                reason=(
-                    "MemBench has no session structure to recall; each conversation "
-                    "is a single session and per-step gold is the only available "
-                    "evidence. Treat session provenance as conversation-level N/A."
-                ),
-                provenance_granularity=provenance_granularity,
-                official_source=self.official_source,
-            )
-        if provenance_granularity != "turn":
-            raise ConfigurationError(
-                f"Unknown provenance_granularity {provenance_granularity!r} in "
-                "manifest['method']; expected 'none', 'session' or 'turn'"
-            )
+        require_manifest_retrieval_evidence_contract_v1(manifest)
 
         answer_records = read_jsonl(paths.answer_prompts_path)
         private_records = read_jsonl(paths.evaluator_private_labels_path)
@@ -78,19 +70,44 @@ class MemBenchRetrievalRecallEvaluator:
             record["question_id"]: record.get("category") for record in public_records
         }
 
+        decisions_by_id = _decisions_by_question_id(answer_records)
+
         score_records: list[dict[str, Any]] = []
         scored_records: list[dict[str, Any]] = []
         top_k_values: list[int] = []
         empty_gold_count = 0
         unmatched_gold_total = 0
         out_of_bounds_gold_total = 0
+        evidence_status_counts: Counter[str] = Counter()
+        evidence_reason_code_counts: Counter[str] = Counter()
 
         for answer_record in answer_records:
             question_id = str(answer_record["question_id"])
             category = category_by_id.get(question_id)
+            decision = decisions_by_id[question_id]
+            evidence_status_counts[decision.status] += 1
+
+            if decision.status != "valid":
+                evidence_reason_code_counts[decision.reason_code] += 1
+                score_records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer_record.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": display_status(decision.status),
+                        "retrieval_evidence_status": decision.status,
+                        "reason_code": decision.reason_code,
+                        "reason": decision.reason,
+                        "category": category,
+                        "provenance_granularity": decision.provenance_granularity,
+                    }
+                )
+                continue
+
             top_k, retrieved_items = _validated_retrieval_fields(
                 answer_record,
-                provenance_granularity,
+                question_id,
             )
             source_ids = _source_turn_ids(retrieved_items, top_k)
             groups = select_group_set(
@@ -120,7 +137,7 @@ class MemBenchRetrievalRecallEvaluator:
                         "status": "n/a",
                         "reason": "MemBench question has no matchable gold evidence",
                         "category": category,
-                        "provenance_granularity": provenance_granularity,
+                        "provenance_granularity": "turn",
                         "details": {
                             "out_of_bounds_target_step_ids": oob_ids,
                             "official_source": self.official_source,
@@ -140,9 +157,10 @@ class MemBenchRetrievalRecallEvaluator:
                     "metric_name": self.metric_name,
                     "score": score,
                     "status": "ok",
+                    "retrieval_evidence_status": "valid",
                     "category": category,
                     "requested_top_k": top_k,
-                    "provenance_granularity": provenance_granularity,
+                    "provenance_granularity": "turn",
                     "details": {
                         "gold_unit_ids": [group.unit_id for group in groups],
                         "unmatched_gold_unit_count": unmatched_count,
@@ -162,18 +180,32 @@ class MemBenchRetrievalRecallEvaluator:
             empty_gold_count=empty_gold_count,
             unmatched_gold_total=unmatched_gold_total,
             out_of_bounds_gold_total=out_of_bounds_gold_total,
-            provenance_granularity=provenance_granularity,
+            evidence_status_counts=evidence_status_counts,
+            evidence_reason_code_counts=evidence_reason_code_counts,
+            decisions=list(decisions_by_id.values()),
             official_source=self.official_source,
         )
 
 
-def _method_provenance_granularity(manifest: dict[str, Any]) -> str:
-    """读取 method manifest 的 provenance_granularity 声明。"""
+def _decisions_by_question_id(
+    answer_records: list[dict[str, Any]],
+) -> dict[str, RetrievalEligibilityDecision]:
+    """对全部 answer records 做逐题 retrieval evidence preflight + 资格裁决。
 
-    method = manifest.get("method")
-    if not isinstance(method, dict) or method.get("provenance_granularity") is None:
-        return "undeclared"
-    return str(method["provenance_granularity"])
+    MemBench 只接受 turn 粒度；session 与其余粒度统一由共享裁决导出
+    `gold_granularity_mismatch` N/A，不再手写专用判断。
+    """
+
+    decisions: dict[str, RetrievalEligibilityDecision] = {}
+    for record in answer_records:
+        question_id = str(record["question_id"])
+        evidence = parse_retrieval_evidence(record.get("retrieval_evidence"), question_id)
+        decisions[question_id] = decide_retrieval_eligibility(
+            evidence,
+            allowed_granularities=_ALLOWED_GRANULARITIES,
+            requires_stable_ranking=False,
+        )
+    return decisions
 
 
 def _validate_matching_question_ids(
@@ -198,49 +230,33 @@ def _validate_matching_question_ids(
 
 def _validated_retrieval_fields(
     record: dict[str, Any],
-    provenance_granularity: str,
+    question_id: str,
 ) -> tuple[int, list[dict[str, Any]]]:
-    """校验声明 provenance 后必需的 top_k、retrieved_items 与 source ids。"""
+    """校验 decision valid 后必需的 top_k、retrieved_items 与 source ids。"""
 
-    question_id = record.get("question_id")
     top_k = record.get("retrieval_query_top_k")
     retrieved_items = record.get("retrieved_items")
     if not isinstance(top_k, int) or top_k < 1:
         raise ConfigurationError(
-            f"question {question_id}: provider declares provenance_granularity="
-            f"{provenance_granularity!r} but retrieval_query_top_k is missing or invalid"
+            f"question {question_id}: provider evidence declares semantic "
+            "provenance valid but retrieval_query_top_k is missing or invalid"
         )
     if not isinstance(retrieved_items, list) or any(
         not isinstance(item, dict) for item in retrieved_items
     ):
         raise ConfigurationError(
-            f"question {question_id}: provider declares provenance_granularity="
-            f"{provenance_granularity!r} but retrieved_items is missing or invalid"
+            f"question {question_id}: provider evidence declares semantic "
+            "provenance valid but retrieved_items is missing or invalid"
         )
     for item in retrieved_items[:top_k]:
         source_ids = item.get("source_turn_ids")
         if not isinstance(source_ids, list) or not source_ids:
             raise ConfigurationError(
-                f"question {question_id}: provider declares provenance_granularity="
-                f"{provenance_granularity!r} but a retrieved item has missing or empty "
+                f"question {question_id}: provider evidence declares semantic "
+                "provenance valid but a retrieved item has missing or empty "
                 "source_turn_ids"
             )
     return top_k, retrieved_items
-
-
-def _required_string_list(
-    metadata: dict[str, Any],
-    key: str,
-    question_id: str,
-) -> list[str]:
-    """读取 evaluator-private metadata 中必需的字符串列表。"""
-
-    value = metadata.get(key)
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-        raise ConfigurationError(
-            f"question {question_id}: private label metadata requires {key} list"
-        )
-    return value
 
 
 def _source_turn_ids(
@@ -273,30 +289,6 @@ def _out_of_bounds_target_step_ids(
     ]
 
 
-def _na_payload(
-    *,
-    metric_name: str,
-    reason: str,
-    provenance_granularity: str,
-    official_source: str,
-) -> dict[str, Any]:
-    """构造 provenance 不可用或不支持时的结构化 N/A payload。"""
-
-    return {
-        "metric_name": metric_name,
-        "score_records": [],
-        "total_questions": 0,
-        "mean_score": 0.0,
-        "correct_count": None,
-        "summary": {
-            "status": "n/a",
-            "reason": reason,
-            "provenance_granularity": provenance_granularity,
-            "official_source": official_source,
-        },
-    }
-
-
 def _scored_payload(
     *,
     metric_name: str,
@@ -306,7 +298,9 @@ def _scored_payload(
     empty_gold_count: int,
     unmatched_gold_total: int,
     out_of_bounds_gold_total: int,
-    provenance_granularity: str,
+    evidence_status_counts: Counter[str],
+    evidence_reason_code_counts: Counter[str],
+    decisions: list[RetrievalEligibilityDecision],
     official_source: str,
 ) -> dict[str, Any]:
     """聚合已评分问题，按 question_type 输出分类聚合。"""
@@ -324,6 +318,7 @@ def _scored_payload(
             "scored_count": len(category_scores),
             "mean_score": sum(category_scores) / len(category_scores),
         }
+    pending_count = evidence_status_counts.get("pending", 0)
     return {
         "metric_name": metric_name,
         "score_records": score_records,
@@ -331,8 +326,8 @@ def _scored_payload(
         "mean_score": mean_score,
         "correct_count": None,
         "summary": {
-            "status": "ok" if scored_records else "n/a",
-            "provenance_granularity": provenance_granularity,
+            "status": summary_status(scored_count=len(scored_records), pending_count=pending_count),
+            "provenance_granularity": summary_provenance_granularity(decisions),
             "scored_question_count": len(scored_records),
             "empty_gold_question_count": empty_gold_count,
             "unmatched_gold_total": unmatched_gold_total,
@@ -340,6 +335,9 @@ def _scored_payload(
             "overall_mean_recall_at_requested_k": mean_score,
             "by_category": by_category,
             "requested_top_k_distribution": dict(Counter(top_k_values)),
+            "retrieval_evidence_status_counts": dict(evidence_status_counts),
+            "retrieval_evidence_reason_code_counts": dict(evidence_reason_code_counts),
+            "metric_tier": "framework_supplementary",
             "official_source": official_source,
         },
     }

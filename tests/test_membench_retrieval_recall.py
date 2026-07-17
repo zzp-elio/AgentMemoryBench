@@ -1,4 +1,11 @@
-"""MemBench artifact-only retrieval recall 测试。"""
+"""MemBench artifact-only retrieval recall 测试。
+
+RetrievalEvidence M1 后，MemBench recall 只接受 turn 粒度 gold view
+（`{"turn"}`）：逐题 evidence 若 semantic provenance valid 但 granularity 为
+`session`（MemBench 单 session，没有可召回的 session 结构），由共享
+`decide_retrieval_eligibility` 统一导出 `n_a`/`gold_granularity_mismatch`，
+不再由本 evaluator 手写"MemBench 没有 session 结构"的专用分支。
+"""
 
 from __future__ import annotations
 
@@ -34,20 +41,57 @@ def _item(*source_ids: str) -> dict[str, object]:
     }
 
 
+def _assertion(status: str, *, reason_code: str | None = None, reason: str | None = None) -> dict:
+    """构造一条序列化后的 `EvidenceAssertion`（模拟 `asdict()` 输出）。"""
+
+    return {"status": status, "reason_code": reason_code, "reason": reason}
+
+
+def _valid_evidence(granularity: str = "turn") -> dict:
+    """构造 `semantic_provenance=valid` 的逐题 evidence；`stable_ranking` 固定 pending。"""
+
+    return {
+        "semantic_provenance": _assertion("valid"),
+        "provenance_granularity": granularity,
+        "stable_ranking": _assertion(
+            "pending",
+            reason_code="ranking_fidelity_not_audited",
+            reason="per-method rank audit not completed",
+        ),
+    }
+
+
+def _na_evidence(
+    reason_code: str = "benchmark_identity_missing",
+    reason: str = "provider does not recognize this benchmark identity",
+) -> dict:
+    """构造 `semantic_provenance=n_a` 的逐题 evidence。"""
+
+    return {
+        "semantic_provenance": _assertion("n_a", reason_code=reason_code, reason=reason),
+        "provenance_granularity": "none",
+        "stable_ranking": _assertion("n_a", reason_code=reason_code, reason=reason),
+    }
+
+
 def _write_run(
     tmp_path: Path,
     *,
-    provenance_granularity: str | None,
     answer_prompts: list[dict[str, object]],
     private_labels: list[dict[str, object]],
     public_questions: list[dict[str, object]],
+    retrieval_evidence_contract_version: str | None = "v1",
 ) -> tuple[ExperimentPaths, dict[str, object]]:
-    """写入 MemBench recall 所需的最小 artifact 集合。"""
+    """写入 MemBench recall 所需的最小 artifact 集合。
+
+    默认 manifest 同时声明 gold evidence contract v1 与 retrieval evidence
+    contract v1，模拟真实 registered v1 run。
+    """
 
     paths = ExperimentPaths.create(tmp_path / "run")
     method: dict[str, object] = {}
-    if provenance_granularity is not None:
-        method["provenance_granularity"] = provenance_granularity
+    if retrieval_evidence_contract_version is not None:
+        method["retrieval_evidence_contract_version"] = retrieval_evidence_contract_version
     manifest: dict[str, object] = {
         "run_id": "run",
         "benchmark_name": "membench",
@@ -59,6 +103,25 @@ def _write_run(
     atomic_write_jsonl(paths.evaluator_private_labels_path, private_labels)
     atomic_write_jsonl(paths.public_questions_path, public_questions)
     return paths, manifest
+
+
+def _answer_prompt(
+    question_id: str,
+    *,
+    evidence: dict | None,
+    top_k: int | None = None,
+    retrieved_items: list[dict] | None = None,
+) -> dict[str, object]:
+    """构造一条 answer prompt artifact 记录。"""
+
+    return {
+        "question_id": question_id,
+        "conversation_id": question_id,
+        "retrieval_query_top_k": top_k,
+        "retrieved_items": retrieved_items,
+        "retrieval_evidence": evidence,
+        "metadata": {},
+    }
 
 
 def _private_label(
@@ -114,15 +177,10 @@ def test_turn_provenance_matches_public_turn_ids_and_keeps_official_aliases(
 
     paths, manifest = _write_run(
         tmp_path,
-        provenance_granularity="turn",
         answer_prompts=[
-            {
-                "question_id": "q1",
-                "conversation_id": "q1",
-                "retrieval_query_top_k": 1,
-                "retrieved_items": [_item("2")],
-                "metadata": {},
-            }
+            _answer_prompt(
+                "q1", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[_item("2")]
+            )
         ],
         private_labels=[
             _private_label(
@@ -204,15 +262,13 @@ def test_multi_child_pair_group_any_of_hit_on_either_side_counts_once(
     for index, (hit_ids, expected_score) in enumerate(cases):
         paths, manifest = _write_run(
             tmp_path / f"case{index}",
-            provenance_granularity="turn",
             answer_prompts=[
-                {
-                    "question_id": "q1",
-                    "conversation_id": "q1",
-                    "retrieval_query_top_k": 1,
-                    "retrieved_items": [_item(*hit_ids)],
-                    "metadata": {},
-                }
+                _answer_prompt(
+                    "q1",
+                    evidence=_valid_evidence("turn"),
+                    top_k=1,
+                    retrieved_items=[_item(*hit_ids)],
+                )
             ],
             private_labels=[_pair_private_label("q1")],
             public_questions=[{"question_id": "q1", "category": "highlevel"}],
@@ -226,17 +282,21 @@ def test_multi_child_pair_group_any_of_hit_on_either_side_counts_once(
         assert record["details"]["gold_unit_ids"] == ["0", "1", "2"]
 
 
-def test_session_provenance_is_na_because_membench_has_no_session_structure(
-    tmp_path: Path,
-) -> None:
-    """MemBench 单 session，session 粒度声明应记结构化 N/A。"""
+def test_session_decision_is_gold_granularity_mismatch_na(tmp_path: Path) -> None:
+    """MemBench 只接受 turn 粒度：session 逐题 decision 应导出 gold_granularity_mismatch N/A。
+
+    不再是 evaluator 手写的"MemBench 没有 session 结构"专用分支，而是共享
+    `decide_retrieval_eligibility` 对不在允许集合内的粒度的通用处理——同一
+    行为也适用于 BEAM。
+    """
 
     paths, manifest = _write_run(
         tmp_path,
-        provenance_granularity="session",
-        answer_prompts=[],
-        private_labels=[],
-        public_questions=[],
+        answer_prompts=[
+            _answer_prompt("q1", evidence=_valid_evidence("session"), top_k=1, retrieved_items=[])
+        ],
+        private_labels=[_private_label("q1", evidence=["1"], target_step_ids=[0])],
+        public_questions=[{"question_id": "q1", "category": "highlevel"}],
     )
 
     result = MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(
@@ -244,44 +304,43 @@ def test_session_provenance_is_na_because_membench_has_no_session_structure(
         manifest=manifest,
     )
 
-    assert result["summary"]["status"] == "n/a"
-    assert "no session structure" in result["summary"]["reason"]
-    assert result["score_records"] == []
+    record = result["score_records"][0]
+    assert record["score"] is None
+    assert record["status"] == "n/a"
+    assert record["reason_code"] == "gold_granularity_mismatch"
+    assert result["summary"]["scored_question_count"] == 0
 
 
-def test_none_or_undeclared_provenance_returns_structured_na(
-    tmp_path: Path,
-) -> None:
-    """无 provenance 能力时整个指标应为结构化 N/A。"""
-
-    for value in ("none", None):
-        paths, manifest = _write_run(
-            tmp_path / str(value),
-            provenance_granularity=value,
-            answer_prompts=[],
-            private_labels=[],
-            public_questions=[],
-        )
-        result = MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(
-            paths=paths,
-            manifest=manifest,
-        )
-        assert result["summary"]["status"] == "n/a"
-        assert result["score_records"] == []
-
-
-def test_declared_provenance_missing_source_ids_fails_fast(tmp_path: Path) -> None:
-    """声明 provenance 却缺 source_turn_ids 时必须 fail-fast。"""
+def test_semantic_provenance_na_returns_structured_na(tmp_path: Path) -> None:
+    """provider 逐题 semantic provenance=n_a 时该题应为结构化 N/A。"""
 
     paths, manifest = _write_run(
         tmp_path,
-        provenance_granularity="turn",
+        answer_prompts=[_answer_prompt("q1", evidence=_na_evidence(), top_k=1)],
+        private_labels=[_private_label("q1", evidence=["1"], target_step_ids=[0])],
+        public_questions=[{"question_id": "q1", "category": "highlevel"}],
+    )
+
+    result = MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(
+        paths=paths,
+        manifest=manifest,
+    )
+    assert result["score_records"][0]["score"] is None
+    assert result["summary"]["status"] == "n/a"
+
+
+def test_declared_provenance_missing_source_ids_fails_fast(tmp_path: Path) -> None:
+    """decision valid 却缺 source_turn_ids 时必须 fail-fast。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
         answer_prompts=[
             {
                 "question_id": "q1",
                 "conversation_id": "q1",
                 "retrieval_query_top_k": 1,
                 "retrieved_items": [{"item_id": "i1", "content": "memory"}],
+                "retrieval_evidence": _valid_evidence("turn"),
                 "metadata": {},
             }
         ],
@@ -307,15 +366,10 @@ def test_declared_provenance_missing_evidence_fails_fast(tmp_path: Path) -> None
 
     paths, manifest = _write_run(
         tmp_path,
-        provenance_granularity="turn",
         answer_prompts=[
-            {
-                "question_id": "q1",
-                "conversation_id": "q1",
-                "retrieval_query_top_k": 1,
-                "retrieved_items": [_item("2")],
-                "metadata": {},
-            }
+            _answer_prompt(
+                "q1", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[_item("2")]
+            )
         ],
         private_labels=[
             {
@@ -334,6 +388,21 @@ def test_declared_provenance_missing_evidence_fails_fast(tmp_path: Path) -> None
         )
 
 
+def test_missing_retrieval_evidence_contract_version_fails_fast(tmp_path: Path) -> None:
+    """manifest 缺 retrieval_evidence_contract_version 必须 fail-fast。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        retrieval_evidence_contract_version=None,
+        answer_prompts=[],
+        private_labels=[],
+        public_questions=[],
+    )
+
+    with pytest.raises(ConfigurationError, match="retrieval_evidence_contract_version"):
+        MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+
+
 def test_out_of_bounds_target_step_id_is_counted_but_does_not_crash(
     tmp_path: Path,
 ) -> None:
@@ -347,16 +416,14 @@ def test_out_of_bounds_target_step_id_is_counted_but_does_not_crash(
 
     paths, manifest = _write_run(
         tmp_path,
-        provenance_granularity="turn",
         answer_prompts=[
-            {
-                "question_id": "q1",
-                "conversation_id": "q1",
-                "retrieval_query_top_k": 1,
+            _answer_prompt(
+                "q1",
+                evidence=_valid_evidence("turn"),
+                top_k=1,
                 # 检索到 canonical child "1"，但官方 step 4 越界。
-                "retrieved_items": [_item("1")],
-                "metadata": {},
-            }
+                retrieved_items=[_item("1")],
+            )
         ],
         private_labels=[
             _private_label(
@@ -392,15 +459,10 @@ def test_empty_evidence_is_na_and_keeps_zero_unmatched(tmp_path: Path) -> None:
 
     paths, manifest = _write_run(
         tmp_path,
-        provenance_granularity="turn",
         answer_prompts=[
-            {
-                "question_id": "q1",
-                "conversation_id": "q1",
-                "retrieval_query_top_k": 1,
-                "retrieved_items": [_item("1")],
-                "metadata": {},
-            }
+            _answer_prompt(
+                "q1", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[_item("1")]
+            )
         ],
         private_labels=[
             _private_label(
@@ -421,3 +483,42 @@ def test_empty_evidence_is_na_and_keeps_zero_unmatched(tmp_path: Path) -> None:
     assert record["status"] == "n/a"
     assert record["score"] is None
     assert result["summary"]["empty_gold_question_count"] == 1
+
+
+def test_stable_ranking_pending_does_not_block_recall_scoring(tmp_path: Path) -> None:
+    """Recall 不要求 stable ranking：stable_ranking=pending 时仍应正常计分。"""
+
+    evidence = _valid_evidence("turn")
+    assert evidence["stable_ranking"]["status"] == "pending"
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt("q1", evidence=evidence, top_k=1, retrieved_items=[_item("1")])
+        ],
+        private_labels=[_private_label("q1", evidence=["1"], target_step_ids=[0])],
+        public_questions=[{"question_id": "q1", "category": "highlevel"}],
+    )
+
+    result = MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+    assert result["score_records"][0]["score"] == 1.0
+
+
+def test_summary_reports_metric_tier_and_representative_granularity(
+    tmp_path: Path,
+) -> None:
+    """summary 必须标 metric_tier，并为存量消费者保留代表性 provenance_granularity。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt(
+                "q1", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[_item("1")]
+            )
+        ],
+        private_labels=[_private_label("q1", evidence=["1"], target_step_ids=[0])],
+        public_questions=[{"question_id": "q1", "category": "highlevel"}],
+    )
+
+    result = MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+    assert result["summary"]["metric_tier"] == "framework_supplementary"
+    assert result["summary"]["provenance_granularity"] == "turn"

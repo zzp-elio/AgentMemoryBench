@@ -4,6 +4,13 @@
 turn view）：每个稳定去重的官方 raw source id 是一个 group，单一 location →
 singleton mapped，重复 raw id → multi-child mapped any-of，
 unmatched → 分母保留 miss。abstention 与空 group 记 N/A，不做 0 分。
+
+RetrievalEvidence M1 起，BEAM 只接受 turn 粒度 gold view。逐题
+`retrieval_evidence` 经 `evaluators.retrieval_evidence` 严格 preflight 与
+`decide_retrieval_eligibility` 裁决：非 turn 粒度（如 session）统一落在共享的
+`gold_granularity_mismatch` N/A 分支，与 MemBench 共用同一条通用规则；
+provider 侧 n_a/pending 产生独立的逐题 record，与官方 abstention（空 gold）
+分开计数。
 """
 
 from __future__ import annotations
@@ -18,7 +25,18 @@ from memory_benchmark.evaluators.gold_evidence_groups import (
     require_manifest_gold_evidence_contract_v1,
     select_group_set,
 )
+from memory_benchmark.evaluators.retrieval_evidence import (
+    RetrievalEligibilityDecision,
+    decide_retrieval_eligibility,
+    display_status,
+    parse_retrieval_evidence,
+    require_manifest_retrieval_evidence_contract_v1,
+    summary_provenance_granularity,
+    summary_status,
+)
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
+
+_ALLOWED_GRANULARITIES = frozenset({"turn"})
 
 
 class BeamRetrievalRecallEvaluator:
@@ -41,14 +59,7 @@ class BeamRetrievalRecallEvaluator:
 
         del max_workers
         require_manifest_gold_evidence_contract_v1(manifest)
-        provenance = _provenance_granularity(manifest)
-        if provenance in {"none", "undeclared"}:
-            return _na_payload(provenance)
-        if provenance != "turn":
-            raise ConfigurationError(
-                f"Unknown provenance_granularity {provenance!r} for BEAM recall; "
-                "expected 'none' or 'turn'"
-            )
+        require_manifest_retrieval_evidence_contract_v1(manifest)
 
         answers = read_jsonl(paths.answer_prompts_path)
         private = read_jsonl(paths.evaluator_private_labels_path)
@@ -57,15 +68,40 @@ class BeamRetrievalRecallEvaluator:
         private_by_id = {str(row["question_id"]): row for row in private}
         category_by_id = {str(row["question_id"]): row.get("category") for row in public}
 
+        decisions_by_id = _decisions_by_question_id(answers)
+
         score_records: list[dict[str, Any]] = []
         scored: list[dict[str, Any]] = []
         top_ks: list[int] = []
         abstention_count = 0
         unmatched_gold_total = 0
         ambiguous_gold_total = 0
+        evidence_status_counts: Counter[str] = Counter()
+        evidence_reason_code_counts: Counter[str] = Counter()
 
         for answer in answers:
             question_id = str(answer["question_id"])
+            decision = decisions_by_id[question_id]
+            evidence_status_counts[decision.status] += 1
+
+            if decision.status != "valid":
+                evidence_reason_code_counts[decision.reason_code] += 1
+                score_records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": display_status(decision.status),
+                        "retrieval_evidence_status": decision.status,
+                        "reason_code": decision.reason_code,
+                        "reason": decision.reason,
+                        "category": category_by_id[question_id],
+                        "provenance_granularity": decision.provenance_granularity,
+                    }
+                )
+                continue
+
             groups = select_group_set(
                 parse_evidence_group_sets(private_by_id[question_id], question_id),
                 provenance_granularity="turn",
@@ -98,6 +134,7 @@ class BeamRetrievalRecallEvaluator:
                         "status": "n/a",
                         "reason": "BEAM question has no matchable gold evidence",
                         "category": category_by_id[question_id],
+                        "provenance_granularity": "turn",
                         "details": {
                             "unmatched_gold_id_count": unmatched_count,
                             "ambiguous_gold_id_count": ambiguous_count,
@@ -106,7 +143,7 @@ class BeamRetrievalRecallEvaluator:
                 )
                 continue
 
-            top_k, items = _retrieval_fields(answer)
+            top_k, items = _retrieval_fields(answer, question_id)
             source_ids = {
                 str(source_id)
                 for item in items[:top_k]
@@ -120,8 +157,10 @@ class BeamRetrievalRecallEvaluator:
                 "metric_name": self.metric_name,
                 "score": score,
                 "status": "ok",
+                "retrieval_evidence_status": "valid",
                 "category": category_by_id[question_id],
                 "requested_top_k": top_k,
+                "provenance_granularity": "turn",
                 "details": {
                     "gold_unit_ids": [group.unit_id for group in groups],
                     "unmatched_gold_unit_count": sum(
@@ -143,6 +182,7 @@ class BeamRetrievalRecallEvaluator:
 
         scores = [float(row["score"]) for row in scored]
         mean = sum(scores) / len(scores) if scores else 0.0
+        pending_count = evidence_status_counts.get("pending", 0)
         return {
             "metric_name": self.metric_name,
             "score_records": score_records,
@@ -150,26 +190,43 @@ class BeamRetrievalRecallEvaluator:
             "mean_score": mean,
             "correct_count": None,
             "summary": {
-                "status": "ok" if scored else "n/a",
-                "provenance_granularity": provenance,
+                "status": summary_status(scored_count=len(scored), pending_count=pending_count),
+                "provenance_granularity": summary_provenance_granularity(
+                    list(decisions_by_id.values())
+                ),
                 "scored_question_count": len(scored),
                 "abstention_question_count": abstention_count,
                 "unmatched_gold_id_count": unmatched_gold_total,
                 "ambiguous_gold_id_count": ambiguous_gold_total,
                 "requested_top_k_distribution": dict(Counter(top_ks)),
                 "overall_mean_recall_at_requested_k": mean,
+                "retrieval_evidence_status_counts": dict(evidence_status_counts),
+                "retrieval_evidence_reason_code_counts": dict(evidence_reason_code_counts),
+                "metric_tier": "framework_supplementary",
                 "framework_supplementary": True,
             },
         }
 
 
-def _provenance_granularity(manifest: dict[str, Any]) -> str:
-    """读取 method provenance 声明。"""
+def _decisions_by_question_id(
+    answers: list[dict[str, Any]],
+) -> dict[str, RetrievalEligibilityDecision]:
+    """对全部 answer records 做逐题 retrieval evidence preflight + 资格裁决。
 
-    method = manifest.get("method")
-    if not isinstance(method, dict) or method.get("provenance_granularity") is None:
-        return "undeclared"
-    return str(method["provenance_granularity"])
+    BEAM 只接受 turn 粒度；非 turn 粒度统一由共享裁决导出
+    `gold_granularity_mismatch` N/A，不再手写专用判断。
+    """
+
+    decisions: dict[str, RetrievalEligibilityDecision] = {}
+    for record in answers:
+        question_id = str(record["question_id"])
+        evidence = parse_retrieval_evidence(record.get("retrieval_evidence"), question_id)
+        decisions[question_id] = decide_retrieval_eligibility(
+            evidence,
+            allowed_granularities=_ALLOWED_GRANULARITIES,
+            requires_stable_ranking=False,
+        )
+    return decisions
 
 
 def _validate_question_ids(*groups: list[dict[str, Any]]) -> None:
@@ -185,17 +242,6 @@ def _validate_question_ids(*groups: list[dict[str, Any]]) -> None:
         )
 
 
-def _string_list(metadata: dict[str, Any], key: str, question_id: str) -> list[str]:
-    """读取私有 metadata 中必需的字符串列表。"""
-
-    value = metadata.get(key)
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-        raise ConfigurationError(
-            f"question {question_id}: private label metadata requires {key} list"
-        )
-    return value
-
-
 def _non_negative_int(metadata: dict[str, Any], key: str, question_id: str) -> int:
     """读取 adapter 记录的非负计数。"""
 
@@ -207,10 +253,11 @@ def _non_negative_int(metadata: dict[str, Any], key: str, question_id: str) -> i
     return value
 
 
-def _retrieval_fields(answer: dict[str, Any]) -> tuple[int, list[dict[str, Any]]]:
-    """校验已声明 provenance 时的 retrieval artifact。"""
+def _retrieval_fields(
+    answer: dict[str, Any], question_id: str
+) -> tuple[int, list[dict[str, Any]]]:
+    """校验 decision valid 后的 retrieval artifact。"""
 
-    question_id = answer.get("question_id")
     top_k = answer.get("retrieval_query_top_k")
     items = answer.get("retrieved_items")
     if not isinstance(top_k, int) or top_k < 1:
@@ -224,23 +271,6 @@ def _retrieval_fields(answer: dict[str, Any]) -> tuple[int, list[dict[str, Any]]
                 f"question {question_id}: retrieved item source_turn_ids is missing or empty"
             )
     return top_k, items
-
-
-def _na_payload(provenance: str) -> dict[str, Any]:
-    """构造 provider 无 provenance 时的结构化 N/A。"""
-
-    return {
-        "metric_name": "beam_recall",
-        "score_records": [],
-        "total_questions": 0,
-        "mean_score": 0.0,
-        "correct_count": None,
-        "summary": {
-            "status": "n/a",
-            "reason": "provider provenance is unavailable",
-            "provenance_granularity": provenance,
-        },
-    }
 
 
 __all__ = ["BeamRetrievalRecallEvaluator"]
