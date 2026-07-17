@@ -12,7 +12,8 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    首轮与 Codex R1 已合入：五格 unified 主 build 固定 hybrid，canonical role 严格读取，
    pair candidate lineage 全有或全无；LoCoMo prompt 只认构造期 identity，HaluMem 保持
    session-level 单次 `add_memory()` 调用边界；
-4. 当前共享前置是拆 MemBench canonical role；之后 RetrievalEvidence M1 消费新契约；
+4. MemBench canonical role 已以 `ce1a9a8` + `d852fff` + `68b674b` 强验收关闭；当前
+   共享前置只剩 RetrievalEvidence M1 消费新契约；
 5. 最后才进入 B11 五格付费 smoke（须用户批准预算/规模/run_id）。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的

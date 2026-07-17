@@ -1,9 +1,14 @@
 # MemBench Dataset 结构卡（现行契约）
 
-更新日期：2026-07-16（canonical role/evidence-unit 定点解冻；现场剖面全量数字见
+更新日期：2026-07-17（canonical pair split 已强验收；现场剖面全量数字见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/membench-b3-audit.md`，
 逐文件身份见同目录 `membench-source-lock.json`；现行裁决见
 [gold evidence unit 审计](../../workstreams/ws02.7-method-track/branches/input-role-semantics/notes/evidence-unit-contract-audit.md)）
+
+实现与全量映射复验见
+[canonical split 施工记录](../../workstreams/ws02.7-method-track/branches/input-role-semantics/notes/membench-canonical-split-implementation.md)：
+8 个正式文件共 4,260 trajectories、452,245 source steps、767,075 canonical turns，
+step→child 映射缺陷为 0。
 
 ## 1. 顶层结构
 

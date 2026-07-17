@@ -45,7 +45,9 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 - **BEAM**：测试需 `datasets` 模块（环境依赖；缺失会 18 项 fail，非回归——2026-07-13 判例）。
 - **MemBench**：源文件维度聚合 four-cell（first/third × high/low）。2026-07-15 发现
   100k 258,000 个无时间 noise 被首个有时 turn 派生的伪 `session_time` 覆盖；Phase A
-  `2e6b4d7` 已删除 fallback 并完成全量回归，A2/A8 恢复。`QA.time` 不进入 ingest。
+  `2e6b4d7` 已删除 fallback。2026-07-17 canonical split 又以 `ce1a9a8` + `d852fff` +
+  `68b674b` 把 FirstAgent pair 拆成真实双 role child，仍按一个 private group 计分；
+  A2/A4/A8 已完成全量复验。`QA.time` 不进入 ingest。
 
 ## 二、Method 侧（B1-B11）
 
@@ -53,7 +55,7 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 TOML/builder | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | 🟡时间链已验；MemBench canonical split 待关 | 🟡LoCoMo valid；MemBench 待 split；LME/BEAM/HaluMem N/A | ✅online-soft | ✅ | ✅ | ✅当前 MiniLM smoke build | 🟡主 TOML 已有；author builder 待性能阶段迁移 | 🟡M1 evaluator + 五格主复证 | **v1 suspended** |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅ | ✅物理 | 🟡role/time/canonical 离线已验；五格实测待 B11 | 🟡LoCoMo/MemBench valid；LME/BEAM/HaluMem N/A；M1 待消费 | ✅online-soft | ✅ | ✅ | ✅当前 MiniLM smoke build | 🟡主 TOML 已有；author builder 待性能阶段迁移 | 🟡M1 evaluator + 五格主复证 | **v1 suspended** |
 | [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅effective time 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(旧 native 计量=前置声明2) | ✅B8+清单落档(M5,下载点声明4) | 🟡当前 MiniLM；性能主配置待裁 | 🟡truthful 旧身份已落；author builder 待迁 | 🟡13格历史证据保留；五格主复证 | **v1 局部重开** |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅当前 MiniLM smoke build | 🟡旧 readout 身份 truthful；author builder 待迁 | 🟡五格主 smoke | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -75,7 +77,8 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 > MemoryOS 已完成 M1 一手取证与 M2 离线施工/全量门，只差排到其顺序后的 B11 真实 smoke；
 > LightMem 因 2026-07-15
 > 发现 LoCoMo post-update 无 semantic source mapping 而重开 B5/B11；逐题 M0 声明机制已落，
-> 现待 M1 evaluator 消费。A-Mem/SimpleMem 待各自 M 阶段。N/A 是能力结论，不是强造指标。
+> MemBench canonical/role 前置已于 `68b674b` 关闭，现只待 M1 evaluator 消费与 B11 五格
+> 实测。A-Mem/SimpleMem 待各自 M 阶段。N/A 是能力结论，不是强造指标。
 
 **逐项证据与接口调用面**：全部收归各实体的实例文档（表中名字即链接），本文不再
 就地展开（2026-07-13 起，原"LightMem 详情"节已迁入

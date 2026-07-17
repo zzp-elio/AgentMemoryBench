@@ -1,6 +1,6 @@
 # MemBench Benchmark 调研卡片
 
-更新日期：2026-07-16（canonical role/evidence-unit 定点解冻；**现行契约以
+更新日期：2026-07-17（canonical pair split 已强验收；**现行契约以
 `docs/survey/datasets/membench.md` + `docs/survey/workflows/membench.md`
 两张契约卡与冻结记录
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/membench-frozen-v1.md`
@@ -10,6 +10,9 @@
 引用；② 官方活跃路径无条件用 INSTRUCTION_FIRST；③ target_step_id 为 0 基 pair/string
 step。FirstAgent canonical 必须拆成 user+assistant 两条 Turn，gold 用 evaluator-private
 any-of group 映射，不能把官方 text-only store 的拼接姿态当公共 schema。）
+实现主线=`ce1a9a8` + `d852fff` + `68b674b`；全量数据映射与最终回归见
+`docs/workstreams/ws02.7-method-track/branches/input-role-semantics/notes/
+membench-canonical-split-implementation.md`。
 
 ## 1. 一句话结论
 

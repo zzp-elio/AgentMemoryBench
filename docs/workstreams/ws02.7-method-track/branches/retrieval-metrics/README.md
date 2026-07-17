@@ -18,8 +18,12 @@ evaluator 按 Recall/NDCG 各自要求导出 `valid / n_a / pending`。这样不
    `afd4040`（不可哈希 status）+ `c879343`（registered preflight/resume 身份对称）。
 4. M0 最终门：七文件 `307 passed, 1 warning`；主树
    `1235 passed, 3 deselected, 2 warnings, 4 subtests passed`；compileall exit 0。
-5. **当前下一步=M1，尚未起草/派发**：迁五个 evaluator、修 LongMemEval no-target 分母
-   与 k coverage。先由架构师写自包含卡，用户暂时无需派 actor。
+5. Gold v1 已先关闭 LongMemEval no-target 分母=419，MemBench canonical split 也已以
+   `ce1a9a8` + `d852fff` + `68b674b` 关闭。
+6. **当前下一步=M1，卡已就绪、待用户派发**：
+   [`actor-prompt-retrieval-evidence-m1.md`](cards/actor-prompt-retrieval-evidence-m1.md)。
+   它迁五个 evaluator 逐题消费 v1，保留 n_a/pending reason，并诚实声明当前 depth=10
+   只覆盖 LongMemEval k≤10；不二次 retrieve、不重改 419/group/canonical。
 
 ## 权威材料
 

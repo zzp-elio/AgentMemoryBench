@@ -739,3 +739,17 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
 - **文件正交不等于契约正交。**两张 actor 卡可在不同 worktree 各自全绿，合流后仍可能因
   manifest/private-label schema 演进让另一张卡的旧 fixture 失败。并行交付合入后必须跑两张
   定向清单的并集；这种失败优先修 fixture 到新真实契约，不得放宽生产 fail-fast。
+
+### 14.3 2026-07-17：强反例与全量门各自抓不同的错
+
+- **测试必须锁最终算式，不只锁 helper 形状。**MemBench 首轮测试证明 2-child group
+  “命中任一侧计一次”，却没有用真实 evaluator 锁 3 个官方 group 命中 1 个严格等于
+  `1/3`；若分母错误展开为 6 child，同样可能被局部 helper 测试漏过。涉及 Recall/NDCG/
+  聚合分母时，至少加一条能手算的端到端小例，并写出精确分数。
+- **卡里新增 Python helper 时，架构师定向门应显式含文档标准测试。**本轮 269 项功能测试
+  全绿，但完整回归才抓到 nested `_pair_private_label` 缺中文 docstring。以后卡若新增类/
+  函数/test helper，任务自检或架构师验收必须包含 `tests/test_documentation_standards.py`；
+  不能把“所有函数”误读成“只有生产/public 函数”。
+- **隔离 worktree 的全量红要先分环境与 diff。**缺 gitignored benchmark/model 资产造成
+  30 项环境失败，不能据此驳回 actor；补齐只读测试资产后再定性。与此同时，环境噪声中仍
+  可能夹着一个真实回归，不能看见大量 `FileNotFoundError` 就整批豁免。

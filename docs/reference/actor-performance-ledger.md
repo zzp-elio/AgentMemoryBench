@@ -33,6 +33,8 @@
 | 2026-07-16 | Codex subagent；提交自标 GPT-5.6 sol | Gold Evidence Group M0 R1 | `6ea644f` + `787398c` → `6d68a51` + `af7157a` | actor `436 passed, 29 subtests`；架构师独立 `436 passed` + NDCG 手算 0.5 | **9.7** | accepted |
 | 2026-07-16 | OpenCode + qwen3.7-max；约 48min；使用 1 个 general subagent（用户/actor 提供） | LightMem unified-hybrid 首轮 | `2463ddb` → `d86b22a`（须 Codex R1） | actor/架构师均 `112 passed, 1 warning`；full diff 抓 6 类未覆盖语义漂移 | **6.5** | rework |
 | 2026-07-16 | Codex subagent；提交自标 GPT-5 | LightMem unified-hybrid R1 + 合流 fixture | `011c265` + `10a5cf5` → `d1c18c4` + `2e78c55` | actor `152 passed`；架构师同套 152、双卡并集 588、主树全量 1435 | **9.8** | accepted after integration rework |
+| 2026-07-17 | Claude Code / Sonnet 5；时长未提供；无 subagent | MemBench canonical pair split 首轮 | `a6c8f55` → `ce1a9a8`（须 R1/R2 补验） | actor `268 passed`；架构师同套 268；生产 diff 正确，但漏精确分母/四源 smoke/event/cross-batch 门 | **8.8** | accepted after architect hardening |
+| 2026-07-17 | Codex subagent；用户指定 GPT-5.6 sol/medium | MemBench canonical split R1 + R2 | `0fb849c` + `c40589c` → `d852fff` + `68b674b` | R1 `269 passed`；首次全量抓 1 个真实 docstring 回归；R2 后最终全量 1441、compileall exit 0 | **9.5** | accepted after full-suite rework |
 
 ### 未评分发现记录
 
@@ -200,3 +202,18 @@
   152 项通过。双卡合流首次 `1 failed, 587 passed` 只暴露一个旧 LoCoMo fixture，窄 subagent
   把 fixture 升到 Gold v1，未放宽生产门；最终定向并集 588、主树全量 1435，评
   **9.8/accepted after integration rework**。
+
+### 2026-07-17：MemBench canonical pair split 首轮 + Codex R1/R2
+
+- Sonnet 5 首轮的生产实现没有语义缺陷：正确拆 user/assistant、保持逐侧原文与时间、用
+  step→child 显式映射维持官方 pair-step 分母、按 source step 裁 smoke，并同步 LightMem
+  v5 逐题判词。架构师全量数据重扫得到 4,260 trajectories、452,245 source steps、
+  767,075 canonical turns，映射缺陷 0，故正确性 4/4。
+- 首轮证据没有逐字完成卡的承重条件：真实 evaluator 未锁 3 group 命中 1 个=`1/3`，
+  standard smoke 未锁完整四源结构，event round-trip 与两个 pair 同 extraction batch 也未锁；
+  此外明知卡禁止仍跑了 compileall，但主动披露且无副作用。综合测试证据 1.2/2、纪律
+  1.7/2、判断交接 1.9/2，总评 **8.8**。这是“实现比自证强”的交付，不是作弊。
+- Codex R1 用会在首轮失败的精确 evaluator、四源/宽 history smoke、event 保真与真实
+  vendored cross-batch lineage 门补齐；R2 再关闭完整回归发现的 nested helper 中文
+  docstring。正确性 4/4、证据 1.7/2、纪律 2/2、判断交接 1.8/2，总评 **9.5**。最终门为
+  `1441 passed, 3 deselected, 2 warnings, 29 subtests passed`，compileall exit 0。

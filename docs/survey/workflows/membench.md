@@ -1,6 +1,6 @@
 # MemBench 评测流程卡（现行契约）
 
-更新日期：2026-07-16（canonical role/evidence-unit 定点解冻；旧冻结记录见
+更新日期：2026-07-17（canonical pair split 已强验收；旧冻结记录见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/membench-frozen-v1.md`）
 
 ## 1. 官方流程（一手：`third_party/benchmarks/Membench-main/benchmark/`）
@@ -62,8 +62,14 @@ knowledge_update/lowlevel_rec/RecMultiSession/noisy/highlevel…）——
 - 官方 json_schema 结构化输出 vs 框架自由文本解析：偏差已记冻结清单。
 - answer LLM 参数官方不可考（benchutils 外部依赖），框架取值如实标注。
 - 官方 capacity/efficiency 维度未纳入 Phase 1。
-- canonical split 与 private evidence-group schema 尚待 ws02.7 施工；在该门关闭前旧
-  “1 dict step=1 turn”产物不得继续证明 Recall 或 LightMem B4。
+- canonical split 与 private evidence-group schema 已在 ws02.7 关闭：FirstAgent 一个
+  dict step 是 user/assistant 两个 canonical turn，但 evaluator-private any-of group 仍只计
+  一个官方 step；主线 `ce1a9a8` + `d852fff` + `68b674b`。旧“1 dict step=1 turn”产物
+  不得继续证明 Recall 或 LightMem B4。
 - 离线全链路证据：`tests/test_membench_registered_prediction.py`
   （4 源双人称路径 + 无冒号 turn_time 非空 + category_breakdown +
   privacy 扫描，零真实 API）。
+- 完整施工/强验收证据：
+  `docs/workstreams/ws02.7-method-track/branches/input-role-semantics/notes/
+  membench-canonical-split-implementation.md`（8 个正式数据文件 4,260 trajectories，
+  step→child 映射零缺陷）。

@@ -168,3 +168,33 @@ vendored LightMem 的 Pydantic V2 deprecation。`git diff --check` 无输出。
 `_pair_private_label` 缺少中文 docstring。R2 只为该 helper 补上准确的
 中文 docstring，不改测试语义或生产逻辑；首轮与 R1 历史保留不变。
 定向复核尾行：`13 passed in 2.64s`；`git diff --check` 无输出。
+
+## 8. 架构师最终强验收（2026-07-17）
+
+架构师逐行审读首轮、R1、R2 的全部 diff，并独立复跑原卡六文件定向门，尾行为
+`269 passed, 1 warning in 40.61s`。未发现删除断言、放宽生产校验、伪造 lineage 或按
+benchmark 名称绕契约的“为过测”行为。首轮生产拆分是正确的；R1/R2 只补足首轮未真正
+证明的验收条件与文档门。
+
+除合成测试外，架构师还扫描了 `0_10k`/`100k` 全部 8 个正式数据文件，并把每条
+trajectory 经过当前 production adapter：共 4,260 trajectories、452,245 source steps、
+767,075 canonical turns；FirstAgent 只产生 2-child group，ThirdAgent 只产生 singleton
+group，合法 target 的 child id 全部存在且 child 不跨 source step，映射缺陷为 0。数据中
+原有的两个越界 target 与一个空 target 仍按公开契约保留，没有被修平或偷偷过滤。
+
+LightMem 的承重探针把两个 MemBench canonical pair 同时送入真实 vendored
+`MessageNormalizer → assign_sequence_numbers_with_timestamps →
+_create_memory_entry_from_fact`：`source_id=0` 只得到
+`["1:user", "1:assistant"]`，`source_id=1` 只得到
+`["2:user", "2:assistant"]`。这证明同一 extraction batch 不会把两个 source step 的
+candidate lineage 合并；它只支持 pair-step 粒度，不声称能判定 pair 内究竟是哪一侧事实。
+
+首次全量门为 `31 failed, 1410 passed, 3 deselected, 2 warnings, 29 subtests passed`：
+30 项逐一归因为隔离 worktree 缺少 gitignored benchmark/SimpleMem/model 资产；唯一真实
+diff 回归是 nested test helper 缺中文 docstring，R2 已关闭。补齐只读测试资产后最终全量
+尾行为 `1441 passed, 3 deselected, 2 warnings, 29 subtests passed in 358.28s`，
+`uv run python -m compileall -q src/memory_benchmark tests` exit 0。
+
+最终线性合入主线：首轮 `a6c8f55` → `ce1a9a8`，R1 `0fb849c` → `d852fff`，
+R2 `c40589c` → `68b674b`。本门正式通过；后续 RetrievalEvidence M1 只能消费该契约，
+不得重新压平 FirstAgent pair、按 child 扩大分母或把 pair candidate 伪称 child-exact。

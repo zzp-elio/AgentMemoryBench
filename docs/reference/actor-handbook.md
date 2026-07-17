@@ -59,8 +59,9 @@
   数据与官方文档；`docs/workstreams/ws02-phase1-matrix/audits/mechanism-*.md`
   是已审映射和导航，不得覆盖新的一手反证。实现、一手源与机制卡冲突时停工上报，
   不要凭模型记忆自行选边。
-- 所有 Python 文件带中文模块 docstring；公开类/函数带中文 docstring；
-  代码风格向同目录现有文件看齐。
+- 所有 Python 文件带中文模块 docstring；**每个**类、函数、测试函数和 nested helper
+  都带准确的中文 docstring，不只检查 public API。任务新增局部 helper 时，定向自检必须
+  覆盖文档标准门或做等价静态检查；代码风格向同目录现有文件看齐。
 - 不改 plan 之外的文件；发现 plan 之外的问题 → 写进断点，不顺手修。
 - 不 push（commit 到本地即可）；不动 git 历史；不改 `.env` 与密钥。
 

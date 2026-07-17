@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（gold evidence M0 + LightMem hybrid 已验收；下一门 MemBench canonical split）
+status: in-progress（MemBench canonical split 已强验收；下一门 RetrievalEvidence M1）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -36,10 +36,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   单次渲染）→ `dcd3e7b`（Track identity M0 首轮）→ `d6fd56f`（R1 真实性收紧）→
   `d032d45`（R2 registration 单事实源）→ `afb57f3`/`6d68a51`（Gold Evidence Group
   M0 + R1）→ `d86b22a`/`d1c18c4`（LightMem hybrid + R1）→ `2e78c55`（双卡合流
-  fixture v1）。准确 commit/upstream 状态始终
-  以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的 hash。本轮主树门=
-  `1435 passed, 3 deselected, 2 warnings, 29 subtests passed in 144.51s`；标准
-  `src+tests` compileall 与本轮四个 vendored LightMem 文件 `py_compile` 均 exit 0。
+  fixture v1）→ `4c4bb0c`（TOML/builder 政策 + MemBench 卡）→ `ce1a9a8`/
+  `d852fff`/`68b674b`（MemBench canonical split + 架构师 R1/R2）。准确
+  commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
+  hash。本轮等价工作树全量门=`1441 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 358.28s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
   身份裁决与 Track identity M0 已关闭；当前按逐 method 串行顺序排在 LightMem、Mem0 后，
@@ -61,8 +63,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   裁决=`branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`；
   **RetrievalEvidence M0 已强验收合入**：Mem0/LightMem/MemoryOS 每题 artifact 陈述
   semantic provenance + granularity + stable ranking，manifest contract v1 严格参与 resume；
-  无契约的 A-Mem/SimpleMem 不盖章。下一门=M1：让 evaluator 消费逐题资格事实并修 k
-  coverage；不再重复改 qrel group 或 LME 419 分母。M1 卡尚未起草/派发。
+  无契约的 A-Mem/SimpleMem 不盖章。下一门=M1：让 evaluator 消费逐题资格事实并诚实
+  披露 k coverage；不再重复改 qrel group 或 LME 419 分母。自包含卡已写入
+  `branches/retrieval-metrics/cards/actor-prompt-retrieval-evidence-m1.md`，待用户派发。
 - **元学习/过时文档整改**：actor 卡整份即 prompt，禁止卡尾重复 wrapper；不默认要求
   reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
   AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。待派/暂停属于支线
@@ -99,18 +102,33 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   架构师纠正 BEAM 全量结论：LME canonical 分母=419，BEAM 1M 当前为 41 个含歧义题/198
   个歧义原子；采用强类型 evaluator-private gold group。LightMem unified 五格固定 hybrid，
   但 extraction source_id 是 pair index，assistant 可见性不自动证明 turn-level exact lineage。
-  Gold M0 与 LightMem hybrid 首轮均经 full diff 驳回后由 Codex R1 收口；两张卡的定向并集
-  `588 passed, 29 subtests`，主树全量 1435 项通过。Gold group 现按官方 unit 计分，BEAM
-  重复 raw id 为 multi-child any-of，LME 主 turn 分母 419；LightMem 五格 unified 固定 hybrid，
-  pair lineage 全有或全无，但 LME/BEAM 仍不冒充 turn-exact。当前下一门是 MemBench
-  FirstAgent canonical pair split，完成后接 RetrievalEvidence M1；之后严格串行
+  Gold M0 与 LightMem hybrid 首轮均经 full diff 驳回后由 Codex R1 收口。Gold group 现按
+  官方 unit 计分，BEAM 重复 raw id 为 multi-child any-of，LME 主 turn 分母 419。MemBench
+  canonical split 也已关闭：一个 dict step 变为真实 user/assistant 两 turn，但仍由一个
+  private any-of group 计一次；LightMem 两 pair 同批抽取没有跨 step lineage union。当前
+  下一门是 RetrievalEvidence M1，让 evaluator 消费逐题资格与修 k coverage；之后严格串行
   Mem0 → MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-17）
 
-- 2026-07-17（**MemBench canonical split 卡已就绪；本轮只派 Sonnet 5 一张**，GPT-5
+- 2026-07-17（**MemBench canonical split 已强验收；下一门 RetrievalEvidence M1**，GPT-5
+  架构师）：Sonnet 5 首轮 `a6c8f55` 的生产语义经 full diff 复核成立，无为过测放宽：
+  FirstAgent 每个 dict step 拆为 `n:user`/`n:assistant`，每侧原文、role 与自身时间独立，
+  private gold 仍按一个 pair-step group 计一次，smoke 按 source step 裁剪而不切半 pair。
+  架构师发现首轮缺少精确 `1/3` evaluator、四源 smoke、event round-trip、跨 pair batch
+  lineage 与 nested helper docstring 门；Codex 5.6 sol/medium 线性追加 `0fb849c` +
+  `c40589c`。主线合入为 `ce1a9a8` + `d852fff` + `68b674b`。全量扫描 8 个官方文件：
+  4,260 trajectories、452,245 source steps、767,075 canonical turns，step→child 映射
+  0 缺陷；LightMem 同批两 pair 的 source id 分别只映射各自 pair。最终六文件定向
+  `269 passed, 1 warning`，全量 `1441 passed, 3 deselected, 2 warnings, 29 subtests`
+  （358.28s），compileall exit 0，零真实 API。下一门不重改 gold group、MemBench
+  canonical 或 LME 419 分母，只做 RetrievalEvidence M1。自包含卡=
+  `branches/retrieval-metrics/cards/actor-prompt-retrieval-evidence-m1.md`；推荐 Sonnet 5，
+  独立 worktree，不与其他代码卡并行追同一 evaluator。
+
+- 2026-07-17（**历史断点，已被上方 MemBench 强验收取代；当时卡待派**，GPT-5
   架构师）：依赖复核确认 RetrievalEvidence M1 必须消费 split 后的最终 turn/group 与
   LightMem 逐题 evidence，若现在并行会同时修改 evaluator fixture 并制造跨卡追赶。自包含卡=
   `branches/input-role-semantics/cards/actor-prompt-membench-canonical-split.md`；它拆 FirstAgent
