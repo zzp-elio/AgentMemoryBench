@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from memory_benchmark.core import ConfigurationError
+from memory_benchmark.core import ConfigurationError, GoldEvidenceGroup
 from memory_benchmark.evaluators.gold_evidence_groups import (
     group_recall_score,
     parse_evidence_group_sets,
@@ -102,21 +102,12 @@ class MemBenchRetrievalRecallEvaluator:
                 question_id=question_id,
             ).groups
 
-            # 旧 metadata 中的 target_step_id 只留审计；权威 qrel 来自 groups。
-            private_metadata = private_by_id[question_id].get("metadata")
-            oob_ids: list[int] = []
-            if isinstance(private_metadata, dict):
-                target_step_ids = _required_int_list(
-                    private_metadata,
-                    "target_step_id",
-                    question_id,
-                )
-                oob_ids = _out_of_bounds_target_step_ids(
-                    target_step_ids,
-                    answer_record,
-                    question_id,
-                )
-                out_of_bounds_gold_total += len(oob_ids)
+            # 权威越界诊断：unmatched group 的 unit_id 就是越界的官方 0 基
+            # step id，直接来自 gold group 本身，不再依赖 answer artifact 的
+            # public_turn_count 启发式（拆分后 canonical turn 数已不等于源
+            # step 数，该字段既不可靠也未被生产 answer prompt 写入）。
+            oob_ids = _out_of_bounds_target_step_ids(groups)
+            out_of_bounds_gold_total += len(oob_ids)
 
             if not groups:
                 empty_gold_count += 1
@@ -252,29 +243,6 @@ def _required_string_list(
     return value
 
 
-def _required_int_list(
-    metadata: dict[str, Any],
-    key: str,
-    question_id: str,
-) -> list[int]:
-    """读取 evaluator-private metadata 中必需的整数列表。"""
-
-    value = metadata.get(key)
-    if not isinstance(value, list):
-        raise ConfigurationError(
-            f"question {question_id}: private label metadata requires {key} list"
-        )
-    parsed: list[int] = []
-    for index, item in enumerate(value):
-        if isinstance(item, bool) or not isinstance(item, int):
-            raise ConfigurationError(
-                f"question {question_id}: private label metadata {key}[{index}] "
-                "must be an integer"
-            )
-        parsed.append(item)
-    return parsed
-
-
 def _source_turn_ids(
     retrieved_items: list[dict[str, Any]],
     top_k: int,
@@ -289,27 +257,20 @@ def _source_turn_ids(
 
 
 def _out_of_bounds_target_step_ids(
-    target_step_ids: list[int],
-    answer_record: dict[str, Any],
-    question_id: str,
+    groups: tuple[GoldEvidenceGroup, ...],
 ) -> list[int]:
-    """识别 0 基 target_step_id 中越界（>= 公开 turn 总数）的官方 id。
+    """从权威 unmatched group 还原越界的官方 0 基 target_step_id。
 
-    公开 turn 数通过 answer record 的 `public_turn_count` metadata 暴露（由
-    框架 reader 在生成 answer prompt 时写入；缺则视为不可判定，记 N/A 但
-    不阻断）。0 基下 == len(message_list) 越界映射后无对应公开 turn，recall
-    侧记 unmatched-gold + 单独计数，不崩。
+    一个 `membench_step` group 的 `unit_id` 就是官方 0 基 step id；
+    `mapping_status == "unmatched"` 精确表示该 step id 越界（或映射失败），
+    与旧的 `public_turn_count` 启发式无关——拆分后 canonical turn 数已不再等于
+    源 step 数，该字段也从未被生产 answer prompt 写入。mapped 的 multi-child
+    group（FirstAgent pair-step）绝不会出现在这里，不会被误报越界。
     """
 
-    if not target_step_ids:
-        return []
-    metadata = answer_record.get("metadata")
-    if not isinstance(metadata, dict):
-        return []
-    public_turn_count = metadata.get("public_turn_count")
-    if not isinstance(public_turn_count, int) or public_turn_count < 0:
-        return []
-    return [sid for sid in target_step_ids if sid >= public_turn_count]
+    return [
+        int(group.unit_id) for group in groups if group.mapping_status == "unmatched"
+    ]
 
 
 def _na_payload(

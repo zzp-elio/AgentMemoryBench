@@ -500,12 +500,16 @@ def _build_membench_smoke_dataset(
 ) -> Dataset:
     """按每个 MemBench 主文件前 N 条 trajectory + 人称内部裁剪构造 smoke Dataset。
 
-    第一人称（FirstAgent）：history_limit 视为 round（1 round = 1 个 {user,agent}
-      dict → 1 Turn），保留前 N_round 个 Turn。
-    第三人称（ThirdAgent）：history_limit 视为 turn（纯字符串消息），保留前
-      history_limit 个 Turn。
-    选择只按公开顺序，不读 answer/ground_truth/target_step_id。
-    metadata 记录原始和保留的 turn 规模（沿用现有字段命名风格）。
+    第一人称（FirstAgent）：history_limit 视为 round（1 round = message_list 中
+      1 个源 step，拆分后含 user+assistant 两条 canonical child turn），保留前
+      N_round 个源 step 的**全部** child turn——pair 必须同进同出，不能切出半个
+      step。
+    第三人称（ThirdAgent）：history_limit 视为 turn（纯字符串 step，1 step=1
+      turn），沿用既有口径按 `history_limit * 2` 个源 step 截断（约等于 1 轮
+      观察信息）。
+    选择只按公开顺序（`source_step_index`），不读 answer/ground_truth/
+    target_step_id。metadata 同时记录源 step 规模与 canonical turn 规模两套
+    单位，避免以后混用。
     """
 
     if per_source_limit < 1:
@@ -517,6 +521,8 @@ def _build_membench_smoke_dataset(
     source_counts: dict[str, int] = {}
     total_original_turn_count = 0
     total_retained_turn_count = 0
+    total_original_step_count = 0
+    total_retained_step_count = 0
     for source_relative_path in source_relative_paths:
         source_dataset = MemBenchAdapter(
             project_root,
@@ -524,29 +530,48 @@ def _build_membench_smoke_dataset(
             source_relative_paths=(source_relative_path,),
         ).load(limit=per_source_limit)
         source_profile = _source_profile_from_path(source_relative_path)
-        # 第一人称 1 round=1 Turn；第三人称 history_limit=turns
+        # 第一人称 1 round=1 源 step；第三人称 history_limit=turns=steps
         is_first = source_profile["source_stream"] == "first"
-        turn_budget = history_limit if is_first else history_limit * 2
+        step_budget = history_limit if is_first else history_limit * 2
         for conv in source_dataset.conversations:
             original_sessions = list(conv.sessions)
             total_original = sum(len(s.turns) for s in original_sessions)
             total_original_turn_count += total_original
-            retained = min(turn_budget, total_original)
-            total_retained_turn_count += retained
+            original_session = original_sessions[0] if original_sessions else None
+            step_order = (
+                _step_indices_in_order(original_session)
+                if original_session is not None
+                else []
+            )
+            original_step_count = len(step_order)
+            total_original_step_count += original_step_count
+            retained_step_indices = set(step_order[:step_budget])
+            retained_step_count = len(retained_step_indices)
+            total_retained_step_count += retained_step_count
             cropped_sessions = copy.deepcopy(original_sessions)
+            retained = 0
             if cropped_sessions:
+                retained_turns = [
+                    turn
+                    for turn in cropped_sessions[0].turns
+                    if turn.metadata["source_step_index"] in retained_step_indices
+                ]
+                retained = len(retained_turns)
                 cropped_sessions[0] = Session(
                     session_id=cropped_sessions[0].session_id,
-                    turns=cropped_sessions[0].turns[:retained],
+                    turns=retained_turns,
                     session_time=cropped_sessions[0].session_time,
                     start_time=cropped_sessions[0].start_time,
                     end_time=cropped_sessions[0].end_time,
                     metadata=cropped_sessions[0].metadata,
                 )
+            total_retained_turn_count += retained
             conv_metadata = dict(conv.metadata)
             conv_metadata["smoke_history_limit"] = history_limit
             conv_metadata["smoke_original_turn_count"] = total_original
             conv_metadata["smoke_retained_turn_count"] = retained
+            conv_metadata["smoke_original_step_count"] = original_step_count
+            conv_metadata["smoke_retained_step_count"] = retained_step_count
             conversations.append(
                 Conversation(
                     conversation_id=conv.conversation_id,
@@ -572,8 +597,28 @@ def _build_membench_smoke_dataset(
             "smoke_selected_conversation_count": len(conversations),
             "smoke_original_turn_count": total_original_turn_count,
             "smoke_retained_turn_count": total_retained_turn_count,
+            "smoke_original_step_count": total_original_step_count,
+            "smoke_retained_step_count": total_retained_step_count,
         },
     )
+
+
+def _step_indices_in_order(session: Session) -> list[int]:
+    """按首次出现顺序返回 session 内去重后的 `source_step_index` 列表。
+
+    FirstAgent pair 的 user/assistant 两个 child 共享同一个
+    `source_step_index`，在此各出现一次并去重为一个 step；按源顺序返回，供
+    smoke 裁剪按**源 step**（而不是 canonical turn）选择前 N 个。
+    """
+
+    seen: set[int] = set()
+    ordered: list[int] = []
+    for turn in session.turns:
+        step_index = turn.metadata["source_step_index"]
+        if step_index not in seen:
+            seen.add(step_index)
+            ordered.append(step_index)
+    return ordered
 
 
 def _iter_trajectories(
@@ -625,10 +670,14 @@ def _conversation_from_trajectory(
     )
     messages = _required_list(trajectory, "message_list", conversation_id)
     qa = _required_dict(trajectory, "QA", conversation_id)
-    turns = [
-        _turn_from_step(step, step_index=index, conversation_id=conversation_id)
-        for index, step in enumerate(messages)
-    ]
+    turns: list[Turn] = []
+    step_child_ids: list[tuple[str, ...]] = []
+    for index, step in enumerate(messages):
+        step_turns = _turns_from_step(
+            step, step_index=index, conversation_id=conversation_id
+        )
+        turns.extend(step_turns)
+        step_child_ids.append(tuple(turn.turn_id for turn in step_turns))
     if not turns:
         raise DatasetValidationError(f"{conversation_id}: message_list is empty")
 
@@ -638,7 +687,7 @@ def _conversation_from_trajectory(
         question_type=question_type,
         scenario=scenario,
         tid=tid,
-        public_turn_count=len(turns),
+        step_child_ids=tuple(step_child_ids),
     )
 
     # MemBench trajectory 没有原生 session 时间：这里的单 Session 只是统一 schema 的
@@ -699,46 +748,105 @@ def _membench_turn_time(text: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _turn_from_step(
+def _turns_from_step(
     step: object,
     *,
     step_index: int,
     conversation_id: str,
-) -> Turn:
-    """把 MemBench message_list 中的一个 step 转成公开 Turn。"""
+) -> list[Turn]:
+    """把 MemBench message_list 中的一个 step 转成 1-2 条公开 canonical Turn。
 
-    turn_id = str(step_index + 1)
+    FirstAgent dict step（`{"user": ..., "agent": ...}`）拆成 user turn +
+    assistant turn 两条 canonical child；ThirdAgent string step 仍是一条 user
+    turn（observation）。两条 child 各自只从自身 content 计算时间/marker，绝不
+    跨侧 fallback；user child 只保留 `ps_user`，assistant child 只保留
+    `ps_agent`——peer 原文不通过公开 metadata 在另一条 turn 中重复出现。
+    调用方在 `_conversation_from_trajectory()` 中按源 step 顺序显式记录
+    step→child id 映射，任何下游都不得靠解析 turn_id 前缀反推 step。
+    """
+
+    step_number = step_index + 1
+    context = f"{conversation_id}:step{step_number}"
+    if isinstance(step, dict):
+        user_text = _required_text(step, "user", context)
+        agent_text = _required_text(step, "agent", context)
+        return [
+            _build_step_turn(
+                turn_id=f"{step_number}:user",
+                speaker="user",
+                normalized_role="user",
+                content=user_text,
+                step_index=step_index,
+                step_number=step_number,
+                source_step_role="user",
+                side_metadata={"ps_user": user_text},
+            ),
+            _build_step_turn(
+                turn_id=f"{step_number}:assistant",
+                speaker="agent",
+                normalized_role="assistant",
+                content=agent_text,
+                step_index=step_index,
+                step_number=step_number,
+                source_step_role="agent",
+                side_metadata={"ps_agent": agent_text},
+            ),
+        ]
+    if isinstance(step, str):
+        content = step
+        if not content.strip():
+            raise DatasetValidationError(
+                f"{conversation_id}: step {step_number} content is empty"
+            )
+        return [
+            _build_step_turn(
+                turn_id=str(step_number),
+                speaker="user",
+                normalized_role="user",
+                content=content,
+                step_index=step_index,
+                step_number=step_number,
+                source_step_role="observation",
+                side_metadata={},
+            )
+        ]
+    raise DatasetValidationError(
+        f"{conversation_id}: message_list[{step_index}] must be a dict or string"
+    )
+
+
+def _build_step_turn(
+    *,
+    turn_id: str,
+    speaker: str,
+    normalized_role: str,
+    content: str,
+    step_index: int,
+    step_number: int,
+    source_step_role: str,
+    side_metadata: dict[str, str],
+) -> Turn:
+    """构造单个 canonical child turn；时间/marker 只从自身 content 计算。
+
+    公开 marker `source_timestamp_embedded_in_content`：True ⇔ 该 turn 的
+    turn_time 由其**自身** content 内完整 time marker 解析得到。content-only
+    renderer（Mem0 等）据此跳过重复的 [Turn time] 前缀；typed-timestamp method
+    （LightMem/A-Mem/MemoryOS）继续读 turn.turn_time。绝不跨侧（user/agent）
+    fallback，也不要把 QA.time、place-only、模板占位或自然语言单词 time 误标 True。
+    """
+
+    turn_time = _membench_turn_time(content)
     metadata: dict[str, Any] = {
         "source_step_index": step_index,
-        "source_step_number": step_index + 1,
+        "source_step_number": step_number,
+        "source_step_role": source_step_role,
+        **side_metadata,
+        "source_timestamp_embedded_in_content": bool(turn_time),
     }
-    if isinstance(step, dict):
-        user_text = _required_text(step, "user", f"{conversation_id}:step{turn_id}")
-        agent_text = _required_text(step, "agent", f"{conversation_id}:step{turn_id}")
-        metadata.update({"ps_user": user_text, "ps_agent": agent_text})
-        content = f"'user': {user_text}; 'agent': {agent_text}"
-        turn_time = _membench_turn_time(user_text) or _membench_turn_time(agent_text)
-    elif isinstance(step, str):
-        content = step
-        turn_time = _membench_turn_time(content)
-    else:
-        raise DatasetValidationError(
-            f"{conversation_id}: message_list[{step_index}] must be a dict or string"
-        )
-
-    if not content.strip():
-        raise DatasetValidationError(f"{conversation_id}: step {turn_id} content is empty")
-
-    # 公开 marker：True ⇔ 该 turn 的 turn_time 由其 content 内完整 time marker
-    # 解析得到。content-only renderer（Mem0 等）据此跳过重复的 [Turn time] 前缀；
-    # typed-timestamp method（LightMem/A-Mem/MemoryOS）继续读 turn.turn_time。
-    # 不要把 QA.time、place-only、模板占位或自然语言单词 time 误标 True。
-    metadata["source_timestamp_embedded_in_content"] = bool(turn_time)
-
     return Turn(
         turn_id=turn_id,
-        speaker="user",
-        normalized_role="user",
+        speaker=speaker,
+        normalized_role=normalized_role,
         content=content,
         turn_time=turn_time,
         metadata=metadata,
@@ -752,7 +860,7 @@ def _question_and_gold_from_qa(
     question_type: str,
     scenario: str,
     tid: str,
-    public_turn_count: int,
+    step_child_ids: tuple[tuple[str, ...], ...],
 ) -> tuple[Question, GoldAnswerInfo]:
     """把 MemBench QA 拆成公开 Question 和私有 GoldAnswerInfo。"""
 
@@ -804,7 +912,7 @@ def _question_and_gold_from_qa(
         gold_evidence_contract_version="v1",
         evidence_group_sets=_membench_evidence_group_sets(
             target_step_ids,
-            public_turn_count=public_turn_count,
+            step_child_ids=step_child_ids,
         ),
     )
     return question, gold
@@ -813,29 +921,32 @@ def _question_and_gold_from_qa(
 def _membench_evidence_group_sets(
     target_step_ids: list[int],
     *,
-    public_turn_count: int,
+    step_child_ids: tuple[tuple[str, ...], ...],
 ) -> tuple[GoldEvidenceGroupSet, ...]:
     """把官方 0 基 target_step_id 展开为 evaluator-private gold evidence groups。
 
     输入:
         target_step_ids: 官方 `QA.target_step_id`（0 基，未去重）。
-        public_turn_count: 当前 trajectory 的公开 turn 总数。
+        step_child_ids: 按源 step 顺序排列的显式 step→canonical child id 映射；
+            FirstAgent dict step 对应 2 元素 tuple（user、assistant 两个
+            child），ThirdAgent string step 对应 1 元素 tuple。
 
     输出:
         tuple[GoldEvidenceGroupSet, ...]: 单个 turn view（`membench_step`）。
-        官方 target 按首次出现顺序去重，一个 step 一个 group；当前 composite
-        turn（一 step 一 Turn）下合法 target 退化 singleton child（1 基公开
-        turn id）；`target_step_id >= public_turn_count` 的越界 target 建
-        unmatched group，不制造不存在的 child；空 target → 空 groups。
+        官方 target 按首次出现顺序去重，一个 step 一个 group；合法 target 的
+        child_ids 取该 step 拆出的全部 canonical turn id（any-of，一个官方 step
+        只计一次分母，不因拆成两条 turn 而翻倍）；
+        `target_step_id >= len(step_child_ids)` 的越界 target 建 unmatched
+        group，不制造不存在的 child；空 target → 空 groups。
     """
 
     groups: list[GoldEvidenceGroup] = []
     for step_id in dict.fromkeys(target_step_ids):
-        if step_id < public_turn_count:
+        if step_id < len(step_child_ids):
             groups.append(
                 GoldEvidenceGroup(
                     unit_id=str(step_id),
-                    child_ids=(str(step_id + 1),),
+                    child_ids=step_child_ids[step_id],
                     mapping_status="mapped",
                 )
             )

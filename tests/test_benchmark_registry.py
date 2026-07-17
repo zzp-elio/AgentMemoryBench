@@ -796,11 +796,18 @@ def test_membench_registration_prepares_full_and_per_file_smoke_datasets() -> No
     assert smoke_run.dataset.metadata["smoke_selected_conversation_count"] == 8
     assert set(smoke_run.dataset.metadata["smoke_source_counts"].values()) == {2}
     assert len(smoke_run.dataset.conversations) == 8
-    # 第一人称 1 round = 1 Turn（FirstAgentDataHighLevel 是第一个源文件）
-    assert len(smoke_run.dataset.conversations[0].sessions[0].turns) == 1
+    # 第一人称 1 round = 1 源 step，canonical split 后拆成 user+assistant 两条
+    # canonical turn（FirstAgentDataHighLevel 是第一个源文件）；pair 必须同进同出。
+    first_agent_turns = smoke_run.dataset.conversations[0].sessions[0].turns
+    assert len(first_agent_turns) == 2
+    assert [turn.turn_id for turn in first_agent_turns] == ["1:user", "1:assistant"]
+    assert [turn.normalized_role for turn in first_agent_turns] == ["user", "assistant"]
     assert smoke_run.dataset.metadata["smoke_history_limit"] == 1
     assert "smoke_original_turn_count" in smoke_run.dataset.metadata
     assert "smoke_retained_turn_count" in smoke_run.dataset.metadata
+    assert smoke_run.dataset.metadata["smoke_original_step_count"] > 0
+    assert smoke_run.dataset.metadata["smoke_retained_step_count"] > 0
+    assert smoke_run.dataset.conversations[0].metadata["smoke_retained_step_count"] == 1
     assert "smoke_policy" in smoke_run.dataset.metadata
     assert "resume_policy" in smoke_run.dataset.metadata
     assert smoke_run.source_relative_paths == registration.variants[0].source_relative_paths

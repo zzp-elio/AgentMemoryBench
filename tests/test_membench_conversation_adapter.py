@@ -96,7 +96,7 @@ def _synthetic_payload() -> dict[str, Any]:
 
 
 def test_synthetic_fixture_maps_ps_and_os_steps(tmp_path: Path) -> None:
-    """PS dict step 应合并成官方 store 文本，OS string step 应原样保留。"""
+    """PS dict step 应拆成 user+assistant 两条 canonical turn，OS string step 原样保留。"""
 
     source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
     _write_fixture(source, _synthetic_payload())
@@ -109,21 +109,44 @@ def test_synthetic_fixture_maps_ps_and_os_steps(tmp_path: Path) -> None:
     assert len(dataset.conversations) == 2
 
     ps_conversation = dataset.conversations[0]
-    ps_turn = ps_conversation.sessions[0].turns[0]
+    ps_turns = ps_conversation.sessions[0].turns
     assert ps_conversation.conversation_id == "first-low-simple-roles-ps-1"
-    assert ps_turn.turn_id == "1"
-    assert ps_turn.normalized_role == "user"
-    assert ps_turn.content == "'user': I work with Maya.; 'agent': Maya is your colleague."
-    assert ps_turn.metadata["ps_user"] == "I work with Maya."
-    assert ps_turn.metadata["ps_agent"] == "Maya is your colleague."
-    assert ps_turn.metadata["source_step_index"] == 0
-    assert "0[|]" not in ps_turn.content
+    # 一个 dict step 拆成 user + assistant 两条 canonical turn；两个 step 共 4 条。
+    assert [t.turn_id for t in ps_turns] == ["1:user", "1:assistant", "2:user", "2:assistant"]
+
+    step1_user, step1_assistant = ps_turns[0], ps_turns[1]
+    assert step1_user.speaker == "user"
+    assert step1_user.normalized_role == "user"
+    assert step1_user.content == "I work with Maya."
+    assert step1_user.metadata["ps_user"] == "I work with Maya."
+    assert "ps_agent" not in step1_user.metadata  # peer 原文不复制进本 child
+    assert step1_user.metadata["source_step_index"] == 0
+    assert step1_user.metadata["source_step_number"] == 1
+    assert step1_user.metadata["source_step_role"] == "user"
+
+    assert step1_assistant.speaker == "agent"
+    assert step1_assistant.normalized_role == "assistant"
+    assert step1_assistant.content == "Maya is your colleague."
+    assert step1_assistant.metadata["ps_agent"] == "Maya is your colleague."
+    assert "ps_user" not in step1_assistant.metadata  # peer 原文不复制进本 child
+    assert step1_assistant.metadata["source_step_index"] == 0
+    assert step1_assistant.metadata["source_step_number"] == 1
+    assert step1_assistant.metadata["source_step_role"] == "agent"
+
+    # 旧 composite 字符串（`'user': ...; 'agent': ...`）不得存在于任何 child content。
+    for turn in ps_turns:
+        assert "'user':" not in turn.content
+        assert "; 'agent':" not in turn.content
 
     os_conversation = dataset.conversations[1]
     os_turn = os_conversation.sessions[0].turns[0]
     assert os_conversation.conversation_id == "first-low-simple-observations-os-1"
+    assert os_turn.turn_id == "1"
+    assert os_turn.speaker == "user"
+    assert os_turn.normalized_role == "user"
     assert os_turn.content == "My favorite cafe is Blue Bottle."
     assert os_turn.metadata["source_step_index"] == 0
+    assert os_turn.metadata["source_step_role"] == "observation"
     assert "ps_user" not in os_turn.metadata
 
 
@@ -173,63 +196,188 @@ def _future_time_counterexample_payload(*, first_person: bool) -> dict[str, Any]
     }
 
 
-def test_membench_missing_message_time_stays_none_without_session_smear(
+def test_membench_third_agent_missing_message_time_stays_none_without_session_smear(
     tmp_path: Path,
 ) -> None:
-    """无时间 message 保持 turn_time=None，session_time 显式为 None，QA.time 不串字段。
+    """ThirdAgent：无时间 message 保持 turn_time=None，session_time 显式为 None。
 
-    强反例覆盖 first-person dict 与 third-person str 两种 step：首条无时间 noise、
-    次条内嵌过去时刻、QA.time 为未来日期。断言单向时间流——message 内嵌时间 →
-    该 turn.turn_time；message 无时间 → None；MemBench 无原生 session 时间 →
-    session_time=None（不取兄弟 turn）；QA.time 只进入 question_time。
+    强反例：首条无时间 noise、次条内嵌过去时刻、QA.time 为未来日期。断言单向
+    时间流——message 内嵌时间 → 该 turn.turn_time；message 无时间 → None；
+    MemBench 无原生 session 时间 → session_time=None（不取兄弟 turn）；QA.time
+    只进入 question_time。
     """
 
-    for first_person, filename in (
-        (True, "FirstAgentDataLowLevel_multiple_0.json"),
-        (False, "ThirdAgentDataHighLevel_multiple_0.json"),
-    ):
-        source = tmp_path / "data2test" / "0-10k" / filename
-        _write_fixture(
-            source, _future_time_counterexample_payload(first_person=first_person)
-        )
-        dataset = MemBenchAdapter(
-            tmp_path,
-            variant="0_10k",
-            source_relative_paths=(source.relative_to(tmp_path),),
-        ).load()
+    source = tmp_path / "data2test" / "0-10k" / "ThirdAgentDataHighLevel_multiple_0.json"
+    _write_fixture(source, _future_time_counterexample_payload(first_person=False))
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
 
-        conversation = dataset.conversations[0]
-        session = conversation.sessions[0]
-        # 无时间 noise 未被过滤：两条 turn 都在
-        assert len(session.turns) == 2
-        first_turn, second_turn = session.turns
+    conversation = dataset.conversations[0]
+    session = conversation.sessions[0]
+    # 无时间 noise 未被过滤：两条 turn 都在
+    assert len(session.turns) == 2
+    first_turn, second_turn = session.turns
 
-        # 首条无时间 noise：turn_time=None，content 逐字保留，不含 message 时间或 QA 时间
-        assert first_turn.turn_time is None
-        assert "No timestamp noise here." in first_turn.content
-        assert _MSG_EMBEDDED_TIME not in first_turn.content
-        assert "2099" not in first_turn.content
+    # 首条无时间 noise：turn_time=None，content 逐字保留，不含 message 时间或 QA 时间
+    assert first_turn.turn_time is None
+    assert "No timestamp noise here." in first_turn.content
+    assert _MSG_EMBEDDED_TIME not in first_turn.content
+    assert "2099" not in first_turn.content
 
-        # 次条：turn_time 只等于自身内嵌时间；原文 place/time 一并保留
-        assert second_turn.turn_time == _MSG_EMBEDDED_TIME
-        assert f"time: '{_MSG_EMBEDDED_TIME}'" in second_turn.content
-        assert "place: Boston, MA" in second_turn.content
-        assert "2099" not in second_turn.content
+    # 次条：turn_time 只等于自身内嵌时间；原文 place/time 一并保留
+    assert second_turn.turn_time == _MSG_EMBEDDED_TIME
+    assert f"time: '{_MSG_EMBEDDED_TIME}'" in second_turn.content
+    assert "place: Boston, MA" in second_turn.content
+    assert "2099" not in second_turn.content
 
-        # MemBench 无原生 session 时间：显式 None，绝不取兄弟 turn 时间伪造
-        assert session.session_time is None
+    # MemBench 无原生 session 时间：显式 None，绝不取兄弟 turn 时间伪造
+    assert session.session_time is None
 
-        # QA.time 单向流入 question_time，原样保留，且与 message 时间明显不同
-        question = conversation.questions[0]
-        assert question.question_time == _QA_FUTURE_TIME_RAW
-        assert question.question_time != second_turn.turn_time
+    # QA.time 单向流入 question_time，原样保留，且与 message 时间明显不同
+    question = conversation.questions[0]
+    assert question.question_time == _QA_FUTURE_TIME_RAW
+    assert question.question_time != second_turn.turn_time
+
+
+def test_membench_first_agent_missing_message_time_stays_none_per_child(
+    tmp_path: Path,
+) -> None:
+    """FirstAgent：拆分后每个 child 只从自身 content 解析时间，不跨 user/agent fallback。
+
+    第一个 dict step 的 user/agent 两侧都无时间 noise；第二个 dict step 的
+    user/agent 两侧都内嵌相同时间戳（`_MSG_EMBEDDED_TIME`）。四条 canonical
+    turn 逐条断言：turn_time 只取自身 content 解析结果，session_time 仍
+    None，QA 未来日期绝不串入任何一侧。
+    """
+
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, _future_time_counterexample_payload(first_person=True))
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+
+    conversation = dataset.conversations[0]
+    session = conversation.sessions[0]
+    assert len(session.turns) == 4
+    step1_user, step1_assistant, step2_user, step2_assistant = session.turns
+
+    # step 1（无时间 noise）：user、assistant 两侧都 None，内容原样保留
+    assert step1_user.turn_time is None
+    assert "No timestamp noise here." in step1_user.content
+    assert step1_assistant.turn_time is None
+    assert "Still nothing." in step1_assistant.content
+    for turn in (step1_user, step1_assistant):
+        assert _MSG_EMBEDDED_TIME not in turn.content
+        assert "2099" not in turn.content
+
+    # step 2（两侧都内嵌同一时间戳）：各自独立解析，互不依赖对方
+    assert step2_user.turn_time == _MSG_EMBEDDED_TIME
+    assert f"time: '{_MSG_EMBEDDED_TIME}'" in step2_user.content
+    assert "place: Boston, MA" in step2_user.content
+    assert step2_assistant.turn_time == _MSG_EMBEDDED_TIME
+    assert f"time: '{_MSG_EMBEDDED_TIME}'" in step2_assistant.content
+    assert "place: Boston, MA" in step2_assistant.content
+    for turn in (step2_user, step2_assistant):
+        assert "2099" not in turn.content
+
+    # MemBench 无原生 session 时间
+    assert session.session_time is None
+
+    question = conversation.questions[0]
+    assert question.question_time == _QA_FUTURE_TIME_RAW
+    assert question.question_time != step2_user.turn_time
+
+
+def test_membench_first_agent_time_is_per_child_not_cross_side_fallback(
+    tmp_path: Path,
+) -> None:
+    """强反例：user/agent 时间不同、只一侧有时间、两侧都无时间——三态互不 fallback。
+
+    旧实现 `_membench_turn_time(user_text) or _membench_turn_time(agent_text)`
+    会让「只 agent 侧有时间」的 step 错误地让 composite turn 拿到该时间；拆分后
+    user child 必须保持 turn_time=None，不得沿用 agent 侧的值，反之亦然。
+    """
+
+    user_only_time = "2024-11-01 10:00"
+    agent_only_time = "2024-12-01 11:00"
+    payload = {
+        "simple": {
+            "roles": [
+                {
+                    "tid": "t-cross-side",
+                    "message_list": [
+                        {
+                            # step 0：只 user 侧有时间
+                            "user": f"I saw it. (place: NYC; time: '{user_only_time}' Friday)",
+                            "agent": "Noted, no time here.",
+                        },
+                        {
+                            # step 1：只 agent 侧有时间
+                            "user": "Just chatting, no time here.",
+                            "agent": f"Got it. (place: NYC; time: '{agent_only_time}' Sunday)",
+                        },
+                        {
+                            # step 2：两侧都无时间
+                            "user": "Neither side has a timestamp.",
+                            "agent": "Confirmed, still no timestamp.",
+                        },
+                    ],
+                    "QA": {
+                        "qid": 1,
+                        "question": "q?",
+                        "answer": "a",
+                        "target_step_id": [0, 1, 2],
+                        "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
+                        "ground_truth": "A",
+                        "time": "'2024-10-01 08:00' Tuesday",
+                    },
+                }
+            ]
+        }
+    }
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, payload)
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+    turns = dataset.conversations[0].sessions[0].turns
+    assert len(turns) == 6
+    step0_user, step0_assistant, step1_user, step1_assistant, step2_user, step2_assistant = turns
+
+    # step 0：只 user 侧有时间；assistant 侧绝不沿用 user 的时间
+    assert step0_user.turn_time == user_only_time
+    assert step0_assistant.turn_time is None
+
+    # step 1：只 agent 侧有时间；user 侧绝不沿用 agent 的时间（旧 bug 的核心反例）
+    assert step1_user.turn_time is None
+    assert step1_assistant.turn_time == agent_only_time
+
+    # step 2：两侧都无时间
+    assert step2_user.turn_time is None
+    assert step2_assistant.turn_time is None
+
+    # marker 与 turn_time 完全同步
+    assert step0_user.metadata["source_timestamp_embedded_in_content"] is True
+    assert step0_assistant.metadata["source_timestamp_embedded_in_content"] is False
+    assert step1_user.metadata["source_timestamp_embedded_in_content"] is False
+    assert step1_assistant.metadata["source_timestamp_embedded_in_content"] is True
+    assert step2_user.metadata["source_timestamp_embedded_in_content"] is False
+    assert step2_assistant.metadata["source_timestamp_embedded_in_content"] is False
 
 
 def test_membench_build_turn_events_keeps_missing_timestamp_none(
     tmp_path: Path,
 ) -> None:
     """对强反例调用 build_turn_events：无时间 turn 的 event.timestamp 与
-    original_turn_time 均为 None，有时间 turn 只取自身 turn_time；两条 event 的
+    original_turn_time 均为 None，有时间 turn 只取自身 turn_time；四条 event
+    （2 步 × user/assistant）顺序为 user→assistant→user→assistant，
     original_session_time 都为 None；任何 event 字段都不出现 QA 的未来日期。
     """
 
@@ -243,16 +391,28 @@ def test_membench_build_turn_events_keeps_missing_timestamp_none(
     conversation = dataset.conversations[0]
 
     events = list(build_turn_events(conversation, isolation_key="run_t-future"))
-    assert len(events) == 2
-    first_event, second_event = events
+    assert len(events) == 4
+    step1_user, step1_assistant, step2_user, step2_assistant = events
 
-    # 首条无时间 event：timestamp 与 original_turn_time 都 None，没继承任何 session 时间
-    assert first_event.timestamp is None
-    assert first_event.metadata["original_turn_time"] is None
+    # event 顺序与原文 turn_id 保真，user 先于 assistant
+    assert [e.turn_id for e in events] == [
+        "1:user",
+        "1:assistant",
+        "2:user",
+        "2:assistant",
+    ]
 
-    # 次条只取自身 turn_time
-    assert second_event.timestamp == _MSG_EMBEDDED_TIME
-    assert second_event.metadata["original_turn_time"] == _MSG_EMBEDDED_TIME
+    # step 1（无时间 noise）：两条 event 的 timestamp/original_turn_time 都 None
+    assert step1_user.timestamp is None
+    assert step1_user.metadata["original_turn_time"] is None
+    assert step1_assistant.timestamp is None
+    assert step1_assistant.metadata["original_turn_time"] is None
+
+    # step 2：两条 event 各自只取自身 turn_time
+    assert step2_user.timestamp == _MSG_EMBEDDED_TIME
+    assert step2_user.metadata["original_turn_time"] == _MSG_EMBEDDED_TIME
+    assert step2_assistant.timestamp == _MSG_EMBEDDED_TIME
+    assert step2_assistant.metadata["original_turn_time"] == _MSG_EMBEDDED_TIME
 
     for event in events:
         # 无 session smear：original_session_time 保持 None
@@ -301,21 +461,32 @@ def test_membench_parses_both_embedded_time_formats_and_keeps_content(
     ).load()
 
     session = dataset.conversations[0].sessions[0]
-    colon_turn, nocolon_turn = session.turns
+    assert len(session.turns) == 4
+    colon_turn, colon_agent_turn, nocolon_turn, nocolon_agent_turn = session.turns
 
-    # 有冒号格式
+    # 有冒号格式（user 侧）
     assert colon_turn.turn_time == "2024-10-01 08:00"
     assert "I loved the show." in colon_turn.content
     assert "place: Boston, MA" in colon_turn.content
     assert "time: '2024-10-01 08:00'" in colon_turn.content
     assert colon_turn.metadata["source_timestamp_embedded_in_content"] is True
 
-    # 无冒号格式
+    # 同一 step 的 agent 侧内容是 "ok"，本身无时间：不得沿用 user 侧的时间
+    assert colon_agent_turn.content == "ok"
+    assert colon_agent_turn.turn_time is None
+    assert colon_agent_turn.metadata["source_timestamp_embedded_in_content"] is False
+
+    # 无冒号格式（user 侧）
     assert nocolon_turn.turn_time == "2024-10-02 09:30"
     assert "They loved it." in nocolon_turn.content
     assert "place: Austin, TX" in nocolon_turn.content
     assert "time'2024-10-02 09:30'" in nocolon_turn.content
     assert nocolon_turn.metadata["source_timestamp_embedded_in_content"] is True
+
+    # 同上：agent 侧 "ok" 无时间，不沿用 user 侧
+    assert nocolon_agent_turn.content == "ok"
+    assert nocolon_agent_turn.turn_time is None
+    assert nocolon_agent_turn.metadata["source_timestamp_embedded_in_content"] is False
 
     # 结构化只是 additive：session_time 仍为 None，不因存在 turn 时间而被兜底填充
     assert session.session_time is None
@@ -324,11 +495,14 @@ def test_membench_parses_both_embedded_time_formats_and_keeps_content(
 def test_membench_marker_states_cover_first_third_and_noise(tmp_path: Path) -> None:
     """MemBench adapter 应在 `Turn.metadata` 写明 source time 嵌入事实，三种态全部覆盖。
 
-    强反例 1：first-person dict step 内嵌完整 time marker → marker=True，
-    turn_time 取到具体时间，原 content 保留 place/time/具体值。
+    强反例 1：first-person dict step 的 user 侧内嵌完整 time marker →
+    marker=True，turn_time 取到具体时间，原 content 保留 place/time/具体值；
+    同一 step 的 assistant 侧（"ok first"）无时间，绝不沿用 user 侧的值。
     强反例 2：third-person string step 无冒号格式 `time'…'` → marker=True。
     强反例 3：噪声 step（无 time marker） → marker=False，turn_time=None；
     QA.time 只在 question_time 出现，绝不进入 turn metadata / content。
+    同时验证：混合 dict/string/string 三个源 step 的 `source_step_index` 按
+    step 分组去重后必须是连续 `0, 1, 2`（不因 dict step 拆成两条 turn 而错位）。
     """
 
     first_message = (
@@ -372,16 +546,31 @@ def test_membench_marker_states_cover_first_third_and_noise(tmp_path: Path) -> N
     ).load()
     conversation = dataset.conversations[0]
     session = conversation.sessions[0]
-    first_turn, third_turn, noise_turn = session.turns
+    assert len(session.turns) == 4
+    first_user_turn, first_assistant_turn, third_turn, noise_turn = session.turns
+    assert [t.turn_id for t in session.turns] == ["1:user", "1:assistant", "2", "3"]
 
-    # 强反例 1：first-person dict step 解析到 turn_time，marker=True，原文全保留
-    assert first_turn.turn_time == _MSG_EMBEDDED_TIME
-    assert first_turn.metadata["source_timestamp_embedded_in_content"] is True
-    assert "place: Boston, MA" in first_turn.content
-    assert f"time: '{_MSG_EMBEDDED_TIME}'" in first_turn.content
+    # 混合 dict/string/string：去重后 source_step_index 必须是连续 0,1,2
+    step_indices_in_order: list[int] = []
+    for turn in session.turns:
+        idx = turn.metadata["source_step_index"]
+        if idx not in step_indices_in_order:
+            step_indices_in_order.append(idx)
+    assert step_indices_in_order == [0, 1, 2]
+
+    # 强反例 1：first-person dict step 的 user 侧解析到 turn_time，marker=True，原文全保留
+    assert first_user_turn.turn_time == _MSG_EMBEDDED_TIME
+    assert first_user_turn.metadata["source_timestamp_embedded_in_content"] is True
+    assert "place: Boston, MA" in first_user_turn.content
+    assert f"time: '{_MSG_EMBEDDED_TIME}'" in first_user_turn.content
     # 未来 QA 日期不得反向串进 turn metadata / content
-    assert "2099" not in first_turn.content
-    assert "2099" not in str(first_turn.metadata)
+    assert "2099" not in first_user_turn.content
+    assert "2099" not in str(first_user_turn.metadata)
+
+    # 同一 step 的 assistant 侧（"ok first"）无时间，绝不沿用 user 侧的值
+    assert first_assistant_turn.content == "ok first"
+    assert first_assistant_turn.turn_time is None
+    assert first_assistant_turn.metadata["source_timestamp_embedded_in_content"] is False
 
     # 强反例 2：third-person string step 无冒号格式也 marker=True
     assert third_turn.turn_time == _MSG_EMBEDDED_TIME
@@ -400,7 +589,7 @@ def test_membench_marker_states_cover_first_third_and_noise(tmp_path: Path) -> N
     # QA.time 只进入 question_time，turn 侧全部不沾
     question = conversation.questions[0]
     assert question.question_time == _QA_FUTURE_TIME_RAW
-    for turn in (first_turn, third_turn, noise_turn):
+    for turn in (first_user_turn, first_assistant_turn, third_turn, noise_turn):
         assert "2099" not in str(turn.metadata)
         assert "2099" not in turn.content
 
@@ -410,7 +599,7 @@ def test_membench_marker_states_cover_first_third_and_noise(tmp_path: Path) -> N
     # marker 必须 JSON-safe boolean：序列化往返仍严格为 True/False 而非 truthy 字符串
     import json as _json
 
-    roundtrip = _json.loads(_json.dumps(first_turn.metadata))
+    roundtrip = _json.loads(_json.dumps(first_user_turn.metadata))
     assert roundtrip["source_timestamp_embedded_in_content"] is True
     roundtrip_noise = _json.loads(_json.dumps(noise_turn.metadata))
     assert roundtrip_noise["source_timestamp_embedded_in_content"] is False
@@ -421,7 +610,7 @@ def test_membench_marker_survives_event_stream_roundtrip(tmp_path: Path) -> None
 
     锁住 v3 `TurnEvent.metadata["turn_metadata"]` 必须保留原
     `source_timestamp_embedded_in_content` 值，content-only renderer
-    走事件流后还能读到 marker。
+    走事件流后还能读到 marker；四条 event（2 步 × user/assistant）逐条独立。
     """
 
     source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
@@ -434,21 +623,32 @@ def test_membench_marker_survives_event_stream_roundtrip(tmp_path: Path) -> None
     conversation = dataset.conversations[0]
 
     events = list(build_turn_events(conversation, isolation_key="run_marker"))
-    first_event, second_event = events
+    assert len(events) == 4
+    step1_user, step1_assistant, step2_user, step2_assistant = events
 
-    # 噪声 turn 走事件流：marker 仍 False
+    # step 1（无时间 noise）：两条 event 的 marker 都仍 False
     assert (
-        first_event.metadata["turn_metadata"]["source_timestamp_embedded_in_content"]
+        step1_user.metadata["turn_metadata"]["source_timestamp_embedded_in_content"]
         is False
     )
-    # 嵌入时间 turn 走事件流：marker 仍 True，值不变
     assert (
-        second_event.metadata["turn_metadata"]["source_timestamp_embedded_in_content"]
+        step1_assistant.metadata["turn_metadata"]["source_timestamp_embedded_in_content"]
+        is False
+    )
+    # step 2（两侧都内嵌时间）：marker 仍 True，值不变
+    assert (
+        step2_user.metadata["turn_metadata"]["source_timestamp_embedded_in_content"]
+        is True
+    )
+    assert (
+        step2_assistant.metadata["turn_metadata"]["source_timestamp_embedded_in_content"]
         is True
     )
     # 原文仍保留
-    assert f"time: '{_MSG_EMBEDDED_TIME}'" in second_event.content
-    assert "place: Boston, MA" in second_event.content
+    assert f"time: '{_MSG_EMBEDDED_TIME}'" in step2_user.content
+    assert "place: Boston, MA" in step2_user.content
+    assert f"time: '{_MSG_EMBEDDED_TIME}'" in step2_assistant.content
+    assert "place: Boston, MA" in step2_assistant.content
 
 
 def test_question_public_fields_and_private_gold_are_split(tmp_path: Path) -> None:
@@ -523,10 +723,14 @@ def test_canonical_sample_aligns_target_step_id_with_source_message() -> None:
 
 
 def test_evidence_step_to_turn_shift_is_consistent_across_persons(tmp_path: Path) -> None:
-    """第一人称 dict step 和第三人称 string step 的 step→turn 映射应一致（+1 平移）。
+    """first/third 两种人称的 step→turn 映射：third 仍 1 step=1 turn+1 平移；
 
-    架构师预裁决要求断言 first/third 两种人称的 step→turn 映射一致：1 message/str
-    = 1 turn = 1 step，+1 平移。若发现 adapter 跳过空 step 导致错位需停工上报。
+    first 拆分后一个 step 对应两条 canonical turn，权威映射改由 gold evidence
+    group 的 `child_ids` 承担（而不是 legacy `evidence` 字符串平移）。legacy
+    `evidence`（`str(step_id + 1)`）在两种人称下算法上完全一致，但对 first 这
+    个值不再对应任何真实 turn_id——只保留为历史审计别名，不得被误当作
+    canonical turn-id 列表使用。不存在"跳过空 step"的路径：source_step_index
+    去重分组后必须是连续 `0..N-1`。
     """
 
     # 构造一个同时含 0 基 target_step_id=0（→ "1"）和 =1（→ "2"）的合成 payload，
@@ -597,38 +801,77 @@ def test_evidence_step_to_turn_shift_is_consistent_across_persons(tmp_path: Path
         source_relative_paths=(first_source.relative_to(tmp_path),),
     ).load()
 
-    expected_target_step_id_to_evidence = {0: ["1", "2"], 1: ["1", "2"]}
+    # legacy evidence 的 str(step_id+1) 平移在两种人称下算法完全一致
     for dataset in (third_dataset, first_dataset):
         for conversation in dataset.conversations:
             question = conversation.questions[0]
             gold = conversation.gold_answers[question.question_id]
-            # 0 基 target_step_id=[0,1] → 公开 turn-id 空间 "1", "2"
+            # 0 基 target_step_id=[0,1] → legacy evidence "1", "2"（历史别名，不变）
             assert gold.evidence == ["1", "2"]
             # 官方 0 基原值保留在 metadata
             assert gold.metadata["target_step_id"] == [0, 1]
-            # 对每个 evidence 公开 turn_id 在 conversation 中存在
-            all_turn_ids = [
-                turn.turn_id
-                for session in conversation.sessions
-                for turn in session.turns
-            ]
-            for evidence_turn_id in gold.evidence:
-                assert evidence_turn_id in all_turn_ids
-            # 不存在"跳过空 step"的路径：source_step_indices 必须是 0..N-1 连续
-            source_step_indices = sorted(
-                turn.metadata["source_step_index"]
-                for session in conversation.sessions
-                for turn in session.turns
+            # 不存在"跳过空 step"的路径：source_step_index 去重分组后必须是 0..N-1 连续
+            step_indices = sorted(
+                {
+                    turn.metadata["source_step_index"]
+                    for session in conversation.sessions
+                    for turn in session.turns
+                }
             )
-            assert source_step_indices == list(range(len(source_step_indices)))
-            # 公开 turn_id 与 source_step_index 严格 +1 平移
-            for session in conversation.sessions:
-                for turn in session.turns:
-                    assert turn.turn_id == str(turn.metadata["source_step_index"] + 1)
-            # 确保两条 trajectory 都被加载（PS + OS）以覆盖两种人称
-            assert len(dataset.conversations) == 2
-    # 防止 unused 变量警告
-    del expected_target_step_id_to_evidence
+            assert step_indices == list(range(len(step_indices)))
+        # 确保两条 trajectory 都被加载（PS + OS）以覆盖两种人称
+        assert len(dataset.conversations) == 2
+
+    # 关键事实：拆分行为由**每条 trajectory 自身的 step 形态**（dict vs string）
+    # 决定，与它躺在哪个源文件（"first"/"third" 命名）无关——本 fixture 特意把
+    # 同一份含 dict trajectory（scenario="roles"）+ string trajectory
+    # （scenario="observations"）的 payload 同时写进两个文件，用来证明这一点。
+    for dataset in (third_dataset, first_dataset):
+        by_scenario = {conv.metadata["scenario"]: conv for conv in dataset.conversations}
+        dict_conversation = by_scenario["roles"]
+        string_conversation = by_scenario["observations"]
+
+        # dict-step trajectory：仍拆成 user+assistant，legacy evidence 不再对应
+        # 任何真实 turn_id（纯历史别名）；权威映射改由 gold evidence group 的
+        # child_ids 承担。
+        gold = dict_conversation.gold_answers[dict_conversation.questions[0].question_id]
+        all_turn_ids = [
+            turn.turn_id
+            for session in dict_conversation.sessions
+            for turn in session.turns
+        ]
+        assert all_turn_ids == ["1:user", "1:assistant", "2:user", "2:assistant"]
+        for evidence_turn_id in gold.evidence:
+            assert evidence_turn_id not in all_turn_ids
+        turn_view = [
+            group_set
+            for group_set in gold.evidence_group_sets
+            if group_set.provenance_granularity == "turn"
+            and group_set.unit_kind == "membench_step"
+        ][0]
+        groups_by_unit = {group.unit_id: group for group in turn_view.groups}
+        assert groups_by_unit["0"].child_ids == ("1:user", "1:assistant")
+        assert groups_by_unit["1"].child_ids == ("2:user", "2:assistant")
+        for group in turn_view.groups:
+            for child_id in group.child_ids:
+                assert child_id in all_turn_ids
+
+        # string-step trajectory：仍是 1 step=1 turn，legacy evidence 恰好也是
+        # 真实 canonical turn_id（+1 平移）。
+        gold = string_conversation.gold_answers[
+            string_conversation.questions[0].question_id
+        ]
+        all_turn_ids = [
+            turn.turn_id
+            for session in string_conversation.sessions
+            for turn in session.turns
+        ]
+        assert all_turn_ids == ["1", "2"]
+        for evidence_turn_id in gold.evidence:
+            assert evidence_turn_id in all_turn_ids
+        for session in string_conversation.sessions:
+            for turn in session.turns:
+                assert turn.turn_id == str(turn.metadata["source_step_index"] + 1)
 
 
 def test_canonical_public_payload_does_not_leak_private_keys() -> None:
@@ -837,16 +1080,18 @@ def _load_with_qa_override(tmp_path: Path, qa_override: dict[str, Any]):
     return dataset.conversations[0]
 
 
-def test_membench_step_stays_single_composite_turn_with_singleton_group(
+def test_membench_step_splits_into_two_turns_with_pair_group(
     tmp_path: Path,
 ) -> None:
-    """本卡不拆 FirstAgent：一 step 仍一 composite turn，group 退化 singleton。"""
+    """FirstAgent 一 step 拆成 user+assistant 两条 turn，group 是真正的 2-child pair。"""
 
     conversation = _load_with_qa_override(tmp_path, {"target_step_id": [1]})
-    # canonical 结构未变：两 step → 两 turn，公开 id 1 基。
+    # canonical split：两 step → 四 turn（每 step 都是 user+assistant）。
     assert [turn.turn_id for session in conversation.sessions for turn in session.turns] == [
-        "1",
-        "2",
+        "1:user",
+        "1:assistant",
+        "2:user",
+        "2:assistant",
     ]
     gold = conversation.gold_answers[conversation.questions[0].question_id]
     turn_view = _membench_turn_view(gold)
@@ -854,12 +1099,13 @@ def test_membench_step_stays_single_composite_turn_with_singleton_group(
     assert len(turn_view.groups) == 1
     group = turn_view.groups[0]
     assert group.unit_id == "1"  # 官方 0 基 step id 作私有 unit_id
-    assert group.child_ids == ("2",)  # 1 基公开 turn id 作 child
+    # any-of pair：一个官方 step 对应两个真实 child，不是 singleton 冒充
+    assert group.child_ids == ("2:user", "2:assistant")
     assert group.mapping_status == "mapped"
 
 
 def test_membench_duplicate_targets_dedup_to_one_group(tmp_path: Path) -> None:
-    """重复官方 target 稳定去重，一个 step 一个 group。"""
+    """重复官方 target 稳定去重，一个 step 一个 group（各自真正的 2-child pair）。"""
 
     conversation = _load_with_qa_override(tmp_path, {"target_step_id": [1, 0, 1]})
     gold = conversation.gold_answers[conversation.questions[0].question_id]
@@ -867,6 +1113,56 @@ def test_membench_duplicate_targets_dedup_to_one_group(tmp_path: Path) -> None:
 
     assert [group.unit_id for group in turn_view.groups] == ["1", "0"]
     assert all(group.mapping_status == "mapped" for group in turn_view.groups)
+    groups_by_unit = {group.unit_id: group for group in turn_view.groups}
+    assert groups_by_unit["1"].child_ids == ("2:user", "2:assistant")
+    assert groups_by_unit["0"].child_ids == ("1:user", "1:assistant")
+
+
+def test_membench_multi_target_group_denominator_is_step_count_not_child_count(
+    tmp_path: Path,
+) -> None:
+    """3 个 target step 拆分后仍是 3 个 group，不因每 step 两 child 而翻倍成 6。"""
+
+    payload = {
+        "simple": {
+            "roles": [
+                {
+                    "tid": "t-three-target",
+                    "message_list": [
+                        {"user": "msg 0", "agent": "ok 0"},
+                        {"user": "msg 1", "agent": "ok 1"},
+                        {"user": "msg 2", "agent": "ok 2"},
+                    ],
+                    "QA": {
+                        "qid": 1,
+                        "question": "q?",
+                        "answer": "a",
+                        "target_step_id": [0, 1, 2],
+                        "choices": {"A": "a", "B": "b", "C": "c", "D": "d"},
+                        "ground_truth": "A",
+                        "time": "'2024-10-01 08:00' Tuesday",
+                    },
+                }
+            ]
+        }
+    }
+    source = tmp_path / "data2test" / "0-10k" / "FirstAgentDataLowLevel_multiple_0.json"
+    _write_fixture(source, payload)
+    dataset = MemBenchAdapter(
+        tmp_path,
+        variant="0_10k",
+        source_relative_paths=(source.relative_to(tmp_path),),
+    ).load()
+    conversation = dataset.conversations[0]
+    gold = conversation.gold_answers[conversation.questions[0].question_id]
+    turn_view = _membench_turn_view(gold)
+
+    # 分母 = 3 个官方 step，不是 6 个 child
+    assert len(turn_view.groups) == 3
+    assert [group.unit_id for group in turn_view.groups] == ["0", "1", "2"]
+    for group in turn_view.groups:
+        assert group.mapping_status == "mapped"
+        assert len(group.child_ids) == 2
 
 
 def test_membench_out_of_bounds_target_becomes_unmatched_group(

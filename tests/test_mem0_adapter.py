@@ -676,9 +676,14 @@ def test_add_batches_longmemeval_turns_as_user_assistant_pairs() -> None:
 
 
 # ---- MemBench source-time 单次渲染（Phase C）强反例 ---------------------------------
-# 这些测试只覆盖 renderer 契约，不调真实 API；marker 由真实 MemBench adapter
-#（`tests/test_membench_conversation_adapter.py`）独立验证。两条路径（legacy add
-# 与 v3 ingest）必须产出字节完全一致的 message，证明 marker 在事件层往返后未丢失。
+# 这些测试只覆盖 Mem0 content-only renderer 契约本身（任意 content + marker 组合都
+# 不得重复前置 [Turn time]），不调真实 API。自 MemBench canonical split
+# （branches/input-role-semantics/cards/actor-prompt-membench-canonical-split.md）
+# 起，真实 MemBench adapter 已不再把 user/agent 拼成一行——下面这条 composite 字面量
+# 只是一个合成的单-turn renderer 边界样本，不代表当前 `membench.py` 的真实输出；真实
+# 拆分后 turn 结构由 `tests/test_membench_conversation_adapter.py` 独立验证。两条路径
+# （legacy add 与 v3 ingest）仍必须对同一 content 产出字节完全一致的 message，证明
+# marker 在事件层往返后未丢失。
 _MEMBENCH_TURN_CONTENT = (
     "'user': I watched it. (place: Boston, MA; time: '2024-10-01 08:00' Monday); "
     "'agent': Noted. (place: Boston, MA; time: '2024-10-01 08:00' Monday)"
@@ -687,7 +692,11 @@ _MEMBENCH_TURN_TIME = "2024-10-01 08:00"
 
 
 def _build_membench_turn_conversation() -> Conversation:
-    """构造 MemBench 风格 conversation：turn_time 与 content 内嵌时间一致，marker=True。"""
+    """构造单-turn synthetic conversation：turn_time 与 content 内嵌时间一致，marker=True。
+
+    content 字面量沿用 canonical split 前的拼接形态，仅用于覆盖 Mem0 content-only
+    renderer 的边界行为（不代表 split 后真实 MemBench adapter 的输出结构）。
+    """
 
     return Conversation(
         conversation_id="membench-c1",

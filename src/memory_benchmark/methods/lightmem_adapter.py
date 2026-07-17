@@ -68,7 +68,7 @@ from memory_benchmark.observability.efficiency import (
 
 
 LIGHTMEM_METHOD_DIRECTORY = "LightMem"
-LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v4"
+LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v5"
 LIGHTMEM_MESSAGES_USE_VALUES = ("user_only", "assistant_only", "hybrid")
 LIGHTMEM_LIFECYCLE_PROFILES = ("online_soft", "locomo_offline_consolidated")
 LIGHTMEM_MISSING_TIMESTAMP_POLICIES = ("preserve_none", "require")
@@ -1221,7 +1221,10 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         逐 benchmark 诚实矩阵（pair candidate ids 只证明 extraction input）：
 
         - LoCoMo + online_soft + items 可用（含空 tuple）：valid / turn；
-        - MemBench + online_soft：pending / none（等 canonical split + gold group）；
+        - MemBench + online_soft + items 可用（含真实 0-hit 的空 tuple）：
+          valid / turn（canonical split 后官方 pair-step qrel 已可评，只表示
+          MemBench group 可评，不声称能判断事实来自 user 还是 assistant
+          child）；items 缺失（任一 retrieval hit lineage 不完整）：n_a / none；
         - LongMemEval + online_soft：n_a / none（pair source_id 不能证明具体 turn）；
         - BEAM + online_soft：n_a / none（官方 gold 是单 message，pair 过粗）；
         - HaluMem + online_soft：n_a / none（memory-point gold 无 turn qrel）；
@@ -1264,13 +1267,16 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 ),
             )
             granularity = "none"
-        elif self.benchmark_name == "membench":
+        elif self.benchmark_name == "membench" and items is not None:
+            semantic = EvidenceAssertion(status="valid")
+            granularity = "turn"
+        elif self.benchmark_name == "membench" and items is None:
             semantic = EvidenceAssertion(
-                status="pending",
-                reason_code="membench_canonical_split_pending",
+                status="n_a",
+                reason_code="retrieval_hit_lineage_incomplete",
                 reason=(
-                    "MemBench FirstAgent canonical split and pair-step gold group "
-                    "must be resolved before turn-level provenance can be asserted"
+                    "at least one retrieval hit is missing its source_external_ids, "
+                    "so the fact-to-turn lineage is incomplete for this question"
                 ),
             )
             granularity = "none"

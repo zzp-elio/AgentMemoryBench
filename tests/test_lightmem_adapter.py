@@ -42,6 +42,7 @@ from memory_benchmark.core.provider_protocol import (
 )
 from memory_benchmark.methods.lightmem_adapter import (
     LIGHTMEM_ADAPTER_VERSION,
+    LIGHTMEM_PLACEHOLDER_MARKER,
     LightMem,
     LightMemConfig,
     _turn_timestamp,
@@ -142,7 +143,7 @@ def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version
     assert manifest["lifecycle_profile"] == "online_soft"
     assert manifest["missing_timestamp_policy"] == "require"
     assert manifest["messages_use"] == "user_only"
-    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v4"
+    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v5"
 
 
 def test_lightmem_toml_profiles_declare_online_soft_lifecycle_explicitly() -> None:
@@ -3545,10 +3546,15 @@ def test_lightmem_generic_normalizer_rejects_missing_or_noncanonical_role(
         "'user': I like tea.; 'agent': Tea is noted.",
     ],
 )
-def test_lightmem_membench_treats_adapter_composite_as_one_canonical_user(
+def test_lightmem_membench_treats_single_user_turn_as_singleton_pair(
     content: str,
 ) -> None:
-    """ThirdAgent 与当前 FirstAgent composite 都不得在 LightMem 内二次解析/伪造 assistant。"""
+    """ThirdAgent observation turn（与任何看似 composite 的 content）都不得在
+
+    LightMem 内二次解析/伪造 assistant。canonical split 后 FirstAgent 已不再
+    产出这种拼接文本，本用例改为通用防御：无论 content 长什么样，单条
+    `normalized_role="user"` turn 一律只补结构占位 assistant，不解析 content。
+    """
 
     system = _lightmem_evidence_system(benchmark_name="membench")
     turn = Turn(
@@ -3565,6 +3571,47 @@ def test_lightmem_membench_treats_adapter_composite_as_one_canonical_user(
     assert pair[0]["content"] == content
     assert pair[0]["external_id"] == "step-1"
     assert pair[1]["memory_benchmark_structural_placeholder"] is True
+
+
+def test_lightmem_membench_canonical_pair_yields_two_real_pair_candidate_ids() -> None:
+    """canonical split 后的真实 MemBench user+assistant pair 应产出两个真实 child id。
+
+    对应 §2.6/§5.3 裁决：LightMem 不解析 MemBench content，只读 canonical
+    normalized_role；一个真实 user turn 紧邻一个真实 assistant turn 时，两侧
+    `source_external_ids` 都必须是这两个真实 turn id 的稳定去重集合，而不是
+    单侧真实 + 单侧 placeholder。
+    """
+
+    system = _lightmem_evidence_system(benchmark_name="membench")
+    user_turn = Turn(
+        turn_id="1:user",
+        speaker="user",
+        normalized_role="user",
+        content="I work with Maya.",
+    )
+    assistant_turn = Turn(
+        turn_id="1:assistant",
+        speaker="agent",
+        normalized_role="assistant",
+        content="Maya is your colleague.",
+    )
+    session = Session(
+        session_id="s1", session_time="2026-01-01", turns=[user_turn, assistant_turn]
+    )
+    conversation = Conversation(conversation_id="c-membench-pair", sessions=[session])
+
+    pairs = system._normalize_session_to_pairs(session, conversation)
+
+    assert len(pairs) == 1
+    user_msg, assistant_msg = pairs[0]
+    assert user_msg["role"] == "user"
+    assert user_msg["content"] == "I work with Maya."
+    assert assistant_msg["role"] == "assistant"
+    assert assistant_msg["content"] == "Maya is your colleague."
+    assert LIGHTMEM_PLACEHOLDER_MARKER not in user_msg
+    assert LIGHTMEM_PLACEHOLDER_MARKER not in assistant_msg
+    assert user_msg["source_external_ids"] == ["1:user", "1:assistant"]
+    assert assistant_msg["source_external_ids"] == ["1:user", "1:assistant"]
 
 
 def _capture_lightmem_extraction_messages(
@@ -4152,8 +4199,11 @@ def test_lightmem_evidence_matrix_per_benchmark() -> None:
 
     membench = _lightmem_evidence_system(benchmark_name="membench")
     ev = membench._build_retrieval_evidence(items_empty)
-    assert ev.semantic_provenance.status == "pending"
-    assert ev.semantic_provenance.reason_code == "membench_canonical_split_pending"
+    assert ev.semantic_provenance.status == "valid"
+    assert ev.provenance_granularity == "turn"
+    ev = membench._build_retrieval_evidence(items_none)
+    assert ev.semantic_provenance.status == "n_a"
+    assert ev.semantic_provenance.reason_code == "retrieval_hit_lineage_incomplete"
     assert ev.provenance_granularity == "none"
 
     lme = _lightmem_evidence_system(benchmark_name="longmemeval")
