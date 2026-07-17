@@ -16,31 +16,32 @@
 `docs/README.md` 能找到；完整命令、统计、争议和 actor 历史留在 evidence note。禁止把聊天
 原文或整份 note 再复制一遍，也禁止只落 note 却不更新稳定入口。
 
-### 1.1 Dataset 异常的三层处置账
+### 1.1 Dataset 异常的四层处置账
 
-每个 benchmark 在推进到某个 method 时发现的新异常，按三层落点记录，禁止只留在聊天，也
+每个 benchmark 在推进到某个 method 时发现的新异常，按四层落点记录，禁止只留在聊天，也
 禁止给十个 method 复制十份相同事实：
 
-1. `datasets/<benchmark>.md` 是异常事实的单一来源：记录数据版本、计数、代表样本与“保留/
-   排除/无法映射”等状态；未经 owner 一手规则支持，不得擅自清洗或猜测修复 gold。
-2. `workflows/<benchmark>.md` 记录框架统一处置：canonical adapter 如何保真、evaluator 如何
+1. `异常情况/<benchmark>.md` 是详细异常账的单一来源：记录数据版本、计数、真实位置、代表
+   样本、异常理由与完整处置矩阵；未经 owner 一手规则支持，不得擅自清洗或猜测修复 gold。
+2. `datasets/<benchmark>.md` 只保留 schema 与异常摘要，并链接详细异常账，不复制长样本表。
+3. `workflows/<benchmark>.md` 记录框架统一处置：canonical adapter 如何保真、evaluator 如何
    计分/披露、smoke 如何裁剪，以及异常是否只存在于 evaluator-private 通道。
-3. `docs/reference/integration/<method>.md` 只记录该 method 的**差分影响**：需要 placeholder、
+4. `docs/reference/integration/<method>.md` 只记录该 method 的**差分影响**：需要 placeholder、
    timestamp fallback、文本 fallback 等才写；若异常已在 benchmark 层完全吸收，则明确写
-   “无 method 特判”并链接回前两层。
+   “无 method 特判”并链接回前述 benchmark 层。
 
 完整探针、命令与争议仍留在 workstream note；稳定页写结论与复核锚。这样既能逐 benchmark
 稳扎稳打，又不会因复制粘贴形成十份互相漂移的“异常真相”。
 
-## 2. Phase 1 五 benchmark 三联入口
+## 2. Phase 1 五 benchmark 四联入口
 
-| Benchmark | 总览 | Dataset schema | 官方/框架 workflow | 当前 gold evidence unit 摘要 |
-|---|---|---|---|---|
-| LoCoMo | [benchmark](benchmarks/LoCoMo.md) | [dataset](datasets/locomo.md) | [workflow](workflows/locomo.md) | 单 utterance `dia_id`；9 个 turn-unmatched unit，1 个重复 occurrence 稳定去重 |
-| LongMemEval | [benchmark](benchmarks/LongMemEval.md) | [dataset](datasets/longmemeval.md) | [workflow](workflows/longmemeval.md) | user-side `has_answer` turn + answer session；主 retrieval 路径分母 419 |
-| HaluMem | [benchmark](benchmarks/HaluMem.md) | [dataset](datasets/halumem.md) | [workflow](workflows/halumem.md) | memory-point fact；无 turn 回指，turn Recall=N/A |
-| BEAM | [benchmark](benchmarks/BEAM.md) | [dataset](datasets/BEAM.md) | [workflow](workflows/BEAM.md) | `source_chat_ids` 本意指 message；1M 四个 conversation 有 raw-id 歧义；Recall 为 framework supplementary |
-| MemBench | [benchmark](benchmarks/MemBench.md) | [dataset](datasets/membench.md) | [workflow](workflows/membench.md) | FirstAgent=pair-step、ThirdAgent=string-step；拆分后按 evaluator-private any-of group 计一次 |
+| Benchmark | 总览 | Dataset schema | 异常详账 | 官方/框架 workflow | 当前 gold evidence unit 摘要 |
+|---|---|---|---|---|---|
+| LoCoMo | [benchmark](benchmarks/LoCoMo.md) | [dataset](datasets/locomo.md) | [anomalies](异常情况/locomo.md) | [workflow](workflows/locomo.md) | 单 utterance `dia_id`；9 个 turn-unmatched unit，1 个重复 occurrence 稳定去重 |
+| LongMemEval | [benchmark](benchmarks/LongMemEval.md) | [dataset](datasets/longmemeval.md) | 待强验收 | [workflow](workflows/longmemeval.md) | user-side `has_answer` turn + answer session；主 retrieval 路径分母 419 |
+| HaluMem | [benchmark](benchmarks/HaluMem.md) | [dataset](datasets/halumem.md) | 待逐格建立 | [workflow](workflows/halumem.md) | memory-point fact；无 turn 回指，turn Recall=N/A |
+| BEAM | [benchmark](benchmarks/BEAM.md) | [dataset](datasets/BEAM.md) | 待按 variant 建立 | [workflow](workflows/BEAM.md) | `source_chat_ids` 本意指 message；1M 四个 conversation 有 raw-id 歧义；Recall 为 framework supplementary |
+| MemBench | [benchmark](benchmarks/MemBench.md) | [dataset](datasets/membench.md) | 待按 variant/人称建立 | [workflow](workflows/membench.md) | FirstAgent=pair-step、ThirdAgent=string-step；拆分后按 evaluator-private any-of group 计一次 |
 
 五家 gold-unit 的完整一手对表与方案裁决见
 [canonical turn 与 gold evidence unit 审计](../workstreams/ws02.7-method-track/branches/input-role-semantics/notes/evidence-unit-contract-audit.md)。
