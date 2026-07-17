@@ -21,9 +21,8 @@ method-frozen 后发生了实质变化。旧证据不删除，但不能靠历史
 
 ## 串行顺序与门
 
-1. 共享门 Track identity M0 已于 2026-07-16 通过 R1/R2 强验收关闭；新发现的
-   `input-role-semantics` 先裁 canonical turn 与 gold evidence unit，再由
-   RetrievalEvidence M1 消费该契约。
+1. 共享门 Track identity M0、canonical turn / Gold Evidence Group 与 RetrievalEvidence
+   M1 均已强验收关闭；M1 主线为 `5d8fce3` + `e10110f`。
 2. **LightMem 第一家**：重点重验 online-soft 主 profile、missing-time 扩展、逐题 evidence、
    canonical-required MiniLM build identity、五 benchmark B4/B5/B6/B9/B10/B11。
 3. **Mem0 第二家**：把 source-time、ADD-only/provenance、truthful identity 与
@@ -35,9 +34,8 @@ method-frozen 后发生了实质变化。旧证据不删除，但不能靠历史
 
 ## 当前状态
 
-**LightMem 是唯一 active method，gap matrix 已落盘并按 Fable 审计的架构师纠错更新。**
-当前可并行派发两张文件正交的生产卡：`input-role-semantics` 的 gold evidence group M0
-负责私有 qrel/分母，LightMem `hybrid` role profile 负责 role-complete build 与诚实
-pair-candidate lineage。前者验收后才拆 MemBench canonical pair；两线合流后再写
-RetrievalEvidence M1。此阶段不并行推进 Mem0/MemoryOS，也不调用真实 API。权威实时动作
-仍看父级 `../../README.md` 恢复胶囊与最新断点。
+**LightMem 是唯一 active method。** Gold group、hybrid role、MemBench canonical split 与
+RetrievalEvidence M1 已全部关闭；旧“当前可并行派发两张卡”的文字已过时并删除。现在先在
+当前 main 定点重验 gap matrix 与 B1-B11 离线证据，只重跑受影响的 build/smoke；随后由架构师
+给用户五格 B11 付费 smoke 命令。此阶段不并行推进 Mem0/MemoryOS，未经预算、规模、run_id
+确认不调用真实 API。权威实时动作仍看父级 `../../README.md` 恢复胶囊与最新断点。

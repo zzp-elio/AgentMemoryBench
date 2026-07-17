@@ -20,10 +20,15 @@ evaluator 按 Recall/NDCG 各自要求导出 `valid / n_a / pending`。这样不
    `1235 passed, 3 deselected, 2 warnings, 4 subtests passed`；compileall exit 0。
 5. Gold v1 已先关闭 LongMemEval no-target 分母=419，MemBench canonical split 也已以
    `ce1a9a8` + `d852fff` + `68b674b` 关闭。
-6. **当前下一步=M1，卡已就绪、待用户派发**：
+6. **M1 已强验收关闭**：
    [`actor-prompt-retrieval-evidence-m1.md`](cards/actor-prompt-retrieval-evidence-m1.md)。
-   它迁五个 evaluator 逐题消费 v1，保留 n_a/pending reason，并诚实声明当前 depth=10
-   只覆盖 LongMemEval k≤10；不二次 retrieve、不重改 419/group/canonical。
+   Sonnet 5 首轮 `b6c4b32` 合入主线 `5d8fce3`；架构师 R1 卡=
+   [`actor-prompt-retrieval-evidence-m1-r1.md`](cards/actor-prompt-retrieval-evidence-m1-r1.md)，
+   实现重建合入 `e10110f`。五个 evaluator 现逐题消费 v1，保留 n_a/pending reason，
+   benchmark 排除不污染 provider counts；当前 depth=10 只覆盖 LongMemEval k≤10，未二次
+   retrieve、未重改 419/group/canonical。最终全量 1486 passed，compileall exit 0。
+7. 本支线当前没有待派生产卡；stable ranking method 审计或 query depth 扩展须另立裁决，
+   不借 M1 尾巴继续发散。主线返回 LightMem B1-B11 重认证。
 
 ## 权威材料
 

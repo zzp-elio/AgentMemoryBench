@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（MemBench canonical split 已强验收；下一门 RetrievalEvidence M1）
+status: in-progress（RetrievalEvidence M1 已强验收；LightMem 重认证进入最终离线对表）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -37,10 +37,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `d032d45`（R2 registration 单事实源）→ `afb57f3`/`6d68a51`（Gold Evidence Group
   M0 + R1）→ `d86b22a`/`d1c18c4`（LightMem hybrid + R1）→ `2e78c55`（双卡合流
   fixture v1）→ `4c4bb0c`（TOML/builder 政策 + MemBench 卡）→ `ce1a9a8`/
-  `d852fff`/`68b674b`（MemBench canonical split + 架构师 R1/R2）。准确
+  `d852fff`/`68b674b`（MemBench canonical split + 架构师 R1/R2）→ `5d8fce3`/
+  `e10110f`（RetrievalEvidence M1 + 契约收敛 R1）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮等价工作树全量门=`1441 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 358.28s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮等价工作树全量门=`1486 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 127.77s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
@@ -63,9 +64,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   裁决=`branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`；
   **RetrievalEvidence M0 已强验收合入**：Mem0/LightMem/MemoryOS 每题 artifact 陈述
   semantic provenance + granularity + stable ranking，manifest contract v1 严格参与 resume；
-  无契约的 A-Mem/SimpleMem 不盖章。下一门=M1：让 evaluator 消费逐题资格事实并诚实
-  披露 k coverage；不再重复改 qrel group 或 LME 419 分母。自包含卡已写入
-  `branches/retrieval-metrics/cards/actor-prompt-retrieval-evidence-m1.md`，待用户派发。
+  无契约的 A-Mem/SimpleMem 不盖章。**M1 已以 `5d8fce3` + `e10110f` 强验收关闭**：五个
+  evaluator 严格消费逐题资格，Recall 与 rank 分离要求，benchmark-policy 排除不污染
+  provider status，LongMemEval 只披露 query depth 实际覆盖的 k；probe 与旧手工 fixture
+  也已闭合 v1。当前不再重复改 qrel group、LME 419 分母或把 pending 排名硬算成分数。
 - **元学习/过时文档整改**：actor 卡整份即 prompt，禁止卡尾重复 wrapper；不默认要求
   reviewer subagent，也不一刀切禁止 actor 内部 subagent。compact 与冷启动彻底分离：
   AGENTS 中“compact 后重读 onboarding”旧句已删，只走四步热恢复。待派/暂停属于支线
@@ -105,15 +107,29 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   Gold M0 与 LightMem hybrid 首轮均经 full diff 驳回后由 Codex R1 收口。Gold group 现按
   官方 unit 计分，BEAM 重复 raw id 为 multi-child any-of，LME 主 turn 分母 419。MemBench
   canonical split 也已关闭：一个 dict step 变为真实 user/assistant 两 turn，但仍由一个
-  private any-of group 计一次；LightMem 两 pair 同批抽取没有跨 step lineage union。当前
-  下一门是 RetrievalEvidence M1，让 evaluator 消费逐题资格与修 k coverage；之后严格串行
-  Mem0 → MemoryOS → A-Mem → SimpleMem。
+  private any-of group 计一次；LightMem 两 pair 同批抽取没有跨 step lineage union。
+  RetrievalEvidence M1 已关闭。当前回到唯一 active method **LightMem**：先按当前 main
+  重验 B1-B11 离线证据与 gap matrix，再向用户给五格付费 smoke 命令；未批预算前不调用
+  API。LightMem 关闭后才严格串行 Mem0 → MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-17）
 
-- 2026-07-17（**MemBench canonical split 已强验收；下一门 RetrievalEvidence M1**，GPT-5
+- 2026-07-17（**RetrievalEvidence M1 + R1 已强验收；下一步回到 LightMem 重认证**，GPT-5
+  架构师）：Sonnet 5 首轮 `b6c4b32` 完成严格 v1 parser、逐题 eligibility 与五 evaluator
+  主体，卡内 `87 passed`；架构师复现其主动披露的 probe/旧 fixture 缺口为
+  `6 failed, 147 passed, 1 warning`，并进一步抓到 benchmark-policy 排除晚于 provider
+  decision、status count 污染、mixed granularity 误报及五份 artifact 校验漂移。按用户既有
+  授权由 Codex `gpt-5.6-sol`/medium 在线性 R1 收敛：probe 只为自身确定性 turn/rank 盖章，
+  五家共用严格 retrieval field helper，LME canonical no-target 保持 419，排除题不进入
+  evidence counts。架构师定向=`270 passed, 1 warning in 13.95s`；首次全量的 9 个 SimpleMem
+  失败均由不合法子目录软链/缺模型资产造成，改用 worktree 内真实源码副本 + 只读 model root
+  后全量=`1486 passed, 3 deselected, 2 warnings, 29 subtests passed in 127.77s`，compileall
+  exit 0。主线=`5d8fce3` + `e10110f`；R1 卡、身份冲突说明、手册与 actor 账本随验收文档
+  一并落盘。下一步不再扩 M1，而是定点更新 LightMem gap matrix 并做 B11 前离线对表，零真实 API。
+
+- 2026-07-17（**历史断点，已被上方 RetrievalEvidence M1 强验收取代**，GPT-5
   架构师）：Sonnet 5 首轮 `a6c8f55` 的生产语义经 full diff 复核成立，无为过测放宽：
   FirstAgent 每个 dict step 拆为 `n:user`/`n:assistant`，每侧原文、role 与自身时间独立，
   private gold 仍按一个 pair-step group 计一次，smoke 按 source step 裁剪而不切半 pair。
@@ -144,9 +160,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `docs/reference/method-toml-and-answer-builder-policy.md`，旧双轨政策明确 superseded；
   实施消费者落在 `branches/method-config-profiles/README.md`，
   checklist B9-B11、AGENTS、onboarding、playbook 与 dual-track 历史支线入口同步更新。
-  当前不改代码、不派 actor、不调参、不调用 API。施工顺序仍是 MemBench FirstAgent split →
-  RetrievalEvidence M1 → 5×10 主 smoke；旧 `config_track` 迁移与 author section/builder 接线
-  在首个作者校准或真实效果 full run 前完成。
+  当前不改代码、不调参、不调用 API。原先排在它前面的 MemBench split 与 RetrievalEvidence
+  M1 均已关闭；现回到 LightMem B1-B11 离线对表与五格 smoke。旧 `config_track` 迁移与
+  author section/builder 接线仍在首个作者校准或真实效果 full run 前完成。
 
 - 2026-07-16（**Gold Evidence Group M0 + LightMem hybrid 双线强验收完成；下一门
   MemBench canonical split**，GPT-5 架构师）：Gold 首轮 `9d06659` 经 Opus 4.8 →

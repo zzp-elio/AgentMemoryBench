@@ -753,3 +753,11 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
 - **隔离 worktree 的全量红要先分环境与 diff。**缺 gitignored benchmark/model 资产造成
   30 项环境失败，不能据此驳回 actor；补齐只读测试资产后再定性。与此同时，环境噪声中仍
   可能夹着一个真实回归，不能看见大量 `FileNotFoundError` 就整批豁免。
+- **公开契约的完成单位是闭环，不是某一层落了 version。**RetrievalEvidence M1 首轮中，
+  registry 已声明 v1、evaluator 也严格消费 v1，但 method-neutral probe 与一条手工 LightMem
+  artifact 仍返回旧形状，局部 87 项全绿而 registered impact set 仍有 6 项失败。以后 schema/
+  identity 卡必须沿 `声明者 → runtime producer → artifact → consumer → resume/旧 fixture`
+  逐层列出受影响面；测试替身替换真实 provider 时陈述**替身自身**可证明的能力，不能继承
+  被替换 method 的身份，也不能为救旧 fixture 放松 consumer gate。共享结构校验只在生产层
+  单源；benchmark-policy 排除仍保留 benchmark 私有语义，并在全量 artifact preflight 后、
+  provider eligibility 前执行。

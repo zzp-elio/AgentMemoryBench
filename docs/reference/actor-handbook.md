@@ -164,6 +164,12 @@
 - **并行卡在各自 worktree 绿后，actor 不得声称跨卡集成已绿。**最终合流是架构师责任；若卡
   内消费了另一条正在演进的 manifest/private schema，fixture 应显式声明当前版本，避免靠
   legacy 缺字段偶然通过。
+- **新增/升级公开契约时，主动搜索所有替身 provider 与手工 artifact fixture。**registry
+  盖了 v1 章而 monkeypatch 进去的 probe 仍返回 `evidence=None`，不是“测试环境特殊”，而是
+  声明者与 runtime producer 自相矛盾；正确做法是让 probe 只陈述自己可证明的事实、让旧
+  fixture 升级到当前 schema，并保留严格 consumer gate。若这些文件不在允许清单，像
+  RetrievalEvidence M1 首轮 actor 一样复现并上报是对的，但完成报告必须明确“局部交付完成、
+  跨层门未闭合”，不能把卡内绿等同整批可合入。
 
 ## 7. 好行为（值得学的正例）
 

@@ -35,6 +35,8 @@
 | 2026-07-16 | Codex subagent；提交自标 GPT-5 | LightMem unified-hybrid R1 + 合流 fixture | `011c265` + `10a5cf5` → `d1c18c4` + `2e78c55` | actor `152 passed`；架构师同套 152、双卡并集 588、主树全量 1435 | **9.8** | accepted after integration rework |
 | 2026-07-17 | Claude Code / Sonnet 5；时长未提供；无 subagent | MemBench canonical pair split 首轮 | `a6c8f55` → `ce1a9a8`（须 R1/R2 补验） | actor `268 passed`；架构师同套 268；生产 diff 正确，但漏精确分母/四源 smoke/event/cross-batch 门 | **8.8** | accepted after architect hardening |
 | 2026-07-17 | Codex subagent；用户指定 GPT-5.6 sol/medium | MemBench canonical split R1 + R2 | `0fb849c` + `c40589c` → `d852fff` + `68b674b` | R1 `269 passed`；首次全量抓 1 个真实 docstring 回归；R2 后最终全量 1441、compileall exit 0 | **9.5** | accepted after full-suite rework |
+| 2026-07-17 | Claude Code / Sonnet 5；reasoning=max；约 40min（用户提供）；无 subagent | RetrievalEvidence M1 首轮 | `b6c4b32` → `5d8fce3`（须 R1） | actor `87 passed`；架构师同套 87；另复现 `6 failed/147 passed`，并抓排除优先级、mixed summary 与校验漂移 | **8.3** | rework；主体合入后由 R1 收口 |
+| 2026-07-17 | Codex subagent；orchestrator 指定 `gpt-5.6-sol`/medium，actor 自标 GPT-5 | RetrievalEvidence M1 R1 | `c7eb416` → `e10110f`（重建精确身份） | actor `270 passed`；架构师 270；合法资产布局全量 `1486 passed`、compileall exit 0 | **9.3** | accepted after full-suite rework |
 
 ### 未评分发现记录
 
@@ -217,3 +219,19 @@
   vendored cross-batch lineage 门补齐；R2 再关闭完整回归发现的 nested helper 中文
   docstring。正确性 4/4、证据 1.7/2、纪律 2/2、判断交接 1.8/2，总评 **9.5**。最终门为
   `1441 passed, 3 deselected, 2 warnings, 29 subtests passed`，compileall exit 0。
+
+### 2026-07-17：RetrievalEvidence M1 首轮 + Codex R1
+
+- Sonnet 5 首轮正确落下严格 v1 parser、逐题 valid/n_a/pending、Recall/rank 分层门、k coverage
+  与五 evaluator 主体；尤其主动复现并完整披露允许清单外六项 probe/旧 fixture 失败，没有删测、
+  加 fallback 或把环境问题冒充通过，scope/git/交接纪律很强。
+- 但卡已明确要求 benchmark-policy 排除不计 provider status，首轮仍让 LME no-target、BEAM/
+  MemBench empty-gold 晚于 decision；summary 又取第一条 valid 粒度，五家 artifact 校验各自
+  漂移。正确性 3.1/4、证据 1.3/2、纪律 2/2、判断交接 1.9/2，总评 **8.3/rework**。这是
+  “主体实现扎实、跨题语义未闭合”，不是作弊；40min 时长只作背景，不扣分。
+- Codex R1 保留 strict v1，给 probe 只盖自身可证明的 deterministic turn/rank，升级手工 fixture，
+  把共享 retrieval 校验收成单源，并用 valid/n_a/pending exclusion、mixed scored granularity、
+  bool top_k/空白 lineage 等首轮必失败反例关闭。actor 定向 270，架构师同套 270；首次全量九项
+  SimpleMem 红由非法软链/缺模型造成，合法资产布局后 1486 全绿。代码/判断 5.8/6、证据 1.8/2；
+  R1 卡漏提交、actor 自标与 orchestrator 精确型号冲突，纪律/交接 1.7/2，总评 **9.3**。主线
+  重建 `e10110f`，保留双方身份事实，不沿用泛化 `GPT-5` trailer。
