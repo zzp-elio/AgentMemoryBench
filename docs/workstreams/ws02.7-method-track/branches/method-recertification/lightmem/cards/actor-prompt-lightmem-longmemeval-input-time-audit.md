@@ -11,9 +11,11 @@ LightMem 重认证已经把 Phase 1 五格 unified 主 build 固定为
 LongMemEval 数据检查又暴露出两类不能混为一谈的语义：
 
 1. benchmark 原始数据存在 assistant-first、同 role 相邻、奇数 turn、空 content，以及
-   `question_date` 落在部分 history 之前/之中的记录；官方仓库 OWNER 已说明同日错序并非
-   有意，语义上应把 question 视为紧接最终 conversation 之后；无 temporal constraints 的题
-   又可能由 haystack 生成算法随机赋 question date；
+   `question_date` 落在部分 history 之前/之中的记录；最终 JSON 的 date 字符串确实含
+   `HH:MM`，但官方仓库 OWNER 所说“只标 date、未标 specific time”指问题标注的语义精度，
+   不是字段格式。OWNER 已说明同日分钟错序并非有意，语义上应把 question 视为紧接最终
+   conversation 之后；无 temporal constraints 的题又可能由 haystack 生成算法随机赋
+   question date；
 2. LightMem 上游先由 `MessageNormalizer(offset_ms=500)` 改写 `time_stamp`，后续
    `assign_sequence_numbers_with_timestamps(..., offset_ms=500)` 又按 `session_time` 分组赋值；
    framework placeholder 虽从 extraction 文本和 token 计数中滤掉，仍参与这两层结构与时间
@@ -59,12 +61,17 @@ LongMemEval 数据检查又暴露出两类不能混为一谈的语义：
   `User/Assistant/System` 等 content 猜测并改写 role。
 - benchmark adapter 保留官方 session/turn 顺序。未来 session、assistant-first、同 role 与
   单 role session 不因“像噪声”而被某个 method 私自删除。
-- `question_date` 与 history 的先后关系不是清洗条件。官方仓库 OWNER 已给出两条一手裁决：
-  ①同一天 question 具体时刻早于最终 conversation 的 mis-ordering 并非有意；标注只确定日期，
-  未确定具体时间，应假定 question 紧接最终 conversation 之后；②没有 temporal constraints 的
+- `question_date` 与 history 的先后关系不是清洗条件。**不得写成最终 JSON“没有具体时间”**：
+  字段实际含 `HH:MM`；官方仓库 OWNER 所说的是问题 annotation 只确定 date、未确定可靠的
+  specific time。两条一手裁决为：①同一天 question 具体时刻早于最终 conversation 的
+  mis-ordering 并非有意，应假定 question 紧接最终 conversation 之后；②没有 temporal constraints 的
   题，question date 可能由 haystack creation algorithm 随机赋值，正确性不应受影响。框架仍
   原样传递完整 history + raw question time，不改数据；但 raw timestamp 不得被解释成切掉其后
   session 的 as-of retrieval cutoff。审计需区分 raw 字段与 official effective ordering。
+- 实现只使用数据集 timestamp 原值：原样传 `question_date` 与 session time；turn 没有独立时间
+  仍按既有规则继承 session time。`official effective ordering` 只是解释完整 history 的可见性
+  与同日分钟错序，**不授权**生成 `final_session + epsilon`、corrected question time、覆盖 raw
+  字段或重排 session。若 method 内部把 raw question time 当 cutoff，本卡只报告，不自行修值。
 - Phase 1 unified 主 build 使用 `messages_use="hybrid"`；官方 LongMemEval Table 2 的
   `user_only + 开头裁剪 + 非法 pair 跳过`是独立 author-reproduction 口径。两者必须分开命名，
   不得把 framework hybrid 行为冒充官方复现。
@@ -94,7 +101,14 @@ LongMemEval 数据检查又暴露出两类不能混为一谈的语义：
   - `https://github.com/xiaowu0162/LongMemEval/issues/8#issuecomment-2936960111`：无 temporal
     constraints 的题可能随机赋 question date，正确性不应受影响。
   论文符号 `t_q > t_N`、README 的 after-all-sessions 叙述与这两条回复共同构成 official
-  effective ordering；不得再把 raw clock 交叉解释成有意的 within-history as-of query。
+  effective ordering；不得再把 raw clock 交叉解释成有意的 within-history as-of query，也不得
+  为落实该解释而合成第三份 corrected timestamp。
+- issue 创建于 2025-05，早于 2025-09 的 `longmemeval-cleaned` 发布，但不能据此把回复判旧：
+  当前官方 HF `main@98d7416c24c778c2fee6e6f3006e7a073259d48f` 的 S 文件 SHA-256 仍为
+  `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`，与本地 byte-identical；
+  当前 S 仍有 76 个 `question_date < latest history` 且全部为同一日，issue 后续点名的
+  `gpt4_2487a7cb` 在 cleaned S/oracle 中仍保留其 `2023/05/24 08:02` / `2023/05/28 06:47`
+  差异。将这些作为“cleaned release 未废止该解释”的校验点，不把 76 当要求凑数。
 - `third_party/benchmarks/LongMemEval-main/src/generation/run_generation.py`：history、
   `Current Date` 与 question 的实际构造；确认是否过滤 `date > question_date`。
 - `data/longmemeval/longmemeval_s_cleaned.json`

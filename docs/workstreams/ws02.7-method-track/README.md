@@ -111,9 +111,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   RetrievalEvidence M1 已关闭。当前回到唯一 active method **LightMem**：LongMemEval 新证据
   显示 author harness 会丢异形 role turn，而 unified hybrid 用 placeholder 保留；LightMem
   预期把 session time 按 message slot 每次 +500ms 派生 turn time，但 placeholder 与第二层
-  regroup 的真实作用域仍待核，故 B4 局部重开。LongMemEval OWNER 已裁同日 question clock
-  错序并非有意，应把 question 视为 final conversation 之后；无 temporal constraints 的日期可
-  随机赋值。原始字段仍原样保留，但不得用 raw question time 截断 history。输入/时间审计卡
+  regroup 的真实作用域仍待核，故 B4 局部重开。LongMemEval cleaned JSON 虽显式含 `HH:MM`，
+  OWNER 所说“只标 date、未标 specific time”指问题标注的**语义精度**，不是字段没有时分；
+  同日 question clock 错序并非有意，应把 question 视为 final conversation 之后，无 temporal
+  constraints 的日期还可随机赋值。**实现只认数据集原值**：原样传 `question_date` / session
+  time，不另造 `final+epsilon` 或 corrected timestamp；同时不得用 raw question time 截断
+  history。输入/时间审计卡
   已由用户派发、actor 正在执行；OWNER 回复已作为中途证据增补发送，不停工重启。回卡后先
   完成 S/M + production helper 离线强验收，再重验其余 gap matrix，最后才向
   用户给五格付费 smoke 命令；未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
@@ -128,11 +131,16 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   pair bridge。官方 README/论文示意把问题放在全部 sessions 之后，但数据中 S/M 分别有
   76/118 题 `question_date < latest history`，其中 44/42 题至少一个 gold session 位于问题时间
   之后。GitHub 网页摘要曾漏掉 comments；直接读取 issue comments API 后确认仓库 OWNER 已
-  两次裁决：同日具体时刻错序并非有意，question 应视为紧接 final conversation；无 temporal
+  两次裁决：最终 JSON 虽序列化了 `HH:MM`，问题标注时只确定 date、未确定可靠的 specific
+  time；同日具体时刻错序并非有意，question 应视为紧接 final conversation；无 temporal
   constraints 的题可能由 haystack algorithm 随机赋 question date，正确性不应受影响（issue
-  comments `2895395636`、`2936960111`）。因此撤销“有意 within-history temporal as-of”假说。
-  框架仍原样保留完整 history 与 raw question time，禁止改数据；同时必须核对 method 是否把
-  raw clock 错当 retrieval cutoff。
+  comments `2895395636`、`2936960111`）。issue 早于 2025-09 cleaned release，但当前官方
+  cleaned S 仍有 76 题 `question_date < latest history` 且全部为同一日，issue 后续点名的
+  `gpt4_2487a7cb` 日期差异也仍存在，故该 OWNER 解释没有被新版数据取代。因此撤销“有意
+  within-history temporal as-of”假说。
+  框架仍原样保留完整 history 与 raw question time，禁止改数据、重排或生成 corrected time；
+  “question after final conversation”只解释 visibility/同日错序，不产生新字段。同时必须核对
+  method 是否把 raw clock 错当 retrieval cutoff。
   官方 LightMem LME harness 采用 user_only、裁开头非 user、跳过非法 pair，S/M 分别
   丢 2,020/20,283 个 raw turn，其中 3 个 `has_answer=True` assistant turn 位于 answer session；
   当前 hybrid bridge 则用 1,986/20,126 个 placeholder pair 保住所有 retained canonical turn。
