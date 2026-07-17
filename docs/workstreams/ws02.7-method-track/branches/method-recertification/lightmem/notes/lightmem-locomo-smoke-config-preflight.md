@@ -149,7 +149,11 @@ benchmark 级全量异常已在
 source lock 接管：10 conversation、272 session、5,882 turn、1,986 QA（Phase 1=1,540）、
 140 个 odd session、0 turn-level timestamp、0 session missing time、910 个 img_url turn、
 1,226 个 caption turn、316 个 caption-only turn、conv-26 有 16 个 date-only orphan key、
-0 duplicate/missing dia_id、0 consecutive same-speaker、4 道 explicit empty-evidence QA。
+0 duplicate/missing dia_id、0 consecutive same-speaker、4 道 explicit empty-evidence QA。补充复算
+确认 9/2,815 个 raw evidence token 无法 exact-match canonical turn，且 9 个全在 Phase 1
+（Phase 1 raw token=2,355）；`conv-50/qa[5]` 另有一个重复 `D4:5`，现行 Gold Evidence Group
+稳定去重后为 2,354 units。turn view 的 9 个坏 unit 全部记 `unmatched`，session view 只有
+`D` 与 `D:11:26` 仍 unmatched，其余 7 个按官方首 prefix 上卷。
 
 现行判断：
 
@@ -157,6 +161,10 @@ source lock 接管：10 conversation、272 session、5,882 turn、1,986 QA（Pha
 - odd session 对 LightMem LoCoMo 特殊映射无害，因为每个 utterance 自成 pair，不按两个 human
   speaker 硬凑 user→assistant；
 - empty-evidence 官方 Recall=1，同时另报 non-empty subset，已由 evaluator 契约处理；
+- malformed/composite/越界 evidence 不拆、不猜改，Gold Evidence Group 按 raw list atom 保留，
+  unmatched 留在分母；它们是 evaluator-private gold，不进入任何 LightMem 输入；
+- 重复 evidence occurrence 按语义 unit 稳定去重；这与官方 raw scorer 的重复计权有意分叉，
+  必须在 report 披露，但不构成 method 输入缺陷；
 - `img_file`/`img_url` 是官方旧统计脚本漂移，canonical adapter 读取真实 `img_url` + caption；
 - **尚缺的不是再做一遍 benchmark 异常扫描，而是关闭本次找到的 method 输入 caption 缺口。**
 

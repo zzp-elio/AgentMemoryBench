@@ -120,6 +120,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   个 caption turn 不可见，而默认 1-round smoke 的 D1:1/D1:2 恰好无图片。**因此 B2/B4 定点
   重开、B11 暂停；先完成 `lightmem-locomo-image-caption` 小卡并升 adapter v6，再给付费命令。
   用户已批准修复后的 smoke 规模为 **3 rounds / 1 question**，预算与 `run_id` 仍待单独确认。
+  LoCoMo 异常终检又把稳定账补齐：16 个 date-only key/140 个 odd session 已由 canonical 层吸收；
+  9 个 turn-unmatched gold unit、1 个重复 occurrence 与 4 道 empty-evidence QA 只走
+  evaluator-private 通道，不要求 LightMem 特判。真实数据强反例与 survey 三联页完成后，
+  caption 卡即可派发，不再扩卡。
   B9/B10 效果配置迁移仍按既有政策不阻塞 smoke，但首个效果 full/author calibration 前必须完成。
   未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
   MemoryOS → A-Mem → SimpleMem。

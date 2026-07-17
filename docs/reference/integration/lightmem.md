@@ -276,6 +276,13 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   不能靠 flow-through 发现。B2/B4 在 adapter v6 修复 legacy/v3 caption parity 前为 pending；
   完整证据见 `docs/workstreams/ws02.7-method-track/branches/method-recertification/
   lightmem/notes/lightmem-locomo-smoke-config-preflight.md`。
+  **LoCoMo dataset 异常差分账**：16 个 date-only key 由 canonical adapter 忽略，不生成
+  LightMem session；140 个 odd session 不触发跨 utterance 硬配对，因为每条真实 utterance
+  各自生成 `[real user, empty assistant]`；无 turn timestamp 时每条继承 source session time。
+  9 个 malformed/unmatched evidence unit、1 个重复 evidence occurrence 与 4 道
+  empty-evidence QA 只存在于 evaluator-private gold 通道，绝不进入 LightMem ingest/retrieve/
+  answer，分别由 Gold Evidence Group 与 `locomo-recall` 已披露分支处理，LightMem 不写
+  benchmark 特判。唯一需要 LightMem 自身修复的是公开 caption 在 method 注入边界的丢失。
 - **B3 隔离 ✅ 物理**：per-conversation Qdrant collection + 独立路径（adapter:388-390，
   summary 库另置 :390）；clean-retry = 删目录（:1660-1664），干净。并行安全。
 - **B4 formatted_memory+输入内容 🟡（caption 定点重开；时间门仍已验收）**：locomo 官方
@@ -358,8 +365,9 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   五格既有 flow-through 与 answer/judge/成本证据仍有效；既有 LoCoMo post-update recall
   数字撤销。online-soft lifecycle identity 已在 `825132f` 完成；逐题 RetrievalEvidence
   M0/M1 均已强验收，LightMem preserve-none Phase B 与 LongMemEval input-time 离线门也已
-  关闭。当前下一门只剩用最新 hybrid/online-soft build 重跑五格真实 smoke；未获用户预算、
-  规模与 run_id 批准前不得调用 API，也不为
+  关闭。当前下一门先修 LoCoMo caption，再用最新 hybrid/online-soft build 重跑五格真实 smoke；
+  用户已批准 LoCoMo 覆盖首个 caption 的规模为 3 rounds / 1 question，但预算与 run_id 尚未
+  批准，故不得调用 API，也不为
   “所有指标都亮”强跑。
   以下为 2026-07-13~14 的历史 smoke 证据：
   ① unified：空库悬案已关闭（diag-log1 复跑：1 round → force 刷洗 → 抽取 2 条

@@ -61,6 +61,9 @@ LoCoMo `query`、不改 LightMem extraction/segmentation/embedding/update/retrie
 10. 用户已批准 caption 修复并经架构师强验收后的 LoCoMo B11 **规模**为
     `3 rounds / 1 question`，以覆盖首个 caption turn `D1:5`；这不是本卡的付费执行授权。
     actor 不运行真实 smoke、不改全局 smoke policy；API 预算与 `run_id` 仍由后续单独确认。
+11. `conv-26` date-only key、odd session、malformed/duplicate/empty gold evidence 均已在
+    benchmark 层审计并处置；gold 只走 evaluator-private 通道，不能进入 LightMem。本卡不得
+    读取、清洗或因这些异常改写 method 输入，也不得给 LightMem 增加 benchmark gold 特判。
 
 ## 3. 允许修改文件
 

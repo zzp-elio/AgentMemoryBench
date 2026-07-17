@@ -1,6 +1,6 @@
 # LoCoMo Phase 1 QA 工作流
 
-更新日期：2026-07-10
+更新日期：2026-07-17
 状态：`frozen-v1`
 
 本文记录框架现行执行语义。字段事实见 [dataset 契约](../datasets/locomo.md)，官方
@@ -21,8 +21,9 @@ prediction 写回长期记忆。
 
 ## 2. Method 收到什么
 
-公开 ingest 事件包含：conversation/session/turn id、speaker、拼好 caption 的 text、继承
-的 session time，以及公开 lifecycle boundary。method 不接收：
+canonical 层包含 conversation/session/turn id、speaker、raw text、结构化 image caption、继承
+的 session time，以及公开 lifecycle boundary。文本 method 在自身注入边界把 raw text 与
+caption 恰好一次渲染为 `[Sharing image that shows: {caption}]`；method 不接收：
 
 - gold answer
 - evidence / answer session ids
@@ -67,6 +68,10 @@ category-3 解释截断；Phase 1 只聚合 category 1/2/3/4。
 - answer prompt、public question、private label question IDs 必须完全一致
 - 保存并报告每题实际 `retrieval_query_top_k`
 - 4 道 empty-evidence 题按官方记 1，同时另报 non-empty 子集
+- 9 个无法精确映射的 raw evidence unit 在 turn view 标为 `unmatched`、保留分母且恒 miss；
+  不猜拆分/纠错。session view 复刻官方 prefix 上卷，其中 2 个仍 unmatched
+- `conv-50/qa[5]` 的重复 `D4:5` 按 Gold Evidence Group 的语义 unit 稳定去重；官方 raw scorer
+  会双重计权，因此 group recall 是披露过的 framework normalization，不冒充逐字节 parity
 
 ### Judge / BLEU
 
@@ -85,6 +90,10 @@ BLEU-1 属于其他 LoCoMo task，不进入 Phase 1 QA。
 round 只是预算单位，不改变 canonical 数据模型，也不要求完整 speaker pair。question 固定
 取第一个 Phase-1 public question，不根据 evidence 选“可回答题”。成功标准是 ingest →
 retrieve → unified answer → artifacts → evaluator 全链路跑通，答案可为 0 分。
+
+`1 round` 是注册 policy 默认值，不是硬上限；`predict smoke ... --rounds N` 可显式覆盖，
+LoCoMo 对 `--turns/--sessions/--sources` fail-fast。某个 method 为覆盖特定输入形态而扩大 smoke
+时，应在该 method 的 recertification note 记录原因，不修改 benchmark 全局默认。
 
 smoke 禁止 resume 与 `retry_failed`，以免极小运行的旧状态掩盖流程问题。
 

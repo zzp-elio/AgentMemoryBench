@@ -403,6 +403,68 @@ class LoCoMoGoldEvidenceGroupTest(unittest.TestCase):
                     self.assertTrue(group.child_ids[0].startswith("D"))
                     self.assertNotIn(":", group.child_ids[0])
 
+    def test_real_data_preserves_unmatched_evidence_without_guessing_repairs(self):
+        """真实坏 evidence 应保留为 unmatched，不能猜拆分、纠错或缩小分母。"""
+
+        turn_unmatched: list[tuple[str, int, str]] = []
+        session_unmatched: list[tuple[str, int, str]] = []
+        phase1_raw_evidence_token_count = 0
+        phase1_evidence_unit_count = 0
+        theoretical_scores: list[float] = []
+        dataset = LoCoMoAdapter(ROOT).load()
+        for conversation in dataset.conversations:
+            for gold in conversation.gold_answers.values():
+                source_index = gold.metadata["source_index"]
+                views = {
+                    group_set.provenance_granularity: group_set
+                    for group_set in gold.evidence_group_sets
+                }
+                turn_groups = views["turn"].groups
+                session_groups = views["session"].groups
+                phase1_raw_evidence_token_count += len(gold.evidence)
+                phase1_evidence_unit_count += len(turn_groups)
+                theoretical_scores.append(
+                    1.0
+                    if not turn_groups
+                    else sum(group.mapping_status == "mapped" for group in turn_groups)
+                    / len(turn_groups)
+                )
+                turn_unmatched.extend(
+                    (conversation.conversation_id, source_index, group.unit_id)
+                    for group in turn_groups
+                    if group.mapping_status == "unmatched"
+                )
+                session_unmatched.extend(
+                    (conversation.conversation_id, source_index, group.unit_id)
+                    for group in session_groups
+                    if group.mapping_status == "unmatched"
+                )
+
+        self.assertEqual(phase1_raw_evidence_token_count, 2355)
+        self.assertEqual(phase1_evidence_unit_count, 2354)
+        self.assertEqual(
+            turn_unmatched,
+            [
+                ("conv-26", 37, "D8:6; D9:17"),
+                ("conv-42", 58, "D10:19"),
+                ("conv-42", 88, "D"),
+                ("conv-43", 18, "D:11:26"),
+                ("conv-47", 38, "D4:36"),
+                ("conv-49", 31, "D9:1 D4:4 D4:6"),
+                ("conv-49", 38, "D22:1 D22:2 D9:10 D9:11"),
+                ("conv-49", 46, "D21:18 D21:22 D11:15 D11:19"),
+                ("conv-50", 69, "D30:05"),
+            ],
+        )
+        self.assertEqual(
+            session_unmatched,
+            [("conv-42", 88, "D"), ("conv-43", 18, "D:11:26")],
+        )
+        self.assertAlmostEqual(
+            sum(theoretical_scores) / len(theoretical_scores),
+            0.996134817563389,
+        )
+
     def test_synthetic_dedup_mapping_and_session_projection(self):
         """重复 dia_id 稳定去重；不可映射 token 两个 view 都记 unmatched。"""
 
