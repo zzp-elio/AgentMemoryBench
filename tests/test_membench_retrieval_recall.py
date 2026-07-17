@@ -158,6 +158,8 @@ def test_multi_child_pair_group_any_of_hit_on_either_side_counts_once(
     from memory_benchmark.core import GoldEvidenceGroup, GoldEvidenceGroupSet
 
     def _pair_private_label(question_id: str) -> dict[str, object]:
+        """构造含三个 FirstAgent pair-step group 的真实私有标签。"""
+
         groups = (
             GoldEvidenceGroup(
                 unit_id="0",

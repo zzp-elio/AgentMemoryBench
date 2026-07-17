@@ -158,3 +158,13 @@ R1 定位自检（为了在唯一全定向前定位新增门）尾行：
 `4 passed, 1 warning in 15.69s`。原卡 §6 六文件定向命令在 R1 只跑
 一次，尾行：`269 passed, 1 warning in 38.46s`。唯一 warning 仍是
 vendored LightMem 的 Pydantic V2 deprecation。`git diff --check` 无输出。
+
+## 7. 架构师 R2 文档标准补丁
+
+架构师首次全量门尾行为
+`31 failed, 1410 passed, 3 deselected, 2 warnings, 29 subtests passed`。其中 30 项
+是隔离 worktree 缺失 gitignored `third_party` assets 的环境失败；唯一与本 diff
+相关的真实失败是 `tests/test_membench_retrieval_recall.py` 的 nested helper
+`_pair_private_label` 缺少中文 docstring。R2 只为该 helper 补上准确的
+中文 docstring，不改测试语义或生产逻辑；首轮与 R1 历史保留不变。
+定向复核尾行：`13 passed in 2.64s`；`git diff --check` 无输出。
