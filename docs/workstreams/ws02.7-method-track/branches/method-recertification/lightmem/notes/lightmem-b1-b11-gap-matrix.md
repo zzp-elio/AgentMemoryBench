@@ -19,7 +19,7 @@
 | B8+ 韧性 | revalidated | timeout/retry wrapper 与失败态清理未受影响 | 真实 smoke 前对表 |
 | B9 模型/build 口径 | revalidated | 当前五格 smoke identity=MiniLM/384/cosine + hybrid + online-soft，强类型 manifest 可复算。效果参数/embedding 的最终裁决按政策延后，不冒充当前 smoke 缺口 | 进入 B11；首个效果 full 前再裁参数 |
 | B10 TOML/builder | revalidated | 当前 manifest 对既有 smoke build truthful；新 TOML section/完整 author builder 已明确排在首个 author calibration/效果 full 前，按政策不阻塞 5×10 smoke。官方 LME `user_only` 未来只能显式 author section，不能暗切 | 用当前 section 跑 B11；效果实验前迁移 |
-| B11 五格 smoke/冻结 | pending | hybrid/online-soft/v6 均要求最新 build；旧五格与默认 1-round 不能证明 caption 路径。用户已批 3 rounds / 1 question 规模，但预算/run_id 未批 | 用户批准预算/run_id 后重建并跑 smoke |
+| B11 五格 smoke/冻结 | pending | hybrid/online-soft/v6 均要求最新 build；旧五格与默认 1-round 不能证明 caption 路径。单 worker 与真实双 worker 的 run_id/命令已交用户，尚未回收输出 | 用户按 command pack 串行运行，架构师开箱验货后裁定 |
 
 ## 当前冻结判词
 

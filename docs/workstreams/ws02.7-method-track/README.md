@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem caption v6 已关闭 B2/B4；B11 待预算/run_id）
+status: in-progress（LightMem caption v6 已关闭 B2/B4；B11 command pack 待用户执行/回收）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -94,7 +94,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 - **指标现行裁决**：LoCoMo canonical answer 仍是 32-token 单一 prediction，各答案指标共用它；
   Precision/F1@k 在 relevance gold 未证明穷尽时 N/A。artifact-only 新指标走独立 metric-pack，
   不整体解冻 benchmark core；M1 后先消费 `docs/reference/metric-extension-plan.md` 的
-  normalized EM + directional substring EM。Fable 5 三家 product-default/variant 审计继续
+  normalized EM + directional substring EM。“通用”现明确为公式内核不读取 benchmark/method，
+  不代表所有 task 都启用：现有 Recall 已共享 group 公式与资格门，剩余 top-k/结果骨架收敛；
+  F1 对 BEAM 的过宽注册一并在 Metric Pack M0 修正。自包含卡=
+  `branches/metric-pack/cards/actor-prompt-metric-kernels-m0.md`，待用户派发，可在隔离 worktree 与
+  真实 smoke 并行。Fable 5 三家 product-default/variant 审计继续
   作为既有 build identity 的历史证据；MemoryOS ChromaDB 仍是 reproduction variant，不能用
   TOML profile 掩盖算法分叉。
 - **Codex hook/下一动作**：项目 `.codex/hooks.json` 已获用户信任，compact 自举与 commit
@@ -120,18 +124,29 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   事件流也有 `turn_images`，LightMem 却只恢复 `original_content`；全量 1,226
   个 caption turn 不可见，而默认 1-round smoke 的 D1:1/D1:2 恰好无图片。**该缺口现已由
   `78196bc` + `65f5805` 强验收关闭：caption-bearing turn 统一共享 wrapper，无有效 caption
-  保留原文 bytes，B2/B4 retested；B11 仍待最新 build smoke。用户已批准 smoke 规模为
-  **3 rounds / 1 question**，预算与 `run_id` 仍待单独确认。
+  保留原文 bytes，B2/B4 retested；B11 仍待最新 build smoke。用户现已要求同时验证单 worker
+  与真实双 worker；两组 run_id/命令已固化在 B11 command pack，等待用户执行与架构师开箱验收。
   LoCoMo 异常终检又把稳定账补齐：16 个 date-only key/140 个 odd session 已由 canonical 层吸收；
   9 个 turn-unmatched gold unit、1 个重复 occurrence 与 4 道 empty-evidence QA 只走
   evaluator-private 通道，不要求 LightMem 特判。caption 卡已关闭，不再重复派发。
   B9/B10 效果配置迁移仍按既有政策不阻塞 smoke，但首个效果 full/author calibration 前必须完成。
-  未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
+  当前 Codex 不代用户执行付费命令；等待用户按 command pack 运行。LightMem 关闭后才严格串行 Mem0 →
   MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-17）
+
+- 2026-07-17（**LightMem × LoCoMo B11 命令已交付；Metric Pack M0 待用户派发**，GPT-5
+  架构师）：用户要求把能测的主线一次压实。真实 smoke 拆为串行两次 prediction：
+  `lm-locomo-v6-r3q1-w1`（1 conversation/worker）与 `lm-locomo-v6-r3q1-c2-w2`
+  （2 conversations/workers，避免一段 conversation 的伪并行）；每次均评当前四项 LoCoMo
+  metric：`locomo-f1`、通用 `f1`、`locomo-recall`、付费 `locomo-judge`。完整命令、日志路径与
+  零 API 机器验货=`branches/method-recertification/lightmem/notes/
+  lightmem-locomo-b11-command-pack.md`；尚未回收输出，B11 仍 pending。指标侧一手核查确认
+  `group_recall_score()` 与 RetrievalEvidence M1 已部分去耦，不能从零重写；新卡只抽剩余公共
+  top-k/纯结果内核，保留四家 qrel/排除政策，并新增 normalized EM + directional substring EM、
+  收窄 BEAM F1 启用面。卡=`branches/metric-pack/cards/actor-prompt-metric-kernels-m0.md`。
 
 - 2026-07-17（**LightMem caption v6 + R1 强验收；B2/B4 关闭，B11 待预算/run_id**，GPT-5
   架构师）：Opus 4.8 `ea08431` 的核心修复成立：v3 从 `turn_images` 恢复 `ImageRef`，legacy/v3
