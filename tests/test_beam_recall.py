@@ -77,6 +77,20 @@ def _na_evidence(
     }
 
 
+def _pending_evidence() -> dict:
+    """构造 `semantic_provenance=pending` 的逐题 evidence。"""
+
+    return {
+        "semantic_provenance": _assertion(
+            "pending", reason_code="audit_pending", reason="audit pending"
+        ),
+        "provenance_granularity": "none",
+        "stable_ranking": _assertion(
+            "pending", reason_code="audit_pending", reason="audit pending"
+        ),
+    }
+
+
 def _gold(
     question_id: str,
     evidence: list[str],
@@ -231,7 +245,26 @@ def test_empty_evidence_is_na(tmp_path: Path) -> None:
         categories=["event_ordering"],
     )
     assert result["score_records"][0]["status"] == "n/a"
+    assert result["score_records"][0]["exclusion_source"] == "benchmark_policy"
     assert result["summary"]["abstention_question_count"] == 1
+    assert result["summary"]["retrieval_evidence_status_counts"] == {}
+    assert result["summary"]["provenance_granularity"] is None
+
+
+@pytest.mark.parametrize("evidence", [_valid_evidence(), _na_evidence(), _pending_evidence()])
+def test_empty_gold_is_benchmark_exclusion_for_every_legal_evidence_status(
+    tmp_path: Path, evidence: dict
+) -> None:
+    """empty gold 携带 valid/n_a/pending 时都必须先按 benchmark policy 排除。"""
+
+    result = _run(
+        tmp_path,
+        golds=[_gold("q1", [])],
+        answers=[_answer("q1", evidence=evidence)],
+        categories=["event_ordering"],
+    )
+    assert result["score_records"][0]["exclusion_source"] == "benchmark_policy"
+    assert result["summary"]["retrieval_evidence_status_counts"] == {}
 
 
 def test_unmatched_group_is_zero_and_remains_in_denominator(tmp_path: Path) -> None:

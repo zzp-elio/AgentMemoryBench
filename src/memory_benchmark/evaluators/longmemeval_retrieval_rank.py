@@ -40,6 +40,7 @@ from .retrieval_evidence import (
     require_manifest_retrieval_evidence_contract_v1,
     summary_provenance_granularity,
     summary_status,
+    validated_retrieval_fields,
 )
 
 
@@ -85,6 +86,7 @@ class LongMemEvalRetrievalRankEvaluator:
         no_target_count = 0
         evidence_status_counts: Counter[str] = Counter()
         evidence_reason_code_counts: Counter[str] = Counter()
+        scored_decisions: list[RetrievalEligibilityDecision] = []
 
         for answer in answers:
             question_id = str(answer["question_id"])
@@ -99,7 +101,34 @@ class LongMemEvalRetrievalRankEvaluator:
                         "metric_name": self.metric_name,
                         "score": None,
                         "status": "n/a",
+                        "exclusion_source": "benchmark_policy",
                         "abstention": True,
+                        "category": category_by_id.get(question_id),
+                    }
+                )
+                continue
+
+            group_sets = parse_evidence_group_sets(
+                private_by_id[question_id], question_id
+            )
+            canonical_turn_groups = select_group_set(
+                group_sets,
+                provenance_granularity="turn",
+                unit_kind="longmemeval_user_target_turn",
+                question_id=question_id,
+            ).groups
+            if not canonical_turn_groups:
+                no_target_count += 1
+                records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": "n/a",
+                        "reason": "official_no_target",
+                        "exclusion_source": "benchmark_policy",
+                        "abstention": False,
                         "category": category_by_id.get(question_id),
                     }
                 )
@@ -127,36 +156,21 @@ class LongMemEvalRetrievalRankEvaluator:
                 continue
 
             granularity = decision.provenance_granularity
-            groups = select_group_set(
-                parse_evidence_group_sets(private_by_id[question_id], question_id),
-                provenance_granularity=granularity,
-                unit_kind=(
-                    "longmemeval_user_target_turn"
-                    if granularity == "turn"
-                    else "longmemeval_answer_session"
-                ),
-                question_id=question_id,
-            ).groups
-            if not groups:
-                # 官方 run_retrieval.py:389-410 聚合口径：无官方 gold unit 的题
-                # 整题剔除，不参与任何 k 的均值。provider 本身没有问题，因此
-                # 仍计入 retrieval_evidence_status_counts=valid。
-                no_target_count += 1
-                records.append(
-                    {
-                        "question_id": question_id,
-                        "conversation_id": answer.get("conversation_id"),
-                        "metric_name": self.metric_name,
-                        "score": None,
-                        "status": "n/a",
-                        "reason": "official_no_target",
-                        "abstention": False,
-                        "category": category_by_id.get(question_id),
-                    }
-                )
-                continue
+            groups = canonical_turn_groups
+            if granularity == "session":
+                groups = select_group_set(
+                    group_sets,
+                    provenance_granularity="session",
+                    unit_kind="longmemeval_answer_session",
+                    question_id=question_id,
+                ).groups
+                if not groups:
+                    raise ConfigurationError(
+                        f"question {question_id}: canonical turn gold has targets but "
+                        "the provider-required session gold view is empty"
+                    )
 
-            top_k, items = _retrieval_fields(answer, question_id)
+            top_k, items = validated_retrieval_fields(answer, question_id)
             ranked_ids = _ranked_source_ids(items, top_k, granularity)
 
             metrics: dict[str, float] = {}
@@ -183,6 +197,7 @@ class LongMemEvalRetrievalRankEvaluator:
                     "metrics": metrics,
                 }
             )
+            scored_decisions.append(decision)
 
         means = {
             metric: sum(row[metric] for row in rows) / len(rows)
@@ -204,7 +219,7 @@ class LongMemEvalRetrievalRankEvaluator:
             "summary": {
                 "status": summary_status(scored_count=len(scored), pending_count=pending_count),
                 "provenance_granularity": summary_provenance_granularity(
-                    list(decisions_by_id.values())
+                    scored_decisions
                 ),
                 "scored_question_count": len(scored),
                 "overall_metrics": means,
@@ -328,34 +343,6 @@ def _ranked_source_ids(
                 seen.add(source_id)
                 ranked.append(source_id)
     return ranked
-
-
-def _retrieval_fields(
-    record: dict[str, Any], question_id: str
-) -> tuple[int, list[dict[str, Any]]]:
-    """校验 decision valid 后所需的 top_k/items/source ids。"""
-
-    top_k = record.get("retrieval_query_top_k")
-    items = record.get("retrieved_items")
-    if not isinstance(top_k, int) or top_k < 1:
-        raise ConfigurationError(
-            f"question {question_id}: provider evidence declares semantic "
-            "provenance valid but retrieval_query_top_k is missing or invalid"
-        )
-    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
-        raise ConfigurationError(
-            f"question {question_id}: provider evidence declares semantic "
-            "provenance valid but retrieved_items is missing or invalid"
-        )
-    for item in items[:top_k]:
-        source_ids = item.get("source_turn_ids")
-        if not isinstance(source_ids, list) or not source_ids:
-            raise ConfigurationError(
-                f"question {question_id}: provider evidence declares semantic "
-                "provenance valid but a retrieved item has missing or empty "
-                "source_turn_ids"
-            )
-    return top_k, items
 
 
 def _public_session_id(source_id: str) -> str:

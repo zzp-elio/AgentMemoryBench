@@ -383,6 +383,12 @@ def test_retrieve_returns_neutral_placeholder_when_nothing_ingested() -> None:
 
     assert result.formatted_memory == "No ingested public memory."
     assert result.items == ()
+    assert result.evidence is not None
+    assert result.evidence.semantic_provenance.status == "valid"
+    assert result.evidence.provenance_granularity == "turn"
+    assert result.evidence.stable_ranking.status == "valid"
+    assert result.evidence.semantic_provenance.reason_code is None
+    assert result.evidence.stable_ranking.reason_code is None
 
 
 def test_retrieve_returns_deterministic_ordered_items_referencing_ingested_turns() -> None:
@@ -403,6 +409,12 @@ def test_retrieve_returns_deterministic_ordered_items_referencing_ingested_turns
     ingested_ids = {turn.turn_id for turn in turns}
     ordered_source_ids = [item.source_turn_ids for item in result_a.items]
     assert ordered_source_ids == [("t1",), ("t2",), ("t3",)]
+    assert result_a.evidence is not None
+    assert result_a.evidence.semantic_provenance.status == "valid"
+    assert result_a.evidence.provenance_granularity == "turn"
+    assert result_a.evidence.stable_ranking.status == "valid"
+    assert result_a.evidence.semantic_provenance.reason is None
+    assert result_a.evidence.stable_ranking.reason is None
     for item in result_a.items:
         assert set(item.source_turn_ids) <= ingested_ids
 

@@ -23,10 +23,20 @@ import pytest
 
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.evaluators.locomo_recall import LoCoMoRetrievalRecallEvaluator
+from memory_benchmark.evaluators.retrieval_evidence import parse_retrieval_evidence
 from memory_benchmark.storage import ExperimentPaths, atomic_write_json, atomic_write_jsonl
 
 
 pytestmark = pytest.mark.unit
+
+
+def test_strict_evidence_parser_rejects_non_string_object_key_as_configuration_error() -> None:
+    """非字符串 object key 必须稳定转成 ConfigurationError，不能泄漏排序 TypeError。"""
+
+    raw = _valid_evidence("turn")
+    raw[1] = "unexpected"
+    with pytest.raises(ConfigurationError, match="non-string object keys"):
+        parse_retrieval_evidence(raw, "q1")
 
 
 def _write_run(
@@ -624,7 +634,7 @@ def test_declared_turn_provenance_empty_source_turn_ids_fails_fast(
         public_questions=[{"question_id": "q1", "category": "4"}],
     )
 
-    with pytest.raises(ConfigurationError, match="empty source_turn_ids"):
+    with pytest.raises(ConfigurationError, match="source_turn_ids"):
         LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(
             paths=paths,
             manifest=manifest,
@@ -651,6 +661,97 @@ def test_valid_decision_with_empty_retrieved_items_list_is_zero_hit_not_fail_fas
     record = result["score_records"][0]
     assert record["status"] == "ok"
     assert record["score"] == 0.0
+
+
+@pytest.mark.parametrize("bad_top_k", [True, "1"])
+def test_shared_retrieval_validation_rejects_non_integer_top_k(
+    tmp_path: Path, bad_top_k: object
+) -> None:
+    """共享校验必须拒绝 bool 与字符串 top_k，不能利用 Python bool 是 int 的特性。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt(
+                "q1",
+                evidence=_valid_evidence("turn"),
+                top_k=bad_top_k,  # type: ignore[arg-type]
+                retrieved_items=[],
+            )
+        ],
+        private_labels=[_label("q1", ["D1:1"])],
+        public_questions=[{"question_id": "q1", "category": "4"}],
+    )
+    with pytest.raises(ConfigurationError, match="positive int"):
+        LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(
+            paths=paths, manifest=manifest
+        )
+
+
+@pytest.mark.parametrize(
+    ("items", "message"),
+    [
+        (["not-an-object"], "list of objects"),
+        ([_item("i1", [" D1:1"])], "without surrounding whitespace"),
+        ([_item("i1", [""])], "without surrounding whitespace"),
+    ],
+)
+def test_shared_retrieval_validation_rejects_malformed_top_k_items(
+    tmp_path: Path, items: list[object], message: str
+) -> None:
+    """共享校验必须拒绝非 object item 与空白/空 source id。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt(
+                "q1",
+                evidence=_valid_evidence("turn"),
+                top_k=1,
+                retrieved_items=items,  # type: ignore[arg-type]
+            )
+        ],
+        private_labels=[_label("q1", ["D1:1"])],
+        public_questions=[{"question_id": "q1", "category": "4"}],
+    )
+    with pytest.raises(ConfigurationError, match=message):
+        LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(
+            paths=paths, manifest=manifest
+        )
+
+
+def test_summary_provenance_granularity_reports_mixed_scored_views(
+    tmp_path: Path,
+) -> None:
+    """实际评分题同时使用 turn/session 时 summary 必须稳定披露 mixed。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt(
+                "q-turn",
+                evidence=_valid_evidence("turn"),
+                top_k=1,
+                retrieved_items=[_item("i1", ["D1:1"])],
+            ),
+            _answer_prompt(
+                "q-session",
+                evidence=_valid_evidence("session"),
+                top_k=1,
+                retrieved_items=[_item("i2", ["D2:1"])],
+            ),
+        ],
+        private_labels=[_label("q-turn", ["D1:1"]), _label("q-session", ["D2:1"])],
+        public_questions=[
+            {"question_id": "q-turn", "category": "4"},
+            {"question_id": "q-session", "category": "4"},
+        ],
+    )
+    result = LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(
+        paths=paths, manifest=manifest
+    )
+    assert result["total_questions"] == 2
+    assert result["summary"]["provenance_granularity"] == "mixed"
 
 
 def test_answer_prompt_and_private_label_question_ids_must_match(

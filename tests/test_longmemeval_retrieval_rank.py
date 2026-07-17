@@ -393,6 +393,35 @@ def test_empty_run_returns_structured_na(tmp_path: Path) -> None:
     assert result["score_records"] == []
 
 
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        _synthetic_ranked_evidence(),
+        _pending_ranking_evidence(),
+        _na_semantic_evidence(),
+    ],
+)
+def test_official_no_target_precedes_rank_eligibility_for_every_status(
+    tmp_path: Path, evidence: dict
+) -> None:
+    """canonical no-target 必须先于 rank valid/pending/n_a，且不计 evidence status。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        rows=[("q", [], [])],
+        top_k=1,
+        evidence_by_qid={"q": evidence},
+    )
+    result = LongMemEvalRetrievalRankEvaluator().evaluate_run_artifacts(
+        paths=paths, manifest=manifest
+    )
+    record = result["score_records"][0]
+    assert record["reason"] == "official_no_target"
+    assert record["exclusion_source"] == "benchmark_policy"
+    assert result["summary"]["retrieval_evidence_status_counts"] == {}
+    assert result["summary"]["provenance_granularity"] is None
+
+
 def test_summary_reports_metric_tier_and_formula_parity(tmp_path: Path) -> None:
     """summary 必须标注 framework_supplementary metric tier 与 available-k parity。"""
 

@@ -275,6 +275,7 @@ def _assert_prompt_and_artifact_layout(
     """断言 unified prompt / manifest 形状 / artifact 计数 / formatted_memory 进 prompt。"""
 
     assert manifest["method"]["provenance_granularity"] == "turn"
+    assert manifest["method"]["retrieval_evidence_contract_version"] == "v1"
     assert manifest["method"]["prompt_track"] == "unified"
     assert manifest["benchmark_name"] == "beam"
     assert manifest["run_scope"] == "smoke"
@@ -287,6 +288,14 @@ def _assert_prompt_and_artifact_layout(
     assert len(predictions) == 1
 
     record = answer_prompts[0]
+    evidence = record["retrieval_evidence"]
+    assert evidence["semantic_provenance"] == {
+        "status": "valid", "reason_code": None, "reason": None
+    }
+    assert evidence["provenance_granularity"] == "turn"
+    assert evidence["stable_ranking"] == {
+        "status": "valid", "reason_code": None, "reason": None
+    }
     assert record["metadata"]["prompt_track"] == "unified"
     assert record["metadata"]["answer_prompt_profile"] == BEAM_ANSWER_PROMPT_PROFILE
 
@@ -439,8 +448,9 @@ def test_beam_registered_prediction_offline_probe_workflow_100k(
     # 整体 summary.status 因此可能为 n/a，但与"provider provenance is
     # unavailable" 的 N/A payload 在结构上不同——后者 reason 字段说明
     # provenance 缺失。本断言钉死 probe 已声明 turn provenance，
-    # evaluator 因此走 per-question scoring 路径（不是早退 N/A）。
-    assert recall_payload["provenance_granularity"] == "turn"
+    # evaluator 因此走逐题路径；该题被 benchmark policy 排除，scored-only
+    # summary granularity 必须为 None，不能采被排除题的 valid evidence。
+    assert recall_payload["provenance_granularity"] is None
     assert "provider provenance is unavailable" not in json.dumps(recall_payload)
 
     # 离线 f1：answer-level 路径，必须产出 metric_scores.jsonl
@@ -569,7 +579,8 @@ def test_beam_registered_prediction_offline_probe_workflow_10m(
     recall_payload = json.loads(
         Path(recall_summary.summary_path).read_text(encoding="utf-8")
     )
-    assert recall_payload["provenance_granularity"] == "turn"
+    # 唯一题是 benchmark-policy empty-gold 排除，不是 scored question。
+    assert recall_payload["provenance_granularity"] is None
     assert "provider provenance is unavailable" not in json.dumps(recall_payload)
 
     # 离线 f1

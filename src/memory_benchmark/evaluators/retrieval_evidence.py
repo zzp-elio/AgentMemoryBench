@@ -91,6 +91,12 @@ def _require_exact_keys(
 ) -> None:
     """校验 object 的 key 集合与允许集合完全一致，不容忍缺失或多余 key。"""
 
+    non_string_keys = [key for key in raw if not isinstance(key, str)]
+    if non_string_keys:
+        raise ConfigurationError(
+            f"question {question_id}: {field_path} has non-string object keys; "
+            "all keys must be strings"
+        )
     actual = set(raw)
     if actual != allowed:
         missing = sorted(allowed - actual)
@@ -179,8 +185,9 @@ class RetrievalEligibilityDecision:
         reason_code: `status` 非 valid 时的稳定原因码；valid 时为 None。
         reason: `status` 非 valid 时的可读原因；valid 时为 None。
         provenance_granularity: `status=valid` 时用于挑选 Gold Evidence
-            Group view 的粒度；非 valid 时固定为 evidence 本身的粒度（协议
-            保证此时必为 `"none"`）。
+            Group view 的粒度；非 valid 时保留当前裁决对应的逐题粒度。
+            semantic provenance 非 valid 时协议保证为 `none`，但 granularity
+            mismatch 或 stable-ranking 非 valid 时仍可保留原始 turn/session。
     """
 
     status: RetrievalEvidenceStatus
@@ -285,9 +292,9 @@ def summary_status(*, scored_count: int, pending_count: int) -> str:
     输入:
         scored_count: 真实计分（`retrieval_evidence_status=valid` 且未被
             benchmark policy 剔除）的题数。
-        pending_count: `retrieval_evidence_status=pending` 的题数（不论是否
-            也命中了 benchmark policy 剔除路径——pending 题在到达该分支前就
-            已经短路返回，不会先被判定为 benchmark policy 剔除）。
+        pending_count: 有可评分 gold、且
+            `retrieval_evidence_status=pending` 的题数；benchmark-policy
+            排除题不进入 evidence status 统计。
 
     输出:
         str: 至少一题 scored 为 `"ok"`；零 scored 且至少一题 pending 为
@@ -302,31 +309,75 @@ def summary_status(*, scored_count: int, pending_count: int) -> str:
 
 
 def summary_provenance_granularity(
-    decisions: Sequence[RetrievalEligibilityDecision],
+    scored_decisions: Sequence[RetrievalEligibilityDecision],
 ) -> str | None:
-    """为存量消费者计算 summary 级别的代表性 `provenance_granularity`。
+    """从实际评分裁决聚合 summary 级 `provenance_granularity`。
 
     历史 summary 曾把 `provenance_granularity` 当作整个 run 唯一值直接使用；
     v1 逐题裁决后该字段已不再是资格判据（真正的资格判定见
     `decide_retrieval_eligibility`，逐题真实粒度见每条 score record 自身的
     `provenance_granularity`），本函数只为仍在读取 summary 顶层该字段的存量
-    消费者保留一个"本 run 内 valid 裁决共享的代表粒度"：取全部 valid 裁决
-    中第一个出现的 granularity；没有任何 valid 裁决时返回 None。真实出现
-    split（不同 valid 裁决 granularity 不一致）时不报错，仍返回第一个
-    valid 裁决的 granularity——该字段已退化为审计辅助，不再驱动任何计分
-    分支或 gold view 选择。
+    消费者保留审计辅助值，但只允许实际进入 metric 分母的裁决参与：没有
+    scored question 返回 None；只有一种粒度返回该粒度；同时出现多种粒度
+    返回稳定值 `"mixed"`。benchmark-policy 排除题与 valid 但未评分题均不能
+    污染该值；本字段仍不驱动资格、gold view 选择或计分。
 
     输入:
-        decisions: 本 run 全部问题的资格裁决（含非 valid）。
+        scored_decisions: 本 run 实际进入分母的 valid 裁决。
 
     输出:
-        str | None: 代表性 granularity，或 None（无 valid 裁决）。
+        str | None: 唯一粒度、`"mixed"`，或 None（无 scored question）。
     """
 
-    for decision in decisions:
-        if decision.status == "valid":
-            return decision.provenance_granularity
-    return None
+    granularities = {
+        decision.provenance_granularity for decision in scored_decisions
+    }
+    if not granularities:
+        return None
+    if len(granularities) == 1:
+        return next(iter(granularities))
+    return "mixed"
+
+
+def validated_retrieval_fields(
+    record: dict[str, Any], question_id: str
+) -> tuple[int, list[dict[str, Any]]]:
+    """严格校验 decision valid 且非 benchmark 排除题的 retrieval artifact。
+
+    `retrieval_query_top_k` 必须是非 bool 的正整数；`retrieved_items` 必须是
+    list 且每项都是 object。只对实际进入 top-k 的 item 要求非空
+    `source_turn_ids`，其中每个 id 必须是无首尾空白的非空字符串。真实
+    `retrieved_items=[]` 合法，表示 0 hit。
+    """
+
+    top_k = record.get("retrieval_query_top_k")
+    if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k <= 0:
+        raise ConfigurationError(
+            f"question {question_id}: retrieval_query_top_k must be a positive int"
+        )
+    items = record.get("retrieved_items")
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise ConfigurationError(
+            f"question {question_id}: retrieved_items must be a list of objects"
+        )
+    for item in items[:top_k]:
+        source_ids = item.get("source_turn_ids")
+        if not isinstance(source_ids, list) or not source_ids:
+            raise ConfigurationError(
+                f"question {question_id}: top-k retrieved item source_turn_ids "
+                "must be a non-empty list"
+            )
+        if any(
+            not isinstance(source_id, str)
+            or not source_id.strip()
+            or source_id != source_id.strip()
+            for source_id in source_ids
+        ):
+            raise ConfigurationError(
+                f"question {question_id}: top-k retrieved item source_turn_ids "
+                "must contain non-empty strings without surrounding whitespace"
+            )
+    return top_k, items
 
 
 __all__ = [
@@ -339,4 +390,5 @@ __all__ = [
     "require_manifest_retrieval_evidence_contract_v1",
     "summary_provenance_granularity",
     "summary_status",
+    "validated_retrieval_fields",
 ]

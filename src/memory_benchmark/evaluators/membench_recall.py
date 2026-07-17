@@ -33,6 +33,7 @@ from memory_benchmark.evaluators.retrieval_evidence import (
     require_manifest_retrieval_evidence_contract_v1,
     summary_provenance_granularity,
     summary_status,
+    validated_retrieval_fields,
 )
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
@@ -80,36 +81,11 @@ class MemBenchRetrievalRecallEvaluator:
         out_of_bounds_gold_total = 0
         evidence_status_counts: Counter[str] = Counter()
         evidence_reason_code_counts: Counter[str] = Counter()
+        scored_decisions: list[RetrievalEligibilityDecision] = []
 
         for answer_record in answer_records:
             question_id = str(answer_record["question_id"])
             category = category_by_id.get(question_id)
-            decision = decisions_by_id[question_id]
-            evidence_status_counts[decision.status] += 1
-
-            if decision.status != "valid":
-                evidence_reason_code_counts[decision.reason_code] += 1
-                score_records.append(
-                    {
-                        "question_id": question_id,
-                        "conversation_id": answer_record.get("conversation_id"),
-                        "metric_name": self.metric_name,
-                        "score": None,
-                        "status": display_status(decision.status),
-                        "retrieval_evidence_status": decision.status,
-                        "reason_code": decision.reason_code,
-                        "reason": decision.reason,
-                        "category": category,
-                        "provenance_granularity": decision.provenance_granularity,
-                    }
-                )
-                continue
-
-            top_k, retrieved_items = _validated_retrieval_fields(
-                answer_record,
-                question_id,
-            )
-            source_ids = _source_turn_ids(retrieved_items, top_k)
             groups = select_group_set(
                 parse_evidence_group_sets(
                     private_by_id[question_id], question_id
@@ -136,6 +112,7 @@ class MemBenchRetrievalRecallEvaluator:
                         "score": None,
                         "status": "n/a",
                         "reason": "MemBench question has no matchable gold evidence",
+                        "exclusion_source": "benchmark_policy",
                         "category": category,
                         "provenance_granularity": "turn",
                         "details": {
@@ -144,33 +121,59 @@ class MemBenchRetrievalRecallEvaluator:
                         },
                     }
                 )
-            else:
-                score = group_recall_score(groups, source_ids)
-                unmatched_count = sum(
-                    1 for group in groups if group.mapping_status == "unmatched"
+                continue
+
+            decision = decisions_by_id[question_id]
+            evidence_status_counts[decision.status] += 1
+            if decision.status != "valid":
+                evidence_reason_code_counts[decision.reason_code] += 1
+                score_records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer_record.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": display_status(decision.status),
+                        "retrieval_evidence_status": decision.status,
+                        "reason_code": decision.reason_code,
+                        "reason": decision.reason,
+                        "category": category,
+                        "provenance_granularity": decision.provenance_granularity,
+                    }
                 )
-                unmatched_gold_total += unmatched_count
-                top_k_values.append(top_k)
-                record = {
-                    "question_id": question_id,
-                    "conversation_id": answer_record.get("conversation_id"),
-                    "metric_name": self.metric_name,
-                    "score": score,
-                    "status": "ok",
-                    "retrieval_evidence_status": "valid",
-                    "category": category,
-                    "requested_top_k": top_k,
-                    "provenance_granularity": "turn",
-                    "details": {
-                        "gold_unit_ids": [group.unit_id for group in groups],
-                        "unmatched_gold_unit_count": unmatched_count,
-                        "out_of_bounds_target_step_ids": oob_ids,
-                        "retrieved_source_turn_ids": sorted(source_ids),
-                        "official_source": self.official_source,
-                    },
-                }
-                score_records.append(record)
-                scored_records.append(record)
+                continue
+
+            top_k, retrieved_items = validated_retrieval_fields(
+                answer_record, question_id
+            )
+            source_ids = _source_turn_ids(retrieved_items, top_k)
+            score = group_recall_score(groups, source_ids)
+            unmatched_count = sum(
+                1 for group in groups if group.mapping_status == "unmatched"
+            )
+            unmatched_gold_total += unmatched_count
+            top_k_values.append(top_k)
+            record = {
+                "question_id": question_id,
+                "conversation_id": answer_record.get("conversation_id"),
+                "metric_name": self.metric_name,
+                "score": score,
+                "status": "ok",
+                "retrieval_evidence_status": "valid",
+                "category": category,
+                "requested_top_k": top_k,
+                "provenance_granularity": "turn",
+                "details": {
+                    "gold_unit_ids": [group.unit_id for group in groups],
+                    "unmatched_gold_unit_count": unmatched_count,
+                    "out_of_bounds_target_step_ids": oob_ids,
+                    "retrieved_source_turn_ids": sorted(source_ids),
+                    "official_source": self.official_source,
+                },
+            }
+            score_records.append(record)
+            scored_records.append(record)
+            scored_decisions.append(decision)
 
         return _scored_payload(
             metric_name=self.metric_name,
@@ -182,7 +185,7 @@ class MemBenchRetrievalRecallEvaluator:
             out_of_bounds_gold_total=out_of_bounds_gold_total,
             evidence_status_counts=evidence_status_counts,
             evidence_reason_code_counts=evidence_reason_code_counts,
-            decisions=list(decisions_by_id.values()),
+            scored_decisions=scored_decisions,
             official_source=self.official_source,
         )
 
@@ -228,37 +231,6 @@ def _validate_matching_question_ids(
         )
 
 
-def _validated_retrieval_fields(
-    record: dict[str, Any],
-    question_id: str,
-) -> tuple[int, list[dict[str, Any]]]:
-    """校验 decision valid 后必需的 top_k、retrieved_items 与 source ids。"""
-
-    top_k = record.get("retrieval_query_top_k")
-    retrieved_items = record.get("retrieved_items")
-    if not isinstance(top_k, int) or top_k < 1:
-        raise ConfigurationError(
-            f"question {question_id}: provider evidence declares semantic "
-            "provenance valid but retrieval_query_top_k is missing or invalid"
-        )
-    if not isinstance(retrieved_items, list) or any(
-        not isinstance(item, dict) for item in retrieved_items
-    ):
-        raise ConfigurationError(
-            f"question {question_id}: provider evidence declares semantic "
-            "provenance valid but retrieved_items is missing or invalid"
-        )
-    for item in retrieved_items[:top_k]:
-        source_ids = item.get("source_turn_ids")
-        if not isinstance(source_ids, list) or not source_ids:
-            raise ConfigurationError(
-                f"question {question_id}: provider evidence declares semantic "
-                "provenance valid but a retrieved item has missing or empty "
-                "source_turn_ids"
-            )
-    return top_k, retrieved_items
-
-
 def _source_turn_ids(
     retrieved_items: list[dict[str, Any]],
     top_k: int,
@@ -300,7 +272,7 @@ def _scored_payload(
     out_of_bounds_gold_total: int,
     evidence_status_counts: Counter[str],
     evidence_reason_code_counts: Counter[str],
-    decisions: list[RetrievalEligibilityDecision],
+    scored_decisions: list[RetrievalEligibilityDecision],
     official_source: str,
 ) -> dict[str, Any]:
     """聚合已评分问题，按 question_type 输出分类聚合。"""
@@ -327,7 +299,7 @@ def _scored_payload(
         "correct_count": None,
         "summary": {
             "status": summary_status(scored_count=len(scored_records), pending_count=pending_count),
-            "provenance_granularity": summary_provenance_granularity(decisions),
+            "provenance_granularity": summary_provenance_granularity(scored_decisions),
             "scored_question_count": len(scored_records),
             "empty_gold_question_count": empty_gold_count,
             "unmatched_gold_total": unmatched_gold_total,

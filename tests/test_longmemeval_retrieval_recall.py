@@ -2,8 +2,8 @@
 
 RetrievalEvidence M1 后，资格由逐题 `retrieval_evidence` 派生：`_abs` 题保持
 原有 benchmark-policy 剔除（不看 evidence 内容，粒度无关，检查顺序在裁决之
-前）；官方 no-target 题仍是 benchmark policy 剔除，但现在必须先过 decision
-valid 才能选中对应 granularity 的 gold view 来判断是否为空；provider 侧
+前）；官方 no-target 题同样先用 canonical private turn view 判定，再看 provider
+decision，保持官方主路径分母；provider 侧
 n_a/pending 则产生独立的逐题 N/A/pending record，不与官方剔除混淆。
 """
 
@@ -343,6 +343,7 @@ def test_abstention_question_is_na_and_counted_separately(tmp_path: Path) -> Non
     assert records["q_abs_1"]["status"] == "n/a"
     assert records["q_abs_1"]["score"] is None
     assert records["q_abs_1"]["abstention"] is True
+    assert records["q_abs_1"]["exclusion_source"] == "benchmark_policy"
     assert result["total_questions"] == 1
     assert result["mean_score"] == 1.0
     assert result["summary"]["scored_question_count"] == 1
@@ -385,10 +386,10 @@ def test_provider_na_evidence_produces_na_record_distinct_from_abstention(
     assert result["summary"]["retrieval_evidence_status_counts"] == {"n_a": 1}
 
 
-def test_official_no_target_after_valid_decision_is_benchmark_policy_na(
+def test_official_no_target_precedes_provider_eligibility_and_is_benchmark_policy_na(
     tmp_path: Path,
 ) -> None:
-    """decision valid 但所选 granularity 的 gold view 为空时，仍是官方 no-target N/A。"""
+    """canonical turn gold 为空时先按官方 no-target 排除，不计 provider status。"""
 
     paths, manifest = _write_run(
         tmp_path,
@@ -412,9 +413,59 @@ def test_official_no_target_after_valid_decision_is_benchmark_policy_na(
     record = result["score_records"][0]
     assert record["score"] is None
     assert record["reason"] == "official_no_target"
+    assert record["exclusion_source"] == "benchmark_policy"
     assert result["summary"]["scored_question_count"] == 0
-    # decision 本身是 valid（provider 侧没问题），只是 gold view 为空。
-    assert result["summary"]["retrieval_evidence_status_counts"] == {"valid": 1}
+    assert result["summary"]["retrieval_evidence_status_counts"] == {}
+    assert result["summary"]["provenance_granularity"] is None
+
+
+@pytest.mark.parametrize("evidence", [_valid_evidence(), _na_evidence(), _pending_evidence()])
+def test_official_no_target_is_excluded_for_every_legal_evidence_status(
+    tmp_path: Path, evidence: dict
+) -> None:
+    """valid/n_a/pending 都不能把 canonical no-target 改写成 provider gap。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[_answer_prompt("q1", evidence=evidence)],
+        private_labels=[
+            _private_label("q1", turn_ids=[], corpus_ids=[], session_ids=[])
+        ],
+        public_questions=[{"question_id": "q1", "category": "multi-session"}],
+    )
+    result = LongMemEvalRetrievalRecallEvaluator().evaluate_run_artifacts(
+        paths=paths, manifest=manifest
+    )
+    assert result["score_records"][0]["exclusion_source"] == "benchmark_policy"
+    assert result["summary"]["retrieval_evidence_status_counts"] == {}
+
+
+def test_canonical_target_with_missing_provider_gold_view_fails_fast(
+    tmp_path: Path,
+) -> None:
+    """canonical turn 有 target 但 provider 所需 session view 为空是 gold contract 矛盾。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt(
+                "q1",
+                evidence=_valid_evidence("session"),
+                top_k=1,
+                retrieved_items=[],
+            )
+        ],
+        private_labels=[
+            _private_label(
+                "q1", turn_ids=["session-a:t1"], corpus_ids=[], session_ids=[]
+            )
+        ],
+        public_questions=[{"question_id": "q1", "category": "multi-session"}],
+    )
+    with pytest.raises(ConfigurationError, match="canonical turn gold has targets"):
+        LongMemEvalRetrievalRecallEvaluator().evaluate_run_artifacts(
+            paths=paths, manifest=manifest
+        )
 
 
 def test_none_or_undeclared_provenance_returns_structured_na(

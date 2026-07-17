@@ -45,6 +45,7 @@ from .retrieval_evidence import (
     require_manifest_retrieval_evidence_contract_v1,
     summary_provenance_granularity,
     summary_status,
+    validated_retrieval_fields,
 )
 
 _ALLOWED_GRANULARITIES = frozenset({"turn", "session"})
@@ -98,6 +99,7 @@ class LoCoMoRetrievalRecallEvaluator:
         non_empty_evidence_scores: list[float] = []
         evidence_status_counts: Counter[str] = Counter()
         evidence_reason_code_counts: Counter[str] = Counter()
+        scored_decisions: list[RetrievalEligibilityDecision] = []
 
         for record in answer_prompt_records:
             question_id = record.get("question_id")
@@ -125,33 +127,7 @@ class LoCoMoRetrievalRecallEvaluator:
                 continue
 
             provenance_granularity = decision.provenance_granularity
-            top_k = record.get("retrieval_query_top_k")
-            retrieved_items = record.get("retrieved_items")
-            if top_k is None:
-                raise ConfigurationError(
-                    f"question {question_id}: provider evidence declares semantic "
-                    "provenance valid but answer prompt artifact is missing "
-                    "retrieval_query_top_k"
-                )
-            if retrieved_items is None:
-                raise ConfigurationError(
-                    f"question {question_id}: provider evidence declares semantic "
-                    "provenance valid but answer prompt artifact is missing "
-                    "retrieved_items"
-                )
-            for item in retrieved_items[:top_k]:
-                if "source_turn_ids" not in item:
-                    raise ConfigurationError(
-                        f"question {question_id}: provider evidence declares "
-                        "semantic provenance valid but a retrieved item is missing "
-                        "source_turn_ids"
-                    )
-                if not item["source_turn_ids"]:
-                    raise ConfigurationError(
-                        f"question {question_id}: provider evidence declares "
-                        "semantic provenance valid but a retrieved item has empty "
-                        "source_turn_ids"
-                    )
+            top_k, retrieved_items = validated_retrieval_fields(record, question_id)
 
             top_k_values.append(top_k)
             group_sets = parse_evidence_group_sets(private, question_id)
@@ -193,6 +169,7 @@ class LoCoMoRetrievalRecallEvaluator:
                     "provenance_granularity": provenance_granularity,
                 }
             )
+            scored_decisions.append(decision)
 
         return _scored_payload(
             metric_name=self.metric_name,
@@ -202,7 +179,7 @@ class LoCoMoRetrievalRecallEvaluator:
             non_empty_evidence_scores=non_empty_evidence_scores,
             evidence_status_counts=evidence_status_counts,
             evidence_reason_code_counts=evidence_reason_code_counts,
-            decisions=list(decisions_by_id.values()),
+            scored_decisions=scored_decisions,
             official_source=self.official_source,
         )
 
@@ -280,7 +257,7 @@ def _scored_payload(
     non_empty_evidence_scores: list[float],
     evidence_status_counts: Counter[str],
     evidence_reason_code_counts: Counter[str],
-    decisions: list[RetrievalEligibilityDecision],
+    scored_decisions: list[RetrievalEligibilityDecision],
     official_source: str,
 ) -> dict[str, Any]:
     """聚合 overall / by-category / top-k 分布，构造逐题裁决感知的 payload。"""
@@ -318,7 +295,7 @@ def _scored_payload(
         "correct_count": None,
         "summary": {
             "status": summary_status(scored_count=len(scored_records), pending_count=pending_count),
-            "provenance_granularity": summary_provenance_granularity(decisions),
+            "provenance_granularity": summary_provenance_granularity(scored_decisions),
             "scored_question_count": len(scored_records),
             "empty_evidence_question_count": empty_evidence_count,
             "non_empty_evidence_mean_recall_at_requested_k": non_empty_mean,

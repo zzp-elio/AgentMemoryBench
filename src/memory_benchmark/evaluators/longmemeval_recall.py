@@ -4,9 +4,10 @@
 的 `evidence_group_sets`：turn view 只含官方口径 user 侧 target
 （`longmemeval_user_target_turn`），session view 以官方 answer_session_id 为
 unit（`longmemeval_answer_session`）。`_abs` 题不评分（benchmark policy 剔除，
-粒度无关，检查顺序在逐题裁决之前）；非 abs 且当前 view 无 gold unit 的题按
-官方 `run_retrieval.py:389-410` 剔除口径记 N/A（canonical 分母=419），同样是
-decision valid 之后的 benchmark policy 剔除，不能记 1.0。
+粒度无关，检查顺序在逐题裁决之前）；非 abs 题先用 canonical private turn view
+判定 official no-target，按 `run_retrieval.py:389-410` 剔除口径记 N/A
+（canonical 分母=419），两类排除均不计入 provider evidence status。只有 canonical
+turn 有 target 的题才消费 eligibility，并按其粒度选择计分 view。
 
 RetrievalEvidence M1 起，provider 侧资格改为逐题事实：每条 answer prompt
 记录携带的 `retrieval_evidence` 经 `evaluators.retrieval_evidence` 严格
@@ -39,6 +40,7 @@ from .retrieval_evidence import (
     require_manifest_retrieval_evidence_contract_v1,
     summary_provenance_granularity,
     summary_status,
+    validated_retrieval_fields,
 )
 
 _ALLOWED_GRANULARITIES = frozenset({"turn", "session"})
@@ -83,6 +85,7 @@ class LongMemEvalRetrievalRecallEvaluator:
         abstention_count = 0
         evidence_status_counts: Counter[str] = Counter()
         evidence_reason_code_counts: Counter[str] = Counter()
+        scored_decisions: list[RetrievalEligibilityDecision] = []
 
         for answer_record in answer_records:
             question_id = str(answer_record["question_id"])
@@ -100,7 +103,36 @@ class LongMemEvalRetrievalRecallEvaluator:
                         "score": None,
                         "status": "n/a",
                         "reason": "abstention questions have no recallable gold evidence",
+                        "exclusion_source": "benchmark_policy",
                         "abstention": True,
+                        "category": category,
+                    }
+                )
+                continue
+
+            group_sets = parse_evidence_group_sets(
+                private_by_id[question_id], question_id
+            )
+            canonical_turn_groups = select_group_set(
+                group_sets,
+                provenance_granularity="turn",
+                unit_kind="longmemeval_user_target_turn",
+                question_id=question_id,
+            ).groups
+            if not canonical_turn_groups:
+                # 官方 no-target 必须由 canonical private turn view 判定，不能先
+                # 根据 provider granularity 选择 view，更不能改写为 provider gap。
+                no_target_count += 1
+                score_records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer_record.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": "n/a",
+                        "reason": "official_no_target",
+                        "exclusion_source": "benchmark_policy",
+                        "abstention": False,
                         "category": category,
                     }
                 )
@@ -129,40 +161,22 @@ class LongMemEvalRetrievalRecallEvaluator:
                 continue
 
             provenance_granularity = decision.provenance_granularity
-            groups = select_group_set(
-                parse_evidence_group_sets(private_by_id[question_id], question_id),
-                provenance_granularity=provenance_granularity,
-                unit_kind=(
-                    "longmemeval_user_target_turn"
-                    if provenance_granularity == "turn"
-                    else "longmemeval_answer_session"
-                ),
-                question_id=question_id,
-            ).groups
-            if not groups:
-                # 官方 run_retrieval.py:389-410 聚合口径：无官方 gold unit 的题
-                # 整题剔除（turn 主路径 canonical 分母 419），不再错误记 1.0。
-                # 这是 decision valid 之后的 benchmark policy 剔除，provider
-                # 本身没有问题，因此仍计入 retrieval_evidence_status_counts=valid。
-                no_target_count += 1
-                score_records.append(
-                    {
-                        "question_id": question_id,
-                        "conversation_id": answer_record.get("conversation_id"),
-                        "metric_name": self.metric_name,
-                        "score": None,
-                        "status": "n/a",
-                        "reason": "official_no_target",
-                        "abstention": False,
-                        "category": category,
-                        "provenance_granularity": provenance_granularity,
-                    }
-                )
-                continue
+            groups = canonical_turn_groups
+            if provenance_granularity == "session":
+                groups = select_group_set(
+                    group_sets,
+                    provenance_granularity="session",
+                    unit_kind="longmemeval_answer_session",
+                    question_id=question_id,
+                ).groups
+                if not groups:
+                    raise ConfigurationError(
+                        f"question {question_id}: canonical turn gold has targets but "
+                        "the provider-required session gold view is empty"
+                    )
 
-            top_k, retrieved_items = _validated_retrieval_fields(
-                answer_record,
-                question_id,
+            top_k, retrieved_items = validated_retrieval_fields(
+                answer_record, question_id
             )
             source_ids = _source_ids(retrieved_items, top_k)
             if provenance_granularity == "session":
@@ -195,6 +209,7 @@ class LongMemEvalRetrievalRecallEvaluator:
             }
             score_records.append(record)
             scored_records.append(record)
+            scored_decisions.append(decision)
 
         return _scored_payload(
             metric_name=self.metric_name,
@@ -205,7 +220,7 @@ class LongMemEvalRetrievalRecallEvaluator:
             abstention_count=abstention_count,
             evidence_status_counts=evidence_status_counts,
             evidence_reason_code_counts=evidence_reason_code_counts,
-            decisions=list(decisions_by_id.values()),
+            scored_decisions=scored_decisions,
             official_corpus_id_source=self.official_corpus_id_source,
         )
 
@@ -251,37 +266,6 @@ def _validate_matching_question_ids(
         )
 
 
-def _validated_retrieval_fields(
-    record: dict[str, Any],
-    question_id: str,
-) -> tuple[int, list[dict[str, Any]]]:
-    """校验 decision valid 后必需的 top_k、retrieved_items 与 source ids。"""
-
-    top_k = record.get("retrieval_query_top_k")
-    retrieved_items = record.get("retrieved_items")
-    if not isinstance(top_k, int) or top_k < 1:
-        raise ConfigurationError(
-            f"question {question_id}: provider evidence declares semantic "
-            "provenance valid but retrieval_query_top_k is missing or invalid"
-        )
-    if not isinstance(retrieved_items, list) or any(
-        not isinstance(item, dict) for item in retrieved_items
-    ):
-        raise ConfigurationError(
-            f"question {question_id}: provider evidence declares semantic "
-            "provenance valid but retrieved_items is missing or invalid"
-        )
-    for item in retrieved_items[:top_k]:
-        source_ids = item.get("source_turn_ids")
-        if not isinstance(source_ids, list) or not source_ids:
-            raise ConfigurationError(
-                f"question {question_id}: provider evidence declares semantic "
-                "provenance valid but a retrieved item has missing or empty "
-                "source_turn_ids"
-            )
-    return top_k, retrieved_items
-
-
 def _source_ids(retrieved_items: list[dict[str, Any]], top_k: int) -> set[str]:
     """合并有序 top-k retrieved items 的公开 source ids。"""
 
@@ -311,7 +295,7 @@ def _scored_payload(
     abstention_count: int,
     evidence_status_counts: Counter[str],
     evidence_reason_code_counts: Counter[str],
-    decisions: list[RetrievalEligibilityDecision],
+    scored_decisions: list[RetrievalEligibilityDecision],
     official_corpus_id_source: str,
 ) -> dict[str, Any]:
     """聚合已评分问题，保留 abstention 与官方 no-target 剔除的 N/A records。"""
@@ -340,7 +324,7 @@ def _scored_payload(
         "correct_count": None,
         "summary": {
             "status": summary_status(scored_count=len(scored_records), pending_count=pending_count),
-            "provenance_granularity": summary_provenance_granularity(decisions),
+            "provenance_granularity": summary_provenance_granularity(scored_decisions),
             "scored_question_count": len(scored_records),
             "abstention_question_count": abstention_count,
             "official_no_target_question_count": no_target_count,

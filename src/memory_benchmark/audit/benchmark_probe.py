@@ -30,11 +30,13 @@ from typing import Any, Literal, TypeAlias
 from memory_benchmark.core.provider_protocol import (
     ConsumeGranularity,
     ConversationBatch,
+    EvidenceAssertion,
     IngestResult,
     IngestUnit,
     MemoryProvider,
     ProvenanceGranularity,
     RetrievalQuery,
+    RetrievalEvidence,
     RetrievalResult,
     RetrievedItem,
     SessionBatch,
@@ -46,6 +48,11 @@ from memory_benchmark.core.provider_protocol import (
 )
 
 _NEUTRAL_EMPTY_MEMORY = "No ingested public memory."
+_PROBE_RETRIEVAL_EVIDENCE = RetrievalEvidence(
+    semantic_provenance=EvidenceAssertion(status="valid"),
+    provenance_granularity="turn",
+    stable_ranking=EvidenceAssertion(status="valid"),
+)
 
 FailureHook: TypeAlias = Literal[
     "prepare", "ingest", "end_session", "end_conversation", "retrieve", "cleanup"
@@ -271,6 +278,7 @@ class BenchmarkProbeProvider(MemoryProvider):
                 formatted_memory=_NEUTRAL_EMPTY_MEMORY,
                 items=(),
                 metadata={"probe_matched_turn_count": 0},
+                evidence=_PROBE_RETRIEVAL_EVIDENCE,
             )
 
         cap = min(self._retrieve_item_limit, query.top_k)
@@ -294,6 +302,7 @@ class BenchmarkProbeProvider(MemoryProvider):
                 "probe_matched_turn_count": len(matched_turns),
                 "probe_returned_item_count": len(items),
             },
+            evidence=_PROBE_RETRIEVAL_EVIDENCE,
         )
 
     def cleanup(self) -> None:

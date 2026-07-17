@@ -1577,6 +1577,7 @@ def test_lightmem_local_retrieval_provenance_scores_locomo_recall(
                 "conversation_id": "conv-1",
                 "retrieval_query_top_k": 1,
                 "retrieved_items": [asdict(item) for item in retrieval.items],
+                "retrieval_evidence": asdict(retrieval.evidence),
             }
         ],
     )
@@ -1612,7 +1613,10 @@ def test_lightmem_local_retrieval_provenance_scores_locomo_recall(
         paths=paths,
         manifest={
             "benchmark_policy": {"gold_evidence_contract_version": "v1"},
-            "method": {"provenance_granularity": "turn"},
+            "method": {
+                "provenance_granularity": "turn",
+                "retrieval_evidence_contract_version": "v1",
+            },
         },
     )
 

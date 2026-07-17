@@ -33,6 +33,7 @@ from memory_benchmark.evaluators.retrieval_evidence import (
     require_manifest_retrieval_evidence_contract_v1,
     summary_provenance_granularity,
     summary_status,
+    validated_retrieval_fields,
 )
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
@@ -78,30 +79,10 @@ class BeamRetrievalRecallEvaluator:
         ambiguous_gold_total = 0
         evidence_status_counts: Counter[str] = Counter()
         evidence_reason_code_counts: Counter[str] = Counter()
+        scored_decisions: list[RetrievalEligibilityDecision] = []
 
         for answer in answers:
             question_id = str(answer["question_id"])
-            decision = decisions_by_id[question_id]
-            evidence_status_counts[decision.status] += 1
-
-            if decision.status != "valid":
-                evidence_reason_code_counts[decision.reason_code] += 1
-                score_records.append(
-                    {
-                        "question_id": question_id,
-                        "conversation_id": answer.get("conversation_id"),
-                        "metric_name": self.metric_name,
-                        "score": None,
-                        "status": display_status(decision.status),
-                        "retrieval_evidence_status": decision.status,
-                        "reason_code": decision.reason_code,
-                        "reason": decision.reason,
-                        "category": category_by_id[question_id],
-                        "provenance_granularity": decision.provenance_granularity,
-                    }
-                )
-                continue
-
             groups = select_group_set(
                 parse_evidence_group_sets(private_by_id[question_id], question_id),
                 provenance_granularity="turn",
@@ -133,6 +114,7 @@ class BeamRetrievalRecallEvaluator:
                         "score": None,
                         "status": "n/a",
                         "reason": "BEAM question has no matchable gold evidence",
+                        "exclusion_source": "benchmark_policy",
                         "category": category_by_id[question_id],
                         "provenance_granularity": "turn",
                         "details": {
@@ -143,7 +125,27 @@ class BeamRetrievalRecallEvaluator:
                 )
                 continue
 
-            top_k, items = _retrieval_fields(answer, question_id)
+            decision = decisions_by_id[question_id]
+            evidence_status_counts[decision.status] += 1
+            if decision.status != "valid":
+                evidence_reason_code_counts[decision.reason_code] += 1
+                score_records.append(
+                    {
+                        "question_id": question_id,
+                        "conversation_id": answer.get("conversation_id"),
+                        "metric_name": self.metric_name,
+                        "score": None,
+                        "status": display_status(decision.status),
+                        "retrieval_evidence_status": decision.status,
+                        "reason_code": decision.reason_code,
+                        "reason": decision.reason,
+                        "category": category_by_id[question_id],
+                        "provenance_granularity": decision.provenance_granularity,
+                    }
+                )
+                continue
+
+            top_k, items = validated_retrieval_fields(answer, question_id)
             source_ids = {
                 str(source_id)
                 for item in items[:top_k]
@@ -178,6 +180,7 @@ class BeamRetrievalRecallEvaluator:
             }
             score_records.append(record)
             scored.append(record)
+            scored_decisions.append(decision)
             top_ks.append(top_k)
 
         scores = [float(row["score"]) for row in scored]
@@ -192,7 +195,7 @@ class BeamRetrievalRecallEvaluator:
             "summary": {
                 "status": summary_status(scored_count=len(scored), pending_count=pending_count),
                 "provenance_granularity": summary_provenance_granularity(
-                    list(decisions_by_id.values())
+                    scored_decisions
                 ),
                 "scored_question_count": len(scored),
                 "abstention_question_count": abstention_count,
@@ -251,26 +254,6 @@ def _non_negative_int(metadata: dict[str, Any], key: str, question_id: str) -> i
             f"question {question_id}: private label metadata {key} must be non-negative int"
         )
     return value
-
-
-def _retrieval_fields(
-    answer: dict[str, Any], question_id: str
-) -> tuple[int, list[dict[str, Any]]]:
-    """校验 decision valid 后的 retrieval artifact。"""
-
-    top_k = answer.get("retrieval_query_top_k")
-    items = answer.get("retrieved_items")
-    if not isinstance(top_k, int) or top_k < 1:
-        raise ConfigurationError(f"question {question_id}: invalid retrieval_query_top_k")
-    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
-        raise ConfigurationError(f"question {question_id}: retrieved_items is missing")
-    for item in items[:top_k]:
-        source_ids = item.get("source_turn_ids")
-        if not isinstance(source_ids, list) or not source_ids:
-            raise ConfigurationError(
-                f"question {question_id}: retrieved item source_turn_ids is missing or empty"
-            )
-    return top_k, items
 
 
 __all__ = ["BeamRetrievalRecallEvaluator"]
