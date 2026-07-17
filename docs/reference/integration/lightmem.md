@@ -1,7 +1,7 @@
 # LightMem 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**method-frozen-v1 重认证（B1-B10 离线门已收口；B11 五格 smoke 待预算）**。online-soft
+> 状态：**method-frozen-v1 重认证（LoCoMo caption 缺口定点重开 B2/B4；B11 暂停）**。online-soft
 > lifecycle 卡已强验收合入主线 `825132f`，B6/lifecycle identity 关闭；LoCoMo
 > post-update 保留为另名补充轨。MemBench 时间语义 Phase A 与 LightMem preserve-none
 > Phase B 的 timestamp 子门仍有效。
@@ -211,7 +211,8 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
 
 - **B1 来源锁与接口选择 ✅**：vendored 路径如上；只用 `retrieve+add_memory`，不用其
   chat 入口（公平性）。审查记录 `docs/workstreams/ws02.7-method-track/notes/lightmem-m0-audit.md`。
-- **B2 注入粒度 ✅（2026-07-14 frozen-v1 收口：halumem=SessionBatch 整批+force
+- **B2 注入粒度 🟡（LoCoMo caption 定点重开；其余 role/pair 结论仍有效）**：2026-07-14
+  frozen-v1 收口的 halumem=SessionBatch 整批+force
   刷洗已落地实证（M0-8+s2 run），姿态声明齐备,下述历史推理留档）**：
   locomo=turn/batch、longmemeval=pair。**HaluMem memory_point：
   官方接口无此能力（M0-3 实锤，§0.5.1）**——add_memory 只返回 prompt 列表 +
@@ -268,9 +269,16 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   fail-fast；不再读 `_is_native_locomo`/`_is_locomo_conversation` 的
   source_path 启发式判断是否执行 consolidation（这两个 helper 仍用于选择
   METADATA_GENERATE_PROMPT，与是否 consolidation 无关）。
+  **2026-07-17 LoCoMo caption 定点重开**：上述 role/pair/lifecycle 结论仍成立，但 v3
+  `_turn_from_event()` 只取 `original_content`、未恢复公开 `turn_images`，legacy real-message
+  也未调用共享 `turn_text_with_images()`；首个 caption turn `conv-26/D1:5` 的 caption 因而在
+  LightMem 输入边界消失。全量影响 1,226 turn，默认 1-round smoke 又只含无图 D1:1/D1:2，
+  不能靠 flow-through 发现。B2/B4 在 adapter v6 修复 legacy/v3 caption parity 前为 pending；
+  完整证据见 `docs/workstreams/ws02.7-method-track/branches/method-recertification/
+  lightmem/notes/lightmem-locomo-smoke-config-preflight.md`。
 - **B3 隔离 ✅ 物理**：per-conversation Qdrant collection + 独立路径（adapter:388-390，
   summary 库另置 :390）；clean-retry = 删目录（:1660-1664），干净。并行安全。
-- **B4 formatted_memory+时间戳 ✅（MemBench 100k explicit-None 已验收）**：locomo 官方
+- **B4 formatted_memory+输入内容 🟡（caption 定点重开；时间门仍已验收）**：locomo 官方
   speaker 分组 + `_format_lightmem_memory`；longmemeval native 已透传
   `prompt_messages` 对齐官方（M0-1b）。**时间戳逐 benchmark 实测**：locomo ✓、
   membench **仅 0-10k smoke 四源 ✓**、beam-100k `15 March 2024` ✓（月名转换端到端）、halumem

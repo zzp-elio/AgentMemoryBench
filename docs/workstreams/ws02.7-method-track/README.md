@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem B1-B10 已重认证；B11 五格 smoke 待预算）
+status: in-progress（LightMem LoCoMo caption 缺口重开 B2/B4；B11 暂停）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -114,15 +114,30 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   cleaned JSON 的同日 question clock 错序按 OWNER 解释只作 raw artifact；实现原样传 dataset
   timestamp、完整 history 不截断，retrieve 明确 `filters=None`。LightMem 的 500ms 只在相同
   raw timestamp key 内递增，distinct turn timestamp 保持原值；placeholder 保 lineage/speaker，
-  但会影响 method-derived slot time，必须在 report 披露。B2/B4/B5 已关闭，无代码返工卡。
-  下一步按当前 smoke identity 准备 B11 五格付费命令；B9/B10 效果配置迁移按既有政策不阻塞
-  smoke，但首个效果 full/author calibration 前必须完成。未批预算前不调用 API。LightMem
-  关闭后才严格串行 Mem0 →
+  但会影响 method-derived slot time，必须在 report 披露。**2026-07-17 LoCoMo B11 前预检又抓到
+  caption 确定性丢失：事件流有 `turn_images`，LightMem 却只恢复 `original_content`；全量 1,226
+  个 caption turn 不可见，而默认 1-round smoke 的 D1:1/D1:2 恰好无图片。**因此 B2/B4 定点
+  重开、B11 暂停；先完成 `lightmem-locomo-image-caption` 小卡并升 adapter v6，再给付费命令。
+  B9/B10 效果配置迁移仍按既有政策不阻塞 smoke，但首个效果 full/author calibration 前必须完成。
+  未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
   MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-17）
+
+- 2026-07-17（**LightMem × LoCoMo 离线 preflight：speaker/pair/time/config 成立，caption 缺口
+  阻断 B11**，GPT-5 架构师）：当前 `[smoke]` 确认为 MiniLM/384/cosine、hybrid、online-soft、
+  combined top-60；LoCoMo 每个 named-speaker utterance 仍由 framework turn 粒度消费，再独立
+  生成 `[real user, empty assistant]` backend pair。全量复算 272 session/5,882 turn，0 坏时间、
+  0 speaker 映射失败、0 重复 id、0 空文本；hybrid 与官方 user_only 在 LoCoMo extraction prompt/
+  token 严格等价。新反证是 `_turn_from_event()` 丢弃 `turn_images`，首个 caption turn D1:5 的
+  caption 到 LightMem content 消失；全量影响 1,226 turn，且 1-round smoke 不覆盖。现 B2/B4
+  定点 pending、B11 暂停；证据=`branches/method-recertification/lightmem/notes/
+  lightmem-locomo-smoke-config-preflight.md`，自包含修复卡=`.../cards/
+  actor-prompt-lightmem-locomo-image-caption.md`。零 API 定向=`51 passed, 103 deselected, 1 warning`
+  + `11 passed`。下一步只修 caption + v5→v6 重建门，不重扫 LoCoMo benchmark 异常、不提前做
+  效果参数 TOML 迁移。
 
 - 2026-07-17（**LightMem LongMemEval input-time 审计经 R1 强验收；B4 关闭**，GPT-5
   架构师）：Opus 4.8 基于旧卡 `914a198` 交付 `0b1ca2e`，363 行主体计数与机制图扎实，架构师

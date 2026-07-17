@@ -23,8 +23,11 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
 7. [LongMemEval 输入异形与 timestamp 审计](notes/lightmem-longmemeval-input-time-audit.md)
    已经 Opus 4.8 主体 + 架构师 R1 强验收关闭：500ms 只作用于 repeated raw timestamp key；
    placeholder 保 lineage/speaker 但影响 method-derived slot time；raw question time 不作 cutoff。
-   无需代码修复卡。B9/B10 已按当前 smoke identity 离线收口，效果配置迁移留到首个效果 full；
-   当前唯一门是 B11 五格付费 smoke（须用户批准预算/规模/run_id）。
+   无需时间代码修复卡。B9/B10 已按当前 smoke identity 离线收口，效果配置迁移留到首个效果 full；
+8. [LoCoMo smoke 配置离线预检](notes/lightmem-locomo-smoke-config-preflight.md) 已确认
+   hybrid/named-speaker/pair/time/top-60 主链，但发现 v3/legacy 均未把公开 image caption 送入
+   LightMem。该缺口影响 1,226 turn，且默认 1-round smoke 覆盖不到，故 B2/B4 定点重开、B11
+   暂停；先执行 [caption 修复卡](cards/actor-prompt-lightmem-locomo-image-caption.md)，再申请预算。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的
