@@ -401,6 +401,18 @@ def test_membench_build_turn_events_keeps_missing_timestamp_none(
         "2:user",
         "2:assistant",
     ]
+    assert [e.metadata["original_turn_id"] for e in events] == [
+        "1:user",
+        "1:assistant",
+        "2:user",
+        "2:assistant",
+    ]
+    original_turns = conversation.sessions[0].turns
+    assert [e.content for e in events] == [turn.content for turn in original_turns]
+    assert [e.role for e in events] == ["user", "assistant", "user", "assistant"]
+    assert [e.metadata["turn_metadata"] for e in events] == [
+        turn.metadata for turn in original_turns
+    ]
 
     # step 1（无时间 noise）：两条 event 的 timestamp/original_turn_time 都 None
     assert step1_user.timestamp is None
@@ -671,8 +683,8 @@ def test_question_public_fields_and_private_gold_are_split(tmp_path: Path) -> No
     assert question.metadata["choices"]["B"] == "Boston"
     assert question.options == question.metadata["choices"]
     assert gold.answer == "Boston"
-    # D4 修复：公开 turn id 1 基（`str(step_index + 1)`），target_step_id=1（0 基）→
-    # 公开 turn id "2"。metadata 保留官方 0 基原值供对照。
+    # legacy evidence 仍保留 step_id+1 别名 "2"，不是 canonical turn id；
+    # metadata 保留官方 0 基原值供对照。
     assert gold.evidence == ["2"]
     assert gold.metadata["ground_truth"] == "B"
     assert gold.metadata["target_step_id"] == [1]
@@ -700,7 +712,7 @@ def test_duplicate_conversation_id_within_one_source_file_fails_fast(tmp_path: P
 
 
 def test_canonical_sample_aligns_target_step_id_with_source_message() -> None:
-    """真实样本中 target_step_id=0 应映射到公开 turn_id=1（+1 平移），避免 off-by-one。"""
+    """真实 ThirdAgent 样本的 step 0 应映射到 canonical child ``1``。"""
 
     dataset = MemBenchAdapter(
         ROOT,
@@ -716,7 +728,8 @@ def test_canonical_sample_aligns_target_step_id_with_source_message() -> None:
 
     assert turn.turn_id == "1"
     assert turn.metadata["source_step_index"] == 0
-    # D4：evidence 存公开 turn-id 空间，target_step_id=0（0 基）→ "1"。
+    # legacy evidence 保留 step_id+1 别名 "1"；ThirdAgent 下恰与
+    # canonical turn id 同字面，但权威 qrel 仍是 evidence group。
     assert gold.evidence[0] == "1"
     assert "Casablanca" in turn.content
     assert gold.metadata["target_step_id"][0] == turn.metadata["source_step_index"]
@@ -734,7 +747,7 @@ def test_evidence_step_to_turn_shift_is_consistent_across_persons(tmp_path: Path
     """
 
     # 构造一个同时含 0 基 target_step_id=0（→ "1"）和 =1（→ "2"）的合成 payload，
-    # 验证两种人称在 +1 平移后都能正确映射到公开 turn-id 空间。
+    # 验证两种人称都稳定保留 step_id+1 的 legacy 别名。
     payload = {
         "simple": {
             "roles": [
@@ -942,9 +955,7 @@ def test_combined_source_sha256_with_subset() -> None:
     assert len(md["source_sha256"]) == 64
     # 单文件：ThirdAgentDataHighLevel(0-10k) 共 400 条
     assert md["total_raw_trajectories"] == 400
-    # NOTE: 全 4 源文件的 full load 会触发已知错误 —— highlevel_rec/* 中有
-    # target_step_id=[] 空列表，_target_step_ids 坚持非空 → DatasetValidationError。
-    # 该 bug 不在 D1 修复范围，留 D2/D3 处理。
+    # 全四源的 empty target 已被合法保留为 empty group，不再是已知错误。
 
 
 def test_empty_target_step_id_produces_empty_evidence(tmp_path: Path) -> None:
@@ -989,16 +1000,15 @@ def test_empty_target_step_id_produces_empty_evidence(tmp_path: Path) -> None:
     question = conversation.questions[0]
     gold = conversation.gold_answers[question.question_id]
 
-    assert gold.evidence == []  # 公开 turn-id 空间也是空
+    assert gold.evidence == []  # 空 target 对应空 legacy step alias
     assert gold.metadata["target_step_id"] == []  # 官方 0 基原值也空
 
 
-def test_out_of_bounds_target_step_id_maps_to_nonexistent_turn_id(tmp_path: Path) -> None:
-    """越界 target_step_id（0 基下 == len(message_list)）应映射到不存在公开 turn_id。
+def test_out_of_bounds_target_step_id_produces_unmatched_group(tmp_path: Path) -> None:
+    """越界 target_step_id（0 基下 == len(message_list)）应形成 unmatched group。
 
-    全库恰 2 例（comparative/events tid=4，0-10k 和 100k 各 1）。+1 平移后该 id
-    超出 message_list 真实范围（最大有效 turn_id=len），recall 侧记 unmatched-gold
-    + 单独计数，不崩。
+    全库恰 2 例（comparative/events tid=4，0-10k 和 100k 各 1）。legacy
+    step alias 仍保留 +1 平移，但 recall 权威诊断来自 unmatched group，不崩。
     """
 
     payload = {

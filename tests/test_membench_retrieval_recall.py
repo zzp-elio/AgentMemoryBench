@@ -71,8 +71,8 @@ def _private_label(
     """通过**真实生产序列化函数**构造私有标签。
 
     gold evidence contract v1: group 只由稳定去重后的 target_step_ids 构造，
-    这里用退化 singleton child（生产 adapter 的 1 基公开 turn id
-    `str(step_id + 1)`，对应 ThirdAgent string step 的真实形态）覆盖通用
+    这里用退化 singleton child（生产 adapter 中 ThirdAgent string step 的
+    canonical child id 恰为 `str(step_id + 1)`）覆盖通用
     evaluator 计分逻辑；FirstAgent 真实 2-child pair group 的 any-of 语义见
     `test_multi_child_pair_group_any_of_hit_on_either_side_counts_once`。legacy
     evidence 只保留历史字段，长度不得截断权威 group。oob_step_ids 中的 0 基
@@ -151,7 +151,8 @@ def test_multi_child_pair_group_any_of_hit_on_either_side_counts_once(
 
     或两侧都命中，同一 group 都只记 1 次；不得用两个 singleton 冒充 pair，也
     不得因为一个 group 有两个 child 就把它算成两个命中或半个命中。分母恒为
-    2 个官方 step，不因 child 数变化。
+    3 个官方 step，不因 child 数变化；只命中任一 step 的一侧或两侧都只能得
+    1/3，绝不能按 6 个 child 算成 1/6。
     """
 
     from memory_benchmark.core import GoldEvidenceGroup, GoldEvidenceGroupSet
@@ -168,12 +169,17 @@ def test_multi_child_pair_group_any_of_hit_on_either_side_counts_once(
                 child_ids=("2:user", "2:assistant"),
                 mapping_status="mapped",
             ),
+            GoldEvidenceGroup(
+                unit_id="2",
+                child_ids=("3:user", "3:assistant"),
+                mapping_status="mapped",
+            ),
         )
         gold = GoldAnswerInfo(
             question_id=question_id,
             answer="gold",
-            evidence=["1", "2"],
-            metadata={"target_step_id": [0, 1]},
+            evidence=["1", "2", "3"],
+            metadata={"target_step_id": [0, 1, 2]},
             gold_evidence_contract_version="v1",
             evidence_group_sets=(
                 GoldEvidenceGroupSet(
@@ -186,11 +192,12 @@ def test_multi_child_pair_group_any_of_hit_on_either_side_counts_once(
         return evaluator_private_label_record(gold, category="highlevel")
 
     cases = [
-        (["1:user"], 0.5),  # 只命中 step0 的 user 侧：该 group 记满分
-        (["1:assistant"], 0.5),  # 只命中 step0 的 assistant 侧：同上
-        (["1:user", "1:assistant"], 0.5),  # 两侧都命中：同一 group 仍只计 1 次
-        (["2:user", "2:assistant"], 0.5),  # 命中另一 group 的两侧
-        (["9:user"], 0.0),  # 命中不相干 id：两个 group 都不中
+        (["1:user"], 1 / 3),  # 只命中 step0 的 user 侧：该 group 记满分
+        (["1:assistant"], 1 / 3),  # 只命中 step0 的 assistant 侧：同上
+        (["1:user", "1:assistant"], 1 / 3),  # 两侧都命中：同一 group 仍只计 1 次
+        (["2:user", "2:assistant"], 1 / 3),  # 命中另一 group 的两侧
+        (["3:assistant"], 1 / 3),  # 第三个 step 的单侧命中仍按 group 计分
+        (["9:user"], 0.0),  # 命中不相干 id：三个 group 都不中
     ]
     for index, (hit_ids, expected_score) in enumerate(cases):
         paths, manifest = _write_run(
@@ -214,7 +221,7 @@ def test_multi_child_pair_group_any_of_hit_on_either_side_counts_once(
         )
         record = result["score_records"][0]
         assert record["score"] == pytest.approx(expected_score), (hit_ids, record)
-        assert record["details"]["gold_unit_ids"] == ["0", "1"]
+        assert record["details"]["gold_unit_ids"] == ["0", "1", "2"]
 
 
 def test_session_provenance_is_na_because_membench_has_no_session_structure(
@@ -344,7 +351,7 @@ def test_out_of_bounds_target_step_id_is_counted_but_does_not_crash(
                 "question_id": "q1",
                 "conversation_id": "q1",
                 "retrieval_query_top_k": 1,
-                # 检索到公开 turn "1"，但官方 step 4 越界。
+                # 检索到 canonical child "1"，但官方 step 4 越界。
                 "retrieved_items": [_item("1")],
                 "metadata": {},
             }

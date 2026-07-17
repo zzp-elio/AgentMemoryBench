@@ -3614,6 +3614,76 @@ def test_lightmem_membench_canonical_pair_yields_two_real_pair_candidate_ids() -
     assert assistant_msg["source_external_ids"] == ["1:user", "1:assistant"]
 
 
+def test_lightmem_membench_extraction_batch_keeps_pair_lineage_by_source_id() -> None:
+    """同一 extraction batch 内两个 MemBench pair 不得互相 union lineage。
+
+    本用例不 fake 被测映射链：先由 adapter 生成两个 canonical
+    pair，再经真实 vendored ``MessageNormalizer``、
+    ``assign_sequence_numbers_with_timestamps`` 与
+    ``_create_memory_entry_from_fact``。fact source_id=0/1 必须分别选中
+    sequence 0/2 上的单个 pair candidate ids。
+    """
+
+    system = _lightmem_evidence_system(benchmark_name="membench")
+    turns = [
+        Turn("1:user", "user", "User fact one.", normalized_role="user"),
+        Turn(
+            "1:assistant",
+            "agent",
+            "Assistant fact one.",
+            normalized_role="assistant",
+        ),
+        Turn("2:user", "user", "User fact two.", normalized_role="user"),
+        Turn(
+            "2:assistant",
+            "agent",
+            "Assistant fact two.",
+            normalized_role="assistant",
+        ),
+    ]
+    session = Session(
+        session_id="s1",
+        session_time="2026-01-01T00:00:00",
+        turns=turns,
+    )
+    conversation = Conversation(conversation_id="c-two-pairs", sessions=[session])
+    pairs = system._normalize_session_to_pairs(session, conversation)
+    assert len(pairs) == 2
+
+    import_lightmem_classes(load_path_settings())
+    lightmem_module = sys.modules["lightmem.memory.lightmem"]
+    utils = sys.modules["lightmem.memory.utils"]
+    normalized = lightmem_module.MessageNormalizer().normalize_messages(
+        [message for pair in pairs for message in pair]
+    )
+    (
+        _extract,
+        timestamps,
+        weekdays,
+        speakers,
+        external_ids,
+        _topics,
+        plural_lists,
+    ) = utils.assign_sequence_numbers_with_timestamps([[[*normalized]]])
+    entries = [
+        utils._create_memory_entry_from_fact(
+            {"source_id": source_id, "fact": f"Extracted fact {source_id}."},
+            timestamps,
+            weekdays,
+            speakers,
+            external_ids=external_ids,
+            source_external_ids_list=plural_lists,
+        )
+        for source_id in (0, 1)
+    ]
+
+    assert [entry.source_external_ids for entry in entries] == [
+        ["1:user", "1:assistant"],
+        ["2:user", "2:assistant"],
+    ]
+    assert all(entry.source_external_id is None for entry in entries)
+
+
 def _capture_lightmem_extraction_messages(
     messages: list[dict[str, object]],
     messages_use: str,

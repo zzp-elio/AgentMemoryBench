@@ -1651,9 +1651,9 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     ) -> tuple[RetrievedItem, ...] | None:
         """把带 external ids 的 payload 转成 turn-level provenance items。
 
-        v4 adapter 只信任合法、非空、稳定去重的 plural ``source_external_ids``
+        v5 adapter 只信任合法、非空、稳定去重的 plural ``source_external_ids``
         并形成 ``RetrievedItem.source_turn_ids`` tuple。旧 singular-only store
-        不再被 v4 当 exact；version bump 已要求重建。
+        不再被 v5 当 exact；version bump 已要求重建。
         """
 
         items: list[RetrievedItem] = []

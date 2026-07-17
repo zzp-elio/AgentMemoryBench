@@ -774,7 +774,7 @@ def test_longmemeval_registration_prepares_full_and_smoke_datasets() -> None:
 
 
 def test_membench_registration_prepares_full_and_per_file_smoke_datasets() -> None:
-    """MemBench smoke 应从每个主文件取前 N 条 trajectory，且不裁剪 message_list。"""
+    """MemBench standard smoke 应保留四源完整 step，不切出半个 pair。"""
 
     registration = get_benchmark_registration("membench")
 
@@ -783,7 +783,7 @@ def test_membench_registration_prepares_full_and_per_file_smoke_datasets() -> No
         BenchmarkLoadRequest(
             variant="0_10k",
             run_scope=RunScope.SMOKE,
-            smoke_conversation_limit=2,
+            smoke_conversation_limit=1,
             smoke_turn_limit=1,
         ),
     )
@@ -792,25 +792,67 @@ def test_membench_registration_prepares_full_and_per_file_smoke_datasets() -> No
     assert smoke_run.run_scope is RunScope.SMOKE
     assert smoke_run.dataset.metadata["variant"] == "0_10k"
     assert smoke_run.dataset.metadata["run_scope"] == "smoke"
-    assert smoke_run.dataset.metadata["smoke_per_source_conversation_limit"] == 2
-    assert smoke_run.dataset.metadata["smoke_selected_conversation_count"] == 8
-    assert set(smoke_run.dataset.metadata["smoke_source_counts"].values()) == {2}
-    assert len(smoke_run.dataset.conversations) == 8
-    # 第一人称 1 round = 1 源 step，canonical split 后拆成 user+assistant 两条
-    # canonical turn（FirstAgentDataHighLevel 是第一个源文件）；pair 必须同进同出。
-    first_agent_turns = smoke_run.dataset.conversations[0].sessions[0].turns
-    assert len(first_agent_turns) == 2
-    assert [turn.turn_id for turn in first_agent_turns] == ["1:user", "1:assistant"]
-    assert [turn.normalized_role for turn in first_agent_turns] == ["user", "assistant"]
+    assert smoke_run.dataset.metadata["smoke_per_source_conversation_limit"] == 1
+    assert smoke_run.dataset.metadata["smoke_selected_conversation_count"] == 4
+    assert set(smoke_run.dataset.metadata["smoke_source_counts"].values()) == {1}
+    assert len(smoke_run.dataset.conversations) == 4
+    standard_turns = [conv.sessions[0].turns for conv in smoke_run.dataset.conversations]
+    assert [[turn.turn_id for turn in turns] for turns in standard_turns] == [
+        ["1:user", "1:assistant"],
+        ["1:user", "1:assistant"],
+        ["1", "2"],
+        ["1", "2"],
+    ]
+    assert [[turn.normalized_role for turn in turns] for turns in standard_turns] == [
+        ["user", "assistant"],
+        ["user", "assistant"],
+        ["user", "user"],
+        ["user", "user"],
+    ]
     assert smoke_run.dataset.metadata["smoke_history_limit"] == 1
     assert "smoke_original_turn_count" in smoke_run.dataset.metadata
     assert "smoke_retained_turn_count" in smoke_run.dataset.metadata
-    assert smoke_run.dataset.metadata["smoke_original_step_count"] > 0
-    assert smoke_run.dataset.metadata["smoke_retained_step_count"] > 0
-    assert smoke_run.dataset.conversations[0].metadata["smoke_retained_step_count"] == 1
+    assert smoke_run.dataset.metadata["smoke_retained_turn_count"] == 8
+    assert smoke_run.dataset.metadata["smoke_retained_step_count"] == 6
+    assert smoke_run.dataset.metadata["smoke_original_turn_count"] == sum(
+        conv.metadata["smoke_original_turn_count"]
+        for conv in smoke_run.dataset.conversations
+    )
+    assert smoke_run.dataset.metadata["smoke_original_step_count"] == sum(
+        conv.metadata["smoke_original_step_count"]
+        for conv in smoke_run.dataset.conversations
+    )
+    assert [
+        conv.metadata["smoke_retained_turn_count"]
+        for conv in smoke_run.dataset.conversations
+    ] == [2, 2, 2, 2]
+    assert [
+        conv.metadata["smoke_retained_step_count"]
+        for conv in smoke_run.dataset.conversations
+    ] == [1, 1, 2, 2]
     assert "smoke_policy" in smoke_run.dataset.metadata
     assert "resume_policy" in smoke_run.dataset.metadata
     assert smoke_run.source_relative_paths == registration.variants[0].source_relative_paths
+
+    wider_smoke = registration.prepare(
+        Path("."),
+        BenchmarkLoadRequest(
+            variant="0_10k",
+            run_scope=RunScope.SMOKE,
+            smoke_conversation_limit=1,
+            smoke_turn_limit=2,
+        ),
+    )
+    assert wider_smoke.dataset.metadata["smoke_retained_turn_count"] == 16
+    assert wider_smoke.dataset.metadata["smoke_retained_step_count"] == 12
+    wider_first_turns = [
+        conv.sessions[0].turns for conv in wider_smoke.dataset.conversations[:2]
+    ]
+    assert [[turn.turn_id for turn in turns] for turns in wider_first_turns] == [
+        ["1:user", "1:assistant", "2:user", "2:assistant"],
+        ["1:user", "1:assistant", "2:user", "2:assistant"],
+    ]
+    assert all(len(turns) % 2 == 0 for turns in wider_first_turns)
 
     full_run = registration.prepare(
         Path("."),

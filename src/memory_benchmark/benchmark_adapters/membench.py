@@ -895,10 +895,9 @@ def _question_and_gold_from_qa(
     gold = GoldAnswerInfo(
         question_id=question_id,
         answer=answer_text,
-        # 公开 turn id 1 基（membench.py:706 `str(step_index + 1)`），与官方 0 基
-        # `target_step_id` 差 1。匹配键统一在公开空间，官方 0 基原值在 metadata
-        # 留作对照（见 GoldAnswerInfo.metadata["target_step_id"]）。架构师预裁决
-        # 沿用 LongMemEval C4 先例（plan-b3-membench.md §3 D4）。
+        # 历史审计字段：稳定保留官方 0 基 target_step_id 的 +1 step
+        # alias，不展开 canonical child，也不声称是 public/canonical turn-id。
+        # 权威 qrel 只由下方 v1 evidence_group_sets 的显式 step→child 映射提供。
         evidence=[str(step_id + 1) for step_id in target_step_ids],
         metadata={
             "ground_truth": ground_truth,
