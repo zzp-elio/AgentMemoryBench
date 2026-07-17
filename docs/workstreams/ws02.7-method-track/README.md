@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（RetrievalEvidence M1 已强验收；LightMem B4 timestamp/异常输入门局部重开）
+status: in-progress（RetrievalEvidence M1 已强验收；LightMem B4 timestamp/输入语义门局部重开）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -109,9 +109,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   canonical split 也已关闭：一个 dict step 变为真实 user/assistant 两 turn，但仍由一个
   private any-of group 计一次；LightMem 两 pair 同批抽取没有跨 step lineage union。
   RetrievalEvidence M1 已关闭。当前回到唯一 active method **LightMem**：LongMemEval 新证据
-  显示 author harness 会丢异常 role turn，而 unified hybrid 用 placeholder 保留；placeholder
-  虽不进 extraction 文本/token，仍参与 upstream 两层 500ms timestamp/sequence 分配，故 B4
-  局部重开。先完成 S/M anomaly + production helper 离线审计，再重验其余 gap matrix，最后才向
+  显示 author harness 会丢异形 role turn，而 unified hybrid 用 placeholder 保留；LightMem
+  预期把 session time 按 message slot 每次 +500ms 派生 turn time，但 placeholder 与第二层
+  regroup 的真实作用域仍待核，故 B4 局部重开。question date 与 history 的交叉原样保留，只核
+  temporal as-of/非时间题未约束等生成语义，不作数据清洗。先完成 S/M + production helper 离线
+  审计，再重验其余 gap matrix，最后才向
   用户给五格付费 smoke 命令；未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
   MemoryOS → A-Mem → SimpleMem。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
@@ -119,17 +121,22 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-17）
 
-- 2026-07-17（**LightMem B4 timestamp/异常输入局部重开；审计卡待用户派发**，GPT-5
+- 2026-07-17（**LightMem B4 timestamp/输入语义局部重开；审计卡待用户派发**，GPT-5
   架构师）：对 LongMemEval S/M 做只读流式预扫并亲读官方 benchmark、官方 LightMem 与当前
-  pair bridge。官方 README 声称问题发生在全部 sessions 之后，但数据中 S/M 分别有
+  pair bridge。官方 README/论文示意把问题放在全部 sessions 之后，但数据中 S/M 分别有
   76/118 题 `question_date < latest history`，其中 44/42 题至少一个 gold session 位于问题时间
-  之后；唯一 `question_date < earliest history` 的 S 题是 temporal-reasoning 且问题明确问
-  “most recently”，不能判作无关假异常。框架为 parity 应原样保留并披露，禁止按 method
-  过滤。官方 LightMem LME harness 采用 user_only、裁开头非 user、跳过非法 pair，S/M 分别
+  之后；官方公开 issue #8 正在询问类似关系是否有意，但公开页面尚无 maintainer 回复。用户
+  补充作者口径：temporal 题可能有意设置 as-of，非时间题生成时未必约束 question/history
+  time；该口径待补可引用原文。唯一 `question_date < earliest history` 的 S 题本身就是
+  temporal-reasoning 并问“most recently”，所以可能恰属有意设置，不能凭顺序判错。无论最终
+  来源解释为何，框架都原样保留完整 history 与 question time，禁止按 method 过滤或改数据。
+  官方 LightMem LME harness 采用 user_only、裁开头非 user、跳过非法 pair，S/M 分别
   丢 2,020/20,283 个 raw turn，其中 3 个 `has_answer=True` assistant turn 位于 answer session；
   当前 hybrid bridge 则用 1,986/20,126 个 placeholder pair 保住所有 retained canonical turn。
-  另证实 placeholder 只在 token/render 边界过滤，仍参与 `MessageNormalizer(500ms)` 与后续
-  sequence timestamp 分配；现场还发现 assistant-first 测试名与 `_native_pair_batch` docstring
+  LightMem 的预期机制是同 session 的首 message slot=source time、后续 slot 每次 +500ms；
+  placeholder 只在 token/render 边界过滤，仍参与 normalizer/sequence，因此需核清它是否把
+  相邻真实 turn 的派生间隔扩大及第二层 regroup 的实际边界。现场还发现 assistant-first 测试
+  名与 `_native_pair_batch` docstring
   错称“skips orphan”，已按现行 unified 保留语义更正，不改算法。故 B2 保持 retested、B4
   局部重开。自包含 docs-only
   卡=`branches/method-recertification/lightmem/cards/
