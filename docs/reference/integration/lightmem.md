@@ -1,7 +1,7 @@
 # LightMem 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**method-frozen-v1 重认证（LoCoMo caption 缺口定点重开 B2/B4；B11 暂停）**。online-soft
+> 状态：**method-frozen-v1 重认证（caption v6 已关闭 B2/B4；B11 待最新 build smoke）**。online-soft
 > lifecycle 卡已强验收合入主线 `825132f`，B6/lifecycle identity 关闭；LoCoMo
 > post-update 保留为另名补充轨。MemBench 时间语义 Phase A 与 LightMem preserve-none
 > Phase B 的 timestamp 子门仍有效。
@@ -218,9 +218,9 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
 
 - **B1 来源锁与接口选择 ✅**：vendored 路径如上；只用 `retrieve+add_memory`，不用其
   chat 入口（公平性）。审查记录 `docs/workstreams/ws02.7-method-track/notes/lightmem-m0-audit.md`。
-- **B2 注入粒度 🟡（LoCoMo caption 定点重开；其余 role/pair 结论仍有效）**：2026-07-14
+- **B2 注入粒度 ✅（caption v6 离线 retested；B11 仍需真实 artifact）**：2026-07-14
   frozen-v1 收口的 halumem=SessionBatch 整批+force
-  刷洗已落地实证（M0-8+s2 run），姿态声明齐备,下述历史推理留档）**：
+  刷洗已落地实证（M0-8+s2 run），姿态声明齐备；下述历史推理留档：
   locomo=turn/batch、longmemeval=pair。**HaluMem memory_point：
   官方接口无此能力（M0-3 实锤，§0.5.1）**——add_memory 只返回 prompt 列表 +
   api_call_nums，内部构造的 `list[MemoryEntry]` 不外露。叠加注册面缺口
@@ -280,7 +280,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   `_turn_from_event()` 只取 `original_content`、未恢复公开 `turn_images`，legacy real-message
   也未调用共享 `turn_text_with_images()`；首个 caption turn `conv-26/D1:5` 的 caption 因而在
   LightMem 输入边界消失。全量影响 1,226 turn，默认 1-round smoke 又只含无图 D1:1/D1:2，
-  不能靠 flow-through 发现。**caption 修复已在 adapter v6 落地（待架构师强验收）**：v3
+  不能靠 flow-through 发现。**caption 修复已在 adapter v6 强验收落地**：v3
   `_turn_from_event()` 现经 `_images_from_event()` 从 `turn_images` 恢复 `ImageRef`，legacy
   `_locomo_pair()` 与通用 `_real_message()` 共用 content 分流：caption-bearing turn 调用
   `turn_text_with_images()`，完全没有可渲染 caption 时原样保留 `Turn.content` bytes；legacy/v3
@@ -288,17 +288,18 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   extraction/segment/update/retrieval 算法。完整证据见
   `docs/workstreams/ws02.7-method-track/branches/method-recertification/
   lightmem/notes/lightmem-locomo-smoke-config-preflight.md` 与同目录
-  `notes/lightmem-locomo-image-caption-implementation.md`。
+  `notes/lightmem-locomo-image-caption-implementation.md`。主线=`78196bc` + `65f5805`；主树
+  定向 154、全量 1500、真实 D1:5 payload 探针与 compileall 均通过。
   **LoCoMo dataset 异常差分账**：16 个 date-only key 由 canonical adapter 忽略，不生成
   LightMem session；140 个 odd session 不触发跨 utterance 硬配对，因为每条真实 utterance
   各自生成 `[real user, empty assistant]`；无 turn timestamp 时每条继承 source session time。
   9 个 malformed/unmatched evidence unit、1 个重复 evidence occurrence 与 4 道
   empty-evidence QA 只存在于 evaluator-private gold 通道，绝不进入 LightMem ingest/retrieve/
   answer，分别由 Gold Evidence Group 与 `locomo-recall` 已披露分支处理，LightMem 不写
-  benchmark 特判。唯一需要 LightMem 自身修复的是公开 caption 在 method 注入边界的丢失。
+  benchmark 特判。此前唯一需要 LightMem 自身修复的公开 caption 丢失现已由 v6 关闭。
 - **B3 隔离 ✅ 物理**：per-conversation Qdrant collection + 独立路径（adapter:388-390，
   summary 库另置 :390）；clean-retry = 删目录（:1660-1664），干净。并行安全。
-- **B4 formatted_memory+输入内容 🟡（caption 定点重开；时间门仍已验收）**：locomo 官方
+- **B4 formatted_memory+输入内容 ✅（caption/input/time 离线 retested；B11 待实测）**：locomo 官方
   speaker 分组 + `_format_lightmem_memory`；longmemeval native 已透传
   `prompt_messages` 对齐官方（M0-1b）。**时间戳逐 benchmark 实测**：locomo ✓、
   membench **仅 0-10k smoke 四源 ✓**、beam-100k `15 March 2024` ✓（月名转换端到端）、halumem
@@ -379,8 +380,9 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   五格既有 flow-through 与 answer/judge/成本证据仍有效；既有 LoCoMo post-update recall
   数字撤销。online-soft lifecycle identity 已在 `825132f` 完成；逐题 RetrievalEvidence
   M0/M1 均已强验收，LightMem preserve-none Phase B 与 LongMemEval input-time 离线门也已
-  关闭。当前下一门先修 LoCoMo caption，再用最新 hybrid/online-soft build 重跑五格真实 smoke；
-  用户已批准 LoCoMo 覆盖首个 caption 的规模为 3 rounds / 1 question，但预算与 run_id 尚未
+  关闭。LoCoMo caption v6 代码门已经强验收；当前下一门是用最新 hybrid/online-soft/v6 build
+  重跑五格真实 smoke。用户已批准 LoCoMo 覆盖首个 caption 的规模为 3 rounds / 1 question，
+  但预算与 run_id 尚未
   批准，故不得调用 API，也不为
   “所有指标都亮”强跑。
   以下为 2026-07-13~14 的历史 smoke 证据：

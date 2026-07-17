@@ -37,6 +37,8 @@
 | 2026-07-17 | Codex subagent；用户指定 GPT-5.6 sol/medium | MemBench canonical split R1 + R2 | `0fb849c` + `c40589c` → `d852fff` + `68b674b` | R1 `269 passed`；首次全量抓 1 个真实 docstring 回归；R2 后最终全量 1441、compileall exit 0 | **9.5** | accepted after full-suite rework |
 | 2026-07-17 | Claude Code / Sonnet 5；reasoning=max；约 40min（用户提供）；无 subagent | RetrievalEvidence M1 首轮 | `b6c4b32` → `5d8fce3`（须 R1） | actor `87 passed`；架构师同套 87；另复现 `6 failed/147 passed`，并抓排除优先级、mixed summary 与校验漂移 | **8.3** | rework；主体合入后由 R1 收口 |
 | 2026-07-17 | Codex subagent；orchestrator 指定 `gpt-5.6-sol`/medium，actor 自标 GPT-5 | RetrievalEvidence M1 R1 | `c7eb416` → `e10110f`（重建精确身份） | actor `270 passed`；架构师 270；合法资产布局全量 `1486 passed`、compileall exit 0 | **9.3** | accepted after full-suite rework |
+| 2026-07-17 | Claude Code / Opus 4.8；reasoning=medium；时长未提供；无 subagent | LightMem LoCoMo caption v6 主体 | `ea08431` → `78196bc`（须 bytes R1） | actor `145 passed + 1 环境失败`；架构师 dummy-key 146；full diff 抓无 caption `.strip()` 漂移 | **9.4** | accepted after architect hardening |
+| 2026-07-17 | Codex subagent；`gpt-5.6-sol`/medium | LightMem caption no-caption bytes R1 | `9f5ef69` → `65f5805` | actor 149；架构师定向 154 + 真实 D1:5 probe + 主树全量 1500 + compileall | **9.7** | accepted |
 
 ### 未评分发现记录
 
@@ -235,3 +237,16 @@
   SimpleMem 红由非法软链/缺模型造成，合法资产布局后 1486 全绿。代码/判断 5.8/6、证据 1.8/2；
   R1 卡漏提交、actor 自标与 orchestrator 精确型号冲突，纪律/交接 1.7/2，总评 **9.3**。主线
   重建 `e10110f`，保留双方身份事实，不沿用泛化 `GPT-5` trailer。
+
+### 2026-07-17：LightMem LoCoMo caption v6 + bytes R1
+
+- Opus 4.8 主体准确定位 v3 `turn_images` 丢失、legacy/v3 双入口与 adapter version 重建边界；
+  6 组 caption 强反例覆盖 wrapper 恰一次、payload parity、caption-only/multi/blank、query/locator
+  隔离和 generic path，并在 pristine 基线复现 `.env` 环境红项，没有删测或伪造绿尾行。
+- 唯一实质漏项是共享 helper 会 `.strip()` 正文：无可渲染 caption 的普通 turn 因而不再字节
+  保真，而首轮“plain text”用例没有首尾空白，未能抓住卡内明确边界。正确性 3.7/4、证据
+  1.8/2、纪律 2/2、判断交接 1.9/2，总评 **9.4/accepted after architect hardening**。
+- Codex R1 只加 adapter-local 分流：caption-bearing 继续走共享 helper，无有效 caption 返回原文；
+  legacy/v3/generic 三条首轮必失败反例齐全，未改 helper/version/算法。正确性 4/4、证据 1.9/2、
+  纪律 2/2、判断交接 1.8/2，总评 **9.7/accepted**。架构师随后用真实 `D1:5` 和主树全量
+  1500 项关闭，不把离线门冒充 B11。

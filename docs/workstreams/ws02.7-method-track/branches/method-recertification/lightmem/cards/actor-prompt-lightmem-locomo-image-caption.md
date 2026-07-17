@@ -1,5 +1,8 @@
 # Actor 卡：LightMem LoCoMo image caption 无损注入
 
+> **历史卡，禁止重复执行。**Opus 4.8 `ea08431` + Codex R1 `9f5ef69` 已强验收合入主线
+> `78196bc` + `65f5805`；B2/B4 caption 门关闭，下一门是用户批准预算/run_id 后的 B11 smoke。
+
 **本卡被发送到当前 actor 会话即代表用户已完成选择与授权；直接执行，不要再选择、派发或
 等待另一个 actor。**你是施工 actor，不是架构师；按本卡裁决实现，遇到停工条件交回。
 

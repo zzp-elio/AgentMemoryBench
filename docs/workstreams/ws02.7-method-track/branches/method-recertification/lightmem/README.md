@@ -24,11 +24,11 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    已经 Opus 4.8 主体 + 架构师 R1 强验收关闭：500ms 只作用于 repeated raw timestamp key；
    placeholder 保 lineage/speaker 但影响 method-derived slot time；raw question time 不作 cutoff。
    无需时间代码修复卡。B9/B10 已按当前 smoke identity 离线收口，效果配置迁移留到首个效果 full；
-8. [LoCoMo smoke 配置离线预检](notes/lightmem-locomo-smoke-config-preflight.md) 已确认
-   hybrid/named-speaker/pair/time/top-60 主链，但发现 v3/legacy 均未把公开 image caption 送入
-   LightMem。该缺口影响 1,226 turn，且默认 1-round smoke 覆盖不到，故 B2/B4 定点重开、B11
-   暂停；先执行 [caption 修复卡](cards/actor-prompt-lightmem-locomo-image-caption.md)，再申请预算。
-   用户已批准修复后的 LoCoMo smoke **规模**为 3 rounds / 1 question；预算与 `run_id` 尚未批准。
+8. [LoCoMo smoke 配置离线预检](notes/lightmem-locomo-smoke-config-preflight.md) 抓到的 1,226-turn
+   caption 缺口已由 Opus 4.8 主体 `ea08431` + Codex R1 `9f5ef69` 强验收关闭，主线
+   `78196bc` + `65f5805`；B2/B4 已 retested。caption-bearing turn 只在 method 边界渲染共享
+   wrapper，无有效 caption 时保留原文 bytes。下一门只剩 B11 最新 build smoke。用户已批准
+   LoCoMo smoke **规模**为 3 rounds / 1 question；预算与 `run_id` 尚未批准，故不得调用 API。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

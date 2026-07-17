@@ -1,5 +1,8 @@
 # LightMem × LoCoMo smoke 配置离线预检
 
+> **历史 preflight。**本文发现的 caption 缺口已由 `78196bc` + `65f5805` 强验收关闭；
+> 现行状态见 `lightmem-locomo-image-caption-implementation.md`，不得继续按“待修”派卡。
+
 > 日期：2026-07-17；基线：main `be4f390`；范围：零真实 API 的输入、build、
 > retrieval/readout 与数据异常预检。结论：五条主链成立，但图片 caption 存在确定性
 > 丢失，故 B2/B4 与 B11 在修复前不得关闭。

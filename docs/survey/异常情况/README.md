@@ -32,7 +32,7 @@
 
 | Dataset | 详细异常账 | 状态 | 下一次重开条件 |
 | --- | --- | --- | --- |
-| LoCoMo | [locomo.md](locomo.md) | dataset 事实 **verified**；LightMem caption 差分待回卡验收（2026-07-17） | source hash、gold group contract、caption renderer 或 smoke policy 改变 |
+| LoCoMo | [locomo.md](locomo.md) | dataset 事实 **verified**；LightMem caption v6 差分已强验收（2026-07-17） | source hash、gold group contract、caption renderer 或 smoke policy 改变 |
 | LongMemEval | — | pending；尚未完成架构师强验收 | 推进到 LightMem × LongMemEval 后续复验或该 benchmark 独立解冻 |
 | HaluMem | — | pending | LightMem 压到 HaluMem 时建立 |
 | BEAM | — | pending | LightMem 压到 BEAM 100K/10M 时分别建立 |

@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo caption 缺口重开 B2/B4；B11 暂停）
+status: in-progress（LightMem caption v6 已关闭 B2/B4；B11 待预算/run_id）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -38,10 +38,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   M0 + R1）→ `d86b22a`/`d1c18c4`（LightMem hybrid + R1）→ `2e78c55`（双卡合流
   fixture v1）→ `4c4bb0c`（TOML/builder 政策 + MemBench 卡）→ `ce1a9a8`/
   `d852fff`/`68b674b`（MemBench canonical split + 架构师 R1/R2）→ `5d8fce3`/
-  `e10110f`（RetrievalEvidence M1 + 契约收敛 R1）。准确
+  `e10110f`（RetrievalEvidence M1 + 契约收敛 R1）→ `78196bc`/`65f5805`
+  （LightMem caption v6 + 无 caption bytes R1）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮等价工作树全量门=`1486 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 127.77s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮主树全量门=`1500 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 143.47s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
@@ -117,13 +118,13 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   但会影响 method-derived slot time，必须在 report 披露。**2026-07-17 LoCoMo B11 前预检又抓到
   caption 在 LightMem 注入边界确定性丢失：canonical adapter 已保留原文与结构化 `ImageRef`，
   事件流也有 `turn_images`，LightMem 却只恢复 `original_content`；全量 1,226
-  个 caption turn 不可见，而默认 1-round smoke 的 D1:1/D1:2 恰好无图片。**因此 B2/B4 定点
-  重开、B11 暂停；先完成 `lightmem-locomo-image-caption` 小卡并升 adapter v6，再给付费命令。
-  用户已批准修复后的 smoke 规模为 **3 rounds / 1 question**，预算与 `run_id` 仍待单独确认。
+  个 caption turn 不可见，而默认 1-round smoke 的 D1:1/D1:2 恰好无图片。**该缺口现已由
+  `78196bc` + `65f5805` 强验收关闭：caption-bearing turn 统一共享 wrapper，无有效 caption
+  保留原文 bytes，B2/B4 retested；B11 仍待最新 build smoke。用户已批准 smoke 规模为
+  **3 rounds / 1 question**，预算与 `run_id` 仍待单独确认。
   LoCoMo 异常终检又把稳定账补齐：16 个 date-only key/140 个 odd session 已由 canonical 层吸收；
   9 个 turn-unmatched gold unit、1 个重复 occurrence 与 4 道 empty-evidence QA 只走
-  evaluator-private 通道，不要求 LightMem 特判。真实数据强反例与 survey 三联页完成后，
-  caption 卡即可派发，不再扩卡。
+  evaluator-private 通道，不要求 LightMem 特判。caption 卡已关闭，不再重复派发。
   B9/B10 效果配置迁移仍按既有政策不阻塞 smoke，但首个效果 full/author calibration 前必须完成。
   未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
   MemoryOS → A-Mem → SimpleMem。
@@ -132,8 +133,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-17）
 
-- 2026-07-17（**LightMem × LoCoMo 离线 preflight：speaker/pair/time/config 成立，caption 缺口
-  阻断 B11**，GPT-5 架构师）：当前 `[smoke]` 确认为 MiniLM/384/cosine、hybrid、online-soft、
+- 2026-07-17（**LightMem caption v6 + R1 强验收；B2/B4 关闭，B11 待预算/run_id**，GPT-5
+  架构师）：Opus 4.8 `ea08431` 的核心修复成立：v3 从 `turn_images` 恢复 `ImageRef`，legacy/v3
+  caption-bearing real message 共用共享 wrapper，adapter v5→v6 强制重建。架构师 full diff
+  发现首轮会把无有效 caption 的普通正文 `.strip()`；Codex `gpt-5.6-sol`/medium 以线性
+  `9f5ef69` 增加强反例并恢复原文字节保真，主线为 `78196bc` + `65f5805`。dummy key + invalid
+  base URL 主树定向=`154 passed, 1 warning in 9.10s`；真实 `conv-26/D1:5` 离线探针确认
+  legacy=v3、共享 wrapper 恰一次、旧 wrapper/query/URL 零泄漏、空 assistant/speaker/time/lineage
+  不变；全量=`1500 passed, 3 deselected, 2 warnings, 29 subtests passed in 143.47s`，compileall
+  exit 0。B2/B4 caption 门据此 retested；B11 仍未运行。用户只批准了 **3 rounds / 1 question**
+  的规模，预算与 `run_id` 尚未批准，禁止调用 API。完整证据=`branches/method-recertification/
+  lightmem/notes/lightmem-locomo-image-caption-implementation.md`。
+
+- 2026-07-17（**历史断点，已被上方 caption v6 强验收取代**，GPT-5 架构师）：当前 `[smoke]`
+  确认为 MiniLM/384/cosine、hybrid、online-soft、
   combined top-60；LoCoMo 每个 named-speaker utterance 仍由 framework turn 粒度消费，再独立
   生成 `[real user, empty assistant]` backend pair。全量复算 272 session/5,882 turn，0 坏时间、
   0 speaker 映射失败、0 重复 id、0 空文本；hybrid 与官方 user_only 在 LoCoMo extraction prompt/

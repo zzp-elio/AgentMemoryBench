@@ -1,6 +1,6 @@
 # LoCoMo Dataset 异常情况与处置账
 
-> 状态：dataset 事实 verified；LightMem caption 差分待回卡强验收；复核日期：2026-07-17
+> 状态：dataset 事实 verified；LightMem caption v6 差分已强验收；复核日期：2026-07-17
 > canonical data：`data/locomo/locomo10.json`
 > SHA-256：`79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4`
 > 官方 source commit：`3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376`
@@ -17,7 +17,7 @@ pretty-printed JSON；长期定位以 `sample_id + qa/session/dia_id` 为准。
 | L-A1 | `conv-26` 16 个 date-only key | 结构孤儿 | 忽略孤儿日期，不建 phantom session | 否 |
 | L-A2 | 140/272 个 odd-turn session | 合法 edge case | 原顺序全保留；不得硬凑 human pair | LoCoMo pair bridge 已处理 |
 | L-A3 | 5,882 turn 无独立 timestamp | schema 能力限制 | 每个 turn 继承 session source time | 已处理 |
-| L-I1 | 1,226 caption turn；316 caption-without-URL | 文本 method 兼容边界 | raw text 与 `ImageRef` 分存，注入边界统一 wrapper | **是；caption 卡处理中** |
+| L-I1 | 1,226 caption turn；316 caption-without-URL | 文本 method 兼容边界 | raw text 与 `ImageRef` 分存，注入边界统一 wrapper | **是；LightMem v6 已验收** |
 | L-G1 | 9 个 turn-unmatched evidence unit | gold 标注异常 | 不猜修；unmatched 留分母、恒 miss | 否，gold 私有 |
 | L-G2 | 1 个重复 evidence occurrence | gold 重复标注 | 按语义 unit 稳定去重并披露官方分叉 | 否，gold 私有 |
 | L-G3 | 4 道非局部推理题 evidence 为空 | 官方 metric edge case | 官方兼容 Recall=1，并另报 non-empty 子集 | 否，gold 私有 |
@@ -95,9 +95,9 @@ adapter 提前把 caption 烤进 `Turn.content`，又会破坏结构化图片边
 文本 method 注入边界恰好一次渲染
 `[Sharing image that shows: {caption}]`。URL 不下载、不进 content，`query` 不进 method。
 
-**LightMem 差分**：截至本页复核时，caption v6 修复卡正在独立 worktree 施工；验收目标是
-legacy/v3 都恢复 `ImageRef` 并调用共享 helper，且 caption 只出现一次。本条在 actor 回卡并经
-架构师强验收前仍是 pending，不能因文档已写而标 solved。
+**LightMem 差分**：caption v6 已经架构师强验收：legacy/v3 都恢复 `ImageRef`，caption-bearing
+turn 调用共享 helper 且 caption 只出现一次；没有可渲染 caption 时保留原文 bytes。真实
+`conv-26/D1:5` 离线探针确认旧 wrapper、query 与 URL 不泄漏，speaker/time/lineage 不变。
 
 ## 4. Gold evidence 异常
 
@@ -170,7 +170,7 @@ hash 或官方 release 改变，必须重新统计后更新本页。
 | --- | --- | --- | --- |
 | date-only / odd session | 是 | named-speaker 单 utterance pair 已审计 | 到站时只验证消费粒度，不复制数据特判 |
 | session-only timestamp | canonical 提供 source fallback | placeholder/sequence 差分已披露 | 到站时检查 typed timestamp 或 content fallback |
-| caption | canonical 只保留结构，不能替 method 渲染 | v6 卡施工中，待强验收 | Mem0 已知裸拼债；其它 method 到站逐一核 |
+| caption | canonical 只保留结构，不能替 method 渲染 | v6 已强验收 | Mem0 已知裸拼债；其它 method 到站逐一核 |
 | malformed/duplicate/empty gold | evaluator-private 完全吸收 | 无特判、不可见 gold | 全部无特判、不可见 gold |
 
 “到站时检查”不是默认通过；只表示异常事实不再重复调查，method 的实际 payload 仍要各自做

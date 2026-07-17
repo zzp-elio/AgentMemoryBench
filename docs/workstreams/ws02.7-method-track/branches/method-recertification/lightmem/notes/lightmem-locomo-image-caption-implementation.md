@@ -134,3 +134,18 @@ OPENAI_KEY=sk-test BASE_URL=https://example.invalid/v1 uv run pytest -q \
 git diff --check
 （无输出，退出码 0）
 ```
+
+## 9. 架构师最终强验收
+
+- Opus 4.8 主体 `ea08431` 线性合入主线 `78196bc`；Codex R1 `9f5ef69` 线性合入
+  `65f5805`，均未 amend actor 历史。
+- dummy key + invalid base URL 主树定向：`154 passed, 1 warning in 9.10s`；actor 首轮的
+  `.env` 红项据此确认只是环境依赖，不是代码回归，也没有真实 API 可达地址。
+- source-locked 真实 `conv-26/D1:5` 离线 payload 探针：legacy 与 v3 字典完全相等；共享
+  wrapper 恰一次；历史 `(image description: ...)`、query、URL/path 零泄漏；empty assistant、
+  `speaker_a`、同 pair timestamp、`source_external_ids=["D1:5"]` 全保真。
+- 主树全量：`1500 passed, 3 deselected, 2 warnings, 29 subtests passed in 143.47s`；
+  `uv run python -m compileall -q src/memory_benchmark tests` exit 0。
+
+最终裁决：caption v6 输入修复与 no-caption bytes R1 均通过，B2/B4 retested；B11 仍 pending，
+不得用离线绿测冒充最新 build 的真实 smoke。
