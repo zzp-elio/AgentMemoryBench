@@ -115,9 +115,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   timestamp、完整 history 不截断，retrieve 明确 `filters=None`。LightMem 的 500ms 只在相同
   raw timestamp key 内递增，distinct turn timestamp 保持原值；placeholder 保 lineage/speaker，
   但会影响 method-derived slot time，必须在 report 披露。**2026-07-17 LoCoMo B11 前预检又抓到
-  caption 确定性丢失：事件流有 `turn_images`，LightMem 却只恢复 `original_content`；全量 1,226
+  caption 在 LightMem 注入边界确定性丢失：canonical adapter 已保留原文与结构化 `ImageRef`，
+  事件流也有 `turn_images`，LightMem 却只恢复 `original_content`；全量 1,226
   个 caption turn 不可见，而默认 1-round smoke 的 D1:1/D1:2 恰好无图片。**因此 B2/B4 定点
   重开、B11 暂停；先完成 `lightmem-locomo-image-caption` 小卡并升 adapter v6，再给付费命令。
+  用户已批准修复后的 smoke 规模为 **3 rounds / 1 question**，预算与 `run_id` 仍待单独确认。
   B9/B10 效果配置迁移仍按既有政策不阻塞 smoke，但首个效果 full/author calibration 前必须完成。
   未批预算前不调用 API。LightMem 关闭后才严格串行 Mem0 →
   MemoryOS → A-Mem → SimpleMem。
@@ -133,11 +135,13 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   0 speaker 映射失败、0 重复 id、0 空文本；hybrid 与官方 user_only 在 LoCoMo extraction prompt/
   token 严格等价。新反证是 `_turn_from_event()` 丢弃 `turn_images`，首个 caption turn D1:5 的
   caption 到 LightMem content 消失；全量影响 1,226 turn，且 1-round smoke 不覆盖。现 B2/B4
-  定点 pending、B11 暂停；证据=`branches/method-recertification/lightmem/notes/
+  定点 pending、B11 暂停；canonical LoCoMo adapter 继续保留 raw content + structured caption，
+  文本 wrapper 只在 method 注入边界渲染一次。证据=`branches/method-recertification/lightmem/notes/
   lightmem-locomo-smoke-config-preflight.md`，自包含修复卡=`.../cards/
   actor-prompt-lightmem-locomo-image-caption.md`。零 API 定向=`51 passed, 103 deselected, 1 warning`
   + `11 passed`。下一步只修 caption + v5→v6 重建门，不重扫 LoCoMo benchmark 异常、不提前做
-  效果参数 TOML 迁移。
+  效果参数 TOML 迁移。用户已批准修复后的 B11 规模为 **3 rounds / 1 question**；预算与
+  `run_id` 未批准，禁止提前调用 API。
 
 - 2026-07-17（**LightMem LongMemEval input-time 审计经 R1 强验收；B4 关闭**，GPT-5
   架构师）：Opus 4.8 基于旧卡 `914a198` 交付 `0b1ca2e`，363 行主体计数与机制图扎实，架构师

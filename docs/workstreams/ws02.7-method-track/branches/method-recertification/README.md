@@ -26,7 +26,9 @@ method-frozen 后发生了实质变化。旧证据不删除，但不能靠历史
 2. **LightMem 第一家**：重点重验 online-soft 主 profile、missing-time 扩展、逐题 evidence、
    canonical-required MiniLM build identity、五 benchmark B4/B5/B6/B9/B10/B11。
 3. **Mem0 第二家**：把 source-time、ADD-only/provenance、truthful identity 与
-   product-default OpenAI embedding 迁移放在同一认证链；真实重建仍须用户批预算。
+   product-default OpenAI embedding 迁移放在同一认证链；另有已知 B2 债：当前 adapter 仍裸拼
+   caption，尚未采用 R7 v2 的 `[Sharing image that shows: {caption}]` wrapper。到 Mem0 站再用
+   同一共享 helper 修复并升 build identity，不扩大当前 LightMem 卡；真实重建仍须用户批预算。
 4. **MemoryOS 第三家**：PyPI product identity、speaker/provenance sidecar、降级审计、
    readout-native 与五格 smoke 一次收口；ChromaDB variant 不混入主轨。
 5. **A-Mem → SimpleMem**：各自补全 product/reproduction identity 后重走 B1-B11。

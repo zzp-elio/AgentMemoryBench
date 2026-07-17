@@ -5,14 +5,20 @@
 
 ## 0. 这张卡解决什么
 
-LoCoMo 有 1,226 个带 `blip_caption` 的 turn。规范事件流已同时保存原始文本和公开
-`turn_images`，但 LightMem v3 bridge 恢复 Turn 时只取 `original_content`、没有恢复
-ImageRef；legacy `_locomo_pair()` 也只写 `turn.content`。结果是 caption 在进入
-LightMem extraction/embedding 前确定性丢失。
+LoCoMo 有 1,226 个带 `blip_caption` 的 turn。canonical LoCoMo adapter 已无损保存两层事实：
+原始 dialogue text 留在 `Turn.content`，caption 留在 `Turn.images[].caption`；它没有丢数据，
+也不应提前把两者压成一个字符串。真正缺口在 method 注入边界：LightMem v3 bridge 恢复 Turn
+时只取 `original_content`、没有恢复 ImageRef；legacy `_locomo_pair()` 也只写
+`turn.content`。结果是 caption 在进入 LightMem extraction/embedding 前确定性丢失。
 
 本卡只修复 method 输入表示：legacy 与 v3 都使用项目现有共享 helper
 `turn_text_with_images()`，输出 `[Sharing image that shows: {caption}]`；不下载图片、不读取
 LoCoMo `query`、不改 LightMem extraction/segmentation/embedding/update/retrieval 算法。
+该格式的一手语义锚是 vendored Mem0 LoCoMo harness
+`third_party/methods/mem0-main/memory-benchmarks/benchmarks/locomo/run.py::session_to_chunks()`
+的 blip-only 分支：正文存在时把 wrapper 追加到正文，正文为空时只保留 wrapper。项目 R7 v2
+有意只采用这个 blip-only 表示并全局排除 `query`；不要照搬同函数的 query 分支。这里引用的是
+官方 harness 的表示语义，不代表项目当前 Mem0 adapter 已经完成同一修复，也不授权改 Mem0。
 
 ## 1. 隔离环境与必读顺序
 
@@ -32,22 +38,29 @@ LoCoMo `query`、不改 LightMem extraction/segmentation/embedding/update/retrie
 
 ## 2. 已裁实现语义
 
-1. `LightMem._turn_from_event()` 必须从公开 `event.metadata["turn_images"]` 恢复
+1. canonical LoCoMo adapter 继续保持 `Turn.content=原始 dialogue text`、
+   `Turn.images[].caption=结构化 caption`；**不得**为了本卡把 wrapper 提前写回 benchmark
+   adapter 的 `Turn.content`。否则会丢失结构边界，并可能在 v3/method 侧二次渲染。恰好一次的
+   文本化位置是 LightMem method 注入边界。
+2. `LightMem._turn_from_event()` 必须从公开 `event.metadata["turn_images"]` 恢复
    `ImageRef`，边界姿势可复用 MemoryOS 已验收的 `_images_from_event()`，但不要让两个 method
    相互依赖私有 helper。
-2. LightMem 所有真实 message content（至少 `_locomo_pair()` 与通用 `_real_message()`）统一由
+3. LightMem 所有真实 message content（至少 `_locomo_pair()` 与通用 `_real_message()`）统一由
    `methods/image_text.py::turn_text_with_images()` 生成。无 caption 的普通 turn 语义保持不变。
-3. v3 不得直接使用 `event.content`：通用事件流当前已用另一种历史格式渲染 caption，直接使用会
+4. v3 不得直接使用 `event.content`：通用事件流当前已用另一种历史格式渲染 caption，直接使用会
    绕过共享 R7 v2 格式。正确输入是 `original_content + 恢复的 ImageRef`，再调用共享 helper。
-4. legacy `add(Conversation)` 与 v3 `ingest(TurnEvent)` 对同一个 Turn 必须字节级一致；caption
+5. legacy `add(Conversation)` 与 v3 `ingest(TurnEvent)` 对同一个 Turn 必须字节级一致；caption
    只出现一次。
-5. `query`、img URL/path、redownload metadata 都不能进入 content；多个 caption 按公开顺序各
+6. `query`、img URL/path、redownload metadata 都不能进入 content；多个 caption 按公开顺序各
    渲染一次；空/纯空白 caption 跳过；caption-only turn 合法。
-6. role、speaker_id/name、source timestamp、external_id/plural lineage、placeholder marker、
+7. role、speaker_id/name、source timestamp、external_id/plural lineage、placeholder marker、
    force_segment/force_extract、hybrid/user_only parity 语义全部不变。
-7. `LIGHTMEM_ADAPTER_VERSION` 从 `conversation-qa-v5` 升为 `conversation-qa-v6`。这是 memory
+8. `LIGHTMEM_ADAPTER_VERSION` 从 `conversation-qa-v5` 升为 `conversation-qa-v6`。这是 memory
    build 输入变化，必须让旧 store/manifest 无法 resume；同步修订准确描述版本的测试名/docstring。
-8. 不改 TOML。当前 `hybrid + online_soft + MiniLM/384 + top60` 配置与本卡无关。
+9. 不改 TOML。当前 `hybrid + online_soft + MiniLM/384 + top60` 配置与本卡无关。
+10. 用户已批准 caption 修复并经架构师强验收后的 LoCoMo B11 **规模**为
+    `3 rounds / 1 question`，以覆盖首个 caption turn `D1:5`；这不是本卡的付费执行授权。
+    actor 不运行真实 smoke、不改全局 smoke policy；API 预算与 `run_id` 仍由后续单独确认。
 
 ## 3. 允许修改文件
 

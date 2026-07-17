@@ -28,6 +28,7 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    hybrid/named-speaker/pair/time/top-60 主链，但发现 v3/legacy 均未把公开 image caption 送入
    LightMem。该缺口影响 1,226 turn，且默认 1-round smoke 覆盖不到，故 B2/B4 定点重开、B11
    暂停；先执行 [caption 修复卡](cards/actor-prompt-lightmem-locomo-image-caption.md)，再申请预算。
+   用户已批准修复后的 LoCoMo smoke **规模**为 3 rounds / 1 question；预算与 `run_id` 尚未批准。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的
