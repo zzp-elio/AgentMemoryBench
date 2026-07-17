@@ -5,8 +5,9 @@ mem0 工厂参数），framework answer LLM 使用文件内离线 fake client。
 registration、真实 arrow 数据（`data/BEAM/beam_dataset/100K` 与
 `data/BEAM/beam_10M_dataset/10M`）、声明式 smoke policy、事件聚合、unified
 answer prompt、artifact writer、beam-rubric-judge（fake client 含 0.5 一次
-以断言 float 主分与 official_int 对照分并存）、beam-recall、f1 evaluator
-均使用生产实现。
+以断言 float 主分与 official_int 对照分并存）、beam-recall evaluator
+均使用生产实现。BEAM 是 rubric 任务，通用 token-F1 已从其启用面移除，故本
+链路不再断言 f1。
 
 E5 双结构认证 = 两次独立 prepare/run（架构师 E2 裁决：variant=独立数据集=
 独立 run 身份，混跑模糊身份）：
@@ -38,7 +39,6 @@ from memory_benchmark.config.settings import PathSettings
 from memory_benchmark.core.validators import validate_no_private_keys
 from memory_benchmark.evaluators.beam_recall import BeamRetrievalRecallEvaluator
 from memory_benchmark.evaluators.beam_rubric_judge import BeamRubricJudgeEvaluator
-from memory_benchmark.evaluators.f1 import F1Evaluator
 from memory_benchmark.methods import registry as method_registry_module
 from memory_benchmark.runners.evaluation import run_artifact_evaluation
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
@@ -353,7 +353,7 @@ def test_beam_registered_prediction_offline_probe_workflow_100k(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """BEAM 100k 1 conv × 1 round × 1 题 smoke：probe 生命周期 + 离线
-    rubric-judge（含 0.5 float/official_int 双轨）+ beam-recall + f1 + 三层
+    rubric-judge（含 0.5 float/official_int 双轨）+ beam-recall + 三层
     privacy 扫描 + category_breakdown by ability。
     """
 
@@ -452,17 +452,6 @@ def test_beam_registered_prediction_offline_probe_workflow_100k(
     # summary granularity 必须为 None，不能采被排除题的 valid evidence。
     assert recall_payload["provenance_granularity"] is None
     assert "provider provenance is unavailable" not in json.dumps(recall_payload)
-
-    # 离线 f1：answer-level 路径，必须产出 metric_scores.jsonl
-    f1_summary = run_artifact_evaluation(
-        paths.run_dir,
-        F1Evaluator(),
-        "beam",
-    )
-    assert f1_summary.metric_name == "f1"
-    assert f1_summary.total_questions == 1
-    # fake answer 与 gold 文本通常不匹配 → F1 ∈ [0, 1]；流程不要求答对。
-    assert 0.0 <= f1_summary.mean_score <= 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -582,16 +571,6 @@ def test_beam_registered_prediction_offline_probe_workflow_10m(
     # 唯一题是 benchmark-policy empty-gold 排除，不是 scored question。
     assert recall_payload["provenance_granularity"] is None
     assert "provider provenance is unavailable" not in json.dumps(recall_payload)
-
-    # 离线 f1
-    f1_summary = run_artifact_evaluation(
-        paths.run_dir,
-        F1Evaluator(),
-        "beam",
-    )
-    assert f1_summary.metric_name == "f1"
-    assert f1_summary.total_questions == 1
-    assert 0.0 <= f1_summary.mean_score <= 1.0
 
 
 # ---------------------------------------------------------------------------

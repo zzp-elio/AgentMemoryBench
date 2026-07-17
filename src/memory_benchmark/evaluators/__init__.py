@@ -1,5 +1,10 @@
 """answer 质量 evaluator 组件导出入口。"""
 
+from .answer_metrics import (
+    NormalizedExactMatchEvaluator,
+    SubstringExactMatchEvaluator,
+)
+from .answer_text import ANSWER_TEXT_PACK_VERSION, normalized_tokens
 from .f1 import F1Evaluator, normalize_answer
 from .llm_judge import (
     LLMJudgeEvaluator,
@@ -21,6 +26,7 @@ from .registry import (
 )
 
 __all__ = [
+    "ANSWER_TEXT_PACK_VERSION",
     "EvaluatorRegistration",
     "F1Evaluator",
     "JudgeDecision",
@@ -31,11 +37,14 @@ __all__ = [
     "LongMemEvalJudgeEvaluator",
     "LongMemEvalRetrievalRecallEvaluator",
     "MemBenchChoiceAccuracyEvaluator",
+    "NormalizedExactMatchEvaluator",
+    "SubstringExactMatchEvaluator",
     "create_evaluator",
     "get_evaluator_registration",
     "list_metrics",
     "load_evaluator_profile",
     "normalize_answer",
     "normalize_qa_answer",
+    "normalized_tokens",
     "parse_judge_response",
 ]

@@ -15,6 +15,10 @@ from memory_benchmark.config import load_path_settings
 from memory_benchmark.config.profiles import load_typed_profile
 from memory_benchmark.core import ConfigurationError
 
+from .answer_metrics import (
+    NormalizedExactMatchEvaluator,
+    SubstringExactMatchEvaluator,
+)
 from .beam_rubric_judge import BeamRubricJudgeEvaluator
 from .beam_recall import BeamRetrievalRecallEvaluator
 from .f1 import F1Evaluator
@@ -97,6 +101,18 @@ def _build_f1(**_: Any) -> F1Evaluator:
     """构造无外部依赖的通用 token F1 evaluator。"""
 
     return F1Evaluator()
+
+
+def _build_normalized_em(**_: Any) -> NormalizedExactMatchEvaluator:
+    """构造无外部依赖的通用 normalized EM evaluator。"""
+
+    return NormalizedExactMatchEvaluator()
+
+
+def _build_substring_em(**_: Any) -> SubstringExactMatchEvaluator:
+    """构造无外部依赖的通用 directional substring EM evaluator。"""
+
+    return SubstringExactMatchEvaluator()
 
 
 def _build_membench_choice_accuracy(**_: Any) -> MemBenchChoiceAccuracyEvaluator:
@@ -300,14 +316,32 @@ _REGISTRATIONS = {
     "f1": EvaluatorRegistration(
         cli_name="f1",
         metric_name="f1",
-        supported_benchmarks=frozenset(
-            {"beam", "halumem", "locomo", "longmemeval"}
-        ),
+        supported_benchmarks=frozenset({"halumem", "locomo", "longmemeval"}),
         requires_api=False,
         profile_names=frozenset(),
         profile_relative_path=None,
         config_type=None,
         factory=_build_f1,
+    ),
+    "normalized-em": EvaluatorRegistration(
+        cli_name="normalized-em",
+        metric_name="normalized_em",
+        supported_benchmarks=frozenset({"halumem", "locomo", "longmemeval"}),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_normalized_em,
+    ),
+    "substring-em": EvaluatorRegistration(
+        cli_name="substring-em",
+        metric_name="substring_em",
+        supported_benchmarks=frozenset({"halumem", "locomo", "longmemeval"}),
+        requires_api=False,
+        profile_names=frozenset(),
+        profile_relative_path=None,
+        config_type=None,
+        factory=_build_substring_em,
     ),
     "locomo-f1": EvaluatorRegistration(
         cli_name="locomo-f1",

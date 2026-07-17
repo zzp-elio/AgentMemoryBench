@@ -20,7 +20,6 @@ from typing import Any
 
 from memory_benchmark.core import ConfigurationError
 from memory_benchmark.evaluators.gold_evidence_groups import (
-    group_recall_score,
     parse_evidence_group_sets,
     require_manifest_gold_evidence_contract_v1,
     select_group_set,
@@ -35,6 +34,7 @@ from memory_benchmark.evaluators.retrieval_evidence import (
     summary_status,
     validated_retrieval_fields,
 )
+from memory_benchmark.evaluators.retrieval_metrics import recall_at_k
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 _ALLOWED_GRANULARITIES = frozenset({"turn"})
@@ -146,12 +146,8 @@ class BeamRetrievalRecallEvaluator:
                 continue
 
             top_k, items = validated_retrieval_fields(answer, question_id)
-            source_ids = {
-                str(source_id)
-                for item in items[:top_k]
-                for source_id in item["source_turn_ids"]
-            }
-            score = group_recall_score(groups, source_ids)
+            recall_result = recall_at_k(groups, items, top_k)
+            score = recall_result.score
 
             record = {
                 "question_id": question_id,
@@ -174,7 +170,7 @@ class BeamRetrievalRecallEvaluator:
                         if group.mapping_status == "mapped"
                         and len(group.child_ids) > 1
                     ),
-                    "retrieved_source_turn_ids": sorted(source_ids),
+                    "retrieved_source_turn_ids": sorted(recall_result.source_ids),
                     "framework_supplementary": True,
                 },
             }

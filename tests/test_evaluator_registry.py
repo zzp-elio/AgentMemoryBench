@@ -5,6 +5,10 @@ from __future__ import annotations
 import pytest
 
 from memory_benchmark.core import ConfigurationError
+from memory_benchmark.evaluators.answer_metrics import (
+    NormalizedExactMatchEvaluator,
+    SubstringExactMatchEvaluator,
+)
 from memory_benchmark.evaluators.f1 import F1Evaluator
 from memory_benchmark.evaluators.beam_rubric_judge import (
     BeamRubricJudgeEvaluator,
@@ -63,6 +67,8 @@ def test_registry_lists_only_currently_supported_unified_metrics() -> None:
         "membench-choice-accuracy",
         "membench-recall",
         "membench-source-accuracy",
+        "normalized-em",
+        "substring-em",
     ]
 
 
@@ -83,14 +89,14 @@ def test_locomo_f1_registration_is_offline_and_locomo_only() -> None:
         create_evaluator("locomo-f1", benchmark_name="longmemeval")
 
 
-def test_generic_f1_registration_is_offline_and_excludes_membench() -> None:
-    """通用 F1 应支持 conversation-QA benchmarks，但暂不支持 MCQ MemBench。"""
+def test_generic_f1_registration_is_offline_and_excludes_beam_and_membench() -> None:
+    """通用 F1 只启用短答案 QA benchmark，rubric BEAM 与 MCQ MemBench 均拒绝。"""
 
     registration = get_evaluator_registration("f1")
 
     assert registration.metric_name == "f1"
     assert registration.supported_benchmarks == frozenset(
-        {"beam", "halumem", "locomo", "longmemeval"}
+        {"halumem", "locomo", "longmemeval"}
     )
     assert registration.requires_api is False
     for benchmark_name in registration.supported_benchmarks:
@@ -100,7 +106,53 @@ def test_generic_f1_registration_is_offline_and_excludes_membench() -> None:
         )
 
     with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator("f1", benchmark_name="beam")
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
         create_evaluator("f1", benchmark_name="membench")
+
+
+def test_normalized_em_registration_is_offline_and_scoped_to_short_answer_qa() -> None:
+    """normalized EM 只启用 locomo/longmemeval/halumem，BEAM/MemBench 均 fail-fast。"""
+
+    registration = get_evaluator_registration("normalized-em")
+
+    assert registration.metric_name == "normalized_em"
+    assert registration.supported_benchmarks == frozenset(
+        {"halumem", "locomo", "longmemeval"}
+    )
+    assert registration.requires_api is False
+    for benchmark_name in registration.supported_benchmarks:
+        assert isinstance(
+            create_evaluator("normalized-em", benchmark_name=benchmark_name),
+            NormalizedExactMatchEvaluator,
+        )
+
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator("normalized-em", benchmark_name="beam")
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator("normalized-em", benchmark_name="membench")
+
+
+def test_substring_em_registration_is_offline_and_scoped_to_short_answer_qa() -> None:
+    """substring EM 只启用 locomo/longmemeval/halumem，BEAM/MemBench 均 fail-fast。"""
+
+    registration = get_evaluator_registration("substring-em")
+
+    assert registration.metric_name == "substring_em"
+    assert registration.supported_benchmarks == frozenset(
+        {"halumem", "locomo", "longmemeval"}
+    )
+    assert registration.requires_api is False
+    for benchmark_name in registration.supported_benchmarks:
+        assert isinstance(
+            create_evaluator("substring-em", benchmark_name=benchmark_name),
+            SubstringExactMatchEvaluator,
+        )
+
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator("substring-em", benchmark_name="beam")
+    with pytest.raises(ConfigurationError, match="does not support benchmark"):
+        create_evaluator("substring-em", benchmark_name="membench")
 
 
 def test_locomo_recall_registration_is_offline_and_locomo_only() -> None:

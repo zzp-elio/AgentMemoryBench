@@ -27,7 +27,6 @@ from memory_benchmark.core import ConfigurationError
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 from .gold_evidence_groups import (
-    group_recall_score,
     parse_evidence_group_sets,
     require_manifest_gold_evidence_contract_v1,
     select_group_set,
@@ -42,6 +41,7 @@ from .retrieval_evidence import (
     summary_status,
     validated_retrieval_fields,
 )
+from .retrieval_metrics import identity_source_id, recall_at_k
 
 _ALLOWED_GRANULARITIES = frozenset({"turn", "session"})
 
@@ -178,12 +178,18 @@ class LongMemEvalRetrievalRecallEvaluator:
             top_k, retrieved_items = validated_retrieval_fields(
                 answer_record, question_id
             )
-            source_ids = _source_ids(retrieved_items, top_k)
-            if provenance_granularity == "session":
-                source_ids = {
-                    _public_session_id(source_id) for source_id in source_ids
-                }
-            score = group_recall_score(groups, source_ids)
+            projector = (
+                _public_session_id
+                if provenance_granularity == "session"
+                else identity_source_id
+            )
+            recall_result = recall_at_k(
+                groups,
+                retrieved_items,
+                top_k,
+                source_id_projector=projector,
+            )
+            score = recall_result.score
 
             top_k_values.append(top_k)
             record = {
@@ -202,7 +208,7 @@ class LongMemEvalRetrievalRecallEvaluator:
                     "unmatched_gold_unit_count": sum(
                         1 for group in groups if group.mapping_status == "unmatched"
                     ),
-                    "retrieved_source_ids": sorted(source_ids),
+                    "retrieved_source_ids": sorted(recall_result.source_ids),
                     "official_corpus_id_source": self.official_corpus_id_source,
                     "framework_supplementary": True,
                 },
@@ -264,16 +270,6 @@ def _validate_matching_question_ids(
             "LongMemEval recall artifact question IDs must match exactly across "
             "answer prompts, private labels and public questions"
         )
-
-
-def _source_ids(retrieved_items: list[dict[str, Any]], top_k: int) -> set[str]:
-    """合并有序 top-k retrieved items 的公开 source ids。"""
-
-    return {
-        str(source_id)
-        for item in retrieved_items[:top_k]
-        for source_id in item["source_turn_ids"]
-    }
 
 
 def _public_session_id(source_id: str) -> str:

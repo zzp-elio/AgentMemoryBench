@@ -20,7 +20,6 @@ from typing import Any
 
 from memory_benchmark.core import ConfigurationError, GoldEvidenceGroup
 from memory_benchmark.evaluators.gold_evidence_groups import (
-    group_recall_score,
     parse_evidence_group_sets,
     require_manifest_gold_evidence_contract_v1,
     select_group_set,
@@ -35,6 +34,7 @@ from memory_benchmark.evaluators.retrieval_evidence import (
     summary_status,
     validated_retrieval_fields,
 )
+from memory_benchmark.evaluators.retrieval_metrics import recall_at_k
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 _ALLOWED_GRANULARITIES = frozenset({"turn"})
@@ -146,8 +146,8 @@ class MemBenchRetrievalRecallEvaluator:
             top_k, retrieved_items = validated_retrieval_fields(
                 answer_record, question_id
             )
-            source_ids = _source_turn_ids(retrieved_items, top_k)
-            score = group_recall_score(groups, source_ids)
+            recall_result = recall_at_k(groups, retrieved_items, top_k)
+            score = recall_result.score
             unmatched_count = sum(
                 1 for group in groups if group.mapping_status == "unmatched"
             )
@@ -167,7 +167,7 @@ class MemBenchRetrievalRecallEvaluator:
                     "gold_unit_ids": [group.unit_id for group in groups],
                     "unmatched_gold_unit_count": unmatched_count,
                     "out_of_bounds_target_step_ids": oob_ids,
-                    "retrieved_source_turn_ids": sorted(source_ids),
+                    "retrieved_source_turn_ids": sorted(recall_result.source_ids),
                     "official_source": self.official_source,
                 },
             }
@@ -229,19 +229,6 @@ def _validate_matching_question_ids(
             "MemBench recall artifact question IDs must match exactly across "
             "answer prompts, private labels and public questions"
         )
-
-
-def _source_turn_ids(
-    retrieved_items: list[dict[str, Any]],
-    top_k: int,
-) -> set[str]:
-    """合并有序 top-k retrieved items 的公开 source turn ids。"""
-
-    return {
-        str(source_id)
-        for item in retrieved_items[:top_k]
-        for source_id in item["source_turn_ids"]
-    }
 
 
 def _out_of_bounds_target_step_ids(

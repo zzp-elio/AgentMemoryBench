@@ -32,7 +32,6 @@ from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 from .gold_evidence_groups import (
-    group_recall_score,
     parse_evidence_group_sets,
     require_manifest_gold_evidence_contract_v1,
     select_group_set,
@@ -47,6 +46,7 @@ from .retrieval_evidence import (
     summary_status,
     validated_retrieval_fields,
 )
+from .retrieval_metrics import identity_source_id, recall_at_k
 
 _ALLOWED_GRANULARITIES = frozenset({"turn", "session"})
 
@@ -142,16 +142,23 @@ class LoCoMoRetrievalRecallEvaluator:
                 unit_kind=unit_kind,
                 question_id=question_id,
             ).groups
-            source_ids = _source_turn_ids(retrieved_items, top_k)
-            if provenance_granularity == "session":
-                source_ids = {_session_prefix(source_id) for source_id in source_ids}
 
             if not groups:
                 # 官方原生行为：空 evidence 记 1（evaluation.py:237），保留披露。
                 empty_evidence_count += 1
                 score = 1.0
             else:
-                score = group_recall_score(groups, source_ids)
+                projector = (
+                    _session_prefix
+                    if provenance_granularity == "session"
+                    else identity_source_id
+                )
+                score = recall_at_k(
+                    groups,
+                    retrieved_items,
+                    top_k,
+                    source_id_projector=projector,
+                ).score
                 non_empty_evidence_scores.append(score)
 
             score_records.append(
@@ -226,19 +233,6 @@ def _validate_matching_question_ids(
             "LoCoMo recall artifact question IDs must match exactly across "
             "answer prompts, private labels and public questions"
         )
-
-
-def _source_turn_ids(
-    retrieved_items: list[dict[str, Any]],
-    top_k: int,
-) -> set[str]:
-    """按声明的 top_k 截取有序 retrieved_items，返回 source turn id 并集。"""
-
-    ids: set[str] = set()
-    for item in retrieved_items[:top_k]:
-        for turn_id in item.get("source_turn_ids") or []:
-            ids.add(str(turn_id))
-    return ids
 
 
 def _session_prefix(dia_id: str) -> str:

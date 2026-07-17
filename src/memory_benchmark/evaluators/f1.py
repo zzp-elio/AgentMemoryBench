@@ -1,17 +1,17 @@
-"""跨 benchmark 的标准 answer-level token F1 evaluator。"""
+"""跨 benchmark 的标准 answer-level token F1 evaluator。
+
+归一化复用 `answer_text.py::normalize_answer`（answer-text-v1 唯一实现）；
+本模块继续 re-export `normalize_answer` 以兼容旧 import 路径。F1 的计分数字
+不因收敛归一化器而改变，score details 额外携带 metric pack 稳定身份。
+"""
 
 from __future__ import annotations
 
-import re
-import string
 from collections import Counter
-from typing import Any
 
 from memory_benchmark.core import AnswerResult, GoldAnswerInfo, MetricResult, Question
 
-
-_ARTICLE_PATTERN = re.compile(r"\b(a|an|the|and)\b")
-_PUNCTUATION_TRANSLATION = str.maketrans("", "", string.punctuation)
+from .answer_text import ANSWER_TEXT_PACK_VERSION, normalize_answer
 
 
 class F1Evaluator:
@@ -51,6 +51,8 @@ class F1Evaluator:
                 "answer_question_id": answer.question_id,
                 "gold_question_id": gold.question_id,
                 "category": question.category,
+                "metric_tier": "framework_supplementary",
+                "metric_pack_version": ANSWER_TEXT_PACK_VERSION,
                 "strategy": "standard_token_f1",
                 "normalized_prediction": normalized_prediction,
                 "normalized_gold": normalized_gold,
@@ -64,15 +66,6 @@ class F1Evaluator:
                 "abstention": "_abs" in question.question_id,
             },
         )
-
-
-def normalize_answer(text: Any) -> str:
-    """执行小写、去标点、去 a/an/the/and 和空白压缩。"""
-
-    value = "" if text is None else str(text)
-    without_punctuation = value.lower().translate(_PUNCTUATION_TRANSLATION)
-    without_articles = _ARTICLE_PATTERN.sub(" ", without_punctuation)
-    return " ".join(without_articles.split())
 
 
 __all__ = ["F1Evaluator", "normalize_answer"]

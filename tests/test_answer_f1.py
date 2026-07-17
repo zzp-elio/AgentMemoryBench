@@ -81,3 +81,25 @@ def test_generic_f1_marks_abstention_as_framework_supplementary() -> None:
     assert result.score == 1.0
     assert result.details["framework_supplementary"] is True
     assert result.details["abstention"] is True
+
+
+def test_generic_f1_details_carry_answer_text_pack_identity() -> None:
+    """F1 计分数字不变，但 details 携带 answer-text-v1 pack 稳定身份。"""
+
+    result = _evaluate("tea", "tea, coffee", category="1")
+
+    assert result.score == pytest.approx(2 / 3)  # 数字零变化
+    assert result.details["metric_tier"] == "framework_supplementary"
+    assert result.details["metric_pack_version"] == "answer-text-v1"
+    assert result.details["strategy"] == "standard_token_f1"
+
+
+def test_normalize_answer_is_reexported_from_f1_compat_path() -> None:
+    """旧 `f1.normalize_answer` import 路径仍可用，且与 answer_text 同一实现。"""
+
+    from memory_benchmark.evaluators.answer_text import (
+        normalize_answer as canonical_normalize_answer,
+    )
+
+    assert normalize_answer is canonical_normalize_answer
+    assert normalize_answer("  The APPLE!  ") == "apple"
