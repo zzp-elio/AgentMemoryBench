@@ -32,6 +32,11 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    验货；B11 已关闭，LightMem 恢复为 `method-frozen-v2`。完整判词见
    [frozen-v2 note](notes/lightmem-frozen-v2.md)，命令模板与修正后的 state/log 判据见
    [B11 command pack](notes/lightmem-locomo-b11-command-pack.md)。
+9. 用户于 2026-07-18 明确要求离开 LightMem 前继续逐格压实 LongMemEval，故父线“下一家
+   Mem0”暂缓。既有输入异形/time 大审计不重复；当前只派
+   [latest-main B11 差量预检卡](cards/actor-prompt-lightmem-longmemeval-latest-main-preflight.md)，
+   把 current v6 的 canonical role/pair/hybrid/time/query/readout/metric 资格映射到真实公开异常
+   样例。预检回卡强验收前不调用 API、不写 smoke 命令、不宣布 LME 最新 build 已过。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

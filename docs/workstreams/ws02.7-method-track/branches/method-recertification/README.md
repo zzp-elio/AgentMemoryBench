@@ -38,6 +38,7 @@ method-frozen 后发生了实质变化。旧证据不删除，但不能靠历史
 
 **LightMem 是唯一 active method。** Gold group、hybrid role、MemBench canonical split 与
 RetrievalEvidence M1 已全部关闭；旧“当前可并行派发两张卡”的文字已过时并删除。现在先在
-当前 main 定点重验 gap matrix 与 B1-B11 离线证据，只重跑受影响的 build/smoke；随后由架构师
-给用户五格 B11 付费 smoke 命令。此阶段不并行推进 Mem0/MemoryOS，未经预算、规模、run_id
-确认不调用真实 API。权威实时动作仍看父级 `../../README.md` 恢复胶囊与最新断点。
+当前 main 定点重验 gap matrix 与 B1-B11 离线证据，只重跑受影响的 build/smoke。LoCoMo latest
+v6 已关闭；用户 2026-07-18 指定下一格为 LongMemEval，先做差量预检再由架构师给付费 smoke
+命令。此阶段不并行推进 Mem0/MemoryOS，未经预算、规模、run_id 确认不调用真实 API。权威实时
+动作仍看父级 `../../README.md` 恢复胶囊与最新断点。

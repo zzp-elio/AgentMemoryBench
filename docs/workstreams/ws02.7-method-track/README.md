@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem method-frozen-v2；Metric Pack M0 已关闭；下一 method=Mem0）
+status: in-progress（LightMem LoCoMo v6 已过；LongMemEval latest-main 差量预检待派发；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -133,12 +133,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   9 个 turn-unmatched gold unit、1 个重复 occurrence 与 4 道 empty-evidence QA 只走
   evaluator-private 通道，不要求 LightMem 特判。caption 卡已关闭，不再重复派发。
   B9/B10 效果配置迁移仍按既有政策不阻塞 smoke，但首个效果 full/author calibration 前必须完成。
-  method 主线现严格串行转入 Mem0 → MemoryOS → A-Mem → SimpleMem；共享 Metric Pack R1 可并行，
-  不反向解冻 LightMem。
+  用户 2026-07-18 改定顺序：离开 LightMem 前继续逐格压实 LongMemEval；先做 current-main
+  role/pair/time/query/readout/metric 差量预检，不重复 S/M 大扫描。Mem0 → MemoryOS → A-Mem →
+  SimpleMem 顺延；Metric Pack M0 已关闭，不反向解冻 LightMem build。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
-## 当前断点（2026-07-17）
+## 当前断点（2026-07-18）
+
+- 2026-07-18（**LightMem × LongMemEval latest-main 差量预检待派发；Mem0 暂缓**，GPT-5
+  架构师）：用户指定 LoCoMo 后继续压实 LightMem 的 LongMemEval 格。既有 Opus 4.8 输入异形/
+  timestamp 审计已覆盖 S/M exact count、placeholder、500ms 与 no-cutoff，不再重复烧 actor；
+  本批只核 current v6 的 canonical role → TurnPair → hybrid add_memory → retrieve/readout → metric
+  eligibility。自包含 docs-only 卡=`branches/method-recertification/lightmem/cards/
+  actor-prompt-lightmem-longmemeval-latest-main-preflight.md`；回卡强验收前零 API，不写付费命令。
 
 - 2026-07-17（**Metric Pack M0 强验收关闭；legacy LightMem native 不重复烧过渡 run；下一家
   Mem0**，GPT-5 架构师）：Opus 4.8 首轮 `760f251` 与 R1 `2f8a1e1` 已线性合入主线
