@@ -41,6 +41,10 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    production path + fake backend 离线实证，不再用完整异常 qid 重复烧 API。registered 默认
    smoke 为 1 conversation × 1 round × 1 question；真实成本只从完整实验单元的运行时效率
    产物外推，不从 pair/add_memory 数猜。当前只等待用户批准 B11 预算、规模与 run_id。
+10. 用户要求把“为什么敢跑、异常如何处理”变成可长期复查的安全说明，而不是留在聊天。
+    [LightMem 五 benchmark 格子安全说明](notes/lightmem-five-benchmark-safety-dossier.md) 采用
+    一 method 一 dossier、五 benchmark 分章：LoCoMo 已写到真实 smoke passed，LongMemEval
+    写到 ready-for-smoke；MemBench/BEAM/HaluMem 到站后逐格补，不用一份总绿灯掩盖未验章节。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

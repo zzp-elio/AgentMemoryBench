@@ -139,11 +139,23 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   pair 数换算成 extraction API 次数的错误外推，并订正 registered smoke 可按 round 裁剪、
   LongMemEval answer `max_tokens=500`。主线=`9bf1c78` + `b2d7c9c`；现行判词只到
   `READY_FOR_B11_SMOKE`（cropped pipeline），不等于效果/full/成本校准完成。Mem0 → MemoryOS →
-  A-Mem → SimpleMem 顺延；Metric Pack M0 已关闭，不反向解冻 LightMem build。
+  A-Mem → SimpleMem 顺延；Metric Pack M0 已关闭，不反向解冻 LightMem build。用户要求的格子
+  “安全感”已制度化为**每 method 一份、五 benchmark 分章**的 living dossier；LightMem 首份在
+  `branches/method-recertification/lightmem/notes/lightmem-five-benchmark-safety-dossier.md`，
+  LoCoMo=real-smoke-passed、LME=ready-for-smoke，其余三格仍 pending，禁止一份总绿灯代裁。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-18）
+
+- 2026-07-18（**建立每 method 一份五格安全说明；LightMem 前两格已落盘；下一步仍是 LME
+  B11 预算门**，GPT-5 架构师）：用户要求把“为什么敢跑、异常如何处理”从聊天变成可复查
+  资产。现裁为约 10 份 method dossier、每份五 benchmark 分章，不制造 50 份散落顶层文档；
+  规则已写入 method checklist。首份=`branches/method-recertification/lightmem/notes/
+  lightmem-five-benchmark-safety-dossier.md`：LoCoMo 明确到 `REAL_SMOKE_PASSED`，LongMemEval
+  只到 `READY_FOR_B11_SMOKE`，其余三格保持 pending，禁止总绿灯。current-main 合并复跑
+  LoCoMo/LME 承重集=`272 passed, 1 warning in 80.79s`，文档门通过，零真实 API。该文档工作
+  不改变实验状态；下一动作仍是用户批准预算/规模/run_id 后执行 LME 单/双 worker B11。
 
 - 2026-07-18（**LightMem × LongMemEval latest-main 预检 + R1 强验收；B11 待用户批准真实 API；
   Mem0 暂缓**，GPT-5 架构师）：Opus 4.8 `67715dd` 已把临时 Claude scratchpad 的六类探针构造与
