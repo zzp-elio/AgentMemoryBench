@@ -36,18 +36,27 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    Mem0”暂缓。既有输入异形/time 大审计不重复；
    [latest-main B11 差量预检卡](cards/actor-prompt-lightmem-longmemeval-latest-main-preflight.md)，
    已由 Opus 4.8 `67715dd` + Codex R1 `346f1c4` 强验收关闭，主线 `9bf1c78` + `b2d7c9c`。
-   current v6 的 canonical role/pair/hybrid/time/query/readout/metric 全链具备 registered cropped
+   current v6 的 canonical role/pair/hybrid/time/query/metric 全链具备 registered cropped
    B11 smoke 条件；这不等于 full/effect/cost calibration 已过。六类公开异常 shape 已由
    production path + fake backend 离线实证，不再用完整异常 qid 重复烧 API。registered 默认
    smoke 为 1 conversation × 1 round × 1 question；真实成本只从完整实验单元的运行时效率
-   产物外推，不从 pair/add_memory 数猜。用户已批准真实 B11；架构师裁定 W1 走注册默认规模，
-   W2 只覆盖为 2 conversations × 2 workers，并已给出
-   [单/双 worker 全 evaluator 命令包](notes/lightmem-longmemeval-b11-command-pack.md)。当前等待
-   OWNER 严格串行执行并回收 artifacts，格子在验货前仍是 `READY_FOR_B11_SMOKE`。
+   产物外推，不从 pair/add_memory 数猜。用户随后完成 W1 注册默认规模与 W2=2 conversations ×
+   2 workers 的真实 B11，机器验货均 PASS；架构师已亲读 artifacts。pipeline、隐私、逐题 N/A、
+   judge 与 worker 隔离成立，但 v6 暴露公共 readout 丢失 ISO 时分、embedding call 未观测以及
+   legacy metadata 与 v1 evidence 粒度冲突，故本格降为 `B11_ARTIFACT_REPAIR_PENDING`，不能写
+   `REAL_SMOKE_PASSED`。完整命令与开箱判词见
+   [单/双 worker 全 evaluator 命令包](notes/lightmem-longmemeval-b11-command-pack.md)。
 10. 用户要求把“为什么敢跑、异常如何处理”变成可长期复查的安全说明，而不是留在聊天。
     [LightMem 五 benchmark 格子安全说明](notes/lightmem-five-benchmark-safety-dossier.md) 采用
     一 method 一 dossier、五 benchmark 分章：LoCoMo 已写到真实 smoke passed，LongMemEval
-    写到 ready-for-smoke；MemBench/BEAM/HaluMem 到站后逐格补，不用一份总绿灯掩盖未验章节。
+    已随 v6 实跑更新为 artifact repair pending；MemBench/BEAM/HaluMem 到站后逐格补，不用
+    一份总绿灯掩盖未验章节。
+11. v6 真实 B11 的两个修复面已经拆成互不踩文件的并行卡：
+    [LightMem 产品 readout/embedding 观测卡](cards/actor-prompt-lightmem-readout-observability-repair.md)
+    只改 method/registry/tests，把公共 readout 恢复为产品接口的完整时间并补真实 embedding
+    observation；[retrieval summary v2 卡](../../retrieval-metrics/cards/actor-prompt-retrieval-summary-nullability.md)
+    只改共享 evaluator/runner，使全 N/A 的 `mean_score/total_questions` 不再伪装成 0 分/0 题。
+    两卡均为零 API，可从同一最新 main 在独立 worktree 并行；两卡强验收合入前不得重跑付费 B11。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

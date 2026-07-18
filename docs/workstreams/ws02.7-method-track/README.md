@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo v6 已过；LongMemEval latest-main 预检已过、B11 待预算；Mem0 暂缓）
+status: in-progress（LightMem LoCoMo v6 已过；LongMemEval B11 已实跑、artifact 修复待派；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -133,22 +133,38 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   9 个 turn-unmatched gold unit、1 个重复 occurrence 与 4 道 empty-evidence QA 只走
   evaluator-private 通道，不要求 LightMem 特判。caption 卡已关闭，不再重复派发。
   B9/B10 效果配置迁移仍按既有政策不阻塞 smoke，但首个效果 full/author calibration 前必须完成。
-  用户 2026-07-18 改定顺序：离开 LightMem 前继续逐格压实 LongMemEval；先做 current-main
-  role/pair/time/query/readout/metric 差量预检，不重复 S/M 大扫描。Opus 4.8 `67715dd` 的六类
-  production-path/fake-backend 探针与 current-v6 对表已通过；Codex R1 `346f1c4` 删除了把完整
-  pair 数换算成 extraction API 次数的错误外推，并订正 registered smoke 可按 round 裁剪、
-  LongMemEval answer `max_tokens=500`。主线=`9bf1c78` + `b2d7c9c`；现行判词只到
-  `READY_FOR_B11_SMOKE`（cropped pipeline），不等于效果/full/成本校准完成。Mem0 → MemoryOS →
-  A-Mem → SimpleMem 顺延；Metric Pack M0 已关闭，不反向解冻 LightMem build。用户要求的格子
+  用户 2026-07-18 改定顺序：离开 LightMem 前继续逐格压实 LongMemEval；current-main
+  role/pair/time/query/metric 差量预检已关闭，用户也已完成 latest-v6 单/双 worker 真实 B11。
+  开箱确认 pipeline、隐私、逐题 N/A、judge 与 worker 隔离成立，但公共 readout 把 Qdrant 完整
+  ISO timestamp 降成 date-only，embedding inventory 无逐调用 observation，legacy metadata 与
+  v1 evidence 粒度冲突；共享 retrieval summary 又把全 N/A 写成 0 分/0 题。当前判词为
+  `B11_ARTIFACT_REPAIR_PENDING`，两张零 API 并行卡已落盘；强验收合入前不得重跑付费 B11。
+  Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric Pack M0 已关闭，不反向解冻 LightMem build。
+  用户要求的格子
   “安全感”已制度化为**每 method 一份、五 benchmark 分章**的 living dossier；LightMem 首份在
   `branches/method-recertification/lightmem/notes/lightmem-five-benchmark-safety-dossier.md`，
-  LoCoMo=real-smoke-passed、LME=ready-for-smoke，其余三格仍 pending，禁止一份总绿灯代裁。
+  LoCoMo=real-smoke-passed、LME=B11-artifact-repair-pending，其余三格仍 pending，禁止一份
+  总绿灯代裁。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-18）
 
-- 2026-07-18（**LightMem × LongMemEval B11 预算已批；单/双 worker 全 evaluator 命令已发；
+- 2026-07-18（**LightMem × LongMemEval v6 B11 已执行并开箱；两张零 API 修复卡可并行派发；
+  Mem0 继续暂缓**，GPT-5 架构师）：实际 run=`lm-lme-v6-r1q1-w1-s-cleaned` 与
+  `lm-lme-v6-r1q1-c2-w2-s-cleaned`，机器验货均 PASS。架构师亲读 manifest、prompt、retrieved
+  payload、score/summary、efficiency 与 worker state 后裁定：主接线/隐私/N/A/隔离有效，但
+  Qdrant 的完整 `2023-05-20T03:29:00.000` 被 unified readout 降为 `20 May 2023, Sat`；声明的
+  `lightmem-embedding` 没有任何 `embedding_call`；逐题 v1 granularity=`none` 与 legacy
+  metadata=`turn` 冲突；全 N/A retrieval summary 错写 `total_questions=0,mean_score=0.0`。
+  当前格子=`B11_ARTIFACT_REPAIR_PENDING`。并行卡分别为
+  `branches/method-recertification/lightmem/cards/actor-prompt-lightmem-readout-observability-repair.md`
+  与 `branches/retrieval-metrics/cards/actor-prompt-retrieval-summary-nullability.md`；两卡无 production
+  文件交叉、均禁真实 API。回卡后由架构师 full diff + 定向强验收 + 线性合入，再裁最小 v7
+  重跑；此前禁止继续付费，也不把 v6 artifact 写成 `REAL_SMOKE_PASSED`。
+
+- 2026-07-18（**历史执行前断点，已由上条 superseded：LightMem × LongMemEval B11 预算已批；
+  单/双 worker 全 evaluator 命令已发；
   等待 OWNER 执行与架构师开箱验货**，GPT-5 架构师）：W1 故意沿用 registered 默认
   `1 conversation × 1 round × 1 question × 1 worker`；W2 只显式覆盖为
   `2 conversations × 2 workers`，round/question 继续走默认。两次 predict 严格串行；每次随后
@@ -159,7 +175,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `branches/method-recertification/lightmem/notes/lightmem-longmemeval-b11-command-pack.md`。
   在真实 artifacts 回收前，本格仍为 `READY_FOR_B11_SMOKE`，不得提前写 passed/frozen。
 
-- 2026-07-18（**建立每 method 一份五格安全说明；LightMem 前两格已落盘；下一步仍是 LME
+- 2026-07-18（**历史执行前断点，已由最新开箱条目 superseded：建立每 method 一份五格安全
+  说明；LightMem 前两格已落盘；下一步仍是 LME
   B11 预算门**，GPT-5 架构师）：用户要求把“为什么敢跑、异常如何处理”从聊天变成可复查
   资产。现裁为约 10 份 method dossier、每份五 benchmark 分章，不制造 50 份散落顶层文档；
   规则已写入 method checklist。首份=`branches/method-recertification/lightmem/notes/
@@ -168,7 +185,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   LoCoMo/LME 承重集=`272 passed, 1 warning in 80.79s`，文档门通过，零真实 API。该文档工作
   不改变实验状态；下一动作仍是用户批准预算/规模/run_id 后执行 LME 单/双 worker B11。
 
-- 2026-07-18（**LightMem × LongMemEval latest-main 预检 + R1 强验收；B11 待用户批准真实 API；
+- 2026-07-18（**历史预检断点，已由最新开箱条目 superseded：LightMem × LongMemEval
+  latest-main 预检 + R1 强验收；B11 待用户批准真实 API；
   Mem0 暂缓**，GPT-5 架构师）：Opus 4.8 `67715dd` 已把临时 Claude scratchpad 的六类探针构造与
   stdout 全量补入仓库 note，跨模型证据自包含；架构师 full diff、current source 对表与 dummy-key
   八文件独立复跑=`219 passed, 1 warning in 84.60s`，核心 role/pair/hybrid/time/query/readout/
