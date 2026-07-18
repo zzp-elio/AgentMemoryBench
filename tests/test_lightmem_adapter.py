@@ -3245,6 +3245,49 @@ def test_lightmem_longmemeval_unified_builder_embeds_full_timestamp_and_isolates
     assert question.question_time not in history_chats
 
 
+def test_lightmem_longmemeval_zero_hit_keeps_answer_context_equal_to_sentinel() -> None:
+    """LongMemEval 零命中时两份公共 readout 必须同为既有 sentinel。"""
+
+    backend = FakeLightMemoryBackend()
+    backend.embedding_retriever.entries = []
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="longmemeval",
+    )
+    conversation = _longmemeval_style_lightmem_conversation()
+    method.add([conversation])
+    question = conversation.questions[0]
+
+    retrieval = method.retrieve(
+        RetrievalQuery(
+            query_text=question.text,
+            isolation_key=conversation.conversation_id,
+            question_time=question.question_time,
+            top_k=2,
+            purpose="qa",
+            source_question=question,
+        )
+    )
+
+    sentinel = "(No relevant memories found)"
+    assert retrieval.formatted_memory == retrieval.metadata["answer_context"] == sentinel
+    assert retrieval.items == ()
+    assert retrieval.evidence is not None
+    assert retrieval.evidence.semantic_provenance.status == "n_a"
+    assert retrieval.evidence.provenance_granularity == "none"
+
+
 def test_lightmem_records_question_efficiency_observations() -> None:
     """LightMem wrapper 应记录 question-level 汇总和 reader LLM token。"""
 
@@ -3563,6 +3606,106 @@ class _ExplodingFakeLightMemEmbedder(FakeLightMemEmbedder):
         """总是抛出异常，不返回向量，也不产生 partial 状态。"""
 
         raise RuntimeError("embedding backend exploded")
+
+
+class _ExplodingTokenizer(FakeHuggingFaceTokenizer):
+    """模拟只在 embedding token 旁路计数阶段失败的 tokenizer。"""
+
+    def encode(
+        self,
+        text: str,
+        truncation: bool = False,
+        max_length: int | None = None,
+    ) -> list[int]:
+        """抛出普通异常，验证算法成功结果不受观测故障影响。"""
+
+        raise RuntimeError("tokenizer observer exploded")
+
+
+def test_lightmem_embedding_observer_token_count_failure_is_transparent() -> None:
+    """embed 成功后 tokenizer 计数失败仍应原样返回，且不得补写 observation。"""
+
+    backend = FakeLightMemoryBackend()
+    backend.text_embedder.model.tokenizer = _ExplodingTokenizer()
+    collector = EfficiencyCollector(
+        run_id="lightmem-embedding-tokenizer-error-run",
+        enabled=True,
+    )
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        efficiency_collector=collector,
+        benchmark_name="locomo",
+    )
+    method._install_embedding_call_observer(backend=backend)
+
+    with collector.conversation_scope("conv-tokenizer-error") as scope:
+        result = backend.text_embedder.embed("hello")
+        collector.record_memory_build_total_latency(latency_ms=0.0)
+
+    assert result == [1.0, 0.0]
+    assert backend.text_embedder.embedded_texts == ["hello"]
+    assert [
+        record
+        for record in scope.records
+        if record.to_dict()["observation_type"] == "embedding_call"
+    ] == []
+
+
+def test_lightmem_embedding_observer_record_failure_is_transparent(monkeypatch) -> None:
+    """collector 落盘失败不得改变 embed 返回，也不得触发第二次算法调用。"""
+
+    backend = FakeLightMemoryBackend()
+    collector = EfficiencyCollector(
+        run_id="lightmem-embedding-record-error-run",
+        enabled=True,
+    )
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        efficiency_collector=collector,
+        benchmark_name="locomo",
+    )
+
+    def explode_record(**kwargs) -> None:
+        """模拟 collector 在成功 embed 后拒绝 observation。"""
+
+        raise RuntimeError("collector observer exploded")
+
+    monkeypatch.setattr(collector, "record_embedding_call", explode_record)
+    method._install_embedding_call_observer(backend=backend)
+
+    with collector.conversation_scope("conv-record-error") as scope:
+        result = backend.text_embedder.embed("hello")
+        collector.record_memory_build_total_latency(latency_ms=0.0)
+
+    assert result == [1.0, 0.0]
+    assert backend.text_embedder.embedded_texts == ["hello"]
+    assert [
+        record
+        for record in scope.records
+        if record.to_dict()["observation_type"] == "embedding_call"
+    ] == []
 
 
 def test_lightmem_embedding_observer_propagates_original_exception_without_recording() -> (

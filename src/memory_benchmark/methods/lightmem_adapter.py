@@ -1246,11 +1246,13 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             if isinstance(retrieval.metadata.get("answer_context"), str)
             else ""
         )
+        formatted_memory = formatted_memory or "(No relevant memories found)"
         evidence = self._build_retrieval_evidence(items)
         metadata = dict(retrieval.metadata)
+        metadata["answer_context"] = formatted_memory
         metadata["provenance_granularity"] = evidence.provenance_granularity
         return RetrievalResult(
-            formatted_memory=formatted_memory or "(No relevant memories found)",
+            formatted_memory=formatted_memory,
             prompt_messages=tuple(retrieval.prompt_messages),
             items=items,
             metadata=metadata,
@@ -1521,18 +1523,24 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         original_embed = text_embedder.embed
 
         def wrapped_embed(text: str, *args: Any, **kwargs: Any) -> Any:
-            """调用官方 text_embedder.embed，并记录一次真实 embedding 调用 observation。"""
+            """透明调用官方 embed；观测失败不得改变成功的算法返回。"""
 
             started_ns = perf_counter_ns()
             result = original_embed(text, *args, **kwargs)
-            latency_ms = _elapsed_ms(started_ns)
-            collector.record_embedding_call(
-                model_id=LIGHTMEM_EMBEDDING_MODEL_ID,
-                input_tokens=_count_local_embedding_tokens(text_embedder, text),
-                latency_ms=latency_ms,
-                token_measurement_source=MeasurementSource.TOKENIZER_ESTIMATE,
-                latency_measurement_source=MeasurementSource.FRAMEWORK_TIMER,
-            )
+            try:
+                latency_ms = _elapsed_ms(started_ns)
+                input_tokens = _count_local_embedding_tokens(text_embedder, text)
+                collector.record_embedding_call(
+                    model_id=LIGHTMEM_EMBEDDING_MODEL_ID,
+                    input_tokens=input_tokens,
+                    latency_ms=latency_ms,
+                    token_measurement_source=MeasurementSource.TOKENIZER_ESTIMATE,
+                    latency_measurement_source=MeasurementSource.FRAMEWORK_TIMER,
+                )
+            except Exception:
+                # 观测是旁路能力：算法调用已经成功后，tokenizer/collector 故障
+                # 不得把成功改写为失败，也不得为补记 observation 二次调用 embed。
+                pass
             return result
 
         text_embedder.embed = wrapped_embed

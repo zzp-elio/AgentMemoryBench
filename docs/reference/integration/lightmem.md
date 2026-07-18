@@ -1,10 +1,11 @@
 # LightMem 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**method-frozen-v2（2026-07-17，B1-B11 重认证完成）**。online-soft
-> lifecycle 卡已强验收合入主线 `825132f`，B6/lifecycle identity 关闭；LoCoMo
-> post-update 保留为另名补充轨。MemBench 时间语义 Phase A 与 LightMem preserve-none
-> Phase B 的 timestamp 子门仍有效。
+> 状态：**B11_ARTIFACT_REPAIR_PENDING（v7 代码门已过，真实 B11 待重跑）**。
+> 2026-07-17 的 method-frozen-v2 与 v6 LoCoMo smoke 仍是有效历史证据，但 v7 改变
+> 公共 readout 与 embedding observation 契约，不能沿用 v6 artifact 宣称当前版本已
+> frozen。online-soft lifecycle 主体、MemBench 时间语义 Phase A 与 LightMem
+> preserve-none Phase B 的既有判据仍有效；LoCoMo post-update 保留为另名补充轨。
 > 2026-07-16 补充：**hybrid role profile 已强验收合入**（主线 `d86b22a` +
 > `d1c18c4`；双卡定向并集 588 项、主树全量 1435 项通过）——unified 主 build 已改为
 > `messages_use="hybrid"`（adapter version 升至 `conversation-qa-v4`），通用
@@ -324,7 +325,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   benchmark 特判。此前唯一需要 LightMem 自身修复的公开 caption 丢失现已由 v6 关闭。
 - **B3 隔离 ✅ 物理**：per-conversation Qdrant collection + 独立路径（adapter:388-390，
   summary 库另置 :390）；clean-retry = 删目录（:1660-1664），干净。并行安全。
-- **B4 formatted_memory+输入内容 ✅（caption/input/time 已完成真实复验）**：locomo 官方
+- **B4 formatted_memory+输入内容 🟡（v7 代码门 retested，artifact 待重跑）**：locomo 官方
   speaker 分组 + `_format_lightmem_memory`；longmemeval native 已透传
   `prompt_messages` 对齐官方（M0-1b）。**时间戳逐 benchmark 实测**：locomo ✓、
   membench **仅 0-10k smoke 四源 ✓**、beam-100k `15 March 2024` ✓（月名转换端到端）、halumem
@@ -354,7 +355,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   `time_stamp is None` 时只输出 memory 文本，不出现字面量 `None` 或 weekday-only
   前缀。LoCoMo 官方 answer prompt 的 speaker 分组仍用 pretty-date，两层不再耦合。
   旧 v6 LoCoMo unified answer artifact 因此只保留历史证据，不代表修复后的 readout。
-- **B5 provenance ✅ 逐格资格已裁（2026-07-17）**：M0-7b 已把公开
+- **B5 provenance ✅（v7 单事实源代码门 retested）**：M0-7b 已把公开
   `external_id` 透传为 `MemoryEntry.source_external_id`，初始 insert 的单来源映射与
   lme/membench/beam 等不跑 post-build merge 的路径仍成立。2026-07-13
   `lm-locomo-unified-prov1` 确实产出非空 items，但当时只验证了 id 空间/字段存在，
@@ -397,7 +398,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   不会误 resume 到新 build。lifecycle 主体
   `825132f` 与 missing-time `915f73c` + `3968373` 均已通过架构师定向/全量门。
   不 flush 检索到空记忆的历史判例仍有效。
-- **B7 效率插桩 ✅（2026-07-18 补齐 embedding 观测，v7）**：build/answer/judge 三角色
+- **B7 效率插桩 🟡（v7 observer 实现/定向测试已过，真实 observation 待 B11）**：build/answer/judge 三角色
   api_usage 真 token（2026-07-12 效率审计无拦截缺口）；LightMem add_memory 自带
   token/api_call_nums 返回值可做交叉参照（待留档）。v6 真实 LongMemEval B11 开箱发现
   model inventory 声明 `lightmem-embedding`，但 `efficiency_observations.
@@ -412,7 +413,8 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   `framework_timer`。同时 model inventory 删除 registered v3 主路径从未调用的
   `lightmem-answer-llm`（该路径由 framework `FrameworkAnswerReader` 调用 answer
   LLM；`lightmem-answer-llm` 只在直接调用 legacy `get_answer()` 时才会产生
-  observation）。
+  observation）。本节只证明实现与强反例门已通过；尚无 v7 真实 run 证明 build 与
+  retrieval observation 均实际落盘，因此不得提前判为 B7 ✅。
 - **B8 副作用/clean-retry ✅（2026-07-14 frozen-v1 收口）**：物理隔离 + 删目录
   清理已具备；**检索纯读已锚死**：`LightMemory.retrieve`
   （`third_party/methods/LightMem/src/lightmem/memory/lightmem.py:648-710`）=
@@ -432,7 +434,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   LoCoMo/LME 改由 `author_locomo`/`author_longmemeval` section 选择各自完整 answer builder，
   并验收从 speaker/time/retrieved memories 到最终 messages 的变量构造；不能只复用旧
   `ANSWER_PROMPT` 模板或 readout bundle 宣称 parity。
-- **B11 smoke+冻结 ✅（2026-07-17 method-frozen-v2）**：2026-07-14
+- **B11 smoke+冻结 🟡（B11_ARTIFACT_REPAIR_PENDING）**：2026-07-14
   五格既有 flow-through 与 answer/judge/成本证据仍有效；既有 LoCoMo post-update recall
   数字撤销。online-soft lifecycle identity 已在 `825132f` 完成；逐题 RetrievalEvidence
   M0/M1 均已强验收，LightMem preserve-none Phase B 与 LongMemEval input-time 离线门也已
@@ -442,6 +444,10 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   与 private gold groups 独立重算 Recall@10 均为 1，并核实 D1:5 LTM lineage、效率、隐私与
   worker 物理隔离，正式恢复 frozen-v2。完整证据见
   `ws02.7/branches/method-recertification/lightmem/notes/lightmem-frozen-v2.md`。
+  上述冻结只对应历史 v6 LoCoMo build；v7 公共 readout/embedding observation 契约
+  已变化，旧 artifact 不可 resume 或外推。当前必须重跑真实 v7 B11，核实完整 timestamp、
+  零命中 sentinel/answer_context 一致性及 build/retrieval embedding observations 后，
+  才能重新关闭 B7/B11 并宣称当前版本 frozen。
   以下为 2026-07-13~14 的历史 smoke 证据：
   ① unified：空库悬案已关闭（diag-log1 复跑：1 round → force 刷洗 → 抽取 2 条
   记忆 → 检索命中，sentinel=0；此前空库判为抽取 LLM 单次返 0 波动，非结构性 bug）。
