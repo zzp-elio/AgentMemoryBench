@@ -334,6 +334,7 @@ registered smoke 默认：1 conversation × 1 round × 1 question。它可以截
 
 - [LongMemEval 输入异形与时间审计](lightmem-longmemeval-input-time-audit.md)
 - [latest-main 六类输入与 B11 readiness 预检](lightmem-longmemeval-latest-main-preflight.md)
+- [待执行的单/双 worker B11 命令包](lightmem-longmemeval-b11-command-pack.md)
 - [LongMemEval dataset 稳定结构卡](../../../../../../survey/datasets/longmemeval.md)
 - [LongMemEval workflow 稳定卡](../../../../../../survey/workflows/longmemeval.md)
 

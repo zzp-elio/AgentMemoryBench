@@ -40,7 +40,10 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    B11 smoke 条件；这不等于 full/effect/cost calibration 已过。六类公开异常 shape 已由
    production path + fake backend 离线实证，不再用完整异常 qid 重复烧 API。registered 默认
    smoke 为 1 conversation × 1 round × 1 question；真实成本只从完整实验单元的运行时效率
-   产物外推，不从 pair/add_memory 数猜。当前只等待用户批准 B11 预算、规模与 run_id。
+   产物外推，不从 pair/add_memory 数猜。用户已批准真实 B11；架构师裁定 W1 走注册默认规模，
+   W2 只覆盖为 2 conversations × 2 workers，并已给出
+   [单/双 worker 全 evaluator 命令包](notes/lightmem-longmemeval-b11-command-pack.md)。当前等待
+   OWNER 严格串行执行并回收 artifacts，格子在验货前仍是 `READY_FOR_B11_SMOKE`。
 10. 用户要求把“为什么敢跑、异常如何处理”变成可长期复查的安全说明，而不是留在聊天。
     [LightMem 五 benchmark 格子安全说明](notes/lightmem-five-benchmark-safety-dossier.md) 采用
     一 method 一 dossier、五 benchmark 分章：LoCoMo 已写到真实 smoke passed，LongMemEval

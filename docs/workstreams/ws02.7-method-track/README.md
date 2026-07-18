@@ -148,6 +148,17 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-18）
 
+- 2026-07-18（**LightMem × LongMemEval B11 预算已批；单/双 worker 全 evaluator 命令已发；
+  等待 OWNER 执行与架构师开箱验货**，GPT-5 架构师）：W1 故意沿用 registered 默认
+  `1 conversation × 1 round × 1 question × 1 worker`；W2 只显式覆盖为
+  `2 conversations × 2 workers`，round/question 继续走默认。两次 predict 严格串行；每次随后
+  跑 token-F1、normalized EM、substring EM、LongMemEval Recall/rank 资格壳与 compact judge。
+  Recall/rank 对本格的预期是成功写 `score=None/status=n/a/pair_source_id_not_turn_exact`，不是
+  伪分数。LongMemEval multi-variant CLI 用 `s_cleaned`，artifact child run id 自动追加
+  `-s-cleaned`；两组实际 run id、日志搬运与零 API 机器验货均固化在
+  `branches/method-recertification/lightmem/notes/lightmem-longmemeval-b11-command-pack.md`。
+  在真实 artifacts 回收前，本格仍为 `READY_FOR_B11_SMOKE`，不得提前写 passed/frozen。
+
 - 2026-07-18（**建立每 method 一份五格安全说明；LightMem 前两格已落盘；下一步仍是 LME
   B11 预算门**，GPT-5 架构师）：用户要求把“为什么敢跑、异常如何处理”从聊天变成可复查
   资产。现裁为约 10 份 method dossier、每份五 benchmark 分章，不制造 50 份散落顶层文档；
