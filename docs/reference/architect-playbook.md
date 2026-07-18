@@ -323,6 +323,17 @@
     就在 factory/outputs 前 fail-fast，禁止 generic 默认和“按名字去别处找”。定向绿之后仍要跑
     全量，因为跨层契约最容易在未列入卡的旧 fake/consumer 处暴露最后一公里。
 
+33. **smoke、完整成本 pilot 与 full 外推是三件事，任务卡不得混轴**（2026-07-18
+    LightMem × LongMemEval 判例）。B11 smoke 只证明极小裁剪下的 ingest → retrieve → readout →
+    evaluate 接线和产物契约，不承担效果或全量成本估算；benchmark 已声明的 round/session/turn
+    裁剪政策必须先读，不能因为正式评测需要完整 history 就宣称 smoke 也不可裁。成本 pilot
+    则选择一个**完整实验单元**，从真实 run 的 API call、token、wall time、重试与 efficiency
+    记录建立基线，再按用户批准规模外推并披露样本差异。`pair`/`add_memory` 数只能描述输入
+    形状，不能替代 runtime 调用观测——LightMem 的 buffer/segment/force-extract 门尤其不存在
+    一比一映射。架构师原预检卡把“公开候选与成本形状”塞进 B11，诱导 actor 把约 200 pair
+    写成约 200 次 extraction LLM；即使 actor 越过了证据边界，卡片混轴仍是架构师责任。以后
+    预检卡只判 ready/blocked，smoke 卡只给接线规模，成本外推另读首条完整 pilot 产物。
+
 ## 4. 审查手艺（隐性知识核心）
 
 ### 4.1 三层审查法

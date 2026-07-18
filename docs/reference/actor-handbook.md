@@ -170,6 +170,18 @@
   fixture 升级到当前 schema，并保留严格 consumer gate。若这些文件不在允许清单，像
   RetrievalEvidence M1 首轮 actor 一样复现并上报是对的，但完成报告必须明确“局部交付完成、
   跨层门未闭合”，不能把卡内绿等同整批可合入。
+- **会话私有 scratchpad 不是跨模型证据。**系统临时目录、Claude/Codex/OpenCode 的会话附件、
+  私有 memory 与工具界面里的“Created ...”只对当前入口暂时可见；下一位架构师或接任 actor
+  可能既看不到文件，也无法复现命令。临时脚本不提交时，durable note 至少要写清 production
+  入口、探针构造、承重断言与关键 stdout 原文；只写“输出已抄入某处”却不给输出，等于空引用。
+  产品私有 memory 最多是便利缓存，不能替代仓库内 note/handbook。2026-07-18 LightMem ×
+  LongMemEval 预检首轮把 Claude Code `/private/tmp` 脚本名当证据，经用户指出后才把探针构造与
+  stdout 补入 note；这类缺口即使结论正确也必须返工。
+- **结构操作数不能擅自换算成真实 API 调用数。**`pair`、`add_memory`、segment 或 batch 数只
+  描述输入/调度形状；buffer、threshold、flush、retry 与缓存会让 extraction LLM/API 调用数
+  与它们不成一比一关系。卡只要求公开 shape 时，不得自行写“约 N 个 pair = 约 N 次 LLM”。
+  真实成本以运行产物中的 API 次数、token、wall time 与 efficiency 观测为准；缺少观测就写
+  “待真实 pilot”，不要制造代理估算。
 
 ## 7. 好行为（值得学的正例）
 
