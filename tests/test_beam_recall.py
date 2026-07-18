@@ -249,6 +249,12 @@ def test_empty_evidence_is_na(tmp_path: Path) -> None:
     assert result["summary"]["abstention_question_count"] == 1
     assert result["summary"]["retrieval_evidence_status_counts"] == {}
     assert result["summary"]["provenance_granularity"] is None
+    # total_questions 覆盖全部 record（含 benchmark policy 剔除），均值必须
+    # 忠实为 None，不能伪造成 0.0。
+    assert result["total_questions"] == 1
+    assert result["mean_score"] is None
+    assert result["summary"]["score_status_counts"] == {"n/a": 1}
+    assert result["summary"]["aggregation_contract_version"] == "retrieval-summary-v2"
 
 
 @pytest.mark.parametrize("evidence", [_valid_evidence(), _na_evidence(), _pending_evidence()])
@@ -422,3 +428,46 @@ def test_summary_reports_metric_tier_and_representative_granularity(
     )
     assert result["summary"]["metric_tier"] == "framework_supplementary"
     assert result["summary"]["provenance_granularity"] == "turn"
+
+
+def test_all_empty_gold_exclusion_reports_null_mean_but_nonzero_total(
+    tmp_path: Path,
+) -> None:
+    """全部题都是空 gold（abstention）时：总数不为零，均值为 null，provider counts 保持空。"""
+
+    result = _run(
+        tmp_path,
+        golds=[_gold("q1", []), _gold("q2", [])],
+        answers=[
+            _answer("q1", evidence=_valid_evidence("turn")),
+            _answer("q2", evidence=_valid_evidence("turn")),
+        ],
+        categories=["event_ordering", "event_ordering"],
+    )
+    assert result["total_questions"] == 2
+    assert result["summary"]["scored_question_count"] == 0
+    assert result["mean_score"] is None
+    assert result["summary"]["status"] == "n/a"
+    assert result["summary"]["retrieval_evidence_status_counts"] == {}
+    assert result["summary"]["score_status_counts"] == {"n/a": 2}
+    assert sum(result["summary"]["score_status_counts"].values()) == result["total_questions"]
+
+
+def test_numeric_and_exclusion_mean_only_averages_numeric_rows(tmp_path: Path) -> None:
+    """数值 1 与 0 加一条空 gold exclusion：均值只用两条 numeric，总数含全部 record。"""
+
+    result = _run(
+        tmp_path,
+        golds=[_gold("q-hit", ["s1:t1"]), _gold("q-miss", ["s1:t1"]), _gold("q-excluded", [])],
+        answers=[
+            _answer("q-hit", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[_item("s1:t1")]),
+            _answer("q-miss", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[_item("s9:t9")]),
+            _answer("q-excluded", evidence=_valid_evidence("turn")),
+        ],
+        categories=["summarization", "summarization", "summarization"],
+    )
+    assert result["total_questions"] == 3
+    assert result["summary"]["scored_question_count"] == 2
+    assert result["mean_score"] == pytest.approx(0.5)
+    assert result["summary"]["retrieval_evidence_status_counts"] == {"valid": 2}
+    assert result["summary"]["score_status_counts"] == {"ok": 2, "n/a": 1}

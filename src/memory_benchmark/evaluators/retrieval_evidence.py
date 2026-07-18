@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -36,6 +37,8 @@ from memory_benchmark.core.provider_protocol import (
 
 RETRIEVAL_EVIDENCE_CONTRACT_V1 = "v1"
 GOLD_GRANULARITY_MISMATCH_REASON_CODE = "gold_granularity_mismatch"
+AGGREGATION_CONTRACT_VERSION = "retrieval-summary-v2"
+_SCORE_ROW_STATUSES = frozenset({"ok", "n/a", "pending"})
 
 _ASSERTION_KEYS = frozenset({"status", "reason_code", "reason"})
 _EVIDENCE_KEYS = frozenset(
@@ -339,6 +342,48 @@ def summary_provenance_granularity(
     return "mixed"
 
 
+def nullable_mean(scores: Sequence[float]) -> float | None:
+    """计算均值；零样本时忠实返回 `None`，不得伪造成 `0.0`。
+
+    输入:
+        scores: 已确认计分（`status="ok"`）的题目分数序列。
+
+    输出:
+        float | None: `scores` 为空时返回 `None`；否则返回算术平均值，包括
+        真实均值恰为 `0.0` 的情形（此时正常返回 `0.0` 而非 `None`）。
+    """
+
+    if not scores:
+        return None
+    return sum(scores) / len(scores)
+
+
+def score_status_counts(score_records: Sequence[dict[str, Any]]) -> dict[str, int]:
+    """按 score-row 公共 status（`ok`/`n/a`/`pending`）统计计数，零计数 key 省略。
+
+    输入:
+        score_records: 一个 evaluator 本次写盘的**全部**逐题 score record，
+            含已评分、provider n_a/pending 与 benchmark-policy 排除。
+
+    输出:
+        dict[str, int]: status -> 计数；`sum(counts.values())` 恒等于
+        `len(score_records)`，用于校验 summary `total_questions`。任何
+        record 的 `status` 不在 `{"ok","n/a","pending"}` 集合时 fail-fast，
+        防止 status 拼写漂移悄悄破坏这条恒等式。
+    """
+
+    counts: Counter[str] = Counter()
+    for record in score_records:
+        status = record.get("status")
+        if status not in _SCORE_ROW_STATUSES:
+            raise ConfigurationError(
+                "score record status must be one of "
+                f"{sorted(_SCORE_ROW_STATUSES)}, got {status!r}"
+            )
+        counts[status] += 1
+    return dict(counts)
+
+
 def validated_retrieval_fields(
     record: dict[str, Any], question_id: str
 ) -> tuple[int, list[dict[str, Any]]]:
@@ -381,13 +426,16 @@ def validated_retrieval_fields(
 
 
 __all__ = [
+    "AGGREGATION_CONTRACT_VERSION",
     "GOLD_GRANULARITY_MISMATCH_REASON_CODE",
     "RETRIEVAL_EVIDENCE_CONTRACT_V1",
     "RetrievalEligibilityDecision",
     "decide_retrieval_eligibility",
     "display_status",
+    "nullable_mean",
     "parse_retrieval_evidence",
     "require_manifest_retrieval_evidence_contract_v1",
+    "score_status_counts",
     "summary_provenance_granularity",
     "summary_status",
     "validated_retrieval_fields",

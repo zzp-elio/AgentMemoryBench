@@ -348,13 +348,18 @@ def test_semantic_provenance_na_produces_na_record_not_whole_run_na(
     assert record["retrieval_evidence_status"] == "n_a"
     assert record["reason_code"] == "beam_style_gap"
     assert record["reason"] == "coarser ingest batch than gold"
-    assert result["total_questions"] == 0
+    # total_questions 覆盖本 evaluator 消费的全部 score record（含 n_a），不再
+    # 等同于计分分母；`scored_question_count` 才是均值的唯一分母。
+    assert result["total_questions"] == 1
+    assert result["mean_score"] is None
     assert result["summary"]["status"] == "n/a"
     assert result["summary"]["scored_question_count"] == 0
     assert result["summary"]["retrieval_evidence_status_counts"] == {"n_a": 1}
     assert result["summary"]["retrieval_evidence_reason_code_counts"] == {
         "beam_style_gap": 1
     }
+    assert result["summary"]["score_status_counts"] == {"n/a": 1}
+    assert result["summary"]["aggregation_contract_version"] == "retrieval-summary-v2"
 
 
 def test_na_decision_does_not_re_validate_retrieved_items_lineage(tmp_path: Path) -> None:
@@ -447,11 +452,17 @@ def test_mixed_valid_na_pending_questions_in_one_run(tmp_path: Path) -> None:
 
     result = LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
     assert result["mean_score"] == 1.0
-    assert result["total_questions"] == 1
+    # 3 条 record（valid + n_a + pending）都计入 total_questions；只有 valid
+    # 那 1 条进入 scored_question_count 与均值分母。
+    assert result["total_questions"] == 3
     assert result["summary"]["status"] == "ok"
     assert result["summary"]["scored_question_count"] == 1
     counts = result["summary"]["retrieval_evidence_status_counts"]
     assert counts == {"valid": 1, "n_a": 1, "pending": 1}
+    assert result["summary"]["score_status_counts"] == {"ok": 1, "n/a": 1, "pending": 1}
+    assert (
+        sum(result["summary"]["score_status_counts"].values()) == result["total_questions"]
+    )
 
 
 def test_empty_run_returns_structured_na(tmp_path: Path) -> None:
@@ -1157,3 +1168,86 @@ def test_v1_unmatched_group_lowers_recall_but_stays_in_denominator(
         paths=paths, manifest=manifest,
     )
     assert result["score_records"][0]["score"] == 1 / 2
+
+
+def test_all_na_run_reports_null_mean_not_zero(tmp_path: Path) -> None:
+    """全 N/A run 的 `mean_score` 必须是 `None`，不能被伪造成 `0.0`。
+
+    两条题都 semantic provenance n_a：`total_questions` 统计全部 record，
+    `scored_question_count` 为 0，`mean_score` 为 `None`，`score_status_counts`
+    合计等于 `total_questions`。
+    """
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt("q1", evidence=_na_evidence(), top_k=1, retrieved_items=None),
+            _answer_prompt("q2", evidence=_na_evidence(), top_k=1, retrieved_items=None),
+        ],
+        private_labels=[_label("q1", ["D1:1"]), _label("q2", ["D1:1"])],
+        public_questions=[
+            {"question_id": "q1", "category": "4"},
+            {"question_id": "q2", "category": "4"},
+        ],
+    )
+
+    result = LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+    assert result["total_questions"] == 2
+    assert result["summary"]["scored_question_count"] == 0
+    assert result["mean_score"] is None
+    assert result["summary"]["status"] == "n/a"
+    assert result["summary"]["score_status_counts"] == {"n/a": 2}
+    assert sum(result["summary"]["score_status_counts"].values()) == result["total_questions"]
+
+
+def test_all_pending_run_reports_null_mean_and_pending_status(tmp_path: Path) -> None:
+    """全 pending run 的 `mean_score` 同样必须是 `None`，summary status 为 pending。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt("q1", evidence=_pending_evidence(), top_k=1, retrieved_items=None),
+            _answer_prompt("q2", evidence=_pending_evidence(), top_k=1, retrieved_items=None),
+        ],
+        private_labels=[_label("q1", ["D1:1"]), _label("q2", ["D1:1"])],
+        public_questions=[
+            {"question_id": "q1", "category": "4"},
+            {"question_id": "q2", "category": "4"},
+        ],
+    )
+
+    result = LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+    assert result["total_questions"] == 2
+    assert result["mean_score"] is None
+    assert result["summary"]["status"] == "pending"
+    assert result["summary"]["score_status_counts"] == {"pending": 2}
+
+
+def test_one_zero_score_plus_one_na_reports_zero_not_null(tmp_path: Path) -> None:
+    """真实计分恰为 0.0 时必须保留 `0.0`，不能因为混入 n_a 就被误判成 `None`。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt(
+                "q-zero",
+                evidence=_valid_evidence("turn"),
+                top_k=1,
+                # 检索命中与 gold 完全不重叠 → 0.0，而非空 evidence 的官方 1.0。
+                retrieved_items=[_item("i1", ["D1:9"])],
+            ),
+            _answer_prompt("q-na", evidence=_na_evidence(), top_k=1, retrieved_items=None),
+        ],
+        private_labels=[_label("q-zero", ["D1:1"]), _label("q-na", ["D1:1"])],
+        public_questions=[
+            {"question_id": "q-zero", "category": "4"},
+            {"question_id": "q-na", "category": "4"},
+        ],
+    )
+
+    result = LoCoMoRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+    assert result["total_questions"] == 2
+    assert result["summary"]["scored_question_count"] == 1
+    assert result["mean_score"] == 0.0
+    assert result["summary"]["status"] == "ok"
+    assert result["summary"]["score_status_counts"] == {"ok": 1, "n/a": 1}

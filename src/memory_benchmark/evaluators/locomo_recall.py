@@ -37,11 +37,14 @@ from .gold_evidence_groups import (
     select_group_set,
 )
 from .retrieval_evidence import (
+    AGGREGATION_CONTRACT_VERSION,
     RetrievalEligibilityDecision,
     decide_retrieval_eligibility,
     display_status,
+    nullable_mean,
     parse_retrieval_evidence,
     require_manifest_retrieval_evidence_contract_v1,
+    score_status_counts,
     summary_provenance_granularity,
     summary_status,
     validated_retrieval_fields,
@@ -258,7 +261,7 @@ def _scored_payload(
 
     scored_records = [record for record in score_records if record["score"] is not None]
     scores = [record["score"] for record in scored_records]
-    overall_mean = sum(scores) / len(scores) if scores else 0.0
+    overall_mean = nullable_mean(scores)
     non_empty_mean = (
         sum(non_empty_evidence_scores) / len(non_empty_evidence_scores)
         if non_empty_evidence_scores
@@ -284,7 +287,7 @@ def _scored_payload(
     return {
         "metric_name": metric_name,
         "score_records": score_records,
-        "total_questions": len(scored_records),
+        "total_questions": len(score_records),
         "mean_score": overall_mean,
         "correct_count": None,
         "summary": {
@@ -298,6 +301,8 @@ def _scored_payload(
             "requested_top_k_distribution": top_k_distribution,
             "retrieval_evidence_status_counts": dict(evidence_status_counts),
             "retrieval_evidence_reason_code_counts": dict(evidence_reason_code_counts),
+            "score_status_counts": score_status_counts(score_records),
+            "aggregation_contract_version": AGGREGATION_CONTRACT_VERSION,
             "metric_tier": "framework_supplementary",
             "official_source": official_source,
         },

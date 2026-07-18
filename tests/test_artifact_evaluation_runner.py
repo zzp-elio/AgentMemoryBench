@@ -1408,6 +1408,131 @@ def test_run_artifact_evaluation_writes_isolated_files_for_multiple_metrics(
     ] == 0.75
 
 
+class _FixedPayloadArtifactEvaluator:
+    """返回固定 payload 的最小 artifact-level evaluator。
+
+    仅用于隔离测试 `run_artifact_evaluation` 对 `mean_score` 的可空解析逻辑，
+    不构造真实 provider、不读取 `paths`/`manifest` 内容。
+    """
+
+    metric_name = "fake_artifact_metric"
+
+    def __init__(self, payload: dict[str, object]) -> None:
+        """保存固定 payload。"""
+
+        self._payload = payload
+
+    def evaluate_run_artifacts(
+        self, *, paths: object, manifest: dict[str, object], max_workers: int = 1
+    ) -> dict[str, object]:
+        """忽略输入，直接返回构造时固定的 payload。"""
+
+        del paths, manifest, max_workers
+        return self._payload
+
+
+def test_artifact_evaluator_explicit_null_mean_score_writes_json_null(
+    tmp_path: Path,
+) -> None:
+    """evaluator 显式返回 `mean_score=None` 时，summary JSON 必须写 `null`，不能回退成 0.0。"""
+
+    run_dir = _build_run_dir(tmp_path)
+    _write_manifest(run_dir, benchmark_name="locomo")
+    payload = {
+        "metric_name": "fake_artifact_metric",
+        "score_records": [{"question_id": "q1", "score": None, "status": "n/a"}],
+        "total_questions": 1,
+        "mean_score": None,
+        "correct_count": None,
+        "summary": {},
+    }
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=_FixedPayloadArtifactEvaluator(payload),
+        expected_benchmark="locomo",
+    )
+    assert summary.mean_score is None
+    summary_json = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+    assert summary_json["mean_score"] is None
+
+
+def test_artifact_evaluator_explicit_float_mean_score_passes_through_unchanged(
+    tmp_path: Path,
+) -> None:
+    """既有 evaluator 显式返回数值 `mean_score` 的行为与 schema 保持不变。"""
+
+    run_dir = _build_run_dir(tmp_path)
+    _write_manifest(run_dir, benchmark_name="locomo")
+    payload = {
+        "metric_name": "fake_artifact_metric",
+        "score_records": [{"question_id": "q1", "score": 0.42, "status": "ok"}],
+        "total_questions": 1,
+        "mean_score": 0.42,
+        "correct_count": None,
+        "summary": {},
+    }
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=_FixedPayloadArtifactEvaluator(payload),
+        expected_benchmark="locomo",
+    )
+    assert summary.mean_score == 0.42
+
+
+def test_artifact_evaluator_missing_mean_score_key_falls_back_to_computed_default(
+    tmp_path: Path,
+) -> None:
+    """payload 完全不声明 `mean_score` key 时，按旧行为从 score_records 回算默认值。"""
+
+    run_dir = _build_run_dir(tmp_path)
+    _write_manifest(run_dir, benchmark_name="locomo")
+    payload = {
+        "metric_name": "fake_artifact_metric",
+        "score_records": [
+            {"question_id": "q1", "score": 1.0},
+            {"question_id": "q2", "score": 0.0},
+        ],
+        "summary": {},
+    }
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=_FixedPayloadArtifactEvaluator(payload),
+        expected_benchmark="locomo",
+    )
+    assert summary.mean_score == 0.5
+
+
+@pytest.mark.parametrize(
+    "invalid_mean_score",
+    [
+        "not-a-number",
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        True,
+    ],
+)
+def test_artifact_evaluator_invalid_mean_score_fails_fast(
+    tmp_path: Path, invalid_mean_score: object
+) -> None:
+    """非法字符串、布尔、NaN、正负无穷的 `mean_score` 必须统一 fail-fast，不得静默写盘。"""
+
+    run_dir = _build_run_dir(tmp_path)
+    _write_manifest(run_dir, benchmark_name="locomo")
+    payload = {
+        "metric_name": "fake_artifact_metric",
+        "score_records": [{"question_id": "q1", "score": 1.0}],
+        "mean_score": invalid_mean_score,
+        "summary": {},
+    }
+    with pytest.raises(ConfigurationError, match="mean_score"):
+        run_artifact_evaluation(
+            run_dir=run_dir,
+            evaluator=_FixedPayloadArtifactEvaluator(payload),
+            expected_benchmark="locomo",
+        )
+
+
 def _build_run_dir(tmp_path: Path) -> Path:
     """创建标准实验目录。"""
 

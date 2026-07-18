@@ -25,11 +25,14 @@ from memory_benchmark.evaluators.gold_evidence_groups import (
     select_group_set,
 )
 from memory_benchmark.evaluators.retrieval_evidence import (
+    AGGREGATION_CONTRACT_VERSION,
     RetrievalEligibilityDecision,
     decide_retrieval_eligibility,
     display_status,
+    nullable_mean,
     parse_retrieval_evidence,
     require_manifest_retrieval_evidence_contract_v1,
+    score_status_counts,
     summary_provenance_granularity,
     summary_status,
     validated_retrieval_fields,
@@ -265,7 +268,7 @@ def _scored_payload(
     """聚合已评分问题，按 question_type 输出分类聚合。"""
 
     scores = [float(record["score"]) for record in scored_records]
-    mean_score = sum(scores) / len(scores) if scores else 0.0
+    mean_score = nullable_mean(scores)
     by_category: dict[str, dict[str, Any]] = {}
     grouped: dict[str, list[float]] = {}
     for record in scored_records:
@@ -281,7 +284,7 @@ def _scored_payload(
     return {
         "metric_name": metric_name,
         "score_records": score_records,
-        "total_questions": len(scored_records),
+        "total_questions": len(score_records),
         "mean_score": mean_score,
         "correct_count": None,
         "summary": {
@@ -296,6 +299,8 @@ def _scored_payload(
             "requested_top_k_distribution": dict(Counter(top_k_values)),
             "retrieval_evidence_status_counts": dict(evidence_status_counts),
             "retrieval_evidence_reason_code_counts": dict(evidence_reason_code_counts),
+            "score_status_counts": score_status_counts(score_records),
+            "aggregation_contract_version": AGGREGATION_CONTRACT_VERSION,
             "metric_tier": "framework_supplementary",
             "official_source": official_source,
         },

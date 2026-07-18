@@ -12,6 +12,7 @@ evaluator）。
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
@@ -42,7 +43,7 @@ class EvaluationRunSummary:
     benchmark_name: str
     metric_name: str
     total_questions: int
-    mean_score: float
+    mean_score: float | None
     correct_count: int | None
     score_path: str
     summary_path: str
@@ -259,11 +260,7 @@ def _run_artifact_level_evaluation(
         len(score_records),
         "artifact evaluator total_questions",
     )
-    mean_score = _number_or_default(
-        payload.get("mean_score"),
-        _mean_score(score_records),
-        "artifact evaluator mean_score",
-    )
+    mean_score = _resolve_artifact_mean_score(payload, score_records)
     correct_count = payload.get("correct_count")
     if correct_count is not None:
         correct_count = _non_negative_int_or_default(
@@ -660,11 +657,33 @@ def _non_negative_int_or_default(
     raise ConfigurationError(f"{field_name} must be a non-negative integer")
 
 
-def _number_or_default(value: Any, default: float, field_name: str) -> float:
-    """读取数值，缺省时返回 default。"""
+def _resolve_artifact_mean_score(
+    payload: dict[str, Any],
+    score_records: list[dict[str, Any]],
+) -> float | None:
+    """解析 artifact-level evaluator 的可空 `mean_score`。
 
-    if value is None:
-        return default
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return float(value)
-    raise ConfigurationError(f"{field_name} must be a number")
+    输入:
+        payload: `evaluate_run_artifacts` 返回的原始 payload。
+        score_records: 该 payload 对应的逐题 score record，仅在 payload 未
+            声明 `mean_score` key 时用于向后兼容默认值。
+
+    输出:
+        float | None: payload 完全未声明 `mean_score` key 时，按旧行为从
+        `score_records` 回算默认值（兼容尚未显式声明该字段的 artifact
+        evaluator）；显式声明且值为 `null` 时忠实返回 `None`，不得回退成
+        `0.0` 或任何计算默认值；显式声明为数值时必须是有限数，非数值类型
+        （含字符串、布尔）与 NaN、正负无穷统一 fail-fast。
+    """
+
+    if "mean_score" not in payload:
+        return _mean_score(score_records)
+    raw_value = payload["mean_score"]
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, bool) or not isinstance(raw_value, int | float):
+        raise ConfigurationError("artifact evaluator mean_score must be a number or null")
+    value = float(raw_value)
+    if math.isnan(value) or math.isinf(value):
+        raise ConfigurationError("artifact evaluator mean_score must be a finite number")
+    return value

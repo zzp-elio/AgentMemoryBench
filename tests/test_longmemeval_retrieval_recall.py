@@ -344,12 +344,17 @@ def test_abstention_question_is_na_and_counted_separately(tmp_path: Path) -> Non
     assert records["q_abs_1"]["score"] is None
     assert records["q_abs_1"]["abstention"] is True
     assert records["q_abs_1"]["exclusion_source"] == "benchmark_policy"
-    assert result["total_questions"] == 1
+    # total_questions 覆盖全部 record（含 benchmark policy 剔除的 abstention 题）。
+    assert result["total_questions"] == 2
     assert result["mean_score"] == 1.0
     assert result["summary"]["scored_question_count"] == 1
     assert result["summary"]["abstention_question_count"] == 1
     # abstention 是 benchmark policy 剔除，不是 provider N/A：不计入逐题裁决统计。
     assert result["summary"]["retrieval_evidence_status_counts"] == {"valid": 1}
+    # 但它必须落到最终 score-row status 统计，不能从总数消失。
+    assert result["summary"]["score_status_counts"] == {"ok": 1, "n/a": 1}
+    assert sum(result["summary"]["score_status_counts"].values()) == result["total_questions"]
+    assert result["summary"]["aggregation_contract_version"] == "retrieval-summary-v2"
 
 
 def test_provider_na_evidence_produces_na_record_distinct_from_abstention(
@@ -642,3 +647,87 @@ def test_summary_has_framework_supplementary_metric_tier_and_representative_gran
     result = LongMemEvalRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
     assert result["summary"]["metric_tier"] == "framework_supplementary"
     assert result["summary"]["provenance_granularity"] == "turn"
+
+
+def test_all_benchmark_policy_exclusion_reports_null_mean_but_nonzero_total(
+    tmp_path: Path,
+) -> None:
+    """全部题都被官方 no-target 剔除时：总数不为零，均值为 null，provider counts 保持空。
+
+    两题都无 canonical turn target，属于纯 benchmark policy 排除（与 provider
+    evidence 无关），因此 `retrieval_evidence_status_counts` 必须保持空字典，
+    但 `score_status_counts`/`total_questions` 必须诚实反映这两条 record。
+    """
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt("q1", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[]),
+            _answer_prompt("q2", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[]),
+        ],
+        private_labels=[
+            _private_label("q1", turn_ids=[], corpus_ids=[], session_ids=[]),
+            _private_label("q2", turn_ids=[], corpus_ids=[], session_ids=[]),
+        ],
+        public_questions=[
+            {"question_id": "q1", "category": "multi-session"},
+            {"question_id": "q2", "category": "multi-session"},
+        ],
+    )
+
+    result = LongMemEvalRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+    assert result["total_questions"] == 2
+    assert result["summary"]["scored_question_count"] == 0
+    assert result["mean_score"] is None
+    assert result["summary"]["status"] == "n/a"
+    assert result["summary"]["official_no_target_question_count"] == 2
+    assert result["summary"]["retrieval_evidence_status_counts"] == {}
+    assert result["summary"]["score_status_counts"] == {"n/a": 2}
+    assert sum(result["summary"]["score_status_counts"].values()) == result["total_questions"]
+
+
+def test_numeric_scores_plus_exclusion_mean_only_averages_numeric_rows(
+    tmp_path: Path,
+) -> None:
+    """数值 1 与 0 加一条 exclusion：均值只用两条 numeric，但 total 含全部 record。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt(
+                "q-hit",
+                evidence=_valid_evidence("turn"),
+                top_k=1,
+                retrieved_items=[_item("session-a:t1")],
+            ),
+            _answer_prompt(
+                "q-miss",
+                evidence=_valid_evidence("turn"),
+                top_k=1,
+                retrieved_items=[_item("session-b:t9")],
+            ),
+            _answer_prompt("q-excluded", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[]),
+        ],
+        private_labels=[
+            _private_label(
+                "q-hit", turn_ids=["session-a:t1"], corpus_ids=["session-a_2"], session_ids=["session-a"]
+            ),
+            _private_label(
+                "q-miss", turn_ids=["session-a:t1"], corpus_ids=["session-a_2"], session_ids=["session-a"]
+            ),
+            _private_label("q-excluded", turn_ids=[], corpus_ids=[], session_ids=[]),
+        ],
+        public_questions=[
+            {"question_id": "q-hit", "category": "multi-session"},
+            {"question_id": "q-miss", "category": "multi-session"},
+            {"question_id": "q-excluded", "category": "multi-session"},
+        ],
+    )
+
+    result = LongMemEvalRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+    assert result["total_questions"] == 3
+    assert result["summary"]["scored_question_count"] == 2
+    assert result["mean_score"] == pytest.approx(0.5)
+    assert result["summary"]["overall_mean_recall_at_requested_k"] == pytest.approx(0.5)
+    assert result["summary"]["retrieval_evidence_status_counts"] == {"valid": 2}
+    assert result["summary"]["score_status_counts"] == {"ok": 2, "n/a": 1}

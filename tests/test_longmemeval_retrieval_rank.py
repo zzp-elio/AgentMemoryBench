@@ -277,8 +277,12 @@ def test_abstention_questions_excluded_with_count(tmp_path: Path) -> None:
     )
     records = {record["question_id"]: record for record in result["score_records"]}
     assert records["q_abs_1"]["score"] is None
-    assert result["total_questions"] == 1
+    # total_questions 覆盖全部 record（含 benchmark policy 剔除的 abstention 题）。
+    assert result["total_questions"] == 2
     assert result["summary"]["abstention_excluded_count"] == 1
+    assert result["summary"]["score_status_counts"] == {"ok": 1, "n/a": 1}
+    assert sum(result["summary"]["score_status_counts"].values()) == result["total_questions"]
+    assert result["summary"]["aggregation_contract_version"] == "retrieval-summary-v2"
 
 
 def test_semantic_provenance_na_returns_na_record_without_metrics(tmp_path: Path) -> None:
@@ -434,6 +438,53 @@ def test_summary_reports_metric_tier_and_formula_parity(tmp_path: Path) -> None:
     assert result["summary"]["metric_tier"] == "framework_supplementary"
     assert result["summary"]["formula_parity_at_available_k"] is True
     assert result["summary"]["scored_question_count"] == 1
+
+
+def test_zero_participants_reports_null_mean_and_empty_metrics_structure(
+    tmp_path: Path,
+) -> None:
+    """无题参与任何 k 时：`mean_score` 为 `None`，`overall_metrics` 保持空结构。
+
+    两题都 `stable_ranking=pending`（真实三家 provider 现状），因此没有任何题
+    进入任何 k 的分母；`overall_metrics` 不应伪造出全零占位，而是保持既有的
+    空 dict 语义。
+    """
+
+    paths, manifest = _write_run(
+        tmp_path,
+        rows=[("q1", ["s:t0"], ["s:t0"]), ("q2", ["s:t0"], ["s:t0"])],
+        top_k=3,
+        evidence_by_qid={
+            "q1": _pending_ranking_evidence(),
+            "q2": _pending_ranking_evidence(),
+        },
+    )
+    result = LongMemEvalRetrievalRankEvaluator().evaluate_run_artifacts(
+        paths=paths, manifest=manifest
+    )
+    assert result["total_questions"] == 2
+    assert result["summary"]["scored_question_count"] == 0
+    assert result["mean_score"] is None
+    assert result["summary"]["overall_metrics"] == {}
+    assert result["summary"]["status"] == "pending"
+    assert result["summary"]["score_status_counts"] == {"pending": 2}
+    assert result["summary"]["aggregation_contract_version"] == "retrieval-summary-v2"
+
+
+def test_real_zero_ndcg_reports_zero_mean_not_null(tmp_path: Path) -> None:
+    """真实 0 命中时 `mean_score` 必须是 `0.0`，不能被误判为 `None`。"""
+
+    paths, manifest = _write_run(
+        tmp_path, rows=[("q", ["s:t0"], ["s:other"])], top_k=1
+    )
+    result = LongMemEvalRetrievalRankEvaluator().evaluate_run_artifacts(
+        paths=paths, manifest=manifest
+    )
+    record = result["score_records"][0]
+    assert record["score"] == 0.0
+    assert result["total_questions"] == 1
+    assert result["summary"]["scored_question_count"] == 1
+    assert result["mean_score"] == 0.0
 
 
 def _write_run(

@@ -25,11 +25,14 @@ from memory_benchmark.evaluators.gold_evidence_groups import (
     select_group_set,
 )
 from memory_benchmark.evaluators.retrieval_evidence import (
+    AGGREGATION_CONTRACT_VERSION,
     RetrievalEligibilityDecision,
     decide_retrieval_eligibility,
     display_status,
+    nullable_mean,
     parse_retrieval_evidence,
     require_manifest_retrieval_evidence_contract_v1,
+    score_status_counts,
     summary_provenance_granularity,
     summary_status,
     validated_retrieval_fields,
@@ -180,12 +183,12 @@ class BeamRetrievalRecallEvaluator:
             top_ks.append(top_k)
 
         scores = [float(row["score"]) for row in scored]
-        mean = sum(scores) / len(scores) if scores else 0.0
+        mean = nullable_mean(scores)
         pending_count = evidence_status_counts.get("pending", 0)
         return {
             "metric_name": self.metric_name,
             "score_records": score_records,
-            "total_questions": len(scored),
+            "total_questions": len(score_records),
             "mean_score": mean,
             "correct_count": None,
             "summary": {
@@ -201,6 +204,8 @@ class BeamRetrievalRecallEvaluator:
                 "overall_mean_recall_at_requested_k": mean,
                 "retrieval_evidence_status_counts": dict(evidence_status_counts),
                 "retrieval_evidence_reason_code_counts": dict(evidence_reason_code_counts),
+                "score_status_counts": score_status_counts(score_records),
+                "aggregation_contract_version": AGGREGATION_CONTRACT_VERSION,
                 "metric_tier": "framework_supplementary",
                 "framework_supplementary": True,
             },

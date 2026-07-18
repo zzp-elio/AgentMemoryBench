@@ -500,6 +500,12 @@ def test_empty_evidence_is_na_and_keeps_zero_unmatched(tmp_path: Path) -> None:
     assert result["summary"]["empty_gold_question_count"] == 1
     assert result["summary"]["retrieval_evidence_status_counts"] == {}
     assert result["summary"]["provenance_granularity"] is None
+    # total_questions 覆盖全部 record（含 benchmark policy 剔除），均值必须
+    # 忠实为 None，不能伪造成 0.0。
+    assert result["total_questions"] == 1
+    assert result["mean_score"] is None
+    assert result["summary"]["score_status_counts"] == {"n/a": 1}
+    assert result["summary"]["aggregation_contract_version"] == "retrieval-summary-v2"
 
 
 @pytest.mark.parametrize("evidence", [_valid_evidence(), _na_evidence(), _pending_evidence()])
@@ -557,4 +563,63 @@ def test_summary_reports_metric_tier_and_representative_granularity(
 
     result = MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
     assert result["summary"]["metric_tier"] == "framework_supplementary"
+
+
+def test_all_empty_gold_exclusion_reports_null_mean_but_nonzero_total(
+    tmp_path: Path,
+) -> None:
+    """全部题都是空 target 时：总数不为零，均值为 null，provider counts 保持空。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt("q1", evidence=_valid_evidence("turn")),
+            _answer_prompt("q2", evidence=_valid_evidence("turn")),
+        ],
+        private_labels=[
+            _private_label("q1", evidence=[], target_step_ids=[]),
+            _private_label("q2", evidence=[], target_step_ids=[]),
+        ],
+        public_questions=[
+            {"question_id": "q1", "category": "highlevel"},
+            {"question_id": "q2", "category": "highlevel"},
+        ],
+    )
+    result = MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+    assert result["total_questions"] == 2
+    assert result["summary"]["scored_question_count"] == 0
+    assert result["mean_score"] is None
+    assert result["summary"]["status"] == "n/a"
+    assert result["summary"]["retrieval_evidence_status_counts"] == {}
+    assert result["summary"]["score_status_counts"] == {"n/a": 2}
+    assert sum(result["summary"]["score_status_counts"].values()) == result["total_questions"]
+
+
+def test_numeric_and_exclusion_mean_only_averages_numeric_rows(tmp_path: Path) -> None:
+    """数值 1 与 0 加一条空 target exclusion：均值只用两条 numeric，总数含全部 record。"""
+
+    paths, manifest = _write_run(
+        tmp_path,
+        answer_prompts=[
+            _answer_prompt("q-hit", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[_item("1")]),
+            _answer_prompt("q-miss", evidence=_valid_evidence("turn"), top_k=1, retrieved_items=[_item("9")]),
+            _answer_prompt("q-excluded", evidence=_valid_evidence("turn")),
+        ],
+        private_labels=[
+            _private_label("q-hit", evidence=["1"], target_step_ids=[0]),
+            _private_label("q-miss", evidence=["1"], target_step_ids=[0]),
+            _private_label("q-excluded", evidence=[], target_step_ids=[]),
+        ],
+        public_questions=[
+            {"question_id": "q-hit", "category": "highlevel"},
+            {"question_id": "q-miss", "category": "highlevel"},
+            {"question_id": "q-excluded", "category": "highlevel"},
+        ],
+    )
+    result = MemBenchRetrievalRecallEvaluator().evaluate_run_artifacts(paths=paths, manifest=manifest)
+    assert result["total_questions"] == 3
+    assert result["summary"]["scored_question_count"] == 2
+    assert result["mean_score"] == pytest.approx(0.5)
+    assert result["summary"]["retrieval_evidence_status_counts"] == {"valid": 2}
+    assert result["summary"]["score_status_counts"] == {"ok": 2, "n/a": 1}
     assert result["summary"]["provenance_granularity"] == "turn"
