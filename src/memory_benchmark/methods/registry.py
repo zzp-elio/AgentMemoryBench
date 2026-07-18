@@ -428,7 +428,15 @@ def _lightmem_max_workers(config: Any) -> int:
 
 
 def _lightmem_efficiency_model_inventory(config: Any) -> tuple[ModelDescriptor, ...]:
-    """返回 LightMem efficiency observation 会引用的模型身份。"""
+    """返回 LightMem efficiency observation 会引用的模型身份。
+
+    不声明 `lightmem-answer-llm`：registered v3 主路径只调用
+    `ingest()`/`retrieve()`，最终 answer LLM 调用由 framework `FrameworkAnswerReader`
+    执行并单独追加到 model inventory（见 `cli/run_prediction.py`
+    `_append_framework_answer_model_inventory`）；`LightMem.get_answer()` 内部记录的
+    `lightmem-answer-llm` 只在直接调用该 legacy 接口时才会产生 observation，不属于
+    registered 主路径实际引用的模型。
+    """
 
     if not isinstance(config, LightMemConfig):
         raise ConfigurationError(
@@ -439,13 +447,6 @@ def _lightmem_efficiency_model_inventory(config: Any) -> tuple[ModelDescriptor, 
             model_id="lightmem-memory-llm",
             model_name=config.llm_model,
             model_role="memory_llm",
-            execution_mode="api",
-            tokenizer_name=config.llm_model,
-        ),
-        ModelDescriptor(
-            model_id="lightmem-answer-llm",
-            model_name=config.llm_model,
-            model_role="answer_llm",
             execution_mode="api",
             tokenizer_name=config.llm_model,
         ),

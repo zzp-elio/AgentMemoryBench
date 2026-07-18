@@ -31,6 +31,30 @@
 > `[Sharing image that shows: {caption}]`，caption 恰渲染一次；完全没有可渲染 caption 时
 > 原样保留 `Turn.content` bytes（包括首尾空白）。`query`/img locator 永不进入 content。
 > 更新纪律：每过一项 B 判据 / 发现特殊情况，更新本文对应节。2026-07-13 建。
+> 2026-07-18 补充：v6 真实 LongMemEval B11（`lm-lme-v6-r1q1-w1-s-cleaned` +
+> `lm-lme-v6-r1q1-c2-w2-s-cleaned`）开箱抓到三处产品 readout/观测缺口，均已修复，
+> adapter version 升至 `conversation-qa-v7`：① 公共 unified `formatted_memory`/
+> `RetrievedItem.content`/`metadata["retrieved_memories"]` 此前误用 LoCoMo author
+> harness 的 pretty-date formatter（`_format_lightmem_memory`），会把 Qdrant 完整
+> ISO timestamp（如 `2023-05-20T03:29:00.000`）削成 `20 May 2023, Sat`；现统一改用
+> 收紧后的 `_format_lightmem_memory_as_official_retrieve()`（按 vendored
+> `LightMemory.retrieve()` 逐字节还原），LoCoMo 官方 answer prompt 的 speaker 分组
+> 仍用 pretty-date，两层不再耦合。② `text_embedder.embed()` 此前完全未被观测，
+> model inventory 声明 `lightmem-embedding` 却从无 `embedding_call` observation；
+> 现在 backend 创建后对同一个 `embed()` 安装一次透明 observer（`_get_or_create_
+> backend()` 内 `_install_embedding_call_observer()`），build/retrieval 两阶段真实
+> 调用均落 `EmbeddingCallObservation`，token 用本地 SentenceTransformer 真实
+> tokenizer + `max_seq_length` 截断计数（`tokenizer_estimate`），latency 用
+> `framework_timer`。③ `_retrieve_native()` 的 legacy `metadata["provenance_
+> granularity"]` 此前用 `items is not None` 单独猜粒度，与权威 v1
+> `RetrievalEvidence.provenance_granularity` 可能矛盾（LongMemEval 曾出现 v1=none、
+> legacy metadata=turn）；现在两处共享同一个 `RetrievalEvidence` 实例。同时model
+> inventory 删除 registered v3 主路径从未调用的 `lightmem-answer-llm`（该路径由
+> framework `FrameworkAnswerReader` 调用 answer LLM，`LightMem.get_answer()` 是
+> legacy 接口才会记这个 id）。v7 不改抽取/压缩/分段/向量/online-soft/检索排序或
+> benchmark 数据，纯 readout 与观测契约修复；旧 v6 run 因此不可 resume。完整实现
+> 见 `ws02.7/branches/method-recertification/lightmem/notes/
+> lightmem-readout-observability-repair.md`。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
 - 算法源：vendored `third_party/methods/LightMem`（`src/lightmem/memory/lightmem.py`）
@@ -54,8 +78,9 @@ online-soft 实际由 `update="offline" → offline_update(memory_entries)` 的 
 
 **现状（2026-07-15 online-soft 卡施工落地）**：五格 Phase 1 主 profile 已统一显式
 `lifecycle_profile="online_soft"`（`LightMemConfig`；现行 adapter version 为
-`conversation-qa-v6`：v4 引入 hybrid role，v5 纳入 MemBench canonical evidence，v6 修复
-LoCoMo image caption 注入），并显式
+`conversation-qa-v7`：v4 引入 hybrid role，v5 纳入 MemBench canonical evidence，v6 修复
+LoCoMo image caption 注入，v7 修复公共 readout 时间精度 + 新增 embedding
+observation + legacy provenance metadata 单事实源），并显式
 声明 `messages_use="hybrid"`。LoCoMo 与其余四格同一 direct-insert 时点，conversation 边界
 不再默认追加全库 consolidation。LoCoMo post-update 保留为显式 opt-in
 `locomo_offline_consolidated` 补充轨，只在 `LightMem.__init__` 收到的
@@ -320,6 +345,15 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   2026-07-17 canonical split 又以 8 个正式文件全量复验关闭 role/content 映射门：FirstAgent
   的 user/assistant 各自保留原文与自身时间，不读 peer 时间；标准 smoke 按 6 source steps
   保留为 8 canonical turns，不切半 pair。最新真实 B11 结果见 frozen-v2 note。
+  **2026-07-18 产品 readout 保真修复（v7）**：v6 真实 LongMemEval B11 开箱发现公共
+  unified `formatted_memory`/`RetrievedItem.content` 误用 LoCoMo author harness 的
+  pretty-date formatter（`_format_lightmem_memory`），把 Qdrant 完整 ISO timestamp
+  （含时分秒/毫秒）削成 `20 May 2023, Sat`，可能改变 LongMemEval 时间题答案。已改为
+  `_format_lightmem_memory_as_official_retrieve()`，逐字节还原 vendored
+  `LightMemory.retrieve()` 的 `"{time_stamp} {weekday} {memory}"` 产品格式；
+  `time_stamp is None` 时只输出 memory 文本，不出现字面量 `None` 或 weekday-only
+  前缀。LoCoMo 官方 answer prompt 的 speaker 分组仍用 pretty-date，两层不再耦合。
+  旧 v6 LoCoMo unified answer artifact 因此只保留历史证据，不代表修复后的 readout。
 - **B5 provenance ✅ 逐格资格已裁（2026-07-17）**：M0-7b 已把公开
   `external_id` 透传为 `MemoryEntry.source_external_id`，初始 insert 的单来源映射与
   lme/membench/beam 等不跑 post-build merge 的路径仍成立。2026-07-13
@@ -344,19 +378,41 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   完整证据与现行裁决见
   `ws02.7/branches/lightmem-lifecycle/notes/lightmem-update-lifecycle-ruling.md` 与
   `ws02.7/branches/retrieval-metrics/notes/retrieval-metric-eligibility-ruling.md`。
+  **2026-07-18 逐题 metadata 单事实源修复（v7）**：v6 真实 LongMemEval B11 开箱发现
+  同一道题的权威 `RetrievalEvidence.provenance_granularity` 为 `none`，legacy
+  `retrieve()` metadata 却因 `items is not None` 独立判定写成 `turn`——evaluator 只读
+  v1 evidence 所以分数没算错，但公开 artifact 自相矛盾。`_retrieve_native()` 现在只
+  构造一次 `RetrievalEvidence`，`RetrievalResult.evidence` 与 legacy
+  `metadata["provenance_granularity"]` 读同一个实例，不再用 `items is not None` 单独猜。
 - **B6 flush ✅ lifecycle identity 已强验收**：`add_memory(update="offline")`
   的 force 刷洗与 direct insert 已成立；`online_soft` 主 profile 下 conversation
   边界不再追加 queue + all-entry update，LoCoMo 与其余四格同一时点。显式
   `locomo_offline_consolidated` 补充 profile 保留旧行为（要求显式
   `benchmark_name=="locomo"`，否则构造期 fail-fast）。`LIGHTMEM_ADAPTER_VERSION`
-  现为 `conversation-qa-v6`：v2=lifecycle，v3=missing timestamp，v4=hybrid role/plural
-  candidate lineage，v5=MemBench canonical evidence，v6=LoCoMo image caption 注入。旧
-  post-update、缺 policy、旧 role/canonical contract 或缺 caption 的 run 不会误 resume 到
-  新 build。lifecycle 主体
+  现为 `conversation-qa-v7`：v2=lifecycle，v3=missing timestamp，v4=hybrid role/plural
+  candidate lineage，v5=MemBench canonical evidence，v6=LoCoMo image caption 注入，
+  v7=公共 readout 时间精度修复 + embedding observation + legacy provenance metadata
+  单事实源（不改抽取/压缩/分段/向量/online-soft/检索排序或 benchmark 数据）。旧
+  post-update、缺 policy、旧 role/canonical contract、缺 caption 或 v6 及更早的 run 都
+  不会误 resume 到新 build。lifecycle 主体
   `825132f` 与 missing-time `915f73c` + `3968373` 均已通过架构师定向/全量门。
   不 flush 检索到空记忆的历史判例仍有效。
-- **B7 效率插桩 ✅**：build/answer/judge 三角色 api_usage 真 token（2026-07-12 效率审计
-  无拦截缺口）；LightMem add_memory 自带 token/api_call_nums 返回值可做交叉参照（待留档）。
+- **B7 效率插桩 ✅（2026-07-18 补齐 embedding 观测，v7）**：build/answer/judge 三角色
+  api_usage 真 token（2026-07-12 效率审计无拦截缺口）；LightMem add_memory 自带
+  token/api_call_nums 返回值可做交叉参照（待留档）。v6 真实 LongMemEval B11 开箱发现
+  model inventory 声明 `lightmem-embedding`，但 `efficiency_observations.
+  prediction.jsonl` 无任何 `embedding_call`、overall `embedding_tokens={}`——
+  `text_embedder.embed()` 从未被观测。现在 backend 创建后对同一个真实 `embed()` 安装
+  一次透明 observer（`_install_embedding_call_observer()`，与既有 memory manager
+  usage wrapper 同一套 ContextVar scope 归属机制），build 阶段（`add_memory()` 内部
+  topic segmentation + `offline_update()` 插入向量库）与 retrieval 阶段
+  （`_retrieve_with_payload()` 的 query embed）各自落 `EmbeddingCallObservation`；
+  token 来源固定 `tokenizer_estimate`（本地 SentenceTransformer 真实 tokenizer +
+  `max_seq_length` 截断计数，不是字符数或未截断长度），latency 来源固定
+  `framework_timer`。同时 model inventory 删除 registered v3 主路径从未调用的
+  `lightmem-answer-llm`（该路径由 framework `FrameworkAnswerReader` 调用 answer
+  LLM；`lightmem-answer-llm` 只在直接调用 legacy `get_answer()` 时才会产生
+  observation）。
 - **B8 副作用/clean-retry ✅（2026-07-14 frozen-v1 收口）**：物理隔离 + 删目录
   清理已具备；**检索纯读已锚死**：`LightMemory.retrieve`
   （`third_party/methods/LightMem/src/lightmem/memory/lightmem.py:648-710`）=

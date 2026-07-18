@@ -41,11 +41,17 @@ from memory_benchmark.core.provider_protocol import (
     TurnEvent,
     UnitRef,
 )
+from memory_benchmark.benchmark_adapters.longmemeval_prompt import (
+    build_longmemeval_unified_answer_prompt,
+)
 from memory_benchmark.methods.lightmem_adapter import (
     LIGHTMEM_ADAPTER_VERSION,
+    LIGHTMEM_EMBEDDING_MODEL_ID,
     LIGHTMEM_PLACEHOLDER_MARKER,
     LightMem,
     LightMemConfig,
+    _format_lightmem_memory,
+    _format_lightmem_memory_as_official_retrieve,
     _turn_timestamp,
     build_lightmem_source_identity,
     clean_lightmem_conversation_state,
@@ -60,7 +66,10 @@ from memory_benchmark.methods.registry import (
     _build_lightmem_system,
     get_method_registration,
 )
-from memory_benchmark.observability.efficiency import EfficiencyCollector
+from memory_benchmark.observability.efficiency import (
+    EfficiencyCollector,
+    MeasurementSource,
+)
 from memory_benchmark.runners.event_stream import GranularityAggregator, build_turn_events
 from memory_benchmark.runners.prediction import _method_manifest_with_protocol
 from tests.equivalence_utils import run_bridge_sequence, run_native_sequence
@@ -123,10 +132,12 @@ def test_lightmem_config_accepts_valid_lifecycle_profiles(
     assert config.lifecycle_profile == lifecycle_profile
 
 
-def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version_v6() -> None:
+def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version_v7() -> None:
     """公开 manifest 必须携带 lifecycle_profile、missing_timestamp_policy 与
-    messages_use，adapter_version 升级为 v6：LoCoMo image caption 现进入 memory build
-    输入，属 build 输入变化，旧 v5 manifest 必须被全 manifest 比较拒绝 resume。"""
+    messages_use，adapter_version 升级为 v7：公共 unified readout 改用产品级
+    ISO timestamp 格式、新增真实 embedding observation、legacy provenance
+    metadata 改读同一份 v1 evidence，均属可观测契约变化，旧 v6 manifest 必须
+    被全 manifest 比较拒绝 resume（即便记忆构建算法本身未变）。"""
 
     config = LightMemConfig(
         llm_model="gpt-4o-mini",
@@ -144,7 +155,8 @@ def test_lightmem_config_manifest_includes_lifecycle_profile_and_adapter_version
     assert manifest["lifecycle_profile"] == "online_soft"
     assert manifest["missing_timestamp_policy"] == "require"
     assert manifest["messages_use"] == "user_only"
-    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v6"
+    assert manifest["adapter_version"] == LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v7"
+    assert manifest["adapter_version"] != "conversation-qa-v6"
 
 
 def test_lightmem_toml_profiles_declare_online_soft_lifecycle_explicitly() -> None:
@@ -351,13 +363,53 @@ class ThreadedUpdateFakeLightMemoryBackend(FakeLightMemoryBackend):
             list(executor.map(_call_manager, payloads))
 
 
+class EmbeddingObservingFakeLightMemoryBackend(FakeLightMemoryBackend):
+    """模拟真实 `add_memory()` 内部至少两次 embed 调用（segmentation + insert）。"""
+
+    def add_memory(self, messages, **kwargs):
+        """在基类行为基础上，额外触发两次 build 阶段真实 embed 调用。"""
+
+        result = super().add_memory(messages, **kwargs)
+        self.text_embedder.embed("segment boundary check")
+        self.text_embedder.embed("offline insert memory entry")
+        return result
+
+
+class FakeHuggingFaceTokenizer:
+    """模拟 SentenceTransformer 底层 HuggingFace tokenizer 的 encode 接口。"""
+
+    def encode(
+        self,
+        text: str,
+        truncation: bool = False,
+        max_length: int | None = None,
+    ) -> list[int]:
+        """按空白切分模拟 token id，支持真实 tokenizer 的 truncation/max_length 语义。"""
+
+        tokens = text.split() or [text]
+        if truncation and max_length is not None:
+            tokens = tokens[:max_length]
+        return list(range(len(tokens)))
+
+
+class FakeSentenceTransformerModel:
+    """模拟本地 SentenceTransformer 暴露的 tokenizer 与 max_seq_length。"""
+
+    def __init__(self, max_seq_length: int = 256) -> None:
+        """初始化 fake tokenizer 与截断长度，零模型下载。"""
+
+        self.tokenizer = FakeHuggingFaceTokenizer()
+        self.max_seq_length = max_seq_length
+
+
 class FakeLightMemEmbedder:
     """模拟 LightMem 官方 TextEmbedderHuggingface。"""
 
-    def __init__(self) -> None:
-        """初始化 query 记录。"""
+    def __init__(self, max_seq_length: int = 256) -> None:
+        """初始化 query 记录，并暴露 fake 本地 SentenceTransformer model。"""
 
         self.embedded_texts: list[str] = []
+        self.model = FakeSentenceTransformerModel(max_seq_length=max_seq_length)
 
     def embed(self, text: str) -> list[float]:
         """返回稳定二维向量，便于测试 cosine 排序。"""
@@ -1723,14 +1775,27 @@ def test_lightmem_add_and_get_answer_with_fake_backend() -> None:
 
 
 @pytest.mark.parametrize(
-    ("conversation_factory", "native_builder", "expected_message_count", "benchmark_name"),
     (
-        (_locomo_style_lightmem_conversation, build_lightmem_locomo_native_answer_prompt, 1, "locomo"),
+        "conversation_factory",
+        "native_builder",
+        "expected_message_count",
+        "benchmark_name",
+        "expected_provenance_granularity",
+    ),
+    (
+        (
+            _locomo_style_lightmem_conversation,
+            build_lightmem_locomo_native_answer_prompt,
+            1,
+            "locomo",
+            "turn",
+        ),
         (
             _longmemeval_style_lightmem_conversation,
             build_lightmem_longmemeval_native_answer_prompt,
             2,
             "longmemeval",
+            "none",
         ),
     ),
 )
@@ -1739,8 +1804,16 @@ def test_lightmem_native_builder_passes_through_adapter_prompt_messages(
     native_builder,
     expected_message_count: int,
     benchmark_name: str,
+    expected_provenance_granularity: str,
 ) -> None:
-    """真实 adapter retrieve 到 native builder 应逐字透传官方 prompt messages。"""
+    """真实 adapter retrieve 到 native builder 应逐字透传官方 prompt messages。
+
+    `provenance_granularity` 按 benchmark 预期区分：LoCoMo 有真实 turn-exact plural
+    source ids 记 `turn`；LongMemEval 的 pair source id 不足以证明具体 turn，即使
+    `items` 非 None 也必须记 `none`，且必须与 `retrieval.evidence.
+    provenance_granularity` 完全一致（legacy metadata 与 v1 evidence 单事实源，
+    不再用 `items is not None` 单独猜粒度）。
+    """
 
     backend = FakeLightMemoryBackend()
     method = LightMem(
@@ -1775,12 +1848,16 @@ def test_lightmem_native_builder_passes_through_adapter_prompt_messages(
     result = native_builder(question, retrieval)
 
     assert len(retrieval.prompt_messages or ()) == expected_message_count
-    assert retrieval.metadata["provenance_granularity"] == "turn"
+    assert retrieval.metadata["provenance_granularity"] == expected_provenance_granularity
+    assert retrieval.evidence.provenance_granularity == expected_provenance_granularity
     assert retrieval.items is not None
     assert retrieval.items[0].source_turn_ids == ("D1:1",)
     assert result.prompt_messages == list(retrieval.prompt_messages or ())
     if expected_message_count == 2:
-        assert retrieval.formatted_memory not in result.prompt_messages[1].content
+        # LongMemEval 的 author message context 与公共 formatted_memory 现共用
+        # 同一个产品格式化入口，因此 formatted_memory 逐字节出现在 author prompt 里，
+        # 不再像 pretty-date 时代那样必然不同。
+        assert retrieval.formatted_memory in result.prompt_messages[1].content
         assert "2026-01-01T00:00:00.000 Thu Alice likes jasmine tea." in (
             result.prompt_messages[1].content
         )
@@ -2920,7 +2997,10 @@ def test_lightmem_retrieve_longmemeval_uses_backend_retrieve() -> None:
     assert retrieval.prompt_messages[0].content == "You are a helpful assistant."
     assert "Alice likes jasmine tea." in retrieval.answer_prompt
     assert "What does Alice like?" in retrieval.answer_prompt
-    assert "[Memory recorded on:" in retrieval.metadata["answer_context"]
+    assert "2026-01-01T00:00:00.000 Thu Alice likes jasmine tea." in (
+        retrieval.metadata["answer_context"]
+    )
+    assert "[Memory recorded on:" not in retrieval.metadata["answer_context"]
     assert retrieval.metadata["method"] == "lightmem"
     assert retrieval.metadata["retrieval_profile"] == "lightmemory_retrieve"
 
@@ -2954,6 +3034,215 @@ def test_lightmem_longmemeval_reader_prompt_includes_question_time() -> None:
     prompt = chat.prompts[0]
     assert "Question time:2026-01-03 and question:What does Alice like?" in prompt
     assert "Please answer the question based on the following memories:" in prompt
+
+
+def test_format_lightmem_memory_as_official_retrieve_preserves_full_iso_timestamp() -> None:
+    """公共 unified readout 必须逐字节保留完整 ISO timestamp，不得降精度成 pretty-date。
+
+    这是 2026-07-18 v6 真实 B11 抓到的缺口：Qdrant payload 保存
+    `2023-05-20T03:29:00.000`，公共 formatted_memory 却被 LoCoMo pretty-date
+    formatter 削成 `20 May 2023, Sat`。本测试在修复前的 current main 上会失败。
+    """
+
+    memory = {
+        "payload": {
+            "time_stamp": "2023-05-20T03:29:00.000",
+            "weekday": "Sat",
+            "memory": "Alice mentioned her trip plans.",
+        }
+    }
+
+    formatted = _format_lightmem_memory_as_official_retrieve(memory)
+
+    assert formatted == "2023-05-20T03:29:00.000 Sat Alice mentioned her trip plans."
+    assert formatted != _format_lightmem_memory(memory)
+    assert "20 May 2023" not in formatted
+
+
+def test_format_lightmem_memory_as_official_retrieve_none_timestamp_omits_time_prefix() -> None:
+    """`time_stamp is None` 时只输出 memory 文本，不得出现字面量 None 或 weekday-only 前缀。"""
+
+    missing_time_no_weekday = {
+        "payload": {
+            "time_stamp": None,
+            "weekday": None,
+            "memory": "No source timestamp for this fact.",
+        }
+    }
+    missing_time_with_weekday = {
+        "payload": {
+            "time_stamp": None,
+            "weekday": "Sat",
+            "memory": "No source timestamp for this fact.",
+        }
+    }
+
+    formatted_plain = _format_lightmem_memory_as_official_retrieve(missing_time_no_weekday)
+    formatted_with_weekday = _format_lightmem_memory_as_official_retrieve(
+        missing_time_with_weekday
+    )
+
+    assert formatted_plain == "No source timestamp for this fact."
+    assert formatted_with_weekday == "No source timestamp for this fact."
+    assert "None" not in formatted_plain
+    assert "None" not in formatted_with_weekday
+    assert "Sat" not in formatted_with_weekday
+
+
+def test_lightmem_retrieve_native_formatted_memory_preserves_order_and_item_fields() -> None:
+    """多条 memory 应按检索顺序拼接；切换 content 格式不影响 score/source ids/speaker payload。"""
+
+    backend = FakeLightMemoryBackend()
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="locomo",
+    )
+    conversation = _locomo_style_lightmem_conversation()
+    method.add([conversation])
+    question = conversation.questions[0]
+
+    retrieval = method.retrieve(
+        RetrievalQuery(
+            query_text=question.text,
+            isolation_key=conversation.conversation_id,
+            question_time=question.question_time,
+            top_k=2,
+            purpose="qa",
+            source_question=question,
+        )
+    )
+
+    assert retrieval.items is not None
+    assert len(retrieval.items) == 2
+    alice_item, bob_item = retrieval.items
+    assert alice_item.item_id == "alice-tea"
+    assert alice_item.source_turn_ids == ("D1:1",)
+    assert alice_item.score == pytest.approx(1.0)
+    assert alice_item.timestamp == "2026-01-01T00:00:00.000"
+    assert alice_item.content == "2026-01-01T00:00:00.000 Thu Alice likes jasmine tea."
+    assert bob_item.item_id == "bob-tea"
+    assert bob_item.source_turn_ids == ("D1:2",)
+    assert bob_item.score == pytest.approx(1.0)
+    assert bob_item.timestamp == "2026-01-01T00:00:01.000"
+    assert (
+        bob_item.content
+        == "2026-01-01T00:00:01.000 Thu Bob remembered Alice's tea preference."
+    )
+    assert retrieval.formatted_memory == f"{alice_item.content}\n{bob_item.content}"
+
+    retrieved_memories = retrieval.metadata["retrieved_memories"]
+    assert retrieved_memories[0]["metadata"]["payload"]["speaker_name"] == "Alice"
+    assert retrieved_memories[1]["metadata"]["payload"]["speaker_name"] == "Bob"
+
+
+def test_lightmem_locomo_author_prompt_stays_pretty_date_while_unified_readout_is_product_format() -> (
+    None
+):
+    """LoCoMo 官方 answer prompt 仍用 pretty-date/speaker 布局，公共 unified readout 改用产品格式。
+
+    证明本卡只把公共 `formatted_memory` 从 author formatter 解耦，没有让两层重新耦合。
+    """
+
+    backend = FakeLightMemoryBackend()
+    chat = FakeLightMemAnswerClient()
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=chat,
+        benchmark_name="locomo",
+    )
+    conversation = _locomo_style_lightmem_conversation()
+    method.add([conversation])
+    question = conversation.questions[0]
+
+    method.get_answer(question)
+    author_prompt = chat.prompts[0]
+    retrieval = method.retrieve(
+        RetrievalQuery(
+            query_text=question.text,
+            isolation_key=conversation.conversation_id,
+            question_time=question.question_time,
+            top_k=2,
+            purpose="qa",
+            source_question=question,
+        )
+    )
+
+    assert "[Memory recorded on: 01 January 2026, Thu]" in author_prompt
+    assert "2026-01-01T00:00:00.000" not in author_prompt
+    assert "2026-01-01T00:00:00.000 Thu Alice likes jasmine tea." in (
+        retrieval.formatted_memory
+    )
+    assert "[Memory recorded on:" not in retrieval.formatted_memory
+
+
+def test_lightmem_longmemeval_unified_builder_embeds_full_timestamp_and_isolates_question_time() -> (
+    None
+):
+    """LongMemEval unified answer builder 应逐字节收到含完整 ISO timestamp 的
+    formatted_memory；`answer_context` 与 `formatted_memory` 字节一致，question
+    time 只出现在 `Current Date` 槽位，不混入 `History Chats`。
+    """
+
+    backend = FakeLightMemoryBackend()
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        benchmark_name="longmemeval",
+    )
+    conversation = _longmemeval_style_lightmem_conversation()
+    method.add([conversation])
+    question = conversation.questions[0]
+
+    retrieval = method.retrieve(
+        RetrievalQuery(
+            query_text=question.text,
+            isolation_key=conversation.conversation_id,
+            question_time=question.question_time,
+            top_k=2,
+            purpose="qa",
+            source_question=question,
+        )
+    )
+
+    assert retrieval.metadata["answer_context"] == retrieval.formatted_memory
+
+    unified = build_longmemeval_unified_answer_prompt(question, retrieval)
+    history_chats, _, _tail = unified.answer_prompt.partition("Current Date:")
+
+    assert "2026-01-01T00:00:00.000 Thu Alice likes jasmine tea." in history_chats
+    assert f"Current Date: {question.question_time}" in unified.answer_prompt
+    assert question.question_time not in history_chats
 
 
 def test_lightmem_records_question_efficiency_observations() -> None:
@@ -3132,6 +3421,254 @@ def test_lightmem_buffers_threaded_offline_update_manager_usage() -> None:
     } == {"lightmem-memory-llm"}
     assert [record["input_tokens"] for record in llm_records] == [23, 23, 23]
     assert [record["output_tokens"] for record in llm_records] == [7, 7, 7]
+
+
+def test_lightmem_embedding_observer_records_build_and_retrieval_calls() -> None:
+    """真实 embed() 应在 build 与 retrieval 阶段分别落一条 EmbeddingCallObservation。
+
+    build 阶段来自 `add_memory()` 内部的 topic segmentation 与 offline insert
+    （fake backend 模拟至少两次真实 embed 调用）；retrieval 阶段来自
+    `_retrieve_with_payload()` 的 query embed。逐条 observation 的 stage、
+    model_id、token、latency source 与 conversation/question id 都必须正确，
+    summary 不应再出现 `embedding_tokens={}`。
+    """
+
+    backend = EmbeddingObservingFakeLightMemoryBackend()
+    collector = EfficiencyCollector(run_id="lightmem-embedding-run", enabled=True)
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        efficiency_collector=collector,
+        benchmark_name="locomo",
+    )
+    conversation = _lightmem_conversation()
+
+    with collector.conversation_scope(conversation.conversation_id) as build_scope:
+        method.add([conversation])
+        collector.record_memory_build_total_latency(latency_ms=1.0)
+
+    build_records = [record.to_dict() for record in build_scope.records]
+    build_embeds = [
+        record for record in build_records if record["observation_type"] == "embedding_call"
+    ]
+    assert len(build_embeds) >= 2
+    for record in build_embeds:
+        assert record["stage"] == "memory_build"
+        assert record["model_id"] == LIGHTMEM_EMBEDDING_MODEL_ID
+        assert record["input_tokens"] > 0
+        assert record["latency_ms"] >= 0
+        assert record["token_measurement_source"] == "tokenizer_estimate"
+        assert record["latency_measurement_source"] == "framework_timer"
+        assert record["conversation_id"] == conversation.conversation_id
+        assert record["question_id"] is None
+
+    with collector.question_scope(conversation.conversation_id, "q-1") as question_scope:
+        method.get_answer(conversation.questions[0])
+
+    question_records = [record.to_dict() for record in question_scope.records]
+    retrieval_embeds = [
+        record
+        for record in question_records
+        if record["observation_type"] == "embedding_call"
+    ]
+    assert len(retrieval_embeds) == 1
+    assert retrieval_embeds[0]["stage"] == "retrieval"
+    assert retrieval_embeds[0]["model_id"] == LIGHTMEM_EMBEDDING_MODEL_ID
+    assert retrieval_embeds[0]["conversation_id"] == conversation.conversation_id
+    assert retrieval_embeds[0]["question_id"] == "q-1"
+
+
+def test_lightmem_embedding_observer_installs_wrapper_only_once_per_backend() -> None:
+    """重复安装 observer 不应对同一 backend 的 `embed` 二次包装。"""
+
+    backend = FakeLightMemoryBackend()
+    collector = EfficiencyCollector(
+        run_id="lightmem-embedding-idempotent-run",
+        enabled=True,
+    )
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        efficiency_collector=collector,
+        benchmark_name="locomo",
+    )
+
+    method._install_embedding_call_observer(backend=backend)
+    wrapped_once = backend.text_embedder.embed
+    method._install_embedding_call_observer(backend=backend)
+    wrapped_twice = backend.text_embedder.embed
+
+    assert wrapped_once is wrapped_twice
+
+
+def test_lightmem_embedding_observer_noop_when_collector_disabled() -> None:
+    """collector 关闭时不应包装 embed，也不会产生 embedding_call observation。"""
+
+    backend = FakeLightMemoryBackend()
+    collector = EfficiencyCollector(
+        run_id="lightmem-embedding-disabled-run",
+        enabled=False,
+    )
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        efficiency_collector=collector,
+        benchmark_name="locomo",
+    )
+    conversation = _lightmem_conversation()
+
+    method.add([conversation])
+    method.get_answer(conversation.questions[0])
+
+    assert (
+        getattr(backend.text_embedder, "_memory_benchmark_embedding_wrapped", False)
+        is False
+    )
+
+
+class _ExplodingFakeLightMemEmbedder(FakeLightMemEmbedder):
+    """embed 调用总是抛出固定异常，模拟真实失败语义。"""
+
+    def embed(self, text: str) -> list[float]:
+        """总是抛出异常，不返回向量，也不产生 partial 状态。"""
+
+        raise RuntimeError("embedding backend exploded")
+
+
+def test_lightmem_embedding_observer_propagates_original_exception_without_recording() -> (
+    None
+):
+    """embed() 抛错时异常应原样传播，且不得写入“成功调用”的 observation。"""
+
+    backend = FakeLightMemoryBackend()
+    backend.text_embedder = _ExplodingFakeLightMemEmbedder()
+    collector = EfficiencyCollector(
+        run_id="lightmem-embedding-error-run",
+        enabled=True,
+    )
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        efficiency_collector=collector,
+        benchmark_name="locomo",
+    )
+    method._install_embedding_call_observer(backend=backend)
+
+    with collector.conversation_scope("conv-error") as scope:
+        with pytest.raises(RuntimeError, match="embedding backend exploded"):
+            backend.text_embedder.embed("hello")
+        collector.record_memory_build_total_latency(latency_ms=0.0)
+
+    records = [record.to_dict() for record in scope.records]
+    assert [
+        record for record in records if record["observation_type"] == "embedding_call"
+    ] == []
+
+
+def test_lightmem_embedding_observer_isolates_concurrent_conversations() -> None:
+    """两个并发 conversation 的 embedding observation 不应串 id，也不应丢失调用。"""
+
+    collector = EfficiencyCollector(
+        run_id="lightmem-embedding-concurrent-run",
+        enabled=True,
+    )
+    backends = {
+        "conv-a": EmbeddingObservingFakeLightMemoryBackend(),
+        "conv-b": EmbeddingObservingFakeLightMemoryBackend(),
+    }
+    method = LightMem(
+        config=LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=2,
+            max_workers=2,
+            profile_name="smoke",
+        ),
+        backend_factory=lambda conversation_id: backends[conversation_id],
+        answer_client=FakeLightMemAnswerClient(),
+        efficiency_collector=collector,
+        benchmark_name="locomo",
+    )
+
+    def _build_one(conversation_id: str) -> tuple[str, list[dict[str, object]]]:
+        """在独立线程内为一个 conversation 建立 scope 并触发真实 build 阶段 embed。"""
+
+        conversation = Conversation(
+            conversation_id=conversation_id,
+            sessions=[
+                Session(
+                    session_id="s-1",
+                    session_time="2026-01-01",
+                    turns=[
+                        Turn(turn_id="t-1", speaker="Alice", content="I like tea."),
+                        Turn(turn_id="t-2", speaker="Bob", content="Noted."),
+                    ],
+                )
+            ],
+            questions=[],
+            metadata={"speaker_a": "Alice", "speaker_b": "Bob"},
+        )
+        with collector.conversation_scope(conversation_id) as scope:
+            method.add([conversation])
+            collector.record_memory_build_total_latency(latency_ms=1.0)
+        return conversation_id, [record.to_dict() for record in scope.records]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = dict(executor.map(_build_one, ("conv-a", "conv-b")))
+
+    for conversation_id, records in results.items():
+        embed_records = [
+            record
+            for record in records
+            if record["observation_type"] == "embedding_call"
+        ]
+        assert len(embed_records) >= 2
+        assert all(
+            record["conversation_id"] == conversation_id for record in embed_records
+        )
 
 
 def test_lightmem_production_backend_receives_openai_and_storage_settings(

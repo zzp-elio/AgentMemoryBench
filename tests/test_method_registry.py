@@ -13,6 +13,7 @@ from memory_benchmark.core import (
     TaskFamily,
     validate_compatibility,
 )
+from memory_benchmark.methods.lightmem_adapter import LightMemConfig
 from memory_benchmark.methods.mem0_adapter import Mem0Config
 from memory_benchmark.methods.memoryos_adapter import MemoryOSPaperConfig
 from memory_benchmark.methods.simplemem_adapter import SimpleMemConfig
@@ -112,6 +113,37 @@ def test_simplemem_registration_declares_text_backend_contract() -> None:
         "simplemem-llm",
         "simplemem-embedding",
     ]
+
+
+def test_lightmem_registration_model_inventory_excludes_unused_answer_llm() -> None:
+    """LightMem model inventory 不应声明 registered 主路径从不调用的 answer_llm。
+
+    registered v3 主路径只调 `ingest()`/`retrieve()`，最终 answer LLM 由 framework
+    `FrameworkAnswerReader` 调用并单独追加进 model inventory；`LightMem.get_answer()`
+    内部记录的 `lightmem-answer-llm` 只在直接调用该 legacy 接口时才会产生
+    observation，不属于 registered 主路径实际引用的模型。instrumentation identity
+    getter 必须同时保留，不能因为裁掉一个模型条目就连带丢失。
+    """
+
+    registration = get_method_registration("lightmem")
+
+    assert registration.efficiency_model_inventory_getter is not None
+    assert registration.efficiency_instrumentation_identity_getter is not None
+    inventory = registration.efficiency_model_inventory_getter(
+        LightMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model_path="models/all-MiniLM-L6-v2",
+            llmlingua_model_path=(
+                "models/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+            ),
+            retrieve_limit=60,
+            max_workers=1,
+        )
+    )
+    model_ids = [model.model_id for model in inventory]
+
+    assert model_ids == ["lightmem-memory-llm", "lightmem-embedding"]
+    assert "lightmem-answer-llm" not in model_ids
 
 
 def test_built_in_methods_advertise_memory_retrieval_capability() -> None:

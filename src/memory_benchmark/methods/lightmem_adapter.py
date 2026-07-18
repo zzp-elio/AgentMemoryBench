@@ -70,7 +70,7 @@ from memory_benchmark.observability.efficiency import (
 
 
 LIGHTMEM_METHOD_DIRECTORY = "LightMem"
-LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v6"
+LIGHTMEM_ADAPTER_VERSION = "conversation-qa-v7"
 LIGHTMEM_MESSAGES_USE_VALUES = ("user_only", "assistant_only", "hybrid")
 LIGHTMEM_LIFECYCLE_PROFILES = ("online_soft", "locomo_offline_consolidated")
 LIGHTMEM_MISSING_TIMESTAMP_POLICIES = ("preserve_none", "require")
@@ -86,6 +86,7 @@ _LIGHTMEM_UNAUDITED_STABLE_RANKING = EvidenceAssertion(
 )
 LIGHTMEM_READER_PROMPT_VERSION = "lightmem-reader-v1"
 LIGHTMEM_MEMORY_LLM_MODEL_ID = "lightmem-memory-llm"
+LIGHTMEM_EMBEDDING_MODEL_ID = "lightmem-embedding"
 LIGHTMEM_PLACEHOLDER_MARKER = "memory_benchmark_structural_placeholder"
 _LIGHTMEM_IMPORT_LOCK = threading.Lock()
 LIGHTMEM_MODEL_DOWNLOADS = {
@@ -1179,7 +1180,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         else:
             memories = self._retrieve_with_payload(backend, question)
         memory_context = "\n".join(
-            _format_lightmem_memory(memory) for memory in memories
+            _format_lightmem_memory_as_official_retrieve(memory) for memory in memories
         )
         prompt_messages = self._build_prompt_messages(question, memories)
         answer_prompt = "\n\n".join(
@@ -1217,7 +1218,13 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         return retrieval, self._retrieved_items_from_lightmem_memories(memories)
 
     def _retrieve_native(self, query: RetrievalQuery) -> RetrievalResult:
-        """执行 v3 检索并返回不生成最终答案的 RetrievalResult。"""
+        """执行 v3 检索并返回不生成最终答案的 RetrievalResult。
+
+        legacy `metadata["provenance_granularity"]` 与 `RetrievalResult.evidence`
+        必须读同一个 `RetrievalEvidence` 实例，不再用 `items is not None` 单独猜
+        粒度——否则 LongMemEval 这类 evidence 恒为 `none` 的 benchmark 会因为
+        items 恰好非空而在 legacy 字段误写 `turn`，与权威 v1 evidence 自相矛盾。
+        """
 
         source_question = query.source_question or Question(
             question_id=query.isolation_key,
@@ -1239,14 +1246,15 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             if isinstance(retrieval.metadata.get("answer_context"), str)
             else ""
         )
+        evidence = self._build_retrieval_evidence(items)
         metadata = dict(retrieval.metadata)
-        metadata["provenance_granularity"] = "turn" if items is not None else "none"
+        metadata["provenance_granularity"] = evidence.provenance_granularity
         return RetrievalResult(
             formatted_memory=formatted_memory or "(No relevant memories found)",
             prompt_messages=tuple(retrieval.prompt_messages),
             items=items,
             metadata=metadata,
-            evidence=self._build_retrieval_evidence(items),
+            evidence=evidence,
         )
 
     def _build_retrieval_evidence(
@@ -1401,6 +1409,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 backend=backend,
                 conversation_id=conversation_id,
             )
+            self._install_embedding_call_observer(backend=backend)
             self._backends[conversation_id] = backend
         return self._backends[conversation_id]
 
@@ -1487,6 +1496,47 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
         manager.generate_response = wrapped_generate_response
         manager._memory_benchmark_usage_wrapped = True
+
+    def _install_embedding_call_observer(self, backend: Any) -> None:
+        """包装官方 `text_embedder.embed()`，记录真实 embedding 调用 observation。
+
+        只对同一个 backend 实例包装一次；不改变 `embed()` 的参数、返回值或异常
+        语义，只在原调用成功返回后追加一条 `EmbeddingCallObservation`——build 阶段
+        的调用来自 `add_memory()` 内部的 topic segmentation 与 `offline_update()`
+        插入向量库，retrieval 阶段的调用来自 `_retrieve_with_payload()` 的 query
+        embed。`stage`/`conversation_id`/`question_id` 由 collector 当前活跃 scope
+        自动解析（`operation_stage(RETRIEVAL)` 已经包裹检索路径，build 路径落在
+        conversation scope 默认解析为 memory_build），与既有 memory manager usage
+        wrapper 复用同一套 ContextVar 归属机制，不重新设计缓冲/跨线程转发。
+        """
+
+        collector = self._efficiency_collector
+        if collector is None or not collector.enabled:
+            return
+        text_embedder = getattr(backend, "text_embedder", None)
+        if text_embedder is None or not hasattr(text_embedder, "embed"):
+            return
+        if getattr(text_embedder, "_memory_benchmark_embedding_wrapped", False):
+            return
+        original_embed = text_embedder.embed
+
+        def wrapped_embed(text: str, *args: Any, **kwargs: Any) -> Any:
+            """调用官方 text_embedder.embed，并记录一次真实 embedding 调用 observation。"""
+
+            started_ns = perf_counter_ns()
+            result = original_embed(text, *args, **kwargs)
+            latency_ms = _elapsed_ms(started_ns)
+            collector.record_embedding_call(
+                model_id=LIGHTMEM_EMBEDDING_MODEL_ID,
+                input_tokens=_count_local_embedding_tokens(text_embedder, text),
+                latency_ms=latency_ms,
+                token_measurement_source=MeasurementSource.TOKENIZER_ESTIMATE,
+                latency_measurement_source=MeasurementSource.FRAMEWORK_TIMER,
+            )
+            return result
+
+        text_embedder.embed = wrapped_embed
+        text_embedder._memory_benchmark_embedding_wrapped = True
 
     def _resolve_memory_manager_usage(
         self,
@@ -1660,7 +1710,11 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
     @staticmethod
     def _metadata_memory_from_lightmem_item(memory: Any) -> dict[str, Any]:
-        """把 LightMem retrieval item 转成 metadata 中的轻量诊断字典。"""
+        """把 LightMem retrieval item 转成 metadata 中的轻量诊断字典。
+
+        `content` 使用产品 `_format_lightmem_memory_as_official_retrieve()`，与公开
+        `formatted_memory` 保持同一时间精度，不再借用 LoCoMo pretty-date 格式。
+        """
 
         score: float | None = None
         metadata: dict[str, Any] = {}
@@ -1676,7 +1730,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             if isinstance(payload, dict):
                 metadata["payload"] = payload
         return {
-            "content": _format_lightmem_memory(memory),
+            "content": _format_lightmem_memory_as_official_retrieve(memory),
             "score": score,
             "metadata": metadata,
         }
@@ -1717,7 +1771,7 @@ class LightMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             if not stable_ids:
                 return None
             item_id = str(memory.get("id") or "").strip()
-            content = _format_lightmem_memory(memory)
+            content = _format_lightmem_memory_as_official_retrieve(memory)
             if not item_id or not content.strip():
                 return None
             raw_score = memory.get("score")
@@ -1928,6 +1982,29 @@ def _count_openai_tokens(text: str, model_name: str) -> int:
     return _TiktokenCounter(model_name).count_tokens(text)
 
 
+def _count_local_embedding_tokens(text_embedder: Any, text: str) -> int:
+    """用本地 embedding 模型的真实 tokenizer 与 max_seq_length 截断设置计数。
+
+    返回的是模型实际会消费的 token 数（已按真实 truncation/max sequence 设置截断），
+    不是字符数，也不是未截断的理论 tokenizer 长度；因此调用方只能把
+    `token_measurement_source` 记为 `tokenizer_estimate`，不得冒充 `api_usage`。
+    """
+
+    model = getattr(text_embedder, "model", None)
+    tokenizer = getattr(model, "tokenizer", None)
+    if tokenizer is None or not hasattr(tokenizer, "encode"):
+        raise ConfigurationError(
+            "LightMem local embedding token counting requires a HuggingFace "
+            "tokenizer at text_embedder.model.tokenizer"
+        )
+    max_seq_length = getattr(model, "max_seq_length", None)
+    if isinstance(max_seq_length, int) and max_seq_length > 0:
+        encoded = tokenizer.encode(text, truncation=True, max_length=max_seq_length)
+    else:
+        encoded = tokenizer.encode(text)
+    return len(encoded)
+
+
 def _is_longmemeval_question(
     question: Question,
     conversation_metadata: dict[str, dict[str, Any]],
@@ -2104,7 +2181,13 @@ def _memory_speaker_name(memory: Any) -> str | None:
 
 
 def _format_lightmem_memory(memory: Any) -> str:
-    """把 LightMem retrieval item 格式化为 reader prompt 可读文本。"""
+    """把 LightMem retrieval item 格式化为 LoCoMo 官方 answer prompt 的 pretty-date 文本。
+
+    只供 `_build_locomo_answer_prompt()`/`_split_memories_by_speaker()` 使用的 LoCoMo
+    作者 harness 排版；公共 unified `formatted_memory`、`RetrievedItem.content` 与
+    LongMemEval author message context 一律使用
+    `_format_lightmem_memory_as_official_retrieve()`，不得复用本函数。
+    """
 
     if not isinstance(memory, dict):
         return str(memory)
@@ -2144,29 +2227,31 @@ def _format_lightmem_memory_date(time_stamp: str) -> str | None:
 
 
 def _format_lightmem_memory_as_official_retrieve(memory: Any) -> str:
-    """按官方 `LightMemory.retrieve` 的格式化口径（lightmem.py:693-701）输出单条记忆。
+    """按 vendored `LightMemory.retrieve()`（lightmem.py:722-736）的单条格式化逻辑
+    还原产品 readout。
 
-    官方 retrieve 返回 `"{time_stamp} {weekday} {memory}"` 的 list[str]，
-    本函数从带 payload 的 retrieval dict 中还原同一格式，使 LongMemEval 路径
-    在统一改用 `embedding_retriever.search`（返回 dict）后，answer prompt 的
-    memory 呈现与官方 `run_lightmem_gpt.py:186` `'\n'.join(related_memories)`
-    保持一致（ws02.5 P1：统一检索组件但不改 answer prompt 格式）。
+    这是公共 unified `formatted_memory`/`RetrievedItem.content`/
+    `metadata["retrieved_memories"]` 与 LongMemEval author message context 共用的
+    唯一格式化入口（LoCoMo 官方 answer prompt 的 speaker 分组仍用
+    `_format_lightmem_memory()` pretty-date 布局，两者不互相替代）。
+
+    `time_stamp` 严格为 `None` 时只返回 memory 文本——不显示时间标签，避免出现
+    字面量 "None None"，也不会仅凭 `weekday` 单独拼出时间前缀，与 vendored
+    missing-time 扩展（lightmem.py:730-733）一致。`time_stamp` 非 None（含缺 key
+    回退出的空字符串等历史边界）时原样输出 `"{time_stamp} {weekday} {memory}"`，
+    不做 strip 等额外“智能修复”，逐字节保留完整 ISO timestamp。
     """
 
     if not isinstance(memory, dict):
         return str(memory)
     payload = memory.get("payload")
     source = payload if isinstance(payload, dict) else memory
-    time_stamp = str(source.get("time_stamp", "") or "")
-    weekday = str(source.get("weekday", "") or "")
-    memory_text = (
-        source.get("memory")
-        or source.get("original_memory")
-        or source.get("compressed_memory")
-        or memory.get("memory")
-        or ""
-    )
-    return f"{time_stamp} {weekday} {memory_text}".strip()
+    time_stamp = source.get("time_stamp", "")
+    weekday = source.get("weekday", "")
+    memory_text = source.get("memory", "")
+    if time_stamp is None:
+        return str(memory_text)
+    return f"{time_stamp} {weekday} {memory_text}"
 
 
 def _user_visible_prompt_text(messages: list[PromptMessage]) -> str:
