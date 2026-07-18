@@ -22,7 +22,7 @@
 | 检索契约 | `prompt_track="unified"` + `build_longmemeval_unified_answer_prompt` + `gold_evidence_contract_version="v1"`（`benchmark_adapters/registry.py`:633-647） |
 
 一手扫描/探针脚本 `lme_preflight_probe.py`（六类输入逐层探针）与 `lme_candidate_scan.py`
-（S 公开 shape/成本扫描）按卡 §1/§9 为 Claude Code 会话专属 scratchpad 临时产物、**不入库**。
+（S 公开 shape/规模扫描）按卡 §1/§9 为 Claude Code 会话专属 scratchpad 临时产物、**不入库**。
 它们对 Codex 架构师（GPT-5.6 sol）不可见，故本 note 自包含：探针构造用 §3 列的 production
 入口 + fake backend 完整描述，**关键 stdout 已逐字抄录进 §3（六类探针全量输出）与 §9（候选
 扫描全量输出）**，架构师可只凭本 note + 引用的一手源码行号自写探针复验，无需访问 scratchpad。
@@ -226,11 +226,15 @@ all_entries` / `offline_update_all_entries` 的唯一入口 `_run_locomo_offline
 | evaluator（cli_name） | metric | requires_api | 类别 | LightMem×LME 资格 |
 |---|---|---|---|---|
 | `longmemeval-judge` | `longmemeval_judge_accuracy` | **True** | 付费官方 parity judge | 需预算，本轮不跑 |
-| `f1` | token-F1 | False | artifact-only answer | 可评（对 32/单 prediction） |
+| `f1` | token-F1 | False | artifact-only answer | 可评（消费同一条 prediction） |
 | `normalized-em` | normalized EM | False | artifact-only answer | 可评 |
 | `substring-em` | directional substring EM | False | artifact-only answer | 可评 |
 | `longmemeval-recall` | `longmemeval_recall` | False | artifact-only retrieval | **诚实 N/A** |
 | `longmemeval-retrieval-rank` | `longmemeval_retrieval_rank` | False | artifact-only retrieval | **诚实 N/A**（+ stable_ranking pending） |
+
+当前 LongMemEval unified answer 设置是 `temperature=0.0`、`max_tokens=500`、`top_p=None`
+（`config/settings.py:260-271`）；32-token 是 LoCoMo 的配置，不能挪到本格。上表三个
+artifact-only answer metric 都消费同一条已落盘 prediction，不各自重新生成答案。
 
 **N/A 被正确消费、不产伪分**（源码核证）：LightMem `_build_retrieval_evidence`
 （:1319-1328）对 longmemeval 恒发 `semantic=n_a / pair_source_id_not_turn_exact`、
@@ -269,28 +273,42 @@ current main（`44095e2`，adapter `conversation-qa-v6`，vendored sha256 `74be1
 canonical role → TurnPair → hybrid add_memory → retrieve(`filters=None`) → unified readout →
 metric eligibility 全链与 §2 已验收八事实一致，六类输入逐层实证无丢失/重复/跨 session 配对/
 role 猜测，私有边界零泄漏，online_soft 不暗跑全库 consolidation，retrieval evaluator 对
-LightMem 诚实 N/A。具备一次最小付费 B11 smoke 条件；无代码修复卡输入。
+LightMem 诚实 N/A。**本判词仅表示 registered round-cropped pipeline smoke 已具备执行条件**；
+它不表示 full/effect run、成本校准或效果结论已完成。六类异常 shape 已经 production path +
+fake backend 离线实证，无需为了重复验证这些 shape 而额外选择真实异常 qid 做付费 smoke。
+无代码修复卡输入。
 
-## 9. B11 smoke 公开候选与成本形状（零 gold 选择，命令由架构师回卡后写）
+## 9. B11 smoke 边界与公开 shape 扫描（零 gold 选择，命令由架构师回卡后写）
 
 - variant：**S**（`longmemeval_s_cleaned.json`，500 instance）。
-- **成本现实**：LongMemEval-S 每 instance 即一份完整 haystack，最小实例也是 ~40 session /
-  ~400 retained turn / ~200 add pair，**无法在不破坏 benchmark 语义的前提下裁小单题**；
-  smoke 成本由题数（instance 数）线性决定，每题 ≈ ~200 次 add_memory 抽取 LLM 调用 + 1 retrieve
-  + 1 answer。以下候选按公开 shape 与 turn 数选择，**未看 answer/evidence**（pair 数为
-  非-blank role 序列复算的估计值）：
+- **smoke 与 full 分开**：正式效果/full run 必须保留每个 instance 的完整 history；B11 smoke
+  只验证 ingest → retrieve → answer → artifact/evaluate 接线，允许按注册 policy 裁剪，且不作
+  效果声明。`_build_longmemeval_smoke_dataset()` 按完整双-turn round 截取 history；
+  `LONGMEMEVAL_SMOKE_POLICY` 默认 1 conversation × 1 round × 1 question
+  （`benchmark_adapters/registry.py:94-162,259-274`）。因此“单题无法裁小”与“最小 smoke 必须
+  约 400 turn/200 pair”均不成立。
+- **本 note 不做成本估算**：下表的 pair/add_memory 数只描述完整 instance 的公开输入形状，
+  不能换算 extraction LLM/API 调用数。实际 extraction 受 segment、short-memory buffer 与末批
+  `force_extract` 等运行时门控制。未来 full 成本只能从一条**完整实验单元**的真实
+  efficiency/API-call/token/wall-time 观测出发，再按用户批准规模外推；不能从 pair 数推算。
+- 当前 CLI/prepare 是 first-N conversation + round crop，不能直接指定任意 question id。
+  下列 qid 仅是公开 shape/规模扫描参考，**不是当前可直接执行的 smoke 候选**；本批不新增
+  selector，也不要求为 smoke 新增 selector。
+
+下表只按公开 role/blank shape 与 turn 数整理，**未看 answer/evidence**（pair 数为非-blank
+role 序列复算的形状统计）：
 
 | 角色 | 公开 question_id | #session | retained turn | 预计 add pair | 公开 shape |
 |---|---|---:|---:|---:|---|
 | 普通 user→assistant | `6613b389` | 41 | 452 | ~226 | 全 normal-user-first，偶数 |
 | 公开结构异常 | `852ce960` | 39 | 396 | ~199 | 含 assistant-first + pure-assistant + 2 odd session |
 
-`852ce960` 同时覆盖 assistant-first、pure-assistant（同 role 连续/单侧 session）与奇数 turn，
-是 §3 第 2/4/6 类异形的公开真实样例，且成本低于最便宜的纯正常实例。建议最小 smoke =
-这 2 题（1 正常 + 1 异形），既覆盖公开输入全形状又控制付费规模；架构师按预算决定题数与
-`run_id`，本 note 不写命令、不展示 gold。
+`6613b389` 与 `852ce960` 只能作为 full/formal 规划时的公开 shape 参考；后者确实同时包含
+assistant-first、pure-assistant 与奇数 turn，但六类形状已由 §3 离线探针覆盖，不能据此要求
+一次额外的真实异常 qid 付费验证。B11 的实际题数、round 裁剪、worker 与 `run_id` 由架构师
+按注册 smoke policy 和用户预算另行给出；本 note 不写命令、不展示 gold。
 
-候选扫描逐字 stdout（`uv run python lme_candidate_scan.py`；`retained`=非 blank turn，
+公开 shape 扫描逐字 stdout（`uv run python lme_candidate_scan.py`；`retained`=非 blank turn，
 `pairs`=按非 blank role 序列复刻 `_aggregate_pairs` 状态机的估计值；`_abs` 已剔除，全程只读
 公开 role/blank，未读 answer/evidence）：
 
@@ -312,6 +330,7 @@ total_instances=500  clean=12  anomalous=458
 {'qid': '5831f84d', 'abs': False, 'n_sessions': 40, 'retained': 422, 'pairs': 213, 'shapes': ['assistant-first', 'normal-user-first', 'pure-assistant'], 'odd_sessions': 4, 'anomaly': True}
 ```
 
-（`clean=12` 指全 session 严格 normal-user-first 且偶数的 instance 数；其余 458 题含至少一个
-公开异形 session，佐证 §2.2 异形是 benchmark-native 常态。选择只按公开 shape + turn 数，未用
-private answer/evidence 挑"易命中"题。）
+（总数 500 中有 30 个 `_abs` instance 被该候选分类排除；其余 470 个 non-abstention =
+`clean=12 + anomalous=458`。`clean` 指全 session 严格 normal-user-first 且偶数的 instance；
+其余 458 题含至少一个公开异形 session，佐证 §2.2 异形是 benchmark-native 常态。扫描只按
+公开 shape + turn 数，未用 private answer/evidence 挑“易命中”题。）
