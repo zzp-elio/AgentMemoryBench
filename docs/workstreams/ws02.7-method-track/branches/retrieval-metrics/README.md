@@ -28,12 +28,11 @@ evaluator 按 Recall/NDCG 各自要求导出 `valid / n_a / pending`。这样不
    benchmark 排除不污染 provider counts；当前 depth=10 只覆盖 LongMemEval k≤10，未二次
    retrieve、未重改 419/group/canonical。最终全量 1486 passed，compileall exit 0。
 7. M1 的逐题公式/资格契约仍然关闭；stable ranking method 审计或 query depth 扩展须另立裁决，
-   不借本批发散。LightMem × LongMemEval v6 真实 B11 另发现**聚合展示契约**有误：逐题
-   `score=null/status=n/a` 正确，但全 N/A summary 写成 `mean_score=0.0,total_questions=0`。
-   现有零 API 并行卡=
-   [`actor-prompt-retrieval-summary-nullability.md`](cards/actor-prompt-retrieval-summary-nullability.md)，
-   只收敛 total/scored/null/status counts 与 runner JSON null；严禁重开公式、gold group、LME 419、
-   top-k 或 provider evidence。它可与 LightMem readout/embedding 卡从同一 main 独立并行。
+   不借本批发散。LightMem × LongMemEval v6 真实 B11 暴露的**聚合展示契约**已由 Sonnet 5
+   `8a81723` 强验收并以主线 `68bb7f9` 关闭：五 evaluator 统一
+   `retrieval-summary-v2`，`total_questions` 计全部 score row、零数值样本的 `mean_score=null`，
+   runner 区分 key 缺失与显式 null。架构师用真实 v6 W1/W2 零 API 重评得到 total=1/2、
+   mean 均为 null；未重开公式、gold group、LME 419、top-k 或 provider evidence。
 
 ## 权威材料
 

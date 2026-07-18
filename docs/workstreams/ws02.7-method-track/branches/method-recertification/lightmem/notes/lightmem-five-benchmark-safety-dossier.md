@@ -26,8 +26,8 @@ Phase 1 确实有 50 个 method × benchmark **验证格子**，但不需要 50 
 
 | 格子 | 当前判词 | 这句话实际承诺什么 | 尚未承诺什么 |
 |---|---|---|---|
-| LightMem × LoCoMo | `REAL_SMOKE_PASSED` | v6、hybrid、online-soft 的单/双 worker 真实 B11 已验货 | 不代表作者 post-update reproduction、稳定排序或 full 效果 |
-| LightMem × LongMemEval | `B11_ARTIFACT_REPAIR_PENDING` | v6 单/双 worker 已实跑，接线/隐私/N/A/隔离成立；readout、embedding 观测与 summary 真值待修 | v6 不能作为修复后 readout/B7 证据，也不代表 full、效果或成本校准完成 |
+| LightMem × LoCoMo | `V7_REVALIDATION_PENDING` | v6、hybrid、online-soft 的单/双 worker 真实 B11 是有效历史证据 | v7 已改公共 readout/embedding observation，必须补受影响 B4/B7/B11 后才恢复当前 passed |
+| LightMem × LongMemEval | `B11_ARTIFACT_REPAIR_PENDING` | v7 readout/observer/summary 代码与零 API artifact 重评已过；真实 v7 B11 待重跑 | v6 不能作为修复后 readout/B7 证据，也不代表 full、效果或成本校准完成 |
 | LightMem × MemBench | `PENDING_GRID_RECERTIFICATION` | 既有代码/历史 smoke 仍是证据索引 | 本 dossier 尚未逐异常重新对表，不在本页宣布通过 |
 | LightMem × BEAM | `PENDING_GRID_RECERTIFICATION` | 同上 | 同上 |
 | LightMem × HaluMem | `PENDING_GRID_RECERTIFICATION` | 同上 | 同上 |
@@ -51,7 +51,7 @@ Phase 1 确实有 50 个 method × benchmark **验证格子**，但不需要 50 
 | embedding | `all-MiniLM-L6-v2` / 384 / Qdrant cosine | 当前 smoke build 身份明确；效果主表最终 embedding 仍待正式实验前裁定 |
 | reader | benchmark-owned unified builder | LightMem 只提供 `formatted_memory`；answer prompt/LLM 在同 benchmark 内 method-neutral |
 | 隐私 | method 只收 public Turn/Query | answer、gold evidence、`has_answer`、judge label 不可达 ingest/retrieve/answer prompt |
-| 运行身份 | adapter `conversation-qa-v6` + protocol/manifest identity | caption/role/lifecycle 变化会阻止旧 store 被误 resume |
+| 运行身份 | adapter `conversation-qa-v7` + protocol/manifest identity | readout/观测/caption/role/lifecycle 变化会阻止旧 store 被误 resume |
 
 最重要的共同边界是：**online-soft direct insert 可以逐题判断当前条目的 provenance；显式
 consolidated profile 会 merge/update，不能继承同样的 Recall/NDCG 资格。**本 dossier 的前两格
@@ -70,16 +70,18 @@ consolidation。
 ### 3.1 当前结论
 
 ```text
-REAL_SMOKE_PASSED
+V7_REVALIDATION_PENDING
 ```
 
-这里的“可以跑”建立在三层证据上：
+这里的 v6“已真实跑通”建立在三层证据上：
 
 1. source-locked LoCoMo 全量异常账；
 2. canonical Turn → LightMem payload 的离线强反例，含 caption v6；
 3. 最新 v6 单 worker + 双 worker 真实 build、retrieve、answer、evaluate 与物理 state 验货。
 
-它不是“因为测试没报错”，也不是“因为作者自己跑过 LoCoMo”。
+它不是“因为测试没报错”，也不是“因为作者自己跑过 LoCoMo”。但 v7 已改变所有格共用的
+public readout 与 embedding observation，因此本节现只证明 v6 历史链；current v7 必须重验
+完整时间 readout 与 build/retrieval embedding observations，不能沿用旧绿灯。
 
 ### 3.2 双 speaker 不是 user / assistant，如何不把身份弄错
 
@@ -200,7 +202,7 @@ Qdrant payload、效率三层 summary 与 evaluator artifact。后续 normalized
 B11_ARTIFACT_REPAIR_PENDING
 ```
 
-latest v6 的离线门与真实 cropped B11 已经证明：
+latest v6 的离线门与真实 cropped B11 已经证明主接线；v7 零 API 修复门又证明：
 
 ```text
 raw instance
@@ -214,9 +216,10 @@ raw instance
 ```
 
 六类真实 role 形状均无丢失、重复、跨 session 配对或 role 猜测；W1/W2 也完成 prediction、
-六项 evaluate 与 worker 隔离。但架构师开箱发现公共 readout 降精度、embedding observation
-缺失、逐题 metadata 粒度冲突和全 N/A summary 的 0 分/0 题误表示，所以本格不能写
-`REAL_SMOKE_PASSED`，必须先完成零 API 修复并重跑必要证据。
+六项 evaluate 与 worker 隔离。架构师开箱发现的公共 readout 降精度、embedding observation
+缺失、逐题 metadata 粒度冲突和全 N/A summary 误表示已经完成代码修复与强验收；旧 v6
+artifact 也已零 API 重评出正确 summary。由于 readout 与 observation 必须由新 v7 真实 run
+证明，本格仍不能写 `REAL_SMOKE_PASSED`。
 
 ### 4.2 LongMemEval 的自然结构
 
@@ -322,12 +325,10 @@ current v6 的零 API preflight 已完成：
 
 ### 4.8 LongMemEval 尚未关闭的门
 
-1. v6 公共 readout 把完整 ISO timestamp 降成 date-only；修复后 adapter v7 必须重跑必要 B11，
-   v6 不得 resume 或冒充新证据；
-2. embedding model 虽在 inventory，但真实 prediction artifact 无 `embedding_call`；B7 待透明
-   observer 与 fake/真实证据关闭；
-3. v1 evidence=`none` 与 legacy metadata=`turn` 必须收敛到同一逐题事实；
-4. 全 N/A retrieval summary 必须用 total/scored/null 区分“不可评分”与真实 0 分；
+1. adapter v7 必须重跑必要 B11，证明公共 readout 保留完整 ISO；v6 不得 resume 或冒充新证据；
+2. v7 真实 prediction artifact 必须同时出现 build/retrieval `embedding_call`，否则 B7 仍失败；
+3. v7 artifact 必须复核 v1 evidence 与 legacy metadata 同为 `none`；
+4. summary v2 已用旧 W1/W2 零 API 重评关闭，v7 仍需随 B11 复验同一契约；
 5. smoke 不估效果，也不用 pair/add_memory 数估 API 成本；首个完整成本 pilot 必须读真实
    API-call/token/wall-time/efficiency artifact；
 6. turn Recall/rank 因 pair-source 非 child-exact 保持 N/A；

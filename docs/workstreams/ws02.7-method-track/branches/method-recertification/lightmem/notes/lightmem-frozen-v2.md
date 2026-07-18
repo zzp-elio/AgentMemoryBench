@@ -1,5 +1,10 @@
 # LightMem method-frozen-v2 验收记录
 
+> **历史快照（2026-07-18 superseded for current adapter）**：本文准确记录
+> `conversation-qa-v6` 当时的冻结证据，不删除、不改写。当前 adapter 已升 v7 并改变公共
+> product readout 与 embedding observation；v7 真实 B11 尚未完成，故不能引用本文宣称当前
+> LightMem 仍 frozen。现行状态见 `lightmem-readout-observability-repair.md` 与父 README。
+
 > 冻结日期：2026-07-17
 >
 > 真实 smoke 代码基线：main `568b95d`（包含 LightMem adapter

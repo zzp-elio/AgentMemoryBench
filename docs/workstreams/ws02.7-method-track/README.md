@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo v6 已过；LongMemEval B11 已实跑、artifact 修复待派；Mem0 暂缓）
+status: in-progress（LightMem v6 smoke 作历史证据；LongMemEval/LoCoMo v7 受影响 B11 待复验；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -39,10 +39,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   fixture v1）→ `4c4bb0c`（TOML/builder 政策 + MemBench 卡）→ `ce1a9a8`/
   `d852fff`/`68b674b`（MemBench canonical split + 架构师 R1/R2）→ `5d8fce3`/
   `e10110f`（RetrievalEvidence M1 + 契约收敛 R1）→ `78196bc`/`65f5805`
-  （LightMem caption v6 + 无 caption bytes R1）。准确
+  （LightMem caption v6 + 无 caption bytes R1）→ `68bb7f9`（retrieval summary v2）→
+  `d11d749`/`2f21291`（LightMem readout/embedding v7 + R1）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1524 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 166.45s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮主树全量门=`1557 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 130.60s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
@@ -138,19 +139,32 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   开箱确认 pipeline、隐私、逐题 N/A、judge 与 worker 隔离成立，但公共 readout 把 Qdrant 完整
   ISO timestamp 降成 date-only，embedding inventory 无逐调用 observation，legacy metadata 与
   v1 evidence 粒度冲突；共享 retrieval summary 又把全 N/A 写成 0 分/0 题。当前判词为
-  `B11_ARTIFACT_REPAIR_PENDING`，两张零 API 并行卡已落盘；强验收合入前不得重跑付费 B11。
+  `B11_ARTIFACT_REPAIR_PENDING`。两张零 API 卡已强验收：summary v2=`68bb7f9`；LightMem
+  v7 主体 + Codex R1=`d11d749` + `2f21291`。真实 v6 W1/W2 重评已正确写 total=1/2、
+  mean=null；合流 325、全量 1557、compileall exit 0。下一步仅为用户重新批准预算/run_id 后
+  执行真实 LongMemEval v7 B11，随后补 LoCoMo v7 受影响最小复验；在此之前不恢复 frozen。
   Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric Pack M0 已关闭，不反向解冻 LightMem build。
   用户要求的格子
   “安全感”已制度化为**每 method 一份、五 benchmark 分章**的 living dossier；LightMem 首份在
   `branches/method-recertification/lightmem/notes/lightmem-five-benchmark-safety-dossier.md`，
-  LoCoMo=real-smoke-passed、LME=B11-artifact-repair-pending，其余三格仍 pending，禁止一份
+  LoCoMo=v7-revalidation-pending、LME=B11-artifact-repair-pending，其余三格仍 pending，禁止一份
   总绿灯代裁。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-18）
 
-- 2026-07-18（**LightMem × LongMemEval v6 B11 已执行并开箱；两张零 API 修复卡可并行派发；
+- 2026-07-18（**LightMem × LongMemEval 两张零 API 修复已强验收；v7 真实 B11 待预算门；
+  Mem0 继续暂缓**，GPT-5.6 sol 架构师）：summary actor `8a81723` 合入主线 `68bb7f9`；
+  LightMem actor `8f6f883` 首轮被 zero-hit/observer 透明性强反例驳回，Codex medium R1
+  `1a07938` 关闭后合入 `d11d749` + `2f21291`。架构师独立门=summary 149、LightMem 204、
+  合流 325、主树全量 1557、compileall exit 0；真实 v6 W1/W2 零 API 重评为 total=1/2、
+  mean=null。当前仍为 `B11_ARTIFACT_REPAIR_PENDING`：代码已修，缺的是 v7 真实 artifact 对完整
+  ISO readout、zero-hit 双源一致与 build/retrieval embedding observation 的证明。未经用户重新
+  确认预算、规模与 run_id，不调用真实 API，也不并行启动下一 method。LongMemEval v7 通过后，
+  还须补 LoCoMo v7 的公共 readout/B7/B11 最小复验；v6 LoCoMo run 只作历史证据。
+
+- 2026-07-18（**历史修复前断点，已由上条 superseded：LightMem × LongMemEval v6 B11 已执行并开箱；两张零 API 修复卡可并行派发；
   Mem0 继续暂缓**，GPT-5 架构师）：实际 run=`lm-lme-v6-r1q1-w1-s-cleaned` 与
   `lm-lme-v6-r1q1-c2-w2-s-cleaned`，机器验货均 PASS。架构师亲读 manifest、prompt、retrieved
   payload、score/summary、efficiency 与 worker state 后裁定：主接线/隐私/N/A/隔离有效，但

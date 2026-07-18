@@ -29,7 +29,9 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    `78196bc` + `65f5805`；B2/B4 已 retested。caption-bearing turn 只在 method 边界渲染共享
    wrapper，无有效 caption 时保留原文 bytes。LoCoMo 最新 build 的单 worker 与真实双 worker
    两次 run 已由用户执行，架构师完成 artifact、Recall group、Qdrant lineage、效率与隔离开箱
-   验货；B11 已关闭，LightMem 恢复为 `method-frozen-v2`。完整判词见
+   验货；当时 B11 关闭并恢复为 `method-frozen-v2`。v7 随后改变所有 benchmark 共用的
+   public readout 与 embedding observation，故这些 run 现在只作 v6 历史证据；LoCoMo 的
+   current-v7 B4/B7/B11 已重新打开。完整历史判词见
    [frozen-v2 note](notes/lightmem-frozen-v2.md)，命令模板与修正后的 state/log 判据见
    [B11 command pack](notes/lightmem-locomo-b11-command-pack.md)。
 9. 用户于 2026-07-18 明确要求离开 LightMem 前继续逐格压实 LongMemEval，故父线“下一家
@@ -48,15 +50,20 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    [单/双 worker 全 evaluator 命令包](notes/lightmem-longmemeval-b11-command-pack.md)。
 10. 用户要求把“为什么敢跑、异常如何处理”变成可长期复查的安全说明，而不是留在聊天。
     [LightMem 五 benchmark 格子安全说明](notes/lightmem-five-benchmark-safety-dossier.md) 采用
-    一 method 一 dossier、五 benchmark 分章：LoCoMo 已写到真实 smoke passed，LongMemEval
-    已随 v6 实跑更新为 artifact repair pending；MemBench/BEAM/HaluMem 到站后逐格补，不用
+    一 method 一 dossier、五 benchmark 分章：LoCoMo v6 是历史 real-smoke-passed、current v7
+    已重开；LongMemEval 已随 v6 实跑更新为 artifact repair pending；MemBench/BEAM/HaluMem 到站后逐格补，不用
     一份总绿灯掩盖未验章节。
-11. v6 真实 B11 的两个修复面已经拆成互不踩文件的并行卡：
+11. v6 真实 B11 的两个修复面已经拆成互不踩文件的并行卡并完成强验收：
     [LightMem 产品 readout/embedding 观测卡](cards/actor-prompt-lightmem-readout-observability-repair.md)
     只改 method/registry/tests，把公共 readout 恢复为产品接口的完整时间并补真实 embedding
     observation；[retrieval summary v2 卡](../../retrieval-metrics/cards/actor-prompt-retrieval-summary-nullability.md)
     只改共享 evaluator/runner，使全 N/A 的 `mean_score/total_questions` 不再伪装成 0 分/0 题。
-    两卡均为零 API，可从同一最新 main 在独立 worktree 并行；两卡强验收合入前不得重跑付费 B11。
+    summary 主体 `8a81723` 合入主线 `68bb7f9`；LightMem 主体 `8f6f883` 被架构师以 zero-hit
+    双源与 observer 透明性强反例驳回，Codex R1 `1a07938` 关闭后合入主线
+    `d11d749` + `2f21291`。两卡合流定向 325、主树全量 1557、compileall exit 0；真实 v6
+    W1/W2 零 API 重评已正确写 total=1/2、mean=null。当前只剩真实 v7 B11 artifact 复验；
+    在 LongMemEval v7 门通过前仍保持 `B11_ARTIFACT_REPAIR_PENDING`；随后还要补 LoCoMo v7
+    受影响的 B4/B7/B11 最小复验，才能宣称当前 adapter frozen。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

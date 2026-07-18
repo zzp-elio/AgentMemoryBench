@@ -259,3 +259,22 @@ R1 完整定向门：
 ```
 
 唯一 warning 仍是 vendored LightMem 的既有 Pydantic v2 class-based config 弃用提示。
+
+## 9. 架构师最终验收
+
+首轮 `8f6f883` 不直接放行；R1 `1a07938` 线性关闭 §8 两项强反例后，架构师在隔离
+worktree 独立复跑原卡完整组合：
+
+```text
+204 passed, 1 warning in 6.95s
+```
+
+主线线性合入=`d11d749` + `2f21291`。与 retrieval summary v2 合流后的定向并集=
+`325 passed, 1 warning in 8.45s`；主树全量=
+`1557 passed, 3 deselected, 2 warnings, 29 subtests passed in 130.60s`；
+`src/memory_benchmark + tests` compileall exit 0。
+
+最终裁决：B4 产品 readout、B5 逐题 metadata 单事实源与 B7 observer **代码门通过**；
+零命中时 `formatted_memory == metadata["answer_context"]`，observer-side 普通异常不改变
+original embed 的单次调用、返回或原始异常。当前仍不恢复 frozen：必须等真实 v7 B11
+artifact 证明完整 ISO readout 与 build/retrieval embedding observations 实际落盘。

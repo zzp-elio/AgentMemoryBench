@@ -350,3 +350,19 @@ judge、API usage、隐私边界与单/双 worker Qdrant/state 隔离成立；Lo
 
 两卡强验收并线性合入前，不再调用真实 API。合入后 v6 不能 resume；由架构师重新给出最小 v7
 验证命令，并另行裁定哪些旧 artifact 可做零 API re-evaluate。
+
+## 8. 2026-07-18 零 API 修复强验收
+
+- retrieval summary v2：actor `8a81723` → 主线 `68bb7f9`；真实 v6 W1/W2 已零 API 重评，
+  Recall/rank 均保持逐题 N/A，summary 分别为 `total_questions=1/2`、`mean_score=null`、
+  W1/W2 的 `score_status_counts` 分别为 `{"n/a":1}` / `{"n/a":2}`，contract 均为
+  `retrieval-summary-v2`。
+- LightMem v7 主体：actor `8f6f883` 首轮被架构师抓到 zero-hit 双源与 observer 旁路异常会
+  反向打断算法；Codex R1 `1a07938` 线性关闭，主线为 `d11d749` + `2f21291`。
+- 架构师门：LightMem 原卡 204 项、两卡合流 325 项、主树全量
+  `1557 passed, 3 deselected, 2 warnings, 29 subtests passed`，compileall exit 0。
+
+因此四项代码缺口均已关闭，但状态仍是 `B11_ARTIFACT_REPAIR_PENDING`：v6 artifact 只能证明
+旧接线与 summary 可重评，不能证明 v7 的完整 ISO readout、zero-hit 双源一致或真实 embedding
+observation。下一步必须由用户重新批准预算/规模/run_id 后执行最小 v7 W1/W2；本节不把零 API
+验收冒充真实 B11。

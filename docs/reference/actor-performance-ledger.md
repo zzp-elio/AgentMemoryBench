@@ -39,6 +39,9 @@
 | 2026-07-17 | Codex subagent；orchestrator 指定 `gpt-5.6-sol`/medium，actor 自标 GPT-5 | RetrievalEvidence M1 R1 | `c7eb416` → `e10110f`（重建精确身份） | actor `270 passed`；架构师 270；合法资产布局全量 `1486 passed`、compileall exit 0 | **9.3** | accepted after full-suite rework |
 | 2026-07-17 | Claude Code / Opus 4.8；reasoning=medium；时长未提供；无 subagent | LightMem LoCoMo caption v6 主体 | `ea08431` → `78196bc`（须 bytes R1） | actor `145 passed + 1 环境失败`；架构师 dummy-key 146；full diff 抓无 caption `.strip()` 漂移 | **9.4** | accepted after architect hardening |
 | 2026-07-17 | Codex subagent；`gpt-5.6-sol`/medium | LightMem caption no-caption bytes R1 | `9f5ef69` → `65f5805` | actor 149；架构师定向 154 + 真实 D1:5 probe + 主树全量 1500 + compileall | **9.7** | accepted |
+| 2026-07-18 | Claude Code / Sonnet 5；约 25min（用户提供）；无 subagent | Retrieval summary N/A 可空契约 | `8a81723` → `68bb7f9` | actor 149；架构师 149、真实 v6 W1/W2 零 API 重评、合流 325、全量 1557 | **9.0** | accepted with reporting correction |
+| 2026-07-18 | Claude Code / Sonnet 5；约 45min（用户提供）；无 subagent | LightMem 产品 readout/embedding 观测 v7 主体 | `8f6f883` → `d11d749`（须 R1） | actor 201；架构师 full diff 抓 zero-hit 双源与 observer 反向破坏算法、稳定页提前判绿 | **8.5** | accepted after architect hardening |
+| 2026-07-18 | Codex subagent；`gpt-5.6-sol`/medium | LightMem v7 观测透明性 R1 | `1a07938` → `2f21291` | actor/架构师 204；两卡合流 325；主树全量 1557、compileall exit 0 | **9.8** | accepted |
 
 ### 未评分发现记录
 
@@ -250,3 +253,21 @@
   legacy/v3/generic 三条首轮必失败反例齐全，未改 helper/version/算法。正确性 4/4、证据 1.9/2、
   纪律 2/2、判断交接 1.8/2，总评 **9.7/accepted**。架构师随后用真实 `D1:5` 和主树全量
   1500 项关闭，不把离线门冒充 B11。
+
+### 2026-07-18：Retrieval summary v2 + LightMem readout v7
+
+- Sonnet 5 的 summary v2 正确区分“零题”“有题但 N/A”与“真实 0 分”，五 evaluator 共用
+  nullable helper，runner 又严格区分 key 缺失与显式 null；架构师用两份真实 v6 artifact
+  重评得到 W1 total=1、W2 total=2、mean 均为 null。代码与强反例优秀。扣分来自纪律/交接：
+  卡明禁 compileall，note 却承认对改动文件执行；回复没有同步披露这一点，且“唯一自检”后又
+  复跑组合。没有作弊或删测，但报告与磁盘事实不一致，故 **9.0/accepted with reporting
+  correction**。
+- Sonnet 5 的 LightMem 主体准确修复产品 readout 全 ISO、embedding 真实调用观测、legacy/v1
+  provenance 单事实源与无效 model inventory；但零命中仍让 `formatted_memory` 与
+  `answer_context` 分叉，tokenizer/collector 旁路异常又会把成功的 embedding 改成失败，稳定
+  integration 页还提前保留 frozen/B7/B11 绿灯。首轮 **8.5/accepted after architect
+  hardening**，不是算法作弊，而是观测透明性与状态纪律没压到底。
+- Codex R1 线性补齐 zero-hit、token-counter/collector failure 三组首轮必失败反例，严格保持
+  original embed 单次调用/返回/异常，并把 v7 状态降回真实 B11 待验。架构师独立 204、两卡
+  合流 325、主树全量 1557 与 compileall 全绿，评 **9.8/accepted**。运行时长只作调度参考，
+  不直接进入评分。

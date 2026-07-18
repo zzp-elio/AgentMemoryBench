@@ -4,6 +4,8 @@
 > 验货并裁定通过。正式证据见
 > [`lightmem-frozen-v2.md`](lightmem-frozen-v2.md)。本 note 保留当时命令并修正两处验货
 > 模板错误：terminal log 归入各 run 的 `logs/`，单 worker state 不带 `worker_0/` 子层。
+> 2026-07-18：上述状态只对应 v6 历史 run；v7 改变公共 readout/embedding observation，
+> LoCoMo current-v7 的受影响 B4/B7/B11 已重新打开，旧 run 不得 resume 或冒充当前证据。
 
 ## 1. 为什么是两次 run
 

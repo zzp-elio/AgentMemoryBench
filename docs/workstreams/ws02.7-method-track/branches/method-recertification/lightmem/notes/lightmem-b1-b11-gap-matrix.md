@@ -1,5 +1,9 @@
 # LightMem 当前主线 B1-B11 gap matrix
 
+> 2026-07-18 current-v7 更新：下表的 `method-frozen-v2` 是 v6 历史快照。v7 改变公共
+> product readout 与 embedding observation，故当前 B4/B7/B11 重新打开：LongMemEval v7
+> 先复验，随后 LoCoMo v7 补受影响最小 B11；真实 artifact 通过前不得恢复 frozen。
+
 > 抽锚日期：2026-07-17；最新真实 smoke 基线 main `568b95d`。状态只用
 > `revalidated / retested / N/A / pending`。role/evidence-unit 新反证见
 > `../../../input-role-semantics/notes/lightmem-messages-membench-beam-role-audit.md`。
@@ -18,11 +22,13 @@
 | B8+ 韧性 | revalidated | timeout/retry wrapper 与失败态清理未受影响 | 真实 smoke 前对表 |
 | B9 模型/build 口径 | revalidated | 当前五格 smoke identity=MiniLM/384/cosine + hybrid + online-soft，强类型 manifest 可复算。效果参数/embedding 的最终裁决按政策延后，不冒充当前 smoke 缺口 | 进入 B11；首个效果 full 前再裁参数 |
 | B10 TOML/builder | revalidated | 当前 manifest 对既有 smoke build truthful；新 TOML section/完整 author builder 已明确排在首个 author calibration/效果 full 前，按政策不阻塞 5×10 smoke。官方 LME `user_only` 未来只能显式 author section，不能暗切 | 用当前 section 跑 B11；效果实验前迁移 |
-| B11 五格 smoke/冻结 | retested | 历史五格五件套继续有效；唯一被 caption v6 失效的 LoCoMo 已补 `r3q1-w1` 与 `c2-w2`：1/1、2/2 prediction，四项当时适用 evaluator 全落盘，Recall@10 独立重算，效率/隐私/隔离均通过 | `method-frozen-v2`，下一家转 Mem0 |
+| B11 五格 smoke/冻结 | pending | 历史五格与 LoCoMo v6 `r3q1-w1`/`c2-w2` 继续作历史证据；v7 readout/observer 代码门已过，真实 artifact 尚未证明 | 先 LME v7，再 LoCoMo v7 最小复验；当前不 frozen |
 
 ## 当前冻结判词
 
-LightMem 已完成本轮重认证：**B1-B11 全部有现行证据，诚实的 N/A/pending 不算缺门；当前
-build 为 `method-frozen-v2`。**旧 `method-frozen-v1` 继续作为历史快照，不覆盖、不改写。
+LightMem 的 v6 重认证曾完成：**B1-B11 当时均有证据，build 为 `method-frozen-v2`。**
+当前 v7 因公共 readout/embedding observation 变化重新打开 B4/B7/B11；真实 v7 artifact
+通过前不 frozen。旧 `method-frozen-v1/v2` 继续作为历史快照，不覆盖、不改写。
 已声明的 stable-ranking、k>10、author builder/效果参数与真实 resume 缺口见
-[`lightmem-frozen-v2.md`](lightmem-frozen-v2.md)，均不阻塞本轮冻结。
+[`lightmem-frozen-v2.md`](lightmem-frozen-v2.md)；它们不推翻历史 v6 判词，但 current v7 的
+B4/B7/B11 是实际阻断门。

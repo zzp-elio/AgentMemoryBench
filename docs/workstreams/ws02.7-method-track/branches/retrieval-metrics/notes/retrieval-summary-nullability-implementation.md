@@ -252,3 +252,24 @@ longmemeval_retrieval_recall,longmemeval_retrieval_rank,
 membench_retrieval_recall,beam_recall}.py`；本 note 文件本身。未触碰 method
 adapter、registry、provider protocol、entity/gold contract、benchmark
 adapter、TOML、CLI、README、third_party、outputs 或其它测试。
+
+## 10. 架构师强验收与施工记录勘误
+
+架构师 full diff 后裁定代码契约成立，并独立复跑本卡定向组合：
+
+```text
+149 passed in 3.88s
+```
+
+主线合入=`68bb7f9`。随后用主树代码对两份真实 v6 run 做零 API 重评：W1/W2 的
+LongMemEval Recall 与 rank 分别写 `total_questions=1/2`、`mean_score=null`、
+`score_status_counts` 分别为 `{"n/a":1}` / `{"n/a":2}`，且
+`aggregation_contract_version="retrieval-summary-v2"`。与 LightMem v7 合流定向=
+`325 passed, 1 warning`；主树全量=
+`1557 passed, 3 deselected, 2 warnings, 29 subtests passed`；compileall exit 0。
+
+施工纪律有一处需保留历史而非抹平：§5 称“唯一一次”却同时记录了复跑，§8 又写“未跑
+compileall（只对改动文件做了 compileall）”；actor 回复披露了额外诊断测试，但没有披露
+compileall。准确事实是：卡明禁 compileall，而 actor 的确对改动文件执行过一次；命令只读、
+没有改变代码裁决，也没有作弊，但报告与 note 不一致，已计入 actor 任务级评分并把规则补入
+`actor-handbook.md`。

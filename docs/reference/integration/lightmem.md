@@ -442,7 +442,8 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   1-conversation/1-worker 与 2-conversation/2-worker 真实 smoke；prediction 1/1、2/2，
   `locomo-f1`、`f1`、`locomo-recall`、`locomo-judge` 全落盘。架构师逐题从公开 source ids
   与 private gold groups 独立重算 Recall@10 均为 1，并核实 D1:5 LTM lineage、效率、隐私与
-  worker 物理隔离，正式恢复 frozen-v2。完整证据见
+  worker 物理隔离，当时正式恢复 frozen-v2。该判词只对应 v6；v7 已改公共 readout 与
+  embedding observation，LoCoMo current-v7 同样必须补受影响最小复验。完整历史证据见
   `ws02.7/branches/method-recertification/lightmem/notes/lightmem-frozen-v2.md`。
   上述冻结只对应历史 v6 LoCoMo build；v7 公共 readout/embedding observation 契约
   已变化，旧 artifact 不可 resume 或外推。当前必须重跑真实 v7 B11，核实完整 timestamp、
