@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo v6 已过；LongMemEval latest-main 差量预检待派发；Mem0 暂缓）
+status: in-progress（LightMem LoCoMo v6 已过；LongMemEval latest-main 预检已过、B11 待预算；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -134,14 +134,30 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   evaluator-private 通道，不要求 LightMem 特判。caption 卡已关闭，不再重复派发。
   B9/B10 效果配置迁移仍按既有政策不阻塞 smoke，但首个效果 full/author calibration 前必须完成。
   用户 2026-07-18 改定顺序：离开 LightMem 前继续逐格压实 LongMemEval；先做 current-main
-  role/pair/time/query/readout/metric 差量预检，不重复 S/M 大扫描。Mem0 → MemoryOS → A-Mem →
-  SimpleMem 顺延；Metric Pack M0 已关闭，不反向解冻 LightMem build。
+  role/pair/time/query/readout/metric 差量预检，不重复 S/M 大扫描。Opus 4.8 `67715dd` 的六类
+  production-path/fake-backend 探针与 current-v6 对表已通过；Codex R1 `346f1c4` 删除了把完整
+  pair 数换算成 extraction API 次数的错误外推，并订正 registered smoke 可按 round 裁剪、
+  LongMemEval answer `max_tokens=500`。主线=`9bf1c78` + `b2d7c9c`；现行判词只到
+  `READY_FOR_B11_SMOKE`（cropped pipeline），不等于效果/full/成本校准完成。Mem0 → MemoryOS →
+  A-Mem → SimpleMem 顺延；Metric Pack M0 已关闭，不反向解冻 LightMem build。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-18）
 
-- 2026-07-18（**LightMem × LongMemEval latest-main 差量预检待派发；Mem0 暂缓**，GPT-5
+- 2026-07-18（**LightMem × LongMemEval latest-main 预检 + R1 强验收；B11 待用户批准真实 API；
+  Mem0 暂缓**，GPT-5 架构师）：Opus 4.8 `67715dd` 已把临时 Claude scratchpad 的六类探针构造与
+  stdout 全量补入仓库 note，跨模型证据自包含；架构师 full diff、current source 对表与 dummy-key
+  八文件独立复跑=`219 passed, 1 warning in 84.60s`，核心 role/pair/hybrid/time/query/readout/
+  metric 链成立。首轮 B11 建议混淆 smoke、full 与成本，并误把约 200 pair 写成约 200 次 extraction
+  LLM；Codex medium 按用户授权线性 R1 `346f1c4`，已改为：registered smoke 默认 1 conversation ×
+  1 round × 1 question，只作接线验证；正式 full 保留完整 history；成本必须由首条完整实验单元的
+  真实 API/token/wall-time/efficiency 观测外推。R1 文档门=`5 passed in 0.91s`。主线
+  `9bf1c78` + `b2d7c9c`；证据=`branches/method-recertification/lightmem/notes/
+  lightmem-longmemeval-latest-main-preflight.md`。下一步是用户批准预算、规模、run_id 后给出 B11
+  单/双 worker 命令；在此之前零 API。六类异常已离线实证，不为重复覆盖另烧完整异常 qid。
+
+- 2026-07-18（**历史断点，已被上方预检 + R1 强验收取代**，GPT-5
   架构师）：用户指定 LoCoMo 后继续压实 LightMem 的 LongMemEval 格。既有 Opus 4.8 输入异形/
   timestamp 审计已覆盖 S/M exact count、placeholder、500ms 与 no-cutoff，不再重复烧 actor；
   本批只核 current v6 的 canonical role → TurnPair → hybrid add_memory → retrieve/readout → metric

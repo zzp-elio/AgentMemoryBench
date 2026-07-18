@@ -33,10 +33,14 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
    [frozen-v2 note](notes/lightmem-frozen-v2.md)，命令模板与修正后的 state/log 判据见
    [B11 command pack](notes/lightmem-locomo-b11-command-pack.md)。
 9. 用户于 2026-07-18 明确要求离开 LightMem 前继续逐格压实 LongMemEval，故父线“下一家
-   Mem0”暂缓。既有输入异形/time 大审计不重复；当前只派
+   Mem0”暂缓。既有输入异形/time 大审计不重复；
    [latest-main B11 差量预检卡](cards/actor-prompt-lightmem-longmemeval-latest-main-preflight.md)，
-   把 current v6 的 canonical role/pair/hybrid/time/query/readout/metric 资格映射到真实公开异常
-   样例。预检回卡强验收前不调用 API、不写 smoke 命令、不宣布 LME 最新 build 已过。
+   已由 Opus 4.8 `67715dd` + Codex R1 `346f1c4` 强验收关闭，主线 `9bf1c78` + `b2d7c9c`。
+   current v6 的 canonical role/pair/hybrid/time/query/readout/metric 全链具备 registered cropped
+   B11 smoke 条件；这不等于 full/effect/cost calibration 已过。六类公开异常 shape 已由
+   production path + fake backend 离线实证，不再用完整异常 qid 重复烧 API。registered 默认
+   smoke 为 1 conversation × 1 round × 1 question；真实成本只从完整实验单元的运行时效率
+   产物外推，不从 pair/add_memory 数猜。当前只等待用户批准 B11 预算、规模与 run_id。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的
