@@ -173,6 +173,18 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     memory-type→三项通用离线答案指标；最终机器门把 session report 与 Qdrant plural lineage
     逐 session 对账，并核 judge scope/efficiency。当前状态为 `COMMAND_HANDED_TO_USER`，尚不写
     `REAL_SMOKE_PASSED`。
+23. 用户已完成上述固定 Medium W1 run，并交回 preview=`7+7+1=15` 与三条机器门 PASS。
+    架构师在 main `f2fee8b` 独立重跑全 run 机器门，再亲读 manifest、四份 report、local
+    Qdrant、prompt/readout、7 个 update probe、七类 metric、15 条 judge observation 与全部日志。
+    真实 report=`[0,0,0,2]`，Qdrant 恰两条且 lineage 只含 `s4:t1/s4:t2`；三类 judge 调用数、
+    scope、`gpt-4o-mini` inventory 与 `api_usage` token 全部精确，离线 metric 不造观测文件。
+    extraction/update 低分属于本次方法效果，QA 的语义 1 分与 lexical 0 分属于公式差异，不是
+    接线路由异常。本次前三 session 都抽取为空，故“早期非空 LTM 经后续 session 保留”仍由
+    架构师现场复跑的 real-vendored 双 session 强反例承重（`5 passed, 169 deselected,
+    1 warning`），不向真实样本强加其未提供的证据。HaluMem 格现升为 current-v7
+    `REAL_SMOKE_PASSED`；五格真实行为门齐，但 forced-flush 把 source identity 扩到 sensory
+    runtime，前四格旧 artifacts 不可 resume，下一门仍是 exact-smoke 零 API reachability，完成后
+    才裁 current build frozen。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

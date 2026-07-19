@@ -29,8 +29,8 @@ Phase 1 确实有 50 个 method × benchmark **验证格子**，但不需要 50 
 | LightMem × LoCoMo | `REAL_SMOKE_PASSED` | current-v7 3-round 单/双 worker 已实跑，readout、embedding observation、caption lineage、metric 与隔离验收通过 | 不是 full、效果、成本、resume 或 stable-ranking 认证 |
 | LightMem × LongMemEval | `REAL_SMOKE_PASSED` | current-v7 单/双 worker 已实跑，完整 ISO readout、zero-hit、embedding observation、N/A summary 与隔离验收通过 | 不代表 full、效果、成本校准或 turn-level retrieval metric 有资格 |
 | LightMem × MemBench | `REAL_SMOKE_PASSED` + `100K_MISSING_TIME_SENTINEL_PASSED_ZERO_EXTRACTION` | current-v7 `0_10k` 四源单/双 worker 已实跑；100k FirstHigh+ThirdHigh 真实缺时消息又穿过 normalizer/extraction，合法零 LTM 由 local-Qdrant null-write 强反例补足 | 不是 100k full、效果、成本、resume 或 stable-ranking 认证 |
-| LightMem × BEAM | `BEAM_CORE_ARTIFACTS_PASSED__JUDGE_OBSERVABILITY_REPAIR_PENDING` | current-v7 100K W2 + 10M W1 已实跑；pair lineage、ISO readout、prediction efficiency、Recall N/A、rubric score 与隔离通过 | artifact-level runner 尚未落 rubric judge 自身 token/model 观测；不是 full/效果/resume 认证 |
-| LightMem × HaluMem | `READY_FOR_HALUMEM_B11_AFTER_SHARED_OBSERVABILITY_REPAIR` | source lock、session ingest/report、hybrid、online-soft、增量 capture、readout、N/A 与 evaluator 顺序离线闭环已强验收 | 真实 Medium W1 尚未启动；先修与 BEAM 共用的 judge 观测断链 |
+| LightMem × BEAM | `REAL_SMOKE_PASSED` | current-v7 100K W2 + 10M W1 已实跑；pair lineage、ISO readout、prediction efficiency、Recall N/A、rubric score、2+1 条 judge observation 与隔离通过 | 不是 full、效果、成本、resume 或 stable-ranking 认证 |
+| LightMem × HaluMem | `REAL_SMOKE_PASSED` | forced-flush 新 identity 的 Medium W1 已实跑；四份 session report、local Qdrant、online-soft LTM、三类官方 judge、memory-type、离线答案指标与全部效率观测通过 | 不是 Long/full、效果、成本、resume 或 turn-level retrieval metric 认证；operation-level 仅支持 W1 |
 
 判词必须分层：
 
@@ -468,7 +468,7 @@ pair 或 gold 结论。
 state/readout 差量。BEAM 已 frozen 的 raw-id 歧义、10m plan 展开、官方 prompt/judge 与 gold
 group 不因换 method 重做全量调查；只有 source lock、shared contract 或新一手反证变化才重开。
 
-### 6.1 BEAM：method/core artifacts 已过，metric-side 观测待补
+### 6.1 BEAM：core 与 metric-side 观测均已通过
 
 - 标准 100K 数据是严格 user→assistant；10M 有两处 dangling user、一处后续 answer 内容错槽、
   一个全缺时 session 与跨 session anchor 回退。canonical 层全部 preserve，不猜修 raw 内容。
@@ -482,15 +482,16 @@ group 不因换 method 重做全量调查；只有 source lock、shared contract
   build embedding、3 次 retrieval embedding，100K 两 conversation 分居 worker0/worker1。
 - R0 验货器误要求 answer-builder `metadata` 复制顶层 `retrieval_evidence`，对好产物报 KeyError；
   R1 只删错误断言，既有 run 全绿，production/API 均无需重跑。
-- 尚未关闭的是共享 `_run_artifact_level_evaluation()`：rubric judge 三道题已出分，但 metric 专属
-  model inventory/token observations 缺失。修复后只重跑这 2+1 道 judge，不重建 LightMem。
+- 共享 `_run_artifact_level_evaluation()` 的 metric-side 观测断链已由 `174bd46` 修复；既有两个
+  run 只补跑 2+1 道 rubric judge，三条 scope、model inventory 与 `api_usage` token 机器门全绿，
+  未重建 LightMem。
 
 底层证据：
 
 - [BEAM current-v7 命令、R1 输出与开箱](lightmem-beam-current-v7-b11-command-pack.md)
 - [共享 evaluator 可观测性支线](../../../evaluator-observability/README.md)
 
-### 6.2 HaluMem：method 侧 READY，付费门等共享修复
+### 6.2 HaluMem：forced-flush 新 identity 的真实 Medium B11 已通过
 
 - Medium/Long hash 与 frozen lock 逐字一致，因此继承：真实数据严格 user→assistant、turn/session
   时间齐全；generated QA sessions 只 ingest；memory-point evidence 没有 turn id，retrieval
@@ -505,13 +506,25 @@ group 不因换 method 重做全量调查；只有 source lock、shared contract
   HaluMem RetrievalEvidence 恒 `n_a / halumem_no_turn_qrel / none`。
 - evaluator 固定顺序是 extraction → update → qa（三段 judge）→ memory-type（离线依赖前两份
   score），另有 F1/normalized EM/substring EM；operation-level runner 固定 workers=1。
-- actor note-only 交付经架构师现场 hash/bytes、full diff 与同一承重集复验：`230 passed,
-  1 warning`，文档门 `5 passed`，故 method 侧接受 READY。真实 smoke 固定 Medium
-  1 conversation / 4 sessions × 2 turns / 1 QA / workers=1；共享 judge efficiency 修复前不烧。
+- 旧 note-only READY 被真实 sensory/STM 反例推翻：forced tail 曾按 boundary count 清 buffer，
+  automatic prefix 也会被 tail 覆盖。`8879af9` 只修 bookkeeping 与 source identity，不改阈值、
+  prompt、分段、抽取或 LTM 算法；real-vendored 双 session 强反例证明 report 局部、暂存态清空、
+  早期非空 LTM 保留。
+- 用户随后完成固定 Medium `1 conversation / 4 sessions × 2 turns / 1 QA / workers=1`。真实
+  report=`[0,0,0,2]`，Qdrant 恰两条并只带 `s4:t1/s4:t2` lineage，7 个 update probe 也只读
+  s4。前三 session 的 zero extraction 被如实保留，没有为了造非空 memory 换样本或重跑。
+- judge preview 与真实 observation 均为 extraction/update/QA=`7/7/1`；scope、`gpt-4o-mini`
+  inventory、`api_usage` token 精确。prediction 又实见 4 memory LLM、2 build+8 retrieval
+  embedding 与 1 answer LLM；memory-type/F1/EM 不造空观测文件。extraction/update 低分是效果，
+  QA semantic=1 与 lexical=0 是公式差异，均不改变接入正确性。
+- 本次前三 session 都抽取为空，故“早期非空 LTM 经后续 session 保留”仍由 real-vendored 双
+  session 强反例承重，不越权写成真实 crop 亲自证明。最终判词=`REAL_SMOKE_PASSED`；Recall/
+  NDCG 继续 N/A、stable ranking pending，不外推 Long/full/效果/成本/resume。
 
 底层证据：
 
 - [HaluMem current-v7 source-locked 预检](lightmem-halumem-current-v7-preflight.md)
+- [HaluMem forced-flush B11 命令与开箱](lightmem-halumem-current-v7-b11-command-pack.md)
 - [共享 evaluator 可观测性支线](../../../evaluator-observability/README.md)
 
 ## 7. 本 dossier 的失效触发器

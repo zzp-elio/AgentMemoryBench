@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem 前四格真实 smoke 已过旧 source identity；forced-flush R1 已修复并重开 HaluMem B11，最终冻结前补前四格零 API reachability；Mem0 暂缓）
+status: in-progress（LightMem 五格真实行为门已过；forced-flush 新 source identity 下待前四格零 API reachability 与 current-build frozen 裁决；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -172,11 +172,13 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   predict/Recall/build 不重跑；用户已补完 2+1 个 abstention rubric 调用，model/token/scope 机器门
   全绿，BEAM 格关闭。MemBench 100k 缺时真实哨兵以合法
   zero-extraction + local-Qdrant null-write 两层关闭，无需重烧。LongMemEval 稳定异常账已集成；
-  架构师 R1 订正 S/M 124 题 evidence-id 仅顺序不同、集合相同。HaluMem Opus 4.8 note-only 回卡
-  虽经 hash/bytes、full diff 与 `230 passed, 1 warning` 验收，但其 fake backend 未执行真实 sensory/
-  STM；用户提醒 current-session-only 后，架构师组件探针复现 forced flush 残留旧 session 与
-  automatic prefix 被 tail 覆盖。旧 READY 已 supersede，先走 session flush R1；若最小
-  bookkeeping 修复不足，则 extraction 诚实判 N/A，不为填指标扭曲 LightMem。故整体仍不 frozen。
+  架构师 R1 订正 S/M 124 题 evidence-id 仅顺序不同、集合相同。HaluMem 的 fake-backend READY
+  曾被真实 sensory/STM 反例推翻；forced cleanup 与 automatic-prefix+tail 两处 bookkeeping 已由
+  `8879af9` 修复。用户随后完成 forced-flush 新 identity 的 Medium W1 全 evaluator run；架构师
+  独立机器门与逐 artifact 开箱确认 report=`[0,0,0,2]`、Qdrant 仅 s4 两条 lineage、judge
+  calls=`7+7+1` 且 scope/token inventory 精确，HaluMem 升为 `REAL_SMOKE_PASSED`。五格真实行为门
+  现已齐；但前四格 artifacts 早于 sensory source identity，旧 run 不可 resume，故整体仍不
+  frozen，下一门是 exact-smoke 零 API reachability，而不是默认重烧四格 API。
   Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
@@ -184,6 +186,21 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-19）
+
+- 2026-07-19（**LightMem × HaluMem current-v7 B11 强验收通过；五格真实行为门齐，转前四格
+  exact-smoke reachability**，GPT-5.6 sol 架构师）：用户完成固定 Medium
+  `lm-halumem-v7-flush-r1-w1-medium`，调用预览与真实 observation 均为
+  extraction/update/QA=`7/7/1`。架构师在 main `f2fee8b` 独立重跑机器门并亲读 manifest、四份
+  session report、local Qdrant、prompt/readout、update probe、七类 score/summary、15 条 judge
+  observation 与 terminal log：report=`[0,0,0,2]`，Qdrant 恰两点且 plural lineage 只含
+  `s4:t1/s4:t2`，7 个 probe 只读 s4；三类 judge scope 与 `api_usage` token 精确，离线 metric
+  不造 observation。真实样本的前三 session 均零抽取，因此早期非空 LTM 保留仍由现场复跑的
+  real-vendored 双 session 强反例承重（`5 passed, 169 deselected, 1 warning`），没有把机器门
+  短句扩写成样本未提供的证据。裁决：HaluMem current-v7=`REAL_SMOKE_PASSED`；不外推 Long/
+  full/效果/成本/resume，Recall/NDCG 继续 N/A、ranking pending。下一步仅做前四格对新 sensory
+  source identity 的 exact-smoke 零 API reachability，再决定是否需最小付费复验与 current-build
+  frozen；完整开箱见
+  [命令包 §9](branches/method-recertification/lightmem/notes/lightmem-halumem-current-v7-b11-command-pack.md)。
 
 - 2026-07-19（**LightMem forced-session flush R1 已强验收合入；HaluMem 重开 B11 命令门**，
   GPT-5.6 sol 架构师）：用户授权 Codex subagent 后，`gpt-5.6-sol/high` 在隔离 worktree 提交

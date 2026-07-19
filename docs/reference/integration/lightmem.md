@@ -1,10 +1,9 @@
 # LightMem 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**FIVE_GRID_RECERTIFICATION_IN_PROGRESS（LoCoMo/LongMemEval/MemBench
-> current-v7 `REAL_SMOKE_PASSED`；BEAM core artifacts + 2+1 条 judge observation 已过；
-> HaluMem 旧 READY 被真实 sensory buffer 反例推翻，当前
-> `BLOCKED_SESSION_FLUSH_INTEGRITY`）**。
+> 状态：**FIVE_GRID_RECERTIFICATION_IN_PROGRESS（五格 current-v7 真实行为门均为
+> `REAL_SMOKE_PASSED`；forced-flush 新 source identity 下仍待前四格 exact-smoke 零 API
+> reachability 与 current-build frozen 裁决）**。
 > 2026-07-17 的 method-frozen-v2 与 v6 LoCoMo smoke 仍是有效历史证据，但 v7 改变
 > 公共 readout 与 embedding observation 契约，不能沿用 v6 artifact 宣称当前版本已
 > frozen。online-soft lifecycle 主体、MemBench 时间语义 Phase A 与 LightMem
@@ -126,6 +125,15 @@
 > 修复而非 HaluMem 专用算法。B6 恢复通过，HaluMem 重开真实 B11。source hash 已变，旧 run
 > 不可 resume；前四格旧 artifacts 先保留作历史行为证据，最终冻结前做 exact-smoke reachability，
 > 不因 hash 变化直接重烧四格。
+> 2026-07-19 R8 真实 B11 验收：用户完成固定 Medium W1 全 evaluator run；架构师独立重跑机器门
+> 并逐层读取 manifest、四份 session report、local Qdrant、readout、update probe、七类 metric、
+> 15 条 judge observation 与日志。真实 report=`[0,0,0,2]`，Qdrant 恰两条且 lineage 只属于
+> `s4:t1/s4:t2`，update probe 也只读 s4；judge 路由 extraction/update/QA=`7/7/1`，scope、
+> `gpt-4o-mini` inventory 与 `api_usage` token 精确，离线 metric 没有伪造 efficiency artifact。
+> QA semantic judge=1 与三项 lexical metric=0 是公式差异；extraction/update 低分是本次方法效果，
+> 不是漏跑或串 session。HaluMem 升为 current-v7 `REAL_SMOKE_PASSED`；Recall/NDCG 继续 N/A，
+> stable ranking pending，且不外推 Long/full/效果/成本/resume。真实 crop 的前三 session 均零抽取，
+> 所以早期非空 LTM 保留仍由 real-vendored 双 session 强反例承重，不由本次样本越权代证。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
 - 算法源：vendored `third_party/methods/LightMem`（`src/lightmem/memory/lightmem.py`）
@@ -508,8 +516,9 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   R1 actor 已按现有 force 语义提交最小修复与 real-core 强反例：force 只清已全部输出的
   sensory current buffer，automatic prefix 与 tail 保持全序、各一次进入 STM/extraction；
   short-memory forced extraction 自身仍按官方实现清空，LTM 不清。source identity 覆盖新增的
-  sensory runtime 文件，v7 不 bump。架构师强验收前本项仍保持 🟡，不据 actor 自报启动付费 run。
-- **B7 效率插桩 🟡（共享代码与 BEAM real refill 已过；HaluMem 实跑待完成）**：普通 prediction
+  sensory runtime 文件，v7 不 bump。该修复已经架构师 real-core、全量与真实 Medium B11 三层
+  验收，B6 恢复 ✅；这里保留旧阻断经过，是为了说明为什么 source identity 必须失效旧 resume。
+- **B7 效率插桩 ✅（共享代码、BEAM refill 与 HaluMem real run 均过）**：普通 prediction
   与逐题 judge 路径可记录各自 api_usage/token；LightMem add_memory 自带
   token/api_call_nums 返回值可做交叉参照（待留档）。v6 真实 LongMemEval B11 开箱发现
   model inventory 声明 `lightmem-embedding`，但 `efficiency_observations.
@@ -533,8 +542,11 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   造成“有 score、无 judge model/token artifact”。HaluMem 三段 judge 共用该 runner。共享断链
   已由 `174bd46` 关闭：runner 严格消费 evaluator 内部强类型 observations，BEAM rubric/equivalence
   与 HaluMem extraction/update/qa 均有真实 scope，离线 artifact evaluator 仍不造空文件。用户
-  已在既有 BEAM run 补写 2+1 条真实 metric-side observations 并通过机器门；B7 暂保 🟡只因
-  HaluMem 尚未实跑。不能拿 prediction 观测替 evaluator 观测，也不能把旧缺文件解释成零调用。
+  已在既有 BEAM run 补写 2+1 条真实 metric-side observations 并通过机器门。HaluMem Medium
+  W1 又实见 extraction/update/QA=`7/7/1` 条 judge observations，全部使用真实 scope、
+  `gpt-4o-mini` inventory 与 `api_usage` token；prediction 侧实见 4 次 memory-build LLM、2 次
+  build embedding、8 次 retrieval embedding 与 1 次 answer LLM。不能拿 prediction 观测替
+  evaluator 观测，也不能把旧缺文件解释成零调用。
 - **B8 副作用/clean-retry ✅（2026-07-14 frozen-v1 收口）**：物理隔离 + 删目录
   清理已具备；**检索纯读已锚死**：`LightMemory.retrieve`
   （`third_party/methods/LightMem/src/lightmem/memory/lightmem.py:648-710`）=
@@ -571,9 +583,10 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   answer_context、metadata/evidence、build/retrieval observation、summary v2、caption lineage 与
   worker 隔离均验收通过。该批当时只使两个格子恢复 `REAL_SMOKE_PASSED`；MemBench 随后已由
   上方 R2 真实 B11 关闭。BEAM 的 100K W2 + 10M W1 core artifacts/score 与后补 2+1 次
-  judge observations 也已通过。HaluMem 旧离线 READY 已被本页 R5 的真实 buffer 反例
-  supersede，session flush R1 强验收前不发 Medium W1 命令。**当前前四格完整通过；第五格
-  blocked，故 method 整体不得恢复 frozen。**
+  judge observations 也已通过。HaluMem 的真实 buffer 反例已由 `8879af9` 最小 bookkeeping
+  修复，fixed Medium W1 随后完成并经 R8 开箱升为 `REAL_SMOKE_PASSED`。**当前五格真实行为门
+  全部通过；method 整体仍不 frozen，只因为前四格 artifacts 使用修复前 source identity，须先
+  做 exact-smoke 零 API reachability，不能拿旧 run 冒充新 build resume。**
   以下为 2026-07-13~14 的历史 smoke 证据：
   ① unified：空库悬案已关闭（diag-log1 复跑：1 round → force 刷洗 → 抽取 2 条
   记忆 → 检索命中，sentinel=0；此前空库判为抽取 LLM 单次返 0 波动，非结构性 bug）。

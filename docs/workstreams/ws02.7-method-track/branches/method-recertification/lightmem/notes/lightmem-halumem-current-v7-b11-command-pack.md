@@ -1,6 +1,7 @@
 # LightMem × HaluMem current-v7 B11 命令包
 
-> 状态：**用户已批准固定 Medium smoke、真实 API 与本页 run identity；命令待用户执行。**
+> 状态：**用户已完成固定 Medium smoke；架构师已逐层开箱并接受为
+> `REAL_SMOKE_PASSED`。**
 > 本页只认证 LightMem `conversation-qa-v7`（含 forced-flush R1 source identity）在 HaluMem
 > 固定 operation-level smoke 上的 session-local extraction、在线 update probe、QA、官方三类
 > judge、memory-type 合成与通用离线答案指标。它不代表 Long variant、full、效果、成本外推、
@@ -631,3 +632,60 @@ API 已走完 normalizer/extraction/empty route，而 non-empty lineage 与 forc
 
 其余 manifest、prompt、session report、Qdrant、效率与 evaluator artifacts 都在 run 目录，
 架构师会直接开箱。零报错不等于最终验收；本页通过只关闭 LightMem × HaluMem current-v7 B11。
+
+## 9. 2026-07-19 架构师开箱与裁决
+
+用户交回的调用预览为：
+
+```text
+JUDGE_CALL_PREVIEW extraction=7 update=7 qa=1 total=15
+```
+
+架构师在主树 `f2fee8b` 上独立重跑 §7 机器门，三条 PASS 与用户回报逐字一致；随后没有只看
+汇总数字，而是逐层读取 manifest、公开/私有 artifact、四份 session report、local Qdrant
+payload、三类 judge score/observation、四类离线 metric 与全部 terminal log。
+
+### 9.1 session-local extraction 与 LTM
+
+- 四份 report 顺序为 `s1/s2/s3/s4`，状态均为 `ok`，真实 capture 数为
+  `[0, 0, 0, 2]`；前三个 session 合法抽取为空，不制造 synthetic memory。
+- local Qdrant 最终恰有 2 个 point，正文与 s4 report 的两条 memory 逐字、逐数量一致；两点
+  `source_external_ids` 均严格等于 `['s4:t1', 's4:t2']`，timestamp 均属于 s4 的
+  `2025-12-15`。没有 s1/s2/s3 lineage，也没有跨 session plural lineage。
+- 7 个 update probe 全部归属 s4，且每次只读上述两条 s4 memory。method-facing 公开 question、
+  answer prompt 与 session report 未出现 evaluator-private gold；probe artifact 在检索完成后为
+  evaluator 记录 `gold_memory_index`，但 method 的 query 只来自公开 memory content，没有收到
+  gold memory/answer/evidence。QA question time 只进入 benchmark builder，不被拿来补 memory
+  source time。
+- 本次真实样本的前三个 session 都是 zero extraction，因此它能实证“旧空 buffer 没有串入 s4”
+  与“s4 report/LTM 严格局部”，但**不能单独实证早期非空 LTM 经后续 session 仍保留**。后一个
+  性质继续由真实 vendored production-chain 强反例承重：架构师现场复跑 forced cleanup、
+  automatic-prefix+tail 与双 session LTM 保留五项定向测试，结果为
+  `5 passed, 169 deselected, 1 warning in 8.38s`。不能把命令门的短句扩写成真实样本没有提供的
+  证据。
+
+### 9.2 evaluator 与观测
+
+- extraction 落 107 个官方记录，其中 105 个 integrity、2 个 accuracy；只有非空 s4 路由产生
+  7 次 judge 调用，空 extraction 的 integrity 走官方零调用分支。官方
+  `memory_extraction_f1=0.01923076923076923`，不是把 107 行 score 做简单算术平均。
+- update 恰 7 条、7 次 judge、无空检索跳过；本次均判 omission，score=0。QA 恰 1 条、1 次
+  judge，语义 judge 判 Correct/1.0。该题 product readout 是合法 zero-hit，answer 为诚实拒答；
+  因参考答案措辞不同，F1/normalized EM/substring EM 均为 0。语义 judge 与 lexical metric
+  分歧符合各自公式，不是 evaluator 漏接或答案 artifact 不一致。
+- 15 条 judge observation 全部使用 `gpt-4o-mini`、`api_usage` token，extraction scope 归 s4，
+  update scope 精确到 `s4:<gold_index>`，QA scope 精确到唯一 public question id。prediction 侧
+  实见 4 次 memory-build LLM、2 次 build embedding、8 次 retrieval embedding和 1 次 answer
+  LLM；离线 memory-type/F1/EM evaluator 均没有伪造 model inventory 或空 efficiency 文件。
+- terminal/method log 未见 traceback、error、retry、timeout 或 rate-limit；manifest 的
+  `conversation-qa-v7`、`session`、`hybrid`、`online_soft`、`preserve_none`、MiniLM/384 与
+  forced-flush source identity 均为 current main 身份。
+
+### 9.3 最终判词与边界
+
+**接受：LightMem × HaluMem current-v7 B11 = `REAL_SMOKE_PASSED`。**这关闭的是固定 Medium
+W1 的 session extraction/report、online-soft LTM、update probe、QA、三类官方 judge、
+memory-type 与三项通用离线答案指标。HaluMem 无 turn qrel，因此 Recall/NDCG 继续诚实 N/A；
+stable ranking 继续 pending。本次不认证 Long variant、full、效果、成本外推、resume 或多 worker
+（operation-level runner 本就只允许 W1）。LightMem 整体仍需完成前四格对 forced-flush 新 source
+identity 的 exact-smoke 零 API reachability，之后才能作 current build frozen 裁决。

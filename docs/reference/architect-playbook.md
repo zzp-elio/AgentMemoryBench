@@ -835,6 +835,11 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   token observations，HaluMem 三段 judge 同受影响。B11 必须把 prediction efficiency 与 evaluator
   efficiency 分开查；共享 runner 缺口只修一次，并在下一格付费前关闭，不能让十个 method 重复
   背锅。
+- **机器 PASS 只能承诺样本实际覆盖的事实。**HaluMem 真实 smoke 的前三个 session 都合法抽取
+  为空，最后一个 session 抽取两条；它足以证明旧空 buffer 没串入最后一段、report 与 LTM
+  lineage 局部一致，却不能单独证明“早期非空 LTM 经后续 session 仍保留”。后者必须由包含
+  两个连续非空 session 的 real-vendored 强反例承重。验货文案要把真实 artifact、确定性强反例
+  与静态契约分别标明，禁止为了让一句 PASS 好看而扩大证据射程。
 
 ### 14.5 2026-07-19：第一家 method 的调查成本必须向后摊销
 
