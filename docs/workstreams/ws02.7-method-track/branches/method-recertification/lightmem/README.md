@@ -86,6 +86,12 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     `consume_granularity` 已进入 strict manifest/resume identity，不 bump v7 粗暴连坐其他格。
     当前格子=`READY_FOR_B11_SMOKE`，不是 `REAL_SMOKE_PASSED`；下一步只等用户确认
     MemBench 真实单/双 worker 的预算、规模与 run id。
+14. 用户于 2026-07-19 批准进入 LightMem × MemBench 真实 B11。当前
+    [命令包](notes/lightmem-membench-b11-command-pack.md) 固定 `0_10k` 四源各 1 条：W1/W2
+    都是 4 conversations × 1 round × 1 question，只有 predict worker 数分别为 1/2；
+    `--conversations 1` 是 per-source limit，不能误改为 2 而把成本翻倍。三项适用 evaluator
+    为 choice accuracy → source accuracy → recall，全部零 API。命令已交用户，artifact
+    尚未回收，故状态仍为 `READY_FOR_B11_SMOKE`。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

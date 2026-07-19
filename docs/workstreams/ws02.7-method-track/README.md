@@ -154,6 +154,16 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-19）
 
+- 2026-07-19（**LightMem × MemBench B11 规模/run id 已获用户批准；命令已交付，等待真实
+  artifact**，GPT-5.6 sol 架构师）：命令包固定 `0_10k` 默认四源，`--conversations 1`
+  按每 source 各取 1 条，因此 W1/W2 都是 4 conversations，而非 1；W2 只把 predict worker
+  改为 2，不把 per-source limit 加倍。run child ids=`lm-membench-v7-pair-r1q1-ps1-w1-0-10k` /
+  `lm-membench-v7-pair-r1q1-ps1-w2-0-10k`；随后串行执行 choice/source/recall 三项零 API
+  evaluator 与机器验货。命令全文见
+  `branches/method-recertification/lightmem/notes/lightmem-membench-b11-command-pack.md`。
+  artifact 开箱前本格仍为 `READY_FOR_B11_SMOKE`。本条 supersede 紧接下方“等用户批预算/run
+  id”的旧断点。
+
 - 2026-07-19（**LightMem × MemBench 四层离线门与 pair 投递已强验收；当前
   `READY_FOR_B11_SMOKE`；等用户批真实预算/run id**，GPT-5.6 sol 架构师）：Sonnet 5
   预检揭示 registered path 实际为 `turn`，但违反原卡停工门、误判局部 id 隔离、
