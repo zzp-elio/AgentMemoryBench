@@ -343,6 +343,15 @@ set relation for all 124: same_set_reordered
 另抽查 `_unique_session_id()`、重复 original session id 映射到全部公开 occurrence、缺引用
 unmatched 与 LightMem `n_a/pair_source_id_not_turn_exact` 均有 current source/测试锚。
 
+验收门：
+
+```text
+74 passed, 159 deselected in 69.49s
+5 passed in 0.93s
+1591 passed, 3 deselected, 2 warnings, 29 subtests passed in 143.05s
+compileall src/memory_benchmark + tests: exit 0
+```
+
 任务卡要求 actor 重算已经 source-locked 且强验收过的 S/M census，属于架构师派卡过重；这项
 重复消耗不扣 actor。勘误后总判词维持：
 

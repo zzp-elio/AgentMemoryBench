@@ -43,10 +43,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `d11d749`/`2f21291`（LightMem readout/embedding v7 + R1）→ `6ba4060`/
   `cdbf570`/`fbf84af`/`44e2968`（MemBench 异常审计 + pair/manifest R1-R3）→
   `9bd2ab0`（MemBench source-filter CLI R1）→ `de40d63`（BEAM pair 差量）→
-  `ca64f4c`（BEAM 异常账）→ `6f48ee3`（MemBench source-subset registration R2）。准确
+  `ca64f4c`（BEAM 异常账）→ `6f48ee3`（MemBench source-subset registration R2）→
+  `d7c6bda`（100k zero-extraction 哨兵）→ `b0a9af0`（HaluMem current-v7 差量卡）→
+  `42c1275`/`298ae0c`（LongMemEval source-locked audit + 架构师 R1 稳定账）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1590 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 160.06s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮主树全量门=`1591 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 143.05s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
