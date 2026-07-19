@@ -6,8 +6,10 @@
 > 2+1 道 rubric judge 的 evaluator-side efficiency 补观测均已通过。HaluMem 真实 sensory
 > 反例抓出的两处 forced-flush bookkeeping 已由 `8879af9` 修复并经 real-core/全量强验收，B11
 > Medium W1 全 evaluator 又已真实执行并开箱通过。source identity 随 sensory 纳入 hash 而变化；
-> 前四格旧 artifacts 不可 resume，
-> 最终冻结前另做 exact-smoke reachability，因此 method 整体仍不 frozen。
+> 前四格旧 artifacts 不可 resume。exact-smoke reachability 已完成：LoCoMo、LongMemEval、
+> MemBench `0_10k`、BEAM 主 smoke 均不触达输出改变；MemBench `100k` 补充哨兵的 ThirdHigh
+> final add 确定触达 automatic+tail。method 整体仍不 frozen，只待该最小哨兵用新 identity
+> 补跑。
 
 > 抽锚日期：2026-07-17；最新真实 smoke 基线 main `568b95d`。状态只用
 > `revalidated / retested / N/A / pending`。role/evidence-unit 新反证见
@@ -27,7 +29,7 @@
 | B8+ 韧性 | revalidated | timeout/retry wrapper 与失败态清理未受影响 | 真实 smoke 前对表 |
 | B9 模型/build 口径 | revalidated | 当前五格 smoke identity=MiniLM/384/cosine + hybrid + online-soft，强类型 manifest 可复算。效果参数/embedding 的最终裁决按政策延后，不冒充当前 smoke 缺口 | 进入 B11；首个效果 full 前再裁参数 |
 | B10 TOML/builder | revalidated | 当前 manifest 对既有 smoke build truthful；新 TOML section/完整 author builder 已明确排在首个 author calibration/效果 full 前，按政策不阻塞 5×10 smoke。官方 LME `user_only` 未来只能显式 author section，不能暗切 | 用当前 section 跑 B11；效果实验前迁移 |
-| B11 五格 smoke/冻结 | pending | 五格真实行为 artifacts 均已过；HaluMem fixed Medium W1 全指标=`REAL_SMOKE_PASSED`。前四格使用修复前 source hash，新 hash 不兼容旧 resume，但不等于必须重烧四格 | 前四格 exact-smoke 零 API reachability → frozen 裁决 |
+| B11 五格 smoke/冻结 | pending | 五格真实行为 artifacts 均已过；HaluMem fixed Medium W1 全指标=`REAL_SMOKE_PASSED`。13 个旧 exact-smoke conversation 的零 API probe 仅命中 MemBench 100k ThirdHigh；真实 vendored 链证明旧 build 漏 automatic step 1 | 只补跑 FirstHigh+ThirdHigh 100k W1 哨兵；其余四格主 smoke 不重烧 |
 
 ## 当前冻结判词
 
@@ -40,5 +42,7 @@ sensory identity 修复，所以仍不 frozen。旧 `method-frozen-v1/v2`
 不覆盖、不改写。
 已声明的 stable-ranking、k>10、author builder/效果参数与真实 resume 缺口见
 [`lightmem-frozen-v2.md`](lightmem-frozen-v2.md)；它们不推翻历史 v6 判词。current-v7 的
-B4、共享 evaluator、forced-session flush 与 HaluMem B11 均已关闭。当前唯一冻结门是前四格
-exact-smoke reachability；不默认进行付费重跑。
+B4、共享 evaluator、forced-session flush 与 HaluMem B11 均已关闭。前四格主 smoke 的
+exact-smoke reachability 也已关闭；当前唯一冻结门是 MemBench 100k missing-time 补充哨兵在
+current source identity 下的最小付费复验。完整证据见
+[`lightmem-front-four-forced-flush-reachability.md`](lightmem-front-four-forced-flush-reachability.md)。

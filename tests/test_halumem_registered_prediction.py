@@ -224,9 +224,16 @@ def test_halumem_registered_medium_smoke_runs_three_operations_and_four_evaluato
         paths.metric_summary_path("halumem_qa").read_text(encoding="utf-8")
     )
     gold = conversation.gold_answers[conversation.questions[0].question_id]
-    assert {item["category"] for item in qa_summary["category_breakdown"]} == {
-        gold.metadata["question_type"]
+    qa_breakdown = {
+        item["category"]: item for item in qa_summary["category_breakdown"]
     }
+    assert set(qa_breakdown) == {gold.metadata["question_type"]}
+    qa_type_result = qa_breakdown[gold.metadata["question_type"]]
+    assert qa_type_result["correct_qa_ratio(all)"] == 1.0
+    assert qa_type_result["hallucination_qa_ratio(all)"] == 0.0
+    assert qa_type_result["omission_qa_ratio(all)"] == 0.0
+    assert qa_type_result["qa_num"] == 1
+    assert qa_summary["category_breakdown_tier"] == "framework_supplementary"
 
     observations = EfficiencyArtifactStore.for_prediction(paths).read_observations()
     conversation_observations = [

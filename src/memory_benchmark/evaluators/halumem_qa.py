@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 from memory_benchmark.core.exceptions import ConfigurationError
@@ -11,7 +12,6 @@ from .halumem_common import (
     HALUMEM_JUDGE_PROFILE_NOTE,
     HalumemJudgeEvaluatorBase,
     count_ratios,
-    grouped_mean,
     read_required_jsonl,
     safe_div,
 )
@@ -105,12 +105,11 @@ class HalumemQAEvaluator(HalumemJudgeEvaluatorBase):
                 ),
                 "summary": {
                     "overall_score": overall,
-                    "category_breakdown": grouped_mean(
-                        score_records,
-                        category_field="question_type",
-                        score_field="score",
-                        output_score_name="correct_qa_ratio",
-                        output_count_name="question_count",
+                    "category_breakdown": _question_type_breakdown(score_records),
+                    "category_breakdown_tier": "framework_supplementary",
+                    "category_breakdown_note": (
+                        "per-question-type reaggregation of official QA C/H/O labels; "
+                        "the paper reports the overall C/H/O columns"
                     ),
                     "official_source": self.official_source,
                     "profile_note": self.profile_note,
@@ -142,6 +141,43 @@ def _question_type(private_record: dict[str, Any]) -> str | None:
         return None
     value = metadata.get("question_type")
     return value if isinstance(value, str) else None
+
+
+def _question_type_breakdown(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """按 question_type 输出完整 QA C/H/O 比例。
+
+    HaluMem 官方总体口径同时报告 Correct、Hallucination 与 Omission，分类切片也应
+    保留同一组三分类及 all/valid 分母，不能只留下 Correct。旧字段
+    ``correct_qa_ratio`` 与 ``question_count`` 作为向后兼容别名继续保留，分别等于
+    ``correct_qa_ratio(all)`` 与 ``qa_num``。
+    """
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        question_type = record.get("question_type")
+        if isinstance(question_type, str) and question_type.strip():
+            grouped[question_type].append(record)
+
+    breakdown: list[dict[str, Any]] = []
+    for question_type, group in sorted(grouped.items()):
+        ratios = count_ratios(
+            group,
+            field="result_type",
+            labels=("Correct", "Hallucination", "Omission"),
+            output_prefix="qa",
+            count_name="qa",
+        )
+        breakdown.append(
+            {
+                "category": question_type,
+                **ratios,
+                "correct_qa_ratio": ratios["correct_qa_ratio(all)"],
+                "question_count": ratios["qa_num"],
+            }
+        )
+    return breakdown
 
 
 def _string_list(value: Any) -> list[str]:

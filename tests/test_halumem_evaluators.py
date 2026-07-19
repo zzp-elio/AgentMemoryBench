@@ -22,7 +22,10 @@ from memory_benchmark.evaluators.halumem_extraction import (
     build_halumem_golden_memories_str,
 )
 from memory_benchmark.evaluators.halumem_memory_type import HalumemMemoryTypeEvaluator
-from memory_benchmark.evaluators.halumem_qa import HalumemQAEvaluator
+from memory_benchmark.evaluators.halumem_qa import (
+    HalumemQAEvaluator,
+    _question_type_breakdown,
+)
 from memory_benchmark.evaluators.halumem_update import HalumemUpdateEvaluator
 from memory_benchmark.evaluators.registry import (
     create_evaluator,
@@ -184,15 +187,36 @@ def test_halumem_update_and_qa_evaluators_use_official_inputs_and_breakdowns(
     assert qa_payload["category_breakdown"] == [
         {
             "category": "Memory Boundary",
+            "correct_qa_ratio(all)": 0.0,
+            "correct_qa_ratio(valid)": 0.0,
+            "hallucination_qa_ratio(all)": 0.0,
+            "hallucination_qa_ratio(valid)": 0.0,
+            "omission_qa_ratio(all)": 1.0,
+            "omission_qa_ratio(valid)": 1.0,
+            "qa_valid_num": 1,
+            "qa_num": 1,
             "correct_qa_ratio": 0.0,
             "question_count": 1,
         },
         {
             "category": "Preference",
+            "correct_qa_ratio(all)": 1.0,
+            "correct_qa_ratio(valid)": 1.0,
+            "hallucination_qa_ratio(all)": 0.0,
+            "hallucination_qa_ratio(valid)": 0.0,
+            "omission_qa_ratio(all)": 0.0,
+            "omission_qa_ratio(valid)": 0.0,
+            "qa_valid_num": 1,
+            "qa_num": 1,
             "correct_qa_ratio": 1.0,
             "question_count": 1,
         },
     ]
+    assert qa_payload["category_breakdown_tier"] == "framework_supplementary"
+    assert qa_payload["category_breakdown_note"] == (
+        "per-question-type reaggregation of official QA C/H/O labels; "
+        "the paper reports the overall C/H/O columns"
+    )
     update_prompt = next(
         prompt for prompt in client.prompts if "evaluate the update accuracy" in prompt
     )
@@ -379,9 +403,53 @@ def test_halumem_qa_breakdown_reports_all_six_official_question_types(
         run_dir, HalumemQAEvaluator(model="gpt-4o-mini", client=FakeHalumemJudgeClient()), "halumem"
     )
     payload = json.loads(Path(summary.summary_path).read_text())
-    assert {item["category"] for item in payload["category_breakdown"]} == set(
-        question_types
+    breakdown = {
+        item["category"]: item for item in payload["category_breakdown"]
+    }
+    assert set(breakdown) == set(question_types)
+    for question_type in question_types:
+        assert breakdown[question_type] == {
+            "category": question_type,
+            "correct_qa_ratio(all)": 0.0,
+            "correct_qa_ratio(valid)": 0.0,
+            "hallucination_qa_ratio(all)": 0.0,
+            "hallucination_qa_ratio(valid)": 0.0,
+            "omission_qa_ratio(all)": 1.0,
+            "omission_qa_ratio(valid)": 1.0,
+            "qa_valid_num": 1,
+            "qa_num": 1,
+            "correct_qa_ratio": 0.0,
+            "question_count": 1,
+        }
+
+
+def test_halumem_qa_question_type_breakdown_preserves_all_and_valid_denominators() -> None:
+    """每类 QA C/H/O 应区分全量分母与合法三分类分母。"""
+
+    breakdown = _question_type_breakdown(
+        [
+            {"question_type": "Memory Conflict", "result_type": "Correct"},
+            {"question_type": "Memory Conflict", "result_type": "Hallucination"},
+            {"question_type": "Memory Conflict", "result_type": "Omission"},
+            {"question_type": "Memory Conflict", "result_type": "Unexpected"},
+        ]
     )
+
+    assert breakdown == [
+        {
+            "category": "Memory Conflict",
+            "correct_qa_ratio(all)": 0.25,
+            "correct_qa_ratio(valid)": pytest.approx(1 / 3),
+            "hallucination_qa_ratio(all)": 0.25,
+            "hallucination_qa_ratio(valid)": pytest.approx(1 / 3),
+            "omission_qa_ratio(all)": 0.25,
+            "omission_qa_ratio(valid)": pytest.approx(1 / 3),
+            "qa_valid_num": 3,
+            "qa_num": 4,
+            "correct_qa_ratio": 0.25,
+            "question_count": 4,
+        }
+    ]
 
 
 def test_halumem_dialogue_and_golden_memory_format_match_official_source() -> None:

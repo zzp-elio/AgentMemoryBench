@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem 五格真实行为门已过；forced-flush 新 source identity 下待前四格零 API reachability 与 current-build frozen 裁决；Mem0 暂缓）
+status: in-progress（LightMem 五格真实行为门已过；forced-flush reachability 仅命中 MemBench 100k 补充哨兵，待 current-identity 最小 refill；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -178,7 +178,14 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   独立机器门与逐 artifact 开箱确认 report=`[0,0,0,2]`、Qdrant 仅 s4 两条 lineage、judge
   calls=`7+7+1` 且 scope/token inventory 精确，HaluMem 升为 `REAL_SMOKE_PASSED`。五格真实行为门
   现已齐；但前四格 artifacts 早于 sensory source identity，旧 run 不可 resume，故整体仍不
-  frozen，下一门是 exact-smoke 零 API reachability，而不是默认重烧四格 API。
+  frozen。exact-smoke 零 API reachability 已完成：13 个唯一 conversation 仅 MemBench 100k
+  ThirdHigh 命中 final automatic+tail；真实 vendored 链确认旧 build 漏 step 1。LoCoMo/LME/
+  MemBench 0_10k/BEAM 主 smoke 均不重烧，当前只待 100k FirstHigh+ThirdHigh W1 哨兵用新
+  identity 补跑。HaluMem 论文细项对表同轮确认 extraction 六列、update/QA overall C/H/O 与
+  Event/Persona/Relationship 已有；QA 六类 `question_type` 过去只分 Correct 的缺口已补成完整
+  C/H/O all/valid 切片。
+  定向 evaluator/registered/artifact/doc 门=`63 passed`，全量门=`1612 passed, 3 deselected,
+  2 warnings, 29 subtests passed`，零真实 API。两条 warning 均为既有 vendored deprecation。
   Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
@@ -186,6 +193,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-19）
+
+- 2026-07-19（**LightMem forced-flush reachability 已关闭；唯一冻结门收窄为 MemBench 100k
+  哨兵 refill；HaluMem QA 分型补齐**，GPT-5.6 sol 架构师）：production registration + current
+  本地 LLMLingua 对旧 B11 精确 crop 的 13 个唯一 conversation 做零 API probe，12 个不命中；
+  MemBench 100k `third-high-highlevel-movie-0` 两批压缩后为 438/361 tokens，final add 确定同时
+  产生 automatic step 1 与 forced step 2。真实 vendored LightMemory/SenMem/MiniLM 链确认修复后
+  STM 收到两段且暂存态清零，旧实现会覆盖 step 1。裁决：LoCoMo、LongMemEval、MemBench
+  0_10k、BEAM 不重烧，只补跑既有 FirstHigh+ThirdHigh 100k W1 哨兵；当前=
+  `FROZEN_PENDING_100K_SENTINEL_REFILL`。同轮复核 HaluMem 官方表：Extraction 六项、Update/
+  QA overall C/H/O 与三种 memory type 已落盘；共享 QA evaluator 原来按 question_type 只有 Correct，
+  现补为 C/H/O 的 all/valid 双分母并保留旧 alias，零真实 API。证据分别见
+  [reachability](branches/method-recertification/lightmem/notes/lightmem-front-four-forced-flush-reachability.md)
+  与 [metric breakdown](branches/method-recertification/lightmem/notes/lightmem-halumem-metric-breakdown-r1.md)；
+  定向门=`63 passed`、全量门=`1612 passed, 3 deselected, 2 warnings, 29 subtests passed`。
 
 - 2026-07-19（**LightMem × HaluMem current-v7 B11 强验收通过；五格真实行为门齐，转前四格
   exact-smoke reachability**，GPT-5.6 sol 架构师）：用户完成固定 Medium
@@ -265,7 +286,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   memory-build LLM 并合法产出 0 LTM；首版机器门错误要求每个 conversation 必须有 Qdrant point。
   R3 改为 actual-call-aware：真实 run 承担 normalizer/extraction/zero-hit，新增确定性
   local-Qdrant 强反例承担 null timestamp insert/readout，现有产物机器门 PASS，裁决=
-  `100K_MISSING_TIME_SENTINEL_PASSED_ZERO_EXTRACTION`，不再调用 API。LongMemEval actor
+  `100K_MISSING_TIME_SENTINEL_PASSED_ZERO_EXTRACTION`，当时裁决不再调用 API；该旧 source
+  identity 判词后来被顶部 2026-07-19 forced-flush reachability 断点局部 supersede。LongMemEval actor
   `6591db1` 的 source hash、duplicate session/role 草稿降格与 current 处置成立；架构师逐题
   比较抓到 S/M 124 题 `answer_session_ids` 只是 same-set reordered，已在 audit R1 与稳定页订正，
   无生产修复。过重卡重复 census 的责任归架构师并写入 playbook。下一条可并行线只派

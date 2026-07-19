@@ -107,7 +107,8 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     no-time distractor 都实际进入 memory-build LLM 并合法输出零 LTM。首版机器门错误要求每个
     conversation 必须有 Qdrant point；R3 改为 actual-call-aware 分层验收，现有产物通过，null
     payload write 由确定性 local-Qdrant 强反例补足。裁决=
-    `100K_MISSING_TIME_SENTINEL_PASSED_ZERO_EXTRACTION`，无需重烧 API；完整输出见命令包 §6。
+    `100K_MISSING_TIME_SENTINEL_PASSED_ZERO_EXTRACTION`，当时无需重烧 API；该旧 source identity
+    判词后来被 item 24 的 forced-flush reachability 局部 supersede，完整历史输出见命令包 §6。
 16. BEAM 复用 frozen benchmark 事实，不重跑全量 census。Opus 4.8 的 pair 差量主体经架构师
     full diff 与 `330 passed` 强验收合入 `de40d63`：LightMem × BEAM 已从 `turn` 改为 concrete
     `pair`，manifest/resume identity 随之严格失效旧 run，RetrievalEvidence 仍诚实 N/A。
@@ -185,6 +186,16 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     `REAL_SMOKE_PASSED`；五格真实行为门齐，但 forced-flush 把 source identity 扩到 sensory
     runtime，前四格旧 artifacts 不可 resume，下一门仍是 exact-smoke 零 API reachability，完成后
     才裁 current build frozen。
+24. 架构师已直接完成前四格 exact-smoke reachability：13 个唯一 conversation 用 production
+    registration + 当前本地 LLMLingua 精确重建，12 个不命中；唯一命中为 MemBench 100k
+    `third-high-highlevel-movie-0`（压缩后两批 438+361>512）。真实 vendored chain 进一步证明
+    final add 同时产出 automatic step 1 与 forced step 2，旧实现确会覆盖前者。故 LoCoMo、LME、
+    MemBench 0_10k、BEAM 主 smoke 不重烧；只需补跑 100k FirstHigh+ThirdHigh W1 哨兵，current
+    状态=`FROZEN_PENDING_100K_SENTINEL_REFILL`。证据见
+    [reachability note](notes/lightmem-front-four-forced-flush-reachability.md)。同轮 HaluMem 指标
+    对表确认论文 extraction 六列、update/QA C/H/O 与三种 memory type 已实现，并补齐 QA 六种
+    `question_type` 过去只分 Correct、未分 Hallucination/Omission 的聚合缺口；见
+    [metric breakdown R1](notes/lightmem-halumem-metric-breakdown-r1.md)。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

@@ -314,6 +314,20 @@ Correct / Hallucination / Omission
 
 QA 不是字符串 exact match，而是 LLM judge 基于 question、reference answer、key memory points、system response 分类。
 
+框架除官方总体 C/H/O 外，还按六种 `question_type` 输出同一组三分类切片；每类均有
+`(all)` / `(valid)` 双分母与题数。`correct_qa_ratio`、`question_count` 是兼容旧 artifact
+的别名，分别等于 `correct_qa_ratio(all)`、`qa_num`，不得误读为只有 Correct 分型。该切片
+明确标记为 `framework_supplementary`：它重聚合官方逐题 C/H/O 标签，但论文主表只报告总体
+C/H/O，不能把六类切片冒充论文另列的官方指标。
+
+### 4.4 Memory Type
+
+官方另按 `Event Memory`、`Persona Memory`、`Relationship Memory` 分报记忆维度。框架的
+`halumem_memory_type` 从已落盘的 extraction integrity 与 update 记录合成，严格复刻官方
+共享分母：同一类型的 `total_num = 全部 integrity 条数（含 interference source） + update 条数`，然后分别以这个共同
+分母计算 `memory_integrity_acc` 与 `memory_update_acc`，二者之和为 `memory_acc`。因此它
+不是 QA 的 question-type 切片，也不能把某一阶段自己的条数当作独立分母。
+
 ## 5. Answer LLM / Judge LLM 配置和 Prompt
 
 ### 5.1 统一 LLM 配置

@@ -2,8 +2,8 @@
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
 > 状态：**FIVE_GRID_RECERTIFICATION_IN_PROGRESS（五格 current-v7 真实行为门均为
-> `REAL_SMOKE_PASSED`；forced-flush 新 source identity 下仍待前四格 exact-smoke 零 API
-> reachability 与 current-build frozen 裁决）**。
+> `REAL_SMOKE_PASSED`；forced-flush exact-smoke 零 API reachability 已关闭，唯一剩余冻结门是
+> MemBench 100K FirstHigh+ThirdHigh W1 最小哨兵 refill）**。
 > 2026-07-17 的 method-frozen-v2 与 v6 LoCoMo smoke 仍是有效历史证据，但 v7 改变
 > 公共 readout 与 embedding observation 契约，不能沿用 v6 artifact 宣称当前版本已
 > frozen。online-soft lifecycle 主体、MemBench 时间语义 Phase A 与 LightMem
@@ -134,6 +134,14 @@
 > 不是漏跑或串 session。HaluMem 升为 current-v7 `REAL_SMOKE_PASSED`；Recall/NDCG 继续 N/A，
 > stable ranking pending，且不外推 Long/full/效果/成本/resume。真实 crop 的前三 session 均零抽取，
 > 所以早期非空 LTM 保留仍由 real-vendored 双 session 强反例承重，不由本次样本越权代证。
+> 2026-07-19 R9 架构师差量验收：以 production registration、旧 B11 精确 crop 与 current
+> 本地 LLMLingua/MiniLM 对前四格 13 个唯一 conversation 做零 API reachability。LoCoMo、LME、
+> MemBench `0_10k`、BEAM 均不触达 forced-flush 输出改变；仅 MemBench 100K ThirdHigh 的 final
+> add 以 438+361 tokens 同时产出 automatic step 1 与 forced step 2，真实 vendored 链确认旧实现
+> 会漏 step 1。故主四格不重烧，只补 FirstHigh+ThirdHigh 100K W1 哨兵，current 状态为
+> `FROZEN_PENDING_100K_SENTINEL_REFILL`。同轮 HaluMem 官方表对账确认 extraction 六列、update/
+> QA overall C/H/O 与 Event/Persona/Relationship 已实现；QA 六种 `question_type` 过去只分 Correct，
+> 已补为 C/H/O all/valid，并明确标为 framework supplementary 切片。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
 - 算法源：vendored `third_party/methods/LightMem`（`src/lightmem/memory/lightmem.py`）
