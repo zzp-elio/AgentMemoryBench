@@ -42,10 +42,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   （LightMem caption v6 + 无 caption bytes R1）→ `68bb7f9`（retrieval summary v2）→
   `d11d749`/`2f21291`（LightMem readout/embedding v7 + R1）→ `6ba4060`/
   `cdbf570`/`fbf84af`/`44e2968`（MemBench 异常审计 + pair/manifest R1-R3）→
-  `9bd2ab0`（MemBench source-filter CLI R1）→ `de40d63`（BEAM pair 差量）。准确
+  `9bd2ab0`（MemBench source-filter CLI R1）→ `de40d63`（BEAM pair 差量）→
+  `ca64f4c`（BEAM 异常账）→ `6f48ee3`（MemBench source-subset registration R2）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1588 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 163.44s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮主树全量门=`1590 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 160.06s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
@@ -149,12 +150,18 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   current-v7 W1/W2；R1 验货按生产 storage-safe name+hash 修正后全绿：25 ISO hit、9 条
   FirstAgent 双 child lineage、16 条 ThirdAgent singleton lineage、25 次 build embedding，
   双 worker 物理隔离成立。本格现为 `REAL_SMOKE_PASSED`。100k 不重跑整套 W1/W2，只留
-  FirstHigh+ThirdHigh 单 worker missing-time 真实哨兵；用户已批准规模/run id，R0 因
-  MemBench 专属 source 旗标的 CLI 正向门缺失而在 API 前中止，`9bd2ab0` 已修复并保留失败日志
-  的非破坏性归档流程。BEAM 的 `turn→pair` 差量已由 Opus 4.8 回卡、架构师逐 diff 与
+  FirstHigh+ThirdHigh 单 worker missing-time 真实哨兵；用户已批准规模/run id。R0 因
+  MemBench 专属 source 旗标的 CLI 正向门缺失而在 API 前中止，`9bd2ab0` 修复；R1 随后又被
+  registration 的 variant 四源硬等式拦截。`6f48ee3` 没有删除 source lock，而是要求 smoke
+  选择为 concrete variant 内的有序非空子集、adapter 返回与 fingerprint 精确一致，full 少源
+  继续 fail-fast；真实 registry→runner→artifact 两源离线回归已经穿过该门。两次失败都只有
+  terminal log、零 API/零 method state，命令包保留各自非破坏性归档流程。BEAM 的 `turn→pair`
+  差量已由 Opus 4.8 回卡、架构师逐 diff 与
   `330 passed` 强验收，主线 `de40d63`；source-locked 异常账复核确认标准三 split role 干净、
   10M 两处 dangling user/一处 content 错位/一格全缺时/5 次跨 session anchor 回退，均不需
-  猜修数据。BEAM 现到 100K+10M B11 命令门；HaluMem 仍 pending，故 LightMem 整体不 frozen。
+  猜修数据。BEAM 现到 100K+10M B11 命令门；LongMemEval 稳定异常账仍 pending，未跟踪
+  OpenCode 草稿不能直接入库，已写 source-locked S/M 审计卡等待用户派发；HaluMem 仍 pending，
+  故 LightMem 整体不 frozen。
   Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
@@ -163,13 +170,22 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-19）
 
-- 2026-07-19（**100k 哨兵获批但被 CLI 预检 bug 零成本拦截，R1 已修；BEAM pair 差量与异常账
-  强验收通过，下一步并行是 100k 哨兵续跑 + BEAM B11 命令门**，GPT-5.6 sol 架构师）：用户批准
-  `lm-membench-v7-none100k-fh-th-r1q1-w1` 后，首轮命令在 provider/API 构造前误报
-  `--membench-sources is only supported for MemBench smoke`。根因是 MemBench 分支调用共享
-  validator 时漏传 `is_membench=True`；`9bd2ab0` 修正一行并新增显式两源正向回归，相关 CLI+
-  文档门 `86 passed`。失败目录只有 terminal log，命令包 §0 已给非破坏性归档与同 identity
-  重跑步骤。BEAM actor `ff8dfc5` 经架构师 full diff、独立定向 `330 passed, 1 warning` 后线性
+- 2026-07-19（**100k 哨兵连续两次被零 API 预检门拦截，source-subset R2 已端到端修复；
+  LongMemEval 稳定异常账承认 pending 并形成审计卡**，GPT-5.6 sol 架构师）：用户批准
+  `lm-membench-v7-none100k-fh-th-r1q1-w1` 后，R0 因 CLI 漏传 `is_membench=True` 被挡，
+  `9bd2ab0` 修复；R1 随即因 registration 仍要求 prepared paths 等于 variant 四源全集，被
+  `prepared source_relative_paths do not match variant '100k'` 挡住。第二次仍发生在 provider/API/
+  backend 构造前，目录也只有 terminal log。架构师承担上一轮正例只 mock 到 command service、
+  没穿过第一个真实 consumer 的验收遗漏；`6f48ee3` 新增 registration source resolver 契约：
+  smoke 只能选择 source-locked 有序非空子集，adapter 必须精确匹配，full 少源仍 fail-fast；
+  registered offline prediction 实际跑过 100k 两源 registry→runner→artifact/fingerprint，得到
+  2 conversations/2 questions/4 turns。扩大门=`220 passed`，主树全量=`1590 passed,
+  3 deselected, 2 warnings, 29 subtests passed`，compileall exit 0。命令包 §0.1 给第二次现场的
+  非破坏性归档；push 后用户从 §2 原身份重跑。LongMemEval 方面，用户指出得对：现有
+  `docs/survey/异常情况/longmemeval.md` 是未跟踪 OpenCode 草稿，索引仍为 pending。已新增
+  source-locked S/M R1 审计卡，要求逐条证伪草稿并对表 canonical/evaluator-private/LightMem；
+  推荐 Sonnet 5 exhigh，回卡后由架构师强验收并集成稳定页。BEAM actor `ff8dfc5` 经架构师
+  full diff、独立定向 `330 passed, 1 warning` 后线性
   合入 `de40d63`：唯一生产变化是 LightMem resolver 把 BEAM 加入 `pair`，manifest/resume
   自动失效旧 `turn` run，adapter v7 不 bump，RetrievalEvidence 仍 N/A。五个 Arrow shard
   hash 与 source lock 一致；独立 census 纠正 Sonnet 草稿：标准三 split 790 sessions/118,420

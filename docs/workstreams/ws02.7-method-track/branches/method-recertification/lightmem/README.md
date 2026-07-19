@@ -98,16 +98,24 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     整体不 frozen。
 15. `0_10k` B11 不覆盖 100k 的真实缺时输入。该差异不再是旧 `turn` 错配时期所称的 API
     blocker：R1 已让 FirstAgent 双侧以一个真实 pair 投递，production-path 强反例也已锁定
-    `None` 不造时。为关闭 real normalizer/extraction/Qdrant/readout 的组合盲区，另拟一条
+    `None` 不造时。为关闭 real normalizer/extraction/Qdrant/readout 的组合盲区，另有一条
     [100k missing-time 哨兵命令包](notes/lightmem-membench-100k-missing-time-sentinel-command-pack.md)：
-    只取 FirstHigh+ThirdHigh 各首条、1 round/1 question、单 worker，不重复 W1/W2；等待用户
-    明确批准规模/run id 后执行。该旁路线不降低 `0_10k REAL_SMOKE_PASSED`，也不阻塞下一格。
-16. 下一格 BEAM 复用 frozen benchmark 事实，不重跑全量 census。current resolver 仍把
-    LightMem × BEAM 声明为 `turn`，会把天然 user→assistant 拆成两个人工 placeholder pair；
-    架构师已据真实 role/聚合调用链裁定，若 current 一手证据无反证，应改为 concrete `pair`。
-    [BEAM pair 差量预检/R1 卡](cards/actor-prompt-lightmem-beam-pair-preflight-r1.md) 只改
-    registration、直接测试与 LightMem integration note，零 API；回卡强验收后再生成 100k+10m
-    两次真实 B11 命令。
+    只取 FirstHigh+ThirdHigh 各首条、1 round/1 question、单 worker，不重复 W1/W2。用户已批准
+    规模/run id；R0/R1 分别被 CLI 参数门和 registration 四源硬等式零 API 拦截。R2
+    `6f48ee3` 把动态选择收成 variant 内有序非空子集、full 少源 fail-fast，并用真实 registry→
+    runner→artifact/fingerprint 两源离线 prediction 锁定；当前等用户按命令包 §0.1 无损归档
+    第二次现场后续跑。该旁路线不降低 `0_10k REAL_SMOKE_PASSED`，也不阻塞下一格。
+16. BEAM 复用 frozen benchmark 事实，不重跑全量 census。Opus 4.8 的 pair 差量主体经架构师
+    full diff 与 `330 passed` 强验收合入 `de40d63`：LightMem × BEAM 已从 `turn` 改为 concrete
+    `pair`，manifest/resume identity 随之严格失效旧 run，RetrievalEvidence 仍诚实 N/A。
+    source-locked 异常账又确认标准三 split role 干净、10M 两处 dangling user/一处 content
+    错位/一格全缺时/五次跨 session anchor 回退，统一 preserve、不猜修。当前到 100K+10M
+    两次真实 B11 命令门。
+17. LongMemEval 的输入/time 与 LightMem 差分已经强验收并实跑，但
+    `docs/survey/异常情况/longmemeval.md` 仍只是主工作区未跟踪的 OpenCode 草稿，不能冒充稳定
+    异常账。[source-locked 异常账 R1 卡](cards/actor-prompt-longmemeval-anomaly-ledger-r1.md) 要求同时
+    census S/M、逐条证伪草稿，并对表 canonical/evaluator-private/LightMem 三层处置；actor 只交
+    自包含 audit note，架构师强验收后再集成稳定页，避免覆盖用户草稿。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的
