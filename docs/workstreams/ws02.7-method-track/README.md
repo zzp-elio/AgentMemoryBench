@@ -147,14 +147,29 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   manifest/resume identity，question time 只进官方 answer builder。用户随后完成 MemBench
   current-v7 W1/W2；R1 验货按生产 storage-safe name+hash 修正后全绿：25 ISO hit、9 条
   FirstAgent 双 child lineage、16 条 ThirdAgent singleton lineage、25 次 build embedding，
-  双 worker 物理隔离成立。本格现为 `REAL_SMOKE_PASSED`。BEAM/HaluMem 仍 pending，故
-  LightMem 整体不 frozen。Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
+  双 worker 物理隔离成立。本格现为 `REAL_SMOKE_PASSED`。100k 不重跑整套 W1/W2，只留
+  FirstHigh+ThirdHigh 单 worker missing-time 真实哨兵旁路线，等待用户明确批准规模/run id；
+  它不阻塞 BEAM。BEAM current resolver 的 `turn` 又会把天然 user→assistant 拆成两个人工
+  placeholder pair，已发零 API `pair` 差量修复卡。BEAM/HaluMem 仍 pending，故 LightMem
+  整体不 frozen。Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-19）
+
+- 2026-07-19（**MemBench 100k 只补缺时旁路哨兵；BEAM pair 差量修复可并行派发；后续 method
+  启用 benchmark 稳定层摊销**，GPT-5.6 sol 架构师）：production adapter 现场确认 100k
+  FirstHigh/ThirdHigh 各首条在 1 round 裁剪下共有 4 个真实 turn，全部
+  `turn_time=None/session_time=None`；最小哨兵固定 2 conversations × 1 question × 1 worker，
+  不重复 0_10k 已验收的 W1/W2 并发/隔离。命令包已拟定，真实 API 仍等用户明确批准规模与
+  `lm-membench-v7-none100k-fh-th-r1q1-w1`。该旁路线不降低现有 MemBench
+  `REAL_SMOKE_PASSED`，也不阻塞 BEAM。BEAM benchmark frozen 事实直接复用；current
+  LightMem resolver 落到 `turn`，会把正常 user→assistant 拆成两个人工 pair，故已形成只改
+  registration/tests/integration note 的零 API R1 卡，回卡强验收后才生成 100k+10m B11 命令。
+  从本格起，后续 method 只核 source lock + method-specific 差量；只有 source/共享契约变版或
+  新一手反证才重开 benchmark census。
 
 - 2026-07-19（**LightMem × MemBench current-v7 单/双 worker B11 强验收通过；下一格转
   BEAM 预检**，GPT-5.6 sol 架构师）：用户执行 W1/W2 各四源 4 conversations；predict、

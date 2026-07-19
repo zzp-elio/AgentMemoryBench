@@ -96,6 +96,18 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     build/retrieval embedding=25/8，W2 worker 隔离成立。本格现为 current-v7
     `REAL_SMOKE_PASSED`；命令、误判与开箱判词均在命令包 §7。LightMem 还缺 BEAM/HaluMem，
     整体不 frozen。
+15. `0_10k` B11 不覆盖 100k 的真实缺时输入。该差异不再是旧 `turn` 错配时期所称的 API
+    blocker：R1 已让 FirstAgent 双侧以一个真实 pair 投递，production-path 强反例也已锁定
+    `None` 不造时。为关闭 real normalizer/extraction/Qdrant/readout 的组合盲区，另拟一条
+    [100k missing-time 哨兵命令包](notes/lightmem-membench-100k-missing-time-sentinel-command-pack.md)：
+    只取 FirstHigh+ThirdHigh 各首条、1 round/1 question、单 worker，不重复 W1/W2；等待用户
+    明确批准规模/run id 后执行。该旁路线不降低 `0_10k REAL_SMOKE_PASSED`，也不阻塞下一格。
+16. 下一格 BEAM 复用 frozen benchmark 事实，不重跑全量 census。current resolver 仍把
+    LightMem × BEAM 声明为 `turn`，会把天然 user→assistant 拆成两个人工 placeholder pair；
+    架构师已据真实 role/聚合调用链裁定，若 current 一手证据无反证，应改为 concrete `pair`。
+    [BEAM pair 差量预检/R1 卡](cards/actor-prompt-lightmem-beam-pair-preflight-r1.md) 只改
+    registration、直接测试与 LightMem integration note，零 API；回卡强验收后再生成 100k+10m
+    两次真实 B11 命令。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

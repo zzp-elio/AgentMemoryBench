@@ -808,3 +808,15 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   没有无依据猜 A-D，parser 正确记 0。接线 smoke 的硬门是 prompt 变量、artifact、隔离、观测
   与错误处理；答案正确率是效果层。遇到非预期答案先分“输入里有没有答案、输出契约是否诚实、
   parser 是否按声明处理”，不能用重跑 API 把随机答案洗成绿色。
+
+### 14.5 2026-07-19：第一家 method 的调查成本必须向后摊销
+
+- **首家探路不是让后九家再演九遍。**LightMem 逐格压实时已经查清的 raw schema、异常位置、
+  canonical id、gold/private 边界、官方 prompt/metric 与 smoke 裁剪轴，属于 benchmark 稳定层；
+  后续 method 先核 source lock，再直接引用稳定页与 shared tests，不得换一份 note 名称重做 census。
+- **复用 benchmark 真相，不复用 method 结论。**每个后续 method 仍要证明自己的 ingest 粒度、
+  role/content/time/image renderer、lifecycle、隔离/flush、product readout、provenance/ranking 资格、
+  identity 与真实 backend smoke。LightMem 的 Qdrant 绿灯不能替 Mem0/MemoryOS 的 state 绿灯。
+- **重开稳定层必须有触发器。**只有 source lock/官方资产变化、shared canonical/evaluator/prompt
+  contract 变版、或新一手反证推翻旧判词，才重开 benchmark 调查；否则任务卡必须明确分栏
+  “复用事实 / method-specific 差量”。这是慢就是快的摊销机制，不是降低验收标准。
