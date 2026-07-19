@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；BEAM core 已过、共享 judge 观测待修；HaluMem 离线 READY、真实 B11 待同一修复；Mem0 暂缓）
+status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；BEAM core 已过、共享 judge 观测代码已修且待补 3 次观测；HaluMem 离线 READY、真实 B11 可在补观测后启动；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -45,10 +45,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `9bd2ab0`（MemBench source-filter CLI R1）→ `de40d63`（BEAM pair 差量）→
   `ca64f4c`（BEAM 异常账）→ `6f48ee3`（MemBench source-subset registration R2）→
   `d7c6bda`（100k zero-extraction 哨兵）→ `b0a9af0`（HaluMem current-v7 差量卡）→
-  `42c1275`/`298ae0c`（LongMemEval source-locked audit + 架构师 R1 稳定账）。准确
+  `42c1275`/`298ae0c`（LongMemEval source-locked audit + 架构师 R1 稳定账）→
+  `23d785f`（artifact judge 观测边界/卡）→ `174bd46`（artifact-level judge efficiency
+  共享修复）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1591 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 143.05s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮主树全量门=`1605 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 155.86s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
@@ -164,12 +166,15 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   猜修数据。用户已完成 BEAM 100K W2 + 10M W1：R0 验货器错误要求 builder metadata 重复
   `retrieval_evidence` 而误报 KeyError，R1 只删错误断言后既有 artifacts 全绿，共 5 LTM/build
   embedding、3 retrieval embedding，pair lineage/Recall N/A/score/隔离成立。开箱另抓到共享
-  artifact-level runner 不写 rubric judge model/token observations；HaluMem 三段 judge 同受影响，
-  已立 `branches/evaluator-observability/` 一次修复。MemBench 100k 缺时真实哨兵以合法
+  artifact-level runner 不写 rubric judge model/token observations；HaluMem 三段 judge 同受影响。
+  共享修复已以 `174bd46` 强验收合入：普通/ artifact 两路现共用 collector/scope/store 契约，
+  BEAM equivalence 也逐真实调用计量，离线 artifact evaluator 不生成空观测文件。既有 BEAM
+  predict/Recall/build 不重跑，只补 2+1 个已知 abstention rubric 调用；随后启动 HaluMem Medium
+  W1。MemBench 100k 缺时真实哨兵以合法
   zero-extraction + local-Qdrant null-write 两层关闭，无需重烧。LongMemEval 稳定异常账已集成；
   架构师 R1 订正 S/M 124 题 evidence-id 仅顺序不同、集合相同。HaluMem Opus 4.8 note-only 回卡
   已经架构师 hash/bytes、full diff 与 `230 passed, 1 warning` 强验收，method 侧 READY；真实 B11
-  等共享 judge 观测修复，故 LightMem 整体仍不 frozen。
+  等 BEAM judge-only 补观测后启动，故 LightMem 整体仍不 frozen。
   Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
@@ -178,8 +183,17 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-19）
 
-- 2026-07-19（**BEAM core artifacts 已通过；共享 artifact-level judge 观测修复待用户派发；
-  HaluMem method 侧 READY、真实 B11 暂缓**，GPT-5.6 sol 架构师）：用户完成
+- 2026-07-19（**共享 artifact-level judge 观测修复已强验收合入；下一步只补 BEAM 3 次
+  evaluator observation，再启动 HaluMem Medium W1**，GPT-5.6 sol 架构师）：Opus 4.8
+  actor `b41aa97` 经架构师逐 diff、原卡 `79 passed`、注册/生产链补充 `113 passed`、主树全量
+  `1605 passed, 3 deselected, 2 warnings, 29 subtests passed` 与 compileall exit 0 强验收，线性
+  合入主树为 `174bd46`。实现只扩展共享 runner、BEAM/HaluMem artifact judge 与强反例：启用
+  collector 时 evaluator 必须回传强类型内部 observations，runner 落 metric 专属 inventory/JSONL
+  后剥离，公开 score/summary 不泄漏；离线 evaluator 保持无空文件。BEAM 官方 role-tagged
+  equivalence messages 原样发送且恰计一次。HaluMem QA 用公开 question scope，extraction/update
+  用真实 conversation + 稳定 evaluator-unit scope。第一次全量的 3 个 SimpleMem 失败只因隔离
+  worktree 缺 gitignored `SimpleMem`；把资产复制进 worktree 后三条定向及全量均绿，不是代码
+  回归。用户此前完成
   `lm-beam-v7-pair-r1q1-c2-w2-100k` 与 `lm-beam-v7-pair-r1q1-w1-10m` 的 predict、Recall、
   rubric judge。R0 机器门的 `KeyError: provenance_granularity` 是架构师验货器把顶层
   `retrieval_evidence` 错误重复要求到 answer-builder `metadata`；production artifact 无缺字段，
@@ -187,12 +201,13 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   10M 一 conversation 3 LTM/3 build、1 retrieval，总计 5 LTM，W2 state 隔离成立，**不重跑
   付费 build**。开箱同时确认 rubric judge 已落 2+1 条 score，却无 metric 专属 model inventory /
   efficiency observations；根因是 `_run_artifact_level_evaluation()` 跳过普通逐题 runner 的
-  collector/scope/store，BEAM 与 HaluMem extraction/update/qa 共受影响。共享 R1 卡=
-  `branches/evaluator-observability/cards/actor-prompt-artifact-judge-efficiency-r1.md`，建议 Sonnet 5
-  high/exhigh；回卡强验收后只在既有 BEAM run 补 3 道 judge，再发 HaluMem Medium W1 命令。
+  collector/scope/store，BEAM 与 HaluMem extraction/update/qa 共受影响；该根因现已由上述共享
+  修复关闭。只在既有 BEAM run 补 3 道 judge，不重跑 predict/Recall/build，再发 HaluMem
+  Medium W1 命令。
   HaluMem actor `b37d8d3` 已线性合入主树为 `3559c46`：Medium/Long source hash/bytes 现场命中
   frozen lock，定向 `230 passed, 1 warning in 8.17s`、文档门 `5 passed in 0.86s`，接受
-  `READY_FOR_HALUMEM_B11_COMMAND`，但共享修复关闭前不烧三个 judge。
+  `READY_FOR_HALUMEM_B11_COMMAND`；共享代码门已关闭，现只保持“先补 BEAM、再跑 HaluMem”的
+  串行顺序，避免同时处理两批付费 artifact。
 
 - 2026-07-19（**MemBench 100k 缺时旁路已关闭；BEAM current-v7 B11 已获预算批准并形成
   双结构命令包；HaluMem current-v7 差量 actor 在途**，GPT-5.6 sol 架构师）：真实 run

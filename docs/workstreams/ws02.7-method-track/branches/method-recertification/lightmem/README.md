@@ -134,14 +134,17 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     session ingest/report、hybrid role、online-soft、增量 capture、operation-level 交错顺序、
     product readout/observer 与 N/A 资格。Opus 4.8 note-only 回卡已由架构师现场复核 source
     hash/bytes、full diff 与同一承重集：`230 passed, 1 warning`，文档门 `5 passed`；method 侧判词
-    接受为 `READY_FOR_HALUMEM_B11_COMMAND`。但 HaluMem 三个官方 judge 与 BEAM 共用刚暴露的
-    artifact-level efficiency 断链，故真实 Medium W1 命令暂不发；先关闭共享修复，避免跑完再
-    重烧 judge。
+    接受为 `READY_FOR_HALUMEM_B11_COMMAND`。HaluMem 三个官方 judge 与 BEAM 共用的
+    artifact-level efficiency 断链已由下条共享修复关闭；真实 Medium W1 保持在 BEAM
+    judge-only 历史补观测之后串行启动，不再受代码缺口阻塞。
 19. 共享缺口已收进
-    [`evaluator-observability`](../../evaluator-observability/README.md)，修复卡只动 runner、
-    BEAM/HaluMem judge 与 fake-API tests，不改 LightMem/benchmark/metric 公式。该卡关闭后：先在
-    BEAM 两个既有 run 上重跑 2+1 rubric judge 补观测，再生成 HaluMem Medium
-    `1 conversation / 4 sessions × 2 turns / 1 QA / workers=1` 全 evaluator 命令。
+    [`evaluator-observability`](../../evaluator-observability/README.md)。Opus 4.8 `b41aa97`
+    经架构师 full diff、`79 + 113` 两层定向门、全量 `1605 passed` 与 compileall 强验收，
+    线性合入主树为 `174bd46`。修复只动共享 runner、BEAM/HaluMem judge 与 fake-API tests，
+    不改 LightMem/benchmark/metric 公式；离线 artifact evaluator 保持无空效率文件。现在先在
+    BEAM 两个既有 run 上重跑 2+1 abstention rubric judge 补观测，再生成 HaluMem Medium
+    `1 conversation / 4 sessions × 2 turns / 1 QA / workers=1` 全 evaluator 命令；两边均不重跑
+    已通过的 LightMem build。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

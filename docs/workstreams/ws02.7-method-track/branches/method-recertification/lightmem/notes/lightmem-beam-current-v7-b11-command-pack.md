@@ -618,3 +618,153 @@ BEAM_CORE_ARTIFACTS_PASSED__JUDGE_OBSERVABILITY_REPAIR_PENDING
 prediction、Recall、Qdrant 与已有 judge score 均无需重跑；共享修复合入后，只需在既有两组 run
 上重跑共三道 rubric judge 以补 metric-side efficiency artifacts。修复边界见
 `../../../evaluator-observability/README.md`，不得把它误修成 BEAM/LightMem 专用分支。
+
+## 9. 共享修复后的 judge-only 补观测（2026-07-19）
+
+共享修复已由架构师以主树 `174bd46` 强验收关闭。以下命令**不重跑 predict、Recall、
+LightMem build 或 Qdrant state**；只对既有 100K 两题与 10M 一题重跑 rubric evaluator。
+当前三题均为 `abstention` 且各只有一个 rubric item，因此本批预期恰好 3 次真实 judge LLM
+调用；该数字来自既有 score artifact 的实际 `ability/rubric_count`，不是用问题数猜一般 BEAM
+调用成本。若以后样本含多个 rubric item 或 event-ordering，真实调用数会更大，必须以
+observation 为准。
+
+在一个新的 zsh 中整段执行：
+
+```bash
+cd /Users/wz/Desktop/memoryBenchmark
+set -o pipefail
+
+git status --short
+git diff --quiet
+git diff --cached --quiet
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+test -f .env
+
+BEAM100_RUN=lm-beam-v7-pair-r1q1-c2-w2-100k
+BEAM100_ROOT=outputs/runs/lightmem/beam/100k/smoke/unified
+BEAM10_RUN=lm-beam-v7-pair-r1q1-w1-10m
+BEAM10_ROOT=outputs/runs/lightmem/beam/10m/smoke/unified
+
+test -f "$BEAM100_ROOT/$BEAM100_RUN/manifest.json"
+test -f "$BEAM10_ROOT/$BEAM10_RUN/manifest.json"
+test ! -e "$BEAM100_ROOT/$BEAM100_RUN/artifacts/model_inventory.beam_rubric_judge.json"
+test ! -e "$BEAM100_ROOT/$BEAM100_RUN/artifacts/efficiency_observations.beam_rubric_judge.jsonl"
+test ! -e "$BEAM10_ROOT/$BEAM10_RUN/artifacts/model_inventory.beam_rubric_judge.json"
+test ! -e "$BEAM10_ROOT/$BEAM10_RUN/artifacts/efficiency_observations.beam_rubric_judge.jsonl"
+
+uv run memory-benchmark evaluate \
+  --root . \
+  --run-id "$BEAM100_RUN" \
+  --metric beam-rubric-judge \
+  --judge-profile compact \
+  --workers 2 \
+  --allow-api \
+  2>&1 | tee "$BEAM100_ROOT/$BEAM100_RUN/logs/terminal.evaluate-judge-observability-refill.log"
+BEAM100_JUDGE_STATUS=$?
+test "$BEAM100_JUDGE_STATUS" -eq 0
+
+uv run memory-benchmark evaluate \
+  --root . \
+  --run-id "$BEAM10_RUN" \
+  --metric beam-rubric-judge \
+  --judge-profile compact \
+  --workers 1 \
+  --allow-api \
+  2>&1 | tee "$BEAM10_ROOT/$BEAM10_RUN/logs/terminal.evaluate-judge-observability-refill.log"
+BEAM10_JUDGE_STATUS=$?
+test "$BEAM10_JUDGE_STATUS" -eq 0
+```
+
+两条 evaluate 均为 exit 0 后执行零 API 机器门：
+
+```bash
+uv run python - <<'PY'
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+RUNS = (
+    (
+        Path("outputs/runs/lightmem/beam/100k/smoke/unified")
+        / "lm-beam-v7-pair-r1q1-c2-w2-100k",
+        2,
+    ),
+    (
+        Path("outputs/runs/lightmem/beam/10m/smoke/unified")
+        / "lm-beam-v7-pair-r1q1-w1-10m",
+        1,
+    ),
+)
+
+
+def read_jsonl(path: Path) -> list[dict[str, object]]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+for run_dir, expected_calls in RUNS:
+    artifacts = run_dir / "artifacts"
+    summaries = run_dir / "summaries"
+    inventory = json.loads(
+        (artifacts / "model_inventory.beam_rubric_judge.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    observations = read_jsonl(
+        artifacts / "efficiency_observations.beam_rubric_judge.jsonl"
+    )
+    scores = read_jsonl(artifacts / "answer_scores.beam_rubric_judge.jsonl")
+    summary = json.loads(
+        (summaries / "summary.beam_rubric_judge.json").read_text(encoding="utf-8")
+    )
+
+    assert inventory["schema_version"] == 1
+    assert len(inventory["models"]) == 1
+    model = inventory["models"][0]
+    assert model["model_id"] == "judge-llm"
+    assert model["model_name"] == "gpt-4o-mini"
+    assert model["model_role"] == "judge_llm"
+    assert model["execution_mode"] == "api"
+
+    assert len(scores) == expected_calls
+    assert all(row["ability"] == "abstention" for row in scores)
+    assert all(row["rubric_count"] == 1 for row in scores)
+    assert len(observations) == expected_calls
+    assert len({row["observation_id"] for row in observations}) == expected_calls
+
+    score_scopes = {
+        (row["conversation_id"], row["question_id"])
+        for row in scores
+    }
+    observation_scopes = {
+        (row["conversation_id"], row["question_id"])
+        for row in observations
+    }
+    assert observation_scopes == score_scopes
+    for row in observations:
+        assert row["observation_type"] == "llm_call"
+        assert row["stage"] == "judge"
+        assert row["model_id"] == "judge-llm"
+        assert row["token_measurement_source"] == "api_usage"
+        assert isinstance(row["input_tokens"], int) and row["input_tokens"] >= 0
+        assert isinstance(row["output_tokens"], int) and row["output_tokens"] >= 0
+
+    assert "efficiency_observations" not in summary
+    assert all("efficiency_observations" not in row for row in scores)
+    print(
+        f"PASS {run_dir.name}: judge_calls={len(observations)}, "
+        f"scopes={sorted(observation_scopes)}"
+    )
+
+print("BEAM_JUDGE_OBSERVABILITY_REFILL_PASSED")
+PY
+```
+
+本节通过后，BEAM current-v7 的 B7/B11 才能从“core passed”升为完整通过；随后生成并执行
+LightMem × HaluMem Medium W1 命令包。若任一命令失败，保留新 refill log 与现有 run，不删除、
+不重跑 predict，交回架构师开箱。
