@@ -114,11 +114,11 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     source-locked 异常账又确认标准三 split role 干净、10M 两处 dangling user/一处 content
     错位/一格全缺时/五次跨 session anchor 回退，统一 preserve、不猜修。当前到 100K+10M
     两次真实 B11 命令门。
-17. LongMemEval 的输入/time 与 LightMem 差分已经强验收并实跑，但
-    `docs/survey/异常情况/longmemeval.md` 仍只是主工作区未跟踪的 OpenCode 草稿，不能冒充稳定
-    异常账。[source-locked 异常账 R1 卡](cards/actor-prompt-longmemeval-anomaly-ledger-r1.md) 要求同时
-    census S/M、逐条证伪草稿，并对表 canonical/evaluator-private/LightMem 三层处置；actor 只交
-    自包含 audit note，架构师强验收后再集成稳定页，避免覆盖用户草稿。
+17. LongMemEval source-locked 异常账已由 Opus 4.8 回卡并经架构师强验收集成到
+    `docs/survey/异常情况/longmemeval.md`。actor 正确补出 S/M 结构差、duplicate session id 与
+    草稿 role 根因降格；架构师 R1 另抓到 124 题 `answer_session_ids` 仅列表顺序不同、集合相同，
+    勘误后无需生产修复。原 OpenCode 草稿原样改名保存，不再冒充稳定页。派卡错误要求重算既有
+    census 的责任在架构师，已写入 playbook，后续 benchmark ledger 只核新增事实。
 18. HaluMem benchmark frozen-v1 事实直接复用，不重跑 Medium/Long census。当前已形成
     [current-v7 差量预检卡](cards/actor-prompt-lightmem-halumem-current-v7-preflight.md)：只核
     session ingest/report、hybrid role、online-soft、增量 capture、operation-level 交错顺序、

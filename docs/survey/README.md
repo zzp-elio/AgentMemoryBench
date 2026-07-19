@@ -38,9 +38,9 @@
 | Benchmark | 总览 | Dataset schema | 异常详账 | 官方/框架 workflow | 当前 gold evidence unit 摘要 |
 |---|---|---|---|---|---|
 | LoCoMo | [benchmark](benchmarks/LoCoMo.md) | [dataset](datasets/locomo.md) | [anomalies](异常情况/locomo.md) | [workflow](workflows/locomo.md) | 单 utterance `dia_id`；9 个 turn-unmatched unit，1 个重复 occurrence 稳定去重 |
-| LongMemEval | [benchmark](benchmarks/LongMemEval.md) | [dataset](datasets/longmemeval.md) | 待强验收 | [workflow](workflows/longmemeval.md) | user-side `has_answer` turn + answer session；主 retrieval 路径分母 419 |
+| LongMemEval | [benchmark](benchmarks/LongMemEval.md) | [dataset](datasets/longmemeval.md) | [anomalies](异常情况/longmemeval.md) | [workflow](workflows/longmemeval.md) | user-side `has_answer` turn + answer session；主 retrieval 路径分母 419 |
 | HaluMem | [benchmark](benchmarks/HaluMem.md) | [dataset](datasets/halumem.md) | 待逐格建立 | [workflow](workflows/halumem.md) | memory-point fact；无 turn 回指，turn Recall=N/A |
-| BEAM | [benchmark](benchmarks/BEAM.md) | [dataset](datasets/BEAM.md) | 待按 variant 建立 | [workflow](workflows/BEAM.md) | `source_chat_ids` 本意指 message；1M 四个 conversation 有 raw-id 歧义；Recall 为 framework supplementary |
+| BEAM | [benchmark](benchmarks/BEAM.md) | [dataset](datasets/BEAM.md) | [anomalies](异常情况/beam.md) | [workflow](workflows/BEAM.md) | `source_chat_ids` 本意指 message；1M 四个 conversation 有 raw-id 歧义；Recall 为 framework supplementary |
 | MemBench | [benchmark](benchmarks/MemBench.md) | [dataset](datasets/membench.md) | [anomalies](异常情况/membench.md) | [workflow](workflows/membench.md) | FirstAgent=pair-step、ThirdAgent=string-step；拆分后按 evaluator-private any-of group 计一次 |
 
 五家 gold-unit 的完整一手对表与方案裁决见
