@@ -346,3 +346,31 @@ READY_FOR_HALUMEM_B11_COMMAND
 1 QA / workers=1` 固定形状；evaluator 按 extraction → update → qa（judge）→ memory-type
 （artifact-only，最后）依赖顺序执行，retrieval Recall/NDCG 保持 N/A。命令、预算与 run_id
 由架构师在用户批准后生成。
+
+## 9. 架构师强验收与新增共享前置门
+
+2026-07-19，GPT-5.6 sol 架构师在 main 独立完成：
+
+- `git show` 确认 actor commit 仅新增本 note；
+- 现场 `shasum -a 256` / `wc -c` 复算 Medium/Long，hash 与字节数逐字命中 §0；
+- 按卡同一承重命令复跑：`230 passed, 1 warning in 8.17s`；
+- 文档标准门：`5 passed in 0.86s`；`git diff --check` clean。
+
+因此 actor 对 **LightMem × HaluMem method/current-v7 差量**的
+`READY_FOR_HALUMEM_B11_COMMAND` 判词被接受，没有生产返工。
+
+但 BEAM 真实 B11 开箱同时发现一个本 note §6 未覆盖的共享 runner 缺口：
+`_run_artifact_level_evaluation()` 不建立 evaluator `EfficiencyCollector/judge_scope`，也不写
+metric 专属 model inventory/observations。HaluMem extraction/update/qa 都继承
+`supports_efficiency_observability=True` 且走这条 artifact-level 路径；若现在执行，judge 会出分，
+但 token/cost artifact 缺失，无法通过 checklist B7/B11。
+
+这不推翻本 note 的 method READY，只把发命令的顺序收紧为：
+
+```text
+共享 artifact-level judge observability R1
+→ BEAM 既有 run judge-only 补观测
+→ HaluMem Medium W1 首次真实 B11
+```
+
+共享修复见 `../../../evaluator-observability/README.md`；禁止把它写成 HaluMem 或 LightMem 特判。

@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；MemBench 100k 旁路关闭；BEAM B11 命令待跑；HaluMem 差量预检 actor 在途；Mem0 暂缓）
+status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；BEAM core 已过、共享 judge 观测待修；HaluMem 离线 READY、真实 B11 待同一修复；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -161,10 +161,15 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   差量已由 Opus 4.8 回卡、架构师逐 diff 与
   `330 passed` 强验收，主线 `de40d63`；source-locked 异常账复核确认标准三 split role 干净、
   10M 两处 dangling user/一处 content 错位/一格全缺时/5 次跨 session anchor 回退，均不需
-  猜修数据。BEAM 现有已获用户预算批准的 100K+10M B11 命令包待跑。MemBench 100k 缺时真实哨兵以合法
+  猜修数据。用户已完成 BEAM 100K W2 + 10M W1：R0 验货器错误要求 builder metadata 重复
+  `retrieval_evidence` 而误报 KeyError，R1 只删错误断言后既有 artifacts 全绿，共 5 LTM/build
+  embedding、3 retrieval embedding，pair lineage/Recall N/A/score/隔离成立。开箱另抓到共享
+  artifact-level runner 不写 rubric judge model/token observations；HaluMem 三段 judge 同受影响，
+  已立 `branches/evaluator-observability/` 一次修复。MemBench 100k 缺时真实哨兵以合法
   zero-extraction + local-Qdrant null-write 两层关闭，无需重烧。LongMemEval 稳定异常账已集成；
-  架构师 R1 订正 S/M 124 题 evidence-id 仅顺序不同、集合相同。HaluMem current-v7 差量预检卡
-  已由用户派发，actor 在途；故 LightMem 整体仍不 frozen。
+  架构师 R1 订正 S/M 124 题 evidence-id 仅顺序不同、集合相同。HaluMem Opus 4.8 note-only 回卡
+  已经架构师 hash/bytes、full diff 与 `230 passed, 1 warning` 强验收，method 侧 READY；真实 B11
+  等共享 judge 观测修复，故 LightMem 整体仍不 frozen。
   Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
@@ -172,6 +177,22 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-19）
+
+- 2026-07-19（**BEAM core artifacts 已通过；共享 artifact-level judge 观测修复待用户派发；
+  HaluMem method 侧 READY、真实 B11 暂缓**，GPT-5.6 sol 架构师）：用户完成
+  `lm-beam-v7-pair-r1q1-c2-w2-100k` 与 `lm-beam-v7-pair-r1q1-w1-10m` 的 predict、Recall、
+  rubric judge。R0 机器门的 `KeyError: provenance_granularity` 是架构师验货器把顶层
+  `retrieval_evidence` 错误重复要求到 answer-builder `metadata`；production artifact 无缺字段，
+  删除重复断言后原 run 尾行 PASS：100K 两 conversation 各 1 LTM/各 1 build、2 retrieval，
+  10M 一 conversation 3 LTM/3 build、1 retrieval，总计 5 LTM，W2 state 隔离成立，**不重跑
+  付费 build**。开箱同时确认 rubric judge 已落 2+1 条 score，却无 metric 专属 model inventory /
+  efficiency observations；根因是 `_run_artifact_level_evaluation()` 跳过普通逐题 runner 的
+  collector/scope/store，BEAM 与 HaluMem extraction/update/qa 共受影响。共享 R1 卡=
+  `branches/evaluator-observability/cards/actor-prompt-artifact-judge-efficiency-r1.md`，建议 Sonnet 5
+  high/exhigh；回卡强验收后只在既有 BEAM run 补 3 道 judge，再发 HaluMem Medium W1 命令。
+  HaluMem actor `b37d8d3` 已线性合入主树为 `3559c46`：Medium/Long source hash/bytes 现场命中
+  frozen lock，定向 `230 passed, 1 warning in 8.17s`、文档门 `5 passed in 0.86s`，接受
+  `READY_FOR_HALUMEM_B11_COMMAND`，但共享修复关闭前不烧三个 judge。
 
 - 2026-07-19（**MemBench 100k 缺时旁路已关闭；BEAM current-v7 B11 已获预算批准并形成
   双结构命令包；HaluMem current-v7 差量 actor 在途**，GPT-5.6 sol 架构师）：真实 run

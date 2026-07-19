@@ -815,6 +815,17 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   没有无依据猜 A-D，parser 正确记 0。接线 smoke 的硬门是 prompt 变量、artifact、隔离、观测
   与错误处理；答案正确率是效果层。遇到非预期答案先分“输入里有没有答案、输出契约是否诚实、
   parser 是否按声明处理”，不能用重跑 API 把随机答案洗成绿色。
+- **验货器不得要求同一契约跨 namespace 重复出现。**LightMem × BEAM B11 的 R0 脚本已正确
+  校验顶层 `retrieval_evidence.provenance_granularity=none`，随后又擅自要求 benchmark answer
+  builder 所有的 `metadata` 复制同一字段，因而对好产物报 `KeyError`。逐题 evidence 的权威是
+  public writer 明示的 `retrieval_evidence`；`metadata` 只按 builder 自身契约验。机器门先读
+  production serializer 与 registered test，再选择单一权威字段；不得为了“多验一遍”制造两处
+  会漂移的真相，更不得据此改 production 或重烧 API。
+- **metric 出分不等于 metric 可观测性已过。**同次开箱发现 artifact-level API evaluator 绕过
+  普通 runner 的 collector/scope/store：BEAM rubric judge 有 score 却无 judge model inventory /
+  token observations，HaluMem 三段 judge 同受影响。B11 必须把 prediction efficiency 与 evaluator
+  efficiency 分开查；共享 runner 缺口只修一次，并在下一格付费前关闭，不能让十个 method 重复
+  背锅。
 
 ### 14.5 2026-07-19：第一家 method 的调查成本必须向后摊销
 

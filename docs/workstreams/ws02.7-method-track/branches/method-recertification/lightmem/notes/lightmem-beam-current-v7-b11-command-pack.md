@@ -436,7 +436,6 @@ for case in cases:
         )
         assert evidence["provenance_granularity"] == "none"
         assert evidence["stable_ranking"]["status"] == "pending"
-        assert row["metadata"]["provenance_granularity"] == "none"
 
     progress = read_json(run_dir / "checkpoints/progress.json")
     prediction_summary = read_json(run_dir / "summaries/summary.json")
@@ -576,3 +575,46 @@ log、manifest、prompt、Qdrant、efficiency 与 evaluator artifact 都在 run 
 
 这些自检证明 CLI/adapter/evaluator/文档契约当前一致，不代替用户真实 API run 与其后的
 artifact 开箱。
+
+## 8. 真实执行、R1 验货勘误与开箱判词（2026-07-19）
+
+用户已按本包执行 100K W2 与 10M W1 的两组 predict、Recall、rubric judge。六段命令均成功；
+R0 机器门随后在旧断言处报：
+
+```text
+KeyError: 'provenance_granularity'
+```
+
+这是**验货器错误，不是 artifact 缺字段**。`answer_prompts.prediction.jsonl` 的
+`metadata` 由 benchmark answer builder 所有，只含 `prompt_track / answer_prompt_profile /
+official_source`；逐题检索资格的公共权威字段是同一 record 顶层 `retrieval_evidence`。
+production writer 也明确把 `retrieval.metadata` 与 `_retrieval_evidence_payload(...)` 分开落盘。
+R0 把 HaluMem/历史局部 metadata 形状误当成所有 benchmark 必须复制的公共契约，违反单事实源。
+本 note 已删除该重复断言；**不改 production，不重跑任何付费 predict/evaluate**。
+
+架构师直接对既有两个 run 执行 R1 机器门，尾行原文：
+
+```text
+PASS lm-beam-v7-pair-r1q1-c2-w2-100k: conversations=2, workers=2, ltm={'1': 1, '2': 1}, retrieved={'1': 1, '2': 1}, memory_build_llm={'2': 1, '1': 1}, build_embeddings={'2': 1, '1': 1}, retrieval_embeddings=2, recall=N/A, judge_rows=2, state={'1': {'worker_0'}, '2': {'worker_1'}}
+PASS lm-beam-v7-pair-r1q1-w1-10m: conversations=1, workers=1, ltm={'1': 3}, retrieved={'1': 3}, memory_build_llm={'1': 1}, build_embeddings={'1': 3}, retrieval_embeddings=1, recall=N/A, judge_rows=1, state={'1': {'run'}}
+PASS LightMem×BEAM current-v7 B11 machine gate: total_ltm=5, total_build_embeddings=5
+```
+
+逐层开箱确认：manifest identity、100K/10M source lock、pair crop、三道公开问题、product ISO
+readout、5 条 pair-lineage LTM、2+1 retrieval embedding、2+1 memory-build LLM、W2 worker
+物理隔离、Recall 全 N/A 与 rubric score/official-int 双字段均成立；terminal logs 无 traceback /
+timeout / rate-limit。
+
+同时发现一条与 BEAM 分数、LightMem build 无关的**共享 runner 缺口**：
+`_run_artifact_level_evaluation()` 没有执行普通逐题路径已有的 evaluator collector/scope/store，
+所以 rubric judge 虽已真实调用并落分，却没有
+`model_inventory.beam_rubric_judge.json` / `efficiency_observations.beam_rubric_judge.jsonl`。
+HaluMem extraction/update/qa 走同一路径，也会受影响。当前裁决：
+
+```text
+BEAM_CORE_ARTIFACTS_PASSED__JUDGE_OBSERVABILITY_REPAIR_PENDING
+```
+
+prediction、Recall、Qdrant 与已有 judge score 均无需重跑；共享修复合入后，只需在既有两组 run
+上重跑共三道 rubric judge 以补 metric-side efficiency artifacts。修复边界见
+`../../../evaluator-observability/README.md`，不得把它误修成 BEAM/LightMem 专用分支。

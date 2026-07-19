@@ -2,7 +2,8 @@
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
 > 状态：**FIVE_GRID_RECERTIFICATION_IN_PROGRESS（LoCoMo/LongMemEval/MemBench
-> current-v7 `REAL_SMOKE_PASSED`；BEAM/HaluMem 待逐格压实）**。
+> current-v7 `REAL_SMOKE_PASSED`；BEAM core artifacts 已过、共享 judge 观测待修；HaluMem
+> method 侧 READY、真实 B11 待同一修复）**。
 > 2026-07-17 的 method-frozen-v2 与 v6 LoCoMo smoke 仍是有效历史证据，但 v7 改变
 > 公共 readout 与 embedding observation 契约，不能沿用 v6 artifact 宣称当前版本已
 > frozen。online-soft lifecycle 主体、MemBench 时间语义 Phase A 与 LightMem
@@ -85,6 +86,14 @@
 > 时的诚实拒答，不是 builder/parser 故障。本格=`REAL_SMOKE_PASSED`，不外推 100k/full/效果/
 > 成本/resume；证据见 `ws02.7/branches/method-recertification/lightmem/notes/
 > lightmem-membench-b11-command-pack.md` §7。
+> 2026-07-19 R3 补充：BEAM current-v7 100K W2 + 10M W1 已真实执行。pair lineage、完整 ISO
+> readout、5 条 LTM/build embedding、3 次 retrieval embedding、Recall N/A、rubric score 与
+> W2 隔离均经 R1 机器门/架构师开箱通过。R0 `KeyError` 是验货器错误要求 answer-builder
+> `metadata` 复制顶层 `retrieval_evidence`，production 无缺字段、无需重跑 build。开箱另确认
+> 共享 `_run_artifact_level_evaluation()` 没给 rubric judge 落 metric 专属 model inventory/token
+> observations；HaluMem extraction/update/qa 同受影响。HaluMem source-locked current-v7 预检已
+> 以 `230 passed, 1 warning` 强验收并接受 method 侧 READY，但真实 Medium W1 在共享修复前暂缓。
+> 修复归 `ws02.7/branches/evaluator-observability/`，不改 LightMem adapter 或 metric 公式。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
 - 算法源：vendored `third_party/methods/LightMem`（`src/lightmem/memory/lightmem.py`）
@@ -454,14 +463,14 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   registration/tests/integration note，不动 BEAM adapter、event stream、LightMem 算法
   adapter、evaluator、prompt 或 gold。actor 回卡已由架构师 full diff、独立定向
   `330 passed, 1 warning`、合流定向 `428 passed, 1 warning`、主树全量 `1588 passed,
-  3 deselected, 2 warnings, 29 subtests passed` 与 compileall exit 0 强验收；下一步生成
-  100K+10M 两次真实 B11 命令。
+  3 deselected, 2 warnings, 29 subtests passed` 与 compileall exit 0 强验收；后续 100K+10M
+  两次真实 B11 已执行，结果见本文顶部 R3。
   BEAM source-locked 异常总账现见 `docs/survey/异常情况/beam.md`：标准三 split 的 role
   形状全量干净；10M 只有两处 dangling follow-up user，其中一处伴随下一 assistant 主题
   错位，另有一个全缺时 session 与 5 个跨 session anchor 回退。统一策略是保留 raw
   content/role/order/time，pair 层只补结构 placeholder，绝不按内容猜搬回复或跨 session 修钟。
-- **B7 效率插桩 ✅（v7 LoCoMo/LME 实际调用观测已复验）**：build/answer/judge 三角色
-  api_usage 真 token（2026-07-12 效率审计无拦截缺口）；LightMem add_memory 自带
+- **B7 效率插桩 🟡（prediction 已复验；artifact-level judge 共享断链待修）**：普通 prediction
+  与逐题 judge 路径可记录各自 api_usage/token；LightMem add_memory 自带
   token/api_call_nums 返回值可做交叉参照（待留档）。v6 真实 LongMemEval B11 开箱发现
   model inventory 声明 `lightmem-embedding`，但 `efficiency_observations.
   prediction.jsonl` 无任何 `embedding_call`、overall `embedding_tokens={}`——
@@ -479,6 +488,10 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   实际落盘；LoCoMo 两组共 28 次、LongMemEval W2 共 2 次 memory-build embedding 均与实际
   LTM insert 一致。LongMemEval W1 的 0 LTM/0 build embedding 是未发生调用，不是漏观测；
   该 run 仍有 retrieval observation。overall embedding aggregation 与 raw call count 逐组一致。
+  BEAM current-v7 又实见 5 次 build + 3 次 retrieval embedding，method/prediction 侧透明 observer
+  成立；但 rubric judge 属 artifact-level evaluator，runner 跳过 evaluator collector/scope/store，
+  造成“有 score、无 judge model/token artifact”。HaluMem 三段 judge 共用该 runner。此处降为共享
+  pending，不能拿 prediction 观测替 evaluator 观测，也不能把缺文件解释成零调用。
 - **B8 副作用/clean-retry ✅（2026-07-14 frozen-v1 收口）**：物理隔离 + 删目录
   清理已具备；**检索纯读已锚死**：`LightMemory.retrieve`
   （`third_party/methods/LightMem/src/lightmem/memory/lightmem.py:648-710`）=
@@ -514,8 +527,9 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   run 已关闭这两个格子的 v7 受影响 B4/B7/B11 门：完整 timestamp、zero-hit sentinel/
   answer_context、metadata/evidence、build/retrieval observation、summary v2、caption lineage 与
   worker 隔离均验收通过。该批当时只使两个格子恢复 `REAL_SMOKE_PASSED`；MemBench 随后已由
-  上方 R2 真实 B11 关闭。**当前 LoCoMo/LME/MemBench 三格通过，BEAM/HaluMem 仍待逐格
-  重认证，故 method 整体不得恢复 frozen。**
+  上方 R2 真实 B11 关闭。BEAM 的 100K W2 + 10M W1 core artifacts/score 也已通过，但共享
+  artifact-level judge efficiency 尚待修复后补 2+1 次 judge；HaluMem method 侧离线 READY，
+  Medium W1 等同一修复后执行。**当前只有前三格完整通过，故 method 整体不得恢复 frozen。**
   以下为 2026-07-13~14 的历史 smoke 证据：
   ① unified：空库悬案已关闭（diag-log1 复跑：1 round → force 刷洗 → 抽取 2 条
   记忆 → 检索命中，sentinel=0；此前空库判为抽取 LLM 单次返 0 波动，非结构性 bug）。

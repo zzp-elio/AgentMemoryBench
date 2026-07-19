@@ -117,7 +117,13 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     [current-v7 B11 命令包](notes/lightmem-beam-current-v7-b11-command-pack.md)：100K 用
     2 conversations × 2 workers 复验 pair 后隔离，10M 用 1 conversation × 1 worker 覆盖
     plan/batch 结构；两者均 1 round/1 question，串行执行。适用指标仅 BEAM rubric judge 与
-    Recall N/A，不把已从 registry 移除的 token-F1/EM 强加给 rubric 任务。
+    Recall N/A，不把已从 registry 移除的 token-F1/EM 强加给 rubric 任务。用户已完成两组真实
+    run；R0 机器门因错误要求 builder `metadata` 复制顶层 `retrieval_evidence` 而误报
+    `KeyError`，R1 删除重复断言后既有 artifacts 全部通过：100K W2 各 1 LTM、10M W1 3 LTM，
+    共 5 条 pair lineage/build embedding，retrieval 2+1，隔离成立。当前核心判词为
+    `BEAM_CORE_ARTIFACTS_PASSED__JUDGE_OBSERVABILITY_REPAIR_PENDING`：共享 artifact-level runner
+    没写 rubric judge 自身的 model inventory/token observations；已有 predict/Recall/judge score
+    不重跑，修复后只补三道 judge。
 17. LongMemEval source-locked 异常账已由 Opus 4.8 回卡并经架构师强验收集成到
     `docs/survey/异常情况/longmemeval.md`。actor 正确补出 S/M 结构差、duplicate session id 与
     草稿 role 根因降格；架构师 R1 另抓到 124 题 `answer_session_ids` 仅列表顺序不同、集合相同，
@@ -126,7 +132,16 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
 18. HaluMem benchmark frozen-v1 事实直接复用，不重跑 Medium/Long census。当前已形成
     [current-v7 差量预检卡](cards/actor-prompt-lightmem-halumem-current-v7-preflight.md)：只核
     session ingest/report、hybrid role、online-soft、增量 capture、operation-level 交错顺序、
-    product readout/observer 与 N/A 资格；READY 后才由架构师生成固定 Medium W1 B11 命令。
+    product readout/observer 与 N/A 资格。Opus 4.8 note-only 回卡已由架构师现场复核 source
+    hash/bytes、full diff 与同一承重集：`230 passed, 1 warning`，文档门 `5 passed`；method 侧判词
+    接受为 `READY_FOR_HALUMEM_B11_COMMAND`。但 HaluMem 三个官方 judge 与 BEAM 共用刚暴露的
+    artifact-level efficiency 断链，故真实 Medium W1 命令暂不发；先关闭共享修复，避免跑完再
+    重烧 judge。
+19. 共享缺口已收进
+    [`evaluator-observability`](../../evaluator-observability/README.md)，修复卡只动 runner、
+    BEAM/HaluMem judge 与 fake-API tests，不改 LightMem/benchmark/metric 公式。该卡关闭后：先在
+    BEAM 两个既有 run 上重跑 2+1 rubric judge 补观测，再生成 HaluMem Medium
+    `1 conversation / 4 sessions × 2 turns / 1 QA / workers=1` 全 evaluator 命令。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的
