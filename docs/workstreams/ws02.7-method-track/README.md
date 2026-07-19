@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；BEAM core 已过、共享 judge 观测代码已修且待补 3 次观测；HaluMem 离线 READY、真实 B11 可在补观测后启动；Mem0 暂缓）
+status: in-progress（LightMem LoCoMo/LME/MemBench/BEAM current-v7 已通过；HaluMem 被真实 forced-flush 反例阻断，修复后再跑 B11；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -47,7 +47,7 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `d7c6bda`（100k zero-extraction 哨兵）→ `b0a9af0`（HaluMem current-v7 差量卡）→
   `42c1275`/`298ae0c`（LongMemEval source-locked audit + 架构师 R1 稳定账）→
   `23d785f`（artifact judge 观测边界/卡）→ `174bd46`（artifact-level judge efficiency
-  共享修复）。准确
+  共享修复）→ `f9cd0f7`（BEAM judge refill 命令门）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
   hash。本轮主树全量门=`1605 passed, 3 deselected, 2 warnings, 29 subtests passed
   in 155.86s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
@@ -169,12 +169,14 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   artifact-level runner 不写 rubric judge model/token observations；HaluMem 三段 judge 同受影响。
   共享修复已以 `174bd46` 强验收合入：普通/ artifact 两路现共用 collector/scope/store 契约，
   BEAM equivalence 也逐真实调用计量，离线 artifact evaluator 不生成空观测文件。既有 BEAM
-  predict/Recall/build 不重跑，只补 2+1 个已知 abstention rubric 调用；随后启动 HaluMem Medium
-  W1。MemBench 100k 缺时真实哨兵以合法
+  predict/Recall/build 不重跑；用户已补完 2+1 个 abstention rubric 调用，model/token/scope 机器门
+  全绿，BEAM 格关闭。MemBench 100k 缺时真实哨兵以合法
   zero-extraction + local-Qdrant null-write 两层关闭，无需重烧。LongMemEval 稳定异常账已集成；
   架构师 R1 订正 S/M 124 题 evidence-id 仅顺序不同、集合相同。HaluMem Opus 4.8 note-only 回卡
-  已经架构师 hash/bytes、full diff 与 `230 passed, 1 warning` 强验收，method 侧 READY；真实 B11
-  等 BEAM judge-only 补观测后启动，故 LightMem 整体仍不 frozen。
+  虽经 hash/bytes、full diff 与 `230 passed, 1 warning` 验收，但其 fake backend 未执行真实 sensory/
+  STM；用户提醒 current-session-only 后，架构师组件探针复现 forced flush 残留旧 session 与
+  automatic prefix 被 tail 覆盖。旧 READY 已 supersede，先走 session flush R1；若最小
+  bookkeeping 修复不足，则 extraction 诚实判 N/A，不为填指标扭曲 LightMem。故整体仍不 frozen。
   Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
@@ -182,6 +184,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-19）
+
+- 2026-07-19（**BEAM judge refill 已通过；HaluMem 旧 READY 被真实 buffer 反例推翻，先修
+  session flush 再发命令**，GPT-5.6 sol 架构师）：用户报告两组既有 BEAM run 的 judge-only
+  补观测机器门全部通过：100K W2=`judge_calls=2`，10M W1=`judge_calls=1`，三个 scope 与
+  conversation/question 一一对应，判词 `BEAM_JUDGE_OBSERVABILITY_REFILL_PASSED`；BEAM 格关闭。
+  准备 HaluMem 命令时，架构师按用户提醒复核每 session 的 extraction 边界，真实
+  `SenMemBufferManager` 零 API 探针复现：第一 session 明明输出 2 个完整 pair，buffer 却残留
+  `assistant,user,assistant`，第二 session 直接 `IndexError`；另一条真实
+  `LightMemory.add_memory()` 探针证明 automatic prefix 被 forced tail 覆盖，只把 `TAIL` 送进
+  short memory。冻结 smoke 的 `2 turns/session` 可能恰好绕开 boundary，但不能代替完整 contract。
+  三个官方 judge metric 在语义上仍适用于 LightMem；memory-type 是 artifact 派生，Recall/NDCG
+  仍 N/A。当前付费门=`BLOCKED_SESSION_FLUSH_INTEGRITY`；**需要派发**
+  `branches/method-recertification/lightmem/cards/
+  actor-prompt-lightmem-halumem-session-boundary-r1.md`，回卡强验收后再生成 Medium W1 全指标命令。
 
 - 2026-07-19（**共享 artifact-level judge 观测修复已强验收合入；下一步只补 BEAM 3 次
   evaluator observation，再启动 HaluMem Medium W1**，GPT-5.6 sol 架构师）：Opus 4.8

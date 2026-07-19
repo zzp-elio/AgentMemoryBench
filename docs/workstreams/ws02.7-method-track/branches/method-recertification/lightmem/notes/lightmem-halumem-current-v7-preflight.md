@@ -374,3 +374,66 @@ metric 专属 model inventory/observations。HaluMem extraction/update/qa 都继
 ```
 
 共享修复见 `../../../evaluator-observability/README.md`；禁止把它写成 HaluMem 或 LightMem 特判。
+
+## 10. 架构师 R2 改判：真实 sensory buffer 推翻 READY
+
+2026-07-19，用户在 BEAM judge observation 补写通过后，特别提醒 HaluMem 不是“先完整建库再
+统一评估”，而是每个 session 灌入后立即执行 extraction/update/QA；其中 extraction 的候选只能
+来自当前 session。架构师因此没有直接发付费命令，而是把 §3.1 的 fake backend 证据下沉到
+vendored `SenMemBufferManager` 与 `LightMemory.add_memory()` 真实状态机，得到两个会推翻
+§8/§9 READY 的确定性反例。
+
+### 10.1 force flush 没有清掉已经输出的 current buffer
+
+`sensory_memory.py:98-110` 先按 `2 * boundary` 输出 segment；`force_segment=True` 时又把 remaining
+tail 全部加入 `segments`，但随后把 `start_idx` 错写成 `len(boundaries)`。后者是 boundary 个数，
+不是已输出 message 数。用真实 manager + 确定性 fake tokenizer/segmenter/embedder 的零 API
+探针现场得到：
+
+```text
+session1_segments= [[('user', 'u1'), ('assistant', 'a1')],
+                    [('user', 'u2'), ('assistant', 'a2')]]
+after_session1_buffer= [('assistant', 'a1'), ('user', 'u2'), ('assistant', 'a2')]
+token_count= 1
+session2_error= IndexError list index out of range
+```
+
+这说明“observer 只记录本次 insert”并不足以证明 session 增量：如果本次 extraction 的输入已经
+混入 sensory residual，observer 会忠实记录一份跨 session 的错误结果。
+
+### 10.2 forced tail 覆盖同次调用已自动切出的 prefix
+
+`lightmem.py:332-335` 先令 `all_segments = add_messages(...)`，但 force 分支又把它赋值为
+`cut_with_segmenter(...)`，而不是保留 automatic segments 后追加 forced tail。以 fake sensory
+manager 固定返回 `AUTO` 与 `TAIL`、真实 `LightMemory.add_memory()` 驱动 fake short-memory，
+现场输出为：
+
+```text
+shortmem_received= [[{'role': 'user', 'content': 'TAIL'}]]
+```
+
+即本 session 较早越过 threshold 时已经切出的 prefix 没有进入 extraction。Medium 文件自带的
+`dialogue_token_length` 字段中，1,387 个 session 有 1,347 个大于 512；这不是 LightMem 压缩后
+token 数的等价替代，不能据此计算 API 成本，但足以说明 full-session threshold 路径不是可以
+忽略的理论角落。
+
+### 10.3 旧预检为何漏过、当前裁决
+
+旧 §3.1 的 `SessionCaptureFakeLightMemoryBackend` 直接在每次 add 伪造一条 insert，验证了 adapter
+的 call/capture/report 边界，却完全没有执行 sensory/short-memory 状态机；既有官方 preprocessing
+test 又只覆盖 `propose_cut() -> []` 的 clean branch。架构师此前接受 READY 属验收盲点，现以
+真实 core 反例勘误，不拿 smoke 的 `2 turns/session` 恰好通常不触发 boundary 当作通关依据。
+
+三项 HaluMem metric 的**语义资格不变**：LightMem 可提供 session extraction report、在线累计
+状态上的 update probe、以及每 session 后即时 QA；memory-type 仍是 extraction/update artifact
+上的派生指标，retrieval Recall/NDCG 仍 N/A。但在修复并强验收前，extraction 的“当前 session
+完整且仅当前 session”不变量不成立，因此付费 B11 暂停，§8 与 §9 的 READY 被 supersede：
+
+```text
+BLOCKED_SESSION_FLUSH_INTEGRITY
+```
+
+最小修复卡：
+`../cards/actor-prompt-lightmem-halumem-session-boundary-r1.md`。修复不得调 segmentation 参数或
+metric；只收敛 forced flush bookkeeping、automatic+tail segment 合并、真实 source identity 与
+强反例。

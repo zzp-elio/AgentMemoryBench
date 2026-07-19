@@ -145,6 +145,17 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     BEAM 两个既有 run 上重跑 2+1 abstention rubric judge 补观测，再生成 HaluMem Medium
     `1 conversation / 4 sessions × 2 turns / 1 QA / workers=1` 全 evaluator 命令；两边均不重跑
     已通过的 LightMem build。
+20. 用户完成 BEAM 既有 run 的 judge-only 补观测，机器门逐条通过：100K W2 为 2 calls、10M W1
+    为 1 call，scope 与 conversation/question 一一对应，判词
+    `BEAM_JUDGE_OBSERVABILITY_REFILL_PASSED`，BEAM current-v7 格据此关闭。准备发 HaluMem 命令时，
+    用户再次强调 extraction 必须只看当前 session；架构师下沉真实 vendored buffer 后推翻第 18
+    条的 READY：`sensory_memory.py` force branch 用 boundary count 清 message buffer，会残留旧
+    session；`lightmem.py` 又用 forced tail 覆盖本次已自动切出的 prefix。两处均有零 API
+    current-main 反例，旧 fake backend 没执行真实 buffer，属于验收盲点。当前 HaluMem=
+    `BLOCKED_SESSION_FLUSH_INTEGRITY`，**暂不发付费命令**。最小修复见
+    [session flush R1 卡](cards/actor-prompt-lightmem-halumem-session-boundary-r1.md)；修复只校正
+    bookkeeping + source identity，不调算法参数。三项官方 metric 的语义资格仍成立，待修复后
+    再生成 Medium W1 全 evaluator 命令包。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

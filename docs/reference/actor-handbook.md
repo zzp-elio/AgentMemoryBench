@@ -170,6 +170,12 @@
 - **默认/角色修复后要锁完整调用边界。**除了比较最终 message，还要断言一次 session 到底
   调了几次 method、每次携带哪些 force flags。session→pair 的拆调用属于算法时序变化，不能
   以“内容没丢”自行放行。
+- **声称 batch/session 增量时，必须执行承重的 stateful core，不能只用“每次 add 直接伪造
+  insert”的 backend。**observer 只证明“观察窗口内发生了什么”，不能证明窗口输入没有混入
+  旧 buffer。至少补非空内部 boundary、连续两次调用、threshold crossing 三类反例，并同时断言
+  输出全覆盖各一次、调用后 buffer/计数归零或按协议保留。2026-07-19 LightMem × HaluMem 旧
+  preflight 因 fake 跳过 sensory/STM，漏掉 forced flush 残留旧 session 与 automatic prefix 被
+  tail 覆盖两处确定性错误；2-turn smoke 恰好不撞分支也不能代替完整契约。
 - **并行卡在各自 worktree 绿后，actor 不得声称跨卡集成已绿。**最终合流是架构师责任；若卡
   内消费了另一条正在演进的 manifest/private schema，fixture 应显式声明当前版本，避免靠
   legacy 缺字段偶然通过。

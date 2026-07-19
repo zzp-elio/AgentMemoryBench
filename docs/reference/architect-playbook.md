@@ -384,6 +384,15 @@ FirstAgent pair-step 按 `turn` 拆开。先修公开投递契约并补 register
 必须复用同一注册级 resolver；旧 manifest 缺字段或值变化时严格 mismatch，不能用全局 adapter
 version 粗暴使所有未受影响 benchmark 一起失效。
 
+**2026-07-19 LightMem × HaluMem 追加判例：验证外层调用边界的 fake，不能证明内层 stateful
+buffer 的 session 边界。**旧 preflight 的 fake backend 每次 add 直接伪造一条 insert，于是
+“本次 capture 不累计”全绿；真实 sensory manager 却在 forced tail 后用 boundary count 清
+message，第一 session 留下奇数 residual、第二 session `IndexError`。同一条真实 core 还会以
+forced tail 覆盖本次已自动切出的 prefix。今后凡判“current batch/session only”，强验收必须至少
+有一条 component-level stateful 反例：**非空内部 boundary + 连续两次调用 + threshold crossing**，
+同时检查 emitted items 与调用后的 buffer/计数；只看 observer 时间窗口或最终 fake insert 不足。
+极小付费 smoke 若裁剪后绕开承重分支，只能证明该 crop 可跑，不能替 full contract 发绿灯。
+
 **判例（2026-07-07，协议 v3 首个真实回归）**：等价测试 fixture 全是
 user-first 交替语料 → fake/等价全绿；真实 LongMemEval 8.1% 的 session 以
 assistant 开头 → 位置 pair 切分产出反序对 → LightMem 官方裁剪后奇数崩溃。
