@@ -37,6 +37,7 @@ class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
     ) -> dict[str, Any]:
         """读取 update probe artifact 并计算 update 比例。"""
 
+        sink = self._new_efficiency_observation_sink()
         session_labels = index_session_labels(read_session_labels(paths))
         update_records = read_jsonl_or_empty(
             paths.artifacts_dir / "update_probe_results.jsonl",
@@ -51,20 +52,20 @@ class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
                 raise ConfigurationError(
                     f"missing session label for update session: {session_id}"
                 )
-            memory_point = memory_points_by_index(session_label).get(
-                update_record.get("gold_memory_index")
-            )
+            gold_memory_index = update_record.get("gold_memory_index")
+            memory_point = memory_points_by_index(session_label).get(gold_memory_index)
             if memory_point is None:
                 raise ConfigurationError(
                     "missing gold memory point for update probe "
-                    f"{session_id}:{update_record.get('gold_memory_index')}"
+                    f"{session_id}:{gold_memory_index}"
                 )
             memories_from_system = _string_list(
                 update_record.get("memories_from_system")
             )
             if not memories_from_system:
                 # 官方路由（evaluation.py:59-70）：memories_from_system 为空的
-                # update point 归 integrity 桶，不进入 update 评测与分母。
+                # update point 归 integrity 桶，不进入 update 评测与分母；被跳过的 point
+                # 不建立 scope、不产生 observation。
                 skipped_empty_retrieval_count += 1
                 continue
             prompt = _UPDATE_PROMPT.format(
@@ -74,13 +75,20 @@ class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
                     _string_list(memory_point.get("original_memories"))
                 ),
             )
-            result = self._judge_json(prompt)
+            # 每个被实际 judge 的 update point 一个 scope：真实 conversation +
+            # 含 metric + session id + gold index 的稳定 evaluator-unit id。
+            conversation_id = session_label.get("conversation_id")
+            with sink.unit_scope(
+                conversation_id,
+                _update_scope_unit_id(self.metric_name, session_id, gold_memory_index),
+            ):
+                result = self._judge_json(prompt)
             update_type = result.get("evaluation_result")
             score_records.append(
                 {
                     "record_kind": "memory_update",
                     "session_id": session_id,
-                    "gold_memory_index": update_record.get("gold_memory_index"),
+                    "gold_memory_index": gold_memory_index,
                     "metric_name": self.metric_name,
                     "score": 1.0 if update_type == "Correct" else 0.0,
                     "memory_update_type": update_type,
@@ -100,25 +108,45 @@ class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
                 count_name="update_memory",
             )
         }
-        return {
-            "metric_name": self.metric_name,
-            "score_records": score_records,
-            "total_questions": len(score_records),
-            "mean_score": safe_div(
-                sum(float(record["score"]) for record in score_records),
-                len(score_records),
-            ) or 0.0,
-            "correct_count": sum(
-                1 for record in score_records if record.get("memory_update_type") == "Correct"
-            ),
-            "summary": {
-                "overall_score": overall,
-                "category_breakdown": _memory_type_breakdown(score_records),
-                "skipped_empty_retrieval_count": skipped_empty_retrieval_count,
-                "official_source": self.official_source,
-                "profile_note": self.profile_note,
+        return self._finalize_artifact_payload(
+            {
+                "metric_name": self.metric_name,
+                "score_records": score_records,
+                "total_questions": len(score_records),
+                "mean_score": safe_div(
+                    sum(float(record["score"]) for record in score_records),
+                    len(score_records),
+                ) or 0.0,
+                "correct_count": sum(
+                    1
+                    for record in score_records
+                    if record.get("memory_update_type") == "Correct"
+                ),
+                "summary": {
+                    "overall_score": overall,
+                    "category_breakdown": _memory_type_breakdown(score_records),
+                    "skipped_empty_retrieval_count": skipped_empty_retrieval_count,
+                    "official_source": self.official_source,
+                    "profile_note": self.profile_note,
+                },
             },
-        }
+            sink,
+        )
+
+
+def _update_scope_unit_id(
+    metric_name: str,
+    session_id: str,
+    gold_memory_index: Any,
+) -> str:
+    """构造 update efficiency scope 的稳定 evaluator-unit id。
+
+    update 官方评测按 (session, gold memory index) 定位被 judge 的更新点，没有公开 QA id；
+    这里用 `<metric>:<session_id>:<gold_index>` 作为无碰撞的 evaluator-unit 标识，只用于
+    efficiency observation 归属，绝不是公开 QA id，也不写回 score/summary artifact。
+    """
+
+    return f"{metric_name}:{session_id}:{gold_memory_index}"
 
 
 def _string_list(value: Any) -> list[str]:

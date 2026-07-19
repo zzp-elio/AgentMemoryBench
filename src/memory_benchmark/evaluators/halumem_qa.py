@@ -46,6 +46,7 @@ class HalumemQAEvaluator(HalumemJudgeEvaluatorBase):
                 "evaluator_private_labels",
             )
         )
+        sink = self._new_efficiency_observation_sink()
         score_records: list[dict[str, Any]] = []
         for question_id in public_by_id:
             if question_id not in prediction_by_id:
@@ -61,13 +62,16 @@ class HalumemQAEvaluator(HalumemJudgeEvaluatorBase):
                 key_memory_points="\n".join(_string_list(private_record.get("evidence"))),
                 response=prediction_record.get("answer", ""),
             )
-            result = self._judge_json(prompt)
+            conversation_id = public_record.get("conversation_id")
+            # 每个公开 QA 问题一个真实 conversation/question scope，覆盖其单次 judge 调用。
+            with sink.unit_scope(conversation_id, question_id):
+                result = self._judge_json(prompt)
             result_type = result.get("evaluation_result")
             score_records.append(
                 {
                     "record_kind": "question_answering",
                     "question_id": question_id,
-                    "conversation_id": public_record.get("conversation_id"),
+                    "conversation_id": conversation_id,
                     "metric_name": self.metric_name,
                     "score": 1.0 if result_type == "Correct" else 0.0,
                     "result_type": result_type,
@@ -85,30 +89,35 @@ class HalumemQAEvaluator(HalumemJudgeEvaluatorBase):
                 count_name="qa",
             )
         }
-        return {
-            "metric_name": self.metric_name,
-            "score_records": score_records,
-            "total_questions": len(score_records),
-            "mean_score": safe_div(
-                sum(float(record["score"]) for record in score_records),
-                len(score_records),
-            ) or 0.0,
-            "correct_count": sum(
-                1 for record in score_records if record.get("result_type") == "Correct"
-            ),
-            "summary": {
-                "overall_score": overall,
-                "category_breakdown": grouped_mean(
-                    score_records,
-                    category_field="question_type",
-                    score_field="score",
-                    output_score_name="correct_qa_ratio",
-                    output_count_name="question_count",
+        return self._finalize_artifact_payload(
+            {
+                "metric_name": self.metric_name,
+                "score_records": score_records,
+                "total_questions": len(score_records),
+                "mean_score": safe_div(
+                    sum(float(record["score"]) for record in score_records),
+                    len(score_records),
+                ) or 0.0,
+                "correct_count": sum(
+                    1
+                    for record in score_records
+                    if record.get("result_type") == "Correct"
                 ),
-                "official_source": self.official_source,
-                "profile_note": self.profile_note,
+                "summary": {
+                    "overall_score": overall,
+                    "category_breakdown": grouped_mean(
+                        score_records,
+                        category_field="question_type",
+                        score_field="score",
+                        output_score_name="correct_qa_ratio",
+                        output_count_name="question_count",
+                    ),
+                    "official_source": self.official_source,
+                    "profile_note": self.profile_note,
+                },
             },
-        }
+            sink,
+        )
 
 
 def _index_by_question_id(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

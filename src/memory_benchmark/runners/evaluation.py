@@ -35,6 +35,10 @@ from memory_benchmark.runners.conversation_qa import BaseAnswerEvaluator
 from memory_benchmark.storage import ExperimentPaths, atomic_write_json, atomic_write_jsonl, read_jsonl
 
 
+# 哨兵：区分 artifact evaluator 完全未声明 `efficiency_observations` 与显式返回空序列。
+_MISSING_EFFICIENCY_OBSERVATIONS = object()
+
+
 @dataclass(frozen=True)
 class EvaluationRunSummary:
     """一次 artifact-only 评测的机器可读摘要。"""
@@ -234,7 +238,26 @@ def _run_artifact_level_evaluation(
     evaluator: BaseAnswerEvaluator,
     max_workers: int,
 ) -> EvaluationRunSummary:
-    """运行自带 artifact 聚合逻辑的 evaluator。"""
+    """运行自带 artifact 聚合逻辑的 evaluator，并复用普通路径的效率观测契约。
+
+    与普通逐题路径一致：调用 evaluator 之前解析/注入 collector；启用时校验 run_id 并取得
+    强类型 model inventory。声明 efficiency support 且 collector enabled 的 evaluator 必须在
+    payload 里显式返回 runner-internal 的 `efficiency_observations`（哪怕本次零真实调用而值
+    为空），runner 严格校验元素类型后写入 evaluator 专属 store；该字段不进 score/summary。
+    未声明 support 的离线 artifact evaluator（collector 为 None）行为与现状字节级一致。
+    """
+
+    efficiency_collector = _resolve_evaluator_efficiency_collector(evaluator, run_id)
+    collector_enabled = (
+        efficiency_collector is not None and efficiency_collector.enabled
+    )
+    model_inventory: tuple[ModelDescriptor, ...] = ()
+    if collector_enabled:
+        if efficiency_collector.run_id != run_id:
+            raise ConfigurationError(
+                "Evaluator EfficiencyCollector run_id must match manifest run_id"
+            )
+        model_inventory = _get_evaluator_model_inventory(evaluator)
 
     payload = evaluator.evaluate_run_artifacts(
         paths=paths,
@@ -243,6 +266,10 @@ def _run_artifact_level_evaluation(
     )
     if not isinstance(payload, dict):
         raise ConfigurationError("artifact-level evaluator must return a dict")
+    efficiency_observations = _extract_artifact_efficiency_observations(
+        payload,
+        collector_enabled=collector_enabled,
+    )
     metric_name = _require_non_empty_string(
         payload.get("metric_name"),
         "artifact evaluator metric_name",
@@ -283,9 +310,49 @@ def _run_artifact_level_evaluation(
     if not isinstance(extra_summary, dict):
         raise ConfigurationError("artifact evaluator summary must be a JSON object")
     summary_dict.update(extra_summary)
+    if collector_enabled:
+        efficiency_store = EfficiencyArtifactStore.for_evaluator(paths, metric_name)
+        efficiency_store.write_model_inventory(model_inventory)
+        efficiency_store.merge_observations(efficiency_observations)
     atomic_write_jsonl(score_path, score_records)
     atomic_write_json(summary_path, summary_dict)
     return summary
+
+
+def _extract_artifact_efficiency_observations(
+    payload: dict[str, Any],
+    *,
+    collector_enabled: bool,
+) -> list[EfficiencyObservation]:
+    """从 artifact evaluator payload 中取出并校验 runner-internal 效率 observation。
+
+    该字段仅供 runner 内部消费，因此无论 collector 是否启用都从 payload 中剥离，避免泄漏进
+    score/summary。collector 启用时必须显式存在且为 `list/tuple[EfficiencyObservation]`，
+    缺字段、非序列或含非 observation 元素一律 fail-fast，不得静默当作零调用；collector 未启用
+    时忽略该字段并返回空列表。
+    """
+
+    raw = payload.pop("efficiency_observations", _MISSING_EFFICIENCY_OBSERVATIONS)
+    if not collector_enabled:
+        return []
+    if raw is _MISSING_EFFICIENCY_OBSERVATIONS:
+        raise ConfigurationError(
+            "artifact evaluator with enabled efficiency collector must return "
+            "efficiency_observations"
+        )
+    if not isinstance(raw, (list, tuple)):
+        raise ConfigurationError(
+            "artifact evaluator efficiency_observations must be a list or tuple"
+        )
+    observations: list[EfficiencyObservation] = []
+    for observation in raw:
+        if not isinstance(observation, EfficiencyObservation):
+            raise ConfigurationError(
+                "artifact evaluator efficiency_observations must contain only "
+                "EfficiencyObservation instances"
+            )
+        observations.append(observation)
+    return observations
 
 
 def _evaluate_questions(

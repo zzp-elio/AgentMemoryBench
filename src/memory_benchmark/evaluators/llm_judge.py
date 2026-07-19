@@ -7,19 +7,77 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
 from memory_benchmark.config import load_settings
 from memory_benchmark.core import AnswerResult, GoldAnswerInfo, MetricResult, Question
 from memory_benchmark.core.exceptions import ConfigurationError, JudgeOutputError
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
+    EfficiencyObservation,
     EfficiencyStage,
     MeasurementSource,
     ModelDescriptor,
     resolve_token_usage,
 )
+
+
+class EvaluatorEfficiencyObservationSink:
+    """artifact-level judge evaluator 在真实评测单元作用域内累积 efficiency observation。
+
+    普通逐题 runner 由自己建立 judge scope 并回收 observation；artifact-level
+    evaluator 因为在自己的循环里才知道真实 conversation/question 身份，需要在该循环内
+    用 `unit_scope()` 包裹每个真实评测单元。scope 正常退出后其 records 折入本 sink，最终
+    由 evaluator 通过 payload 的 runner-internal `efficiency_observations` 字段回传给
+    runner 落盘。collector 为 None 或 disabled 时所有方法为空操作、不建立 scope、不产生
+    observation，从而保证离线/禁用路径行为不变。
+    """
+
+    def __init__(self, collector: EfficiencyCollector | None) -> None:
+        """绑定 runner 注入的 collector，并初始化累积缓冲。"""
+
+        self._collector = collector
+        self._records: list[EfficiencyObservation] = []
+
+    @property
+    def enabled(self) -> bool:
+        """仅当 collector 存在且启用时才建立 scope 与累积 observation。"""
+
+        return self._collector is not None and self._collector.enabled
+
+    @contextmanager
+    def unit_scope(
+        self,
+        conversation_id: str | None,
+        question_id: str | None,
+    ) -> Iterator[None]:
+        """为一个真实评测单元建立 judge scope，退出后把其 observation 折入 sink。
+
+        collector 未启用时直接透传，不建立 scope，也不校验标识；启用时要求
+        conversation_id/question_id 为非空字符串，覆盖该单元内的全部 judge LLM 调用。
+        """
+
+        if not self.enabled:
+            yield
+            return
+        if not isinstance(conversation_id, str) or not conversation_id.strip():
+            raise ConfigurationError(
+                "efficiency judge scope requires a non-empty conversation_id"
+            )
+        if not isinstance(question_id, str) or not question_id.strip():
+            raise ConfigurationError(
+                "efficiency judge scope requires a non-empty question_id"
+            )
+        with self._collector.judge_scope(conversation_id, question_id) as scope:
+            yield
+        self._records.extend(scope.records)
+
+    def observations(self) -> list[EfficiencyObservation]:
+        """返回按建立顺序累积的全部 judge LLM observation 副本。"""
+
+        return list(self._records)
 
 
 @dataclass(frozen=True)
@@ -180,6 +238,26 @@ class LLMJudgeEvaluator:
             },
         )
 
+    def _new_efficiency_observation_sink(self) -> EvaluatorEfficiencyObservationSink:
+        """为 artifact-level judge 创建绑定当前 collector 的 observation sink。"""
+
+        return EvaluatorEfficiencyObservationSink(self.efficiency_collector)
+
+    def _finalize_artifact_payload(
+        self,
+        payload: dict[str, Any],
+        sink: EvaluatorEfficiencyObservationSink,
+    ) -> dict[str, Any]:
+        """collector 启用时把累积 observation 折入 runner-internal 字段后返回 payload。
+
+        `efficiency_observations` 仅供 runner 内部消费，禁止出现在 score row / summary /
+        CLI 摘要。collector 未启用时不添加该字段，离线行为字节级不变。
+        """
+
+        if sink.enabled:
+            payload["efficiency_observations"] = sink.observations()
+        return payload
+
     def efficiency_model_inventory(self) -> tuple[ModelDescriptor, ...]:
         """返回 judge evaluator 会写入 observation 的模型身份。"""
 
@@ -246,13 +324,33 @@ class LLMJudgeEvaluator:
         return self._call_model_with_usage(prompt).text
 
     def _call_model_with_usage(self, prompt: str) -> JudgeModelResponse:
-        """调用 LLM judge，并解析文本和 token usage。"""
+        """以字符串 prompt 调用 LLM judge，并解析文本和 token usage。"""
+
+        return self._invoke_judge_model(
+            api_input=prompt,
+            tokenizer_prompt_text=prompt,
+        )
+
+    def _invoke_judge_model(
+        self,
+        *,
+        api_input: Any,
+        tokenizer_prompt_text: str,
+    ) -> JudgeModelResponse:
+        """以给定 API input 调用 judge 模型并解析 token usage。
+
+        `api_input` 原样传给 Responses API（可为字符串 prompt，也可为官方 role-tagged
+        messages），绝不改写，因此不会破坏任何官方 prompt 字节；`tokenizer_prompt_text`
+        只在 API usage 缺失时供 tokenizer 回退估算，不影响真实请求内容。本方法只负责计量，
+        不记录 observation，由调用方在 judge scope 内自行调用 `_record_judge_llm_call`，
+        保证每次真实调用恰好计一次、不因外壳叠套而双计。
+        """
 
         client = self._get_client()
         model = self.model or self._get_settings().openai.model
         response = client.responses.create(
             model=model,
-            input=prompt,
+            input=api_input,
             temperature=0,
         )
         text = _extract_response_text(response)
@@ -260,7 +358,7 @@ class LLMJudgeEvaluator:
         usage = resolve_token_usage(
             api_input_tokens=input_tokens,
             api_output_tokens=output_tokens,
-            prompt_text=prompt,
+            prompt_text=tokenizer_prompt_text,
             output_text=text,
             tokenizer=_TiktokenCounter(model),
         )

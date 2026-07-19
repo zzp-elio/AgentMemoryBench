@@ -43,6 +43,7 @@ class HalumemExtractionEvaluator(HalumemJudgeEvaluatorBase):
     ) -> dict[str, Any]:
         """读取 operation-level artifacts 并计算 extraction 指标。"""
 
+        sink = self._new_efficiency_observation_sink()
         session_labels = read_session_labels(paths)
         labels_by_session = index_session_labels(session_labels)
         session_reports = read_required_jsonl(
@@ -62,12 +63,15 @@ class HalumemExtractionEvaluator(HalumemJudgeEvaluatorBase):
             report for report in session_reports if report.get("status") == "ok"
         ]
         if not evaluable_reports:
-            return _extraction_payload(
-                score_records=[],
-                integrity_records=[],
-                accuracy_records=[],
-                routed_update_count=0,
-                status="n/a",
+            return self._finalize_artifact_payload(
+                _extraction_payload(
+                    score_records=[],
+                    integrity_records=[],
+                    accuracy_records=[],
+                    routed_update_count=0,
+                    status="n/a",
+                ),
+                sink,
             )
 
         for report in evaluable_reports:
@@ -78,37 +82,48 @@ class HalumemExtractionEvaluator(HalumemJudgeEvaluatorBase):
             extracted_memories = _string_list(report.get("memories"))
             extracted_memories_str = "\n".join(extracted_memories)
             memory_points = _memory_points(session_label)
-            for memory_point in memory_points:
-                key = (session_id, memory_point.get("index"))
-                if memory_point.get("is_update") == "True" and key in update_memory_keys:
-                    routed_update_count += 1
-                    continue
-                integrity_record = self._evaluate_integrity(
-                    session_id=session_id,
-                    extracted_memories_str=extracted_memories_str,
-                    memory_point=memory_point,
-                )
-                integrity_records.append(integrity_record)
-                score_records.append(integrity_record)
+            # 每个 session 一个 judge scope：conversation 用 session 私有标签的真实
+            # conversation_id，unit id 是含 metric + session id 的稳定 evaluator-unit id
+            # （非公开 QA id，见实现 note），覆盖该 session 的全部 integrity/accuracy 调用。
+            conversation_id = session_label.get("conversation_id")
+            with sink.unit_scope(
+                conversation_id,
+                _extraction_scope_unit_id(self.metric_name, session_id),
+            ):
+                for memory_point in memory_points:
+                    key = (session_id, memory_point.get("index"))
+                    if memory_point.get("is_update") == "True" and key in update_memory_keys:
+                        routed_update_count += 1
+                        continue
+                    integrity_record = self._evaluate_integrity(
+                        session_id=session_id,
+                        extracted_memories_str=extracted_memories_str,
+                        memory_point=memory_point,
+                    )
+                    integrity_records.append(integrity_record)
+                    score_records.append(integrity_record)
 
-            dialogue_str = build_halumem_dialogue_str(session_label)
-            golden_memories_str = build_halumem_golden_memories_str(session_label)
-            for candidate_memory in extracted_memories:
-                accuracy_record = self._evaluate_accuracy(
-                    session_id=session_id,
-                    dialogue_str=dialogue_str,
-                    golden_memories_str=golden_memories_str,
-                    candidate_memory=candidate_memory,
-                )
-                accuracy_records.append(accuracy_record)
-                score_records.append(accuracy_record)
+                dialogue_str = build_halumem_dialogue_str(session_label)
+                golden_memories_str = build_halumem_golden_memories_str(session_label)
+                for candidate_memory in extracted_memories:
+                    accuracy_record = self._evaluate_accuracy(
+                        session_id=session_id,
+                        dialogue_str=dialogue_str,
+                        golden_memories_str=golden_memories_str,
+                        candidate_memory=candidate_memory,
+                    )
+                    accuracy_records.append(accuracy_record)
+                    score_records.append(accuracy_record)
 
-        return _extraction_payload(
-            score_records=score_records,
-            integrity_records=integrity_records,
-            accuracy_records=accuracy_records,
-            routed_update_count=routed_update_count,
-            status="ok",
+        return self._finalize_artifact_payload(
+            _extraction_payload(
+                score_records=score_records,
+                integrity_records=integrity_records,
+                accuracy_records=accuracy_records,
+                routed_update_count=routed_update_count,
+                status="ok",
+            ),
+            sink,
         )
 
     def _evaluate_integrity(
@@ -173,6 +188,17 @@ class HalumemExtractionEvaluator(HalumemJudgeEvaluatorBase):
             "is_included_in_golden_memories": included,
             "raw_judge_response": result,
         }
+
+
+def _extraction_scope_unit_id(metric_name: str, session_id: str) -> str:
+    """构造 extraction efficiency scope 的稳定 evaluator-unit id。
+
+    extraction 官方评测按 session 而非公开 QA 遍历，因此没有天然公开 question id；这里用
+    `<metric>:<session_id>` 作为无碰撞的 evaluator-unit 标识，只用于 efficiency observation
+    归属，绝不是公开 QA id，也不会写回任何 score/summary artifact。
+    """
+
+    return f"{metric_name}:{session_id}"
 
 
 def _extraction_payload(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -15,13 +16,15 @@ from memory_benchmark.evaluators.beam_rubric_judge import (
     BEAM_JUDGE_PROMPT,
     BeamRubricJudgeEvaluator,
     _build_evaluation_payload,
+    _equivalence_messages,
     _extract_ability,
     _extract_rubric,
     _index_by_question_id,
     _parse_judge_json,
 )
 from memory_benchmark.core.exceptions import JudgeOutputError
-from memory_benchmark.storage import ExperimentPaths
+from memory_benchmark.runners.evaluation import run_artifact_evaluation
+from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 
 # ---------------------------------------------------------------------------
@@ -517,3 +520,183 @@ def _run_mini_evaluation(
             manifest={"benchmark": "beam"},
         )
     return result["score_records"]
+
+
+# ---------------------------------------------------------------------------
+# T3.8 evaluator efficiency observation（经 runner 的真实 Responses 计量路径）
+# ---------------------------------------------------------------------------
+
+
+class _FakeBeamResponsesClient:
+    """经 Responses API 返回 rubric JSON / 判等文本的 fake client，记录调用与 usage。
+
+    string input 视为 rubric 打分（返回固定 score JSON），list input 视为官方判等消息
+    （返回 YES），并附带 Responses API usage，锁定真实计量路径而非伪造 token。
+    """
+
+    def __init__(self, *, score: float, input_tokens: int, output_tokens: int) -> None:
+        """保存固定 rubric 分数与 usage token。"""
+
+        self._score = score
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
+        self.calls: list[dict[str, Any]] = []
+        self.responses = SimpleNamespace(create=self._create)
+
+    def _create(self, *, model: str, input: Any, temperature: float) -> object:
+        """记录本次调用并按 input 类型返回对应 judge 响应与 usage。"""
+
+        self.calls.append({"model": model, "input": input, "temperature": temperature})
+        if isinstance(input, list):
+            text = "YES"
+        else:
+            text = json.dumps({"score": self._score, "reason": "ok"})
+        return SimpleNamespace(
+            output_text=text,
+            usage=SimpleNamespace(
+                input_tokens=self._input_tokens,
+                output_tokens=self._output_tokens,
+            ),
+        )
+
+
+def _write_beam_run_dir(
+    tmp_path: Path,
+    *,
+    questions: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+    private_labels: list[dict[str, Any]],
+    run_id: str = "beam-eval-test",
+) -> Path:
+    """写出带 manifest 的 BEAM run 目录，供 run_artifact_evaluation 使用。"""
+
+    run_dir = tmp_path / "beam-run"
+    artifacts_dir = run_dir / "artifacts"
+    _write_artifacts(
+        artifacts_dir,
+        questions=questions,
+        predictions=predictions,
+        private_labels=private_labels,
+    )
+    (run_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "runner": "generic_conversation_qa_prediction",
+                "run_id": run_id,
+                "benchmark_name": "BEAM",
+                "method_name": "fake-method",
+                "model_name": "fake-model",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return run_dir
+
+
+def test_beam_rubric_two_items_record_two_distinct_observations_same_question(
+    tmp_path: Path,
+) -> None:
+    """两条 rubric item 在同一真实 question 下落两条不同 observation id；分数不变。"""
+
+    question_id = "1:abstention:q1"
+    run_dir = _write_beam_run_dir(
+        tmp_path,
+        questions=[_make_question_record(question_id, "q?", category="abstention")],
+        predictions=[_make_prediction_record(question_id, "answer")],
+        private_labels=[
+            _make_private_label(
+                question_id, rubric=["item 1", "item 2"], ability="abstention"
+            )
+        ],
+    )
+    client = _FakeBeamResponsesClient(score=0.5, input_tokens=40, output_tokens=3)
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=BeamRubricJudgeEvaluator(
+            mode="compact", model="gpt-4o-mini", client=client
+        ),
+        expected_benchmark="BEAM",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    observations = read_jsonl(
+        paths.evaluator_efficiency_observations_path("beam_rubric_judge")
+    )
+    scores = read_jsonl(Path(summary.score_path))
+
+    assert len(client.calls) == 2
+    assert len(observations) == 2
+    assert len({observation["observation_id"] for observation in observations}) == 2
+    for observation in observations:
+        assert observation["observation_type"] == "llm_call"
+        assert observation["stage"] == "judge"
+        assert observation["model_id"] == "judge-llm"
+        assert observation["conversation_id"] == "1"
+        assert observation["question_id"] == question_id
+        assert observation["input_tokens"] == 40
+        assert observation["output_tokens"] == 3
+        assert observation["token_measurement_source"] == "api_usage"
+    # 分数与官方 int 对照分不因效率观测而变化。
+    assert scores[0]["score"] == pytest.approx(0.5)
+    assert scores[0]["llm_judge_score_official_int"] == 0.0
+
+
+def test_beam_event_ordering_equivalence_records_usage_without_double_count(
+    tmp_path: Path,
+) -> None:
+    """event-ordering 判等真实分支额外落 usage observation，messages 字节不变且不双计。"""
+
+    question_id = "1:event_ordering:q1"
+    run_dir = _write_beam_run_dir(
+        tmp_path,
+        questions=[_make_question_record(question_id, "order?", category="event_ordering")],
+        predictions=[_make_prediction_record(question_id, "event A\nevent B")],
+        private_labels=[
+            _make_private_label(
+                question_id, rubric=["event A", "event B"], ability="event_ordering"
+            )
+        ],
+    )
+    client = _FakeBeamResponsesClient(score=1.0, input_tokens=12, output_tokens=1)
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=BeamRubricJudgeEvaluator(
+            mode="compact", model="gpt-4o-mini", client=client
+        ),
+        expected_benchmark="BEAM",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    observations = read_jsonl(
+        paths.evaluator_efficiency_observations_path("beam_rubric_judge")
+    )
+    scores = read_jsonl(Path(summary.score_path))
+
+    # 2 条 rubric + 2 次判等 = 4 次真实调用；observation 数恰好等于调用数（不双计）。
+    assert len(client.calls) == 4
+    assert len(observations) == 4
+    assert len({observation["observation_id"] for observation in observations}) == 4
+    for observation in observations:
+        assert observation["stage"] == "judge"
+        assert observation["model_id"] == "judge-llm"
+        assert observation["conversation_id"] == "1"
+        assert observation["question_id"] == question_id
+        assert observation["token_measurement_source"] == "api_usage"
+
+    # 判等分支原样发送官方 role-tagged messages，逐字不变。
+    equivalence_inputs = [
+        call["input"] for call in client.calls if isinstance(call["input"], list)
+    ]
+    assert equivalence_inputs == [
+        _equivalence_messages("event A", "event A"),
+        _equivalence_messages("event B", "event B"),
+    ]
+    assert equivalence_inputs[0][0] == dict(BEAM_EQUIVALENCE_MESSAGES[0])
+
+    # 完美对齐时分数与 composite 保持不变。
+    assert scores[0]["score"] == pytest.approx(1.0)
+    assert scores[0]["details"]["event_ordering_composite_score"] == 1.0

@@ -45,7 +45,9 @@ from memory_benchmark.benchmark_adapters import (
 )
 from memory_benchmark.cli.run_prediction import PredictionBatchResult
 from memory_benchmark.evaluators import LoCoMoF1Evaluator
+from memory_benchmark.evaluators.llm_judge import LLMJudgeEvaluator
 from memory_benchmark.evaluators.longmemeval_judge import LongMemEvalJudgeEvaluator
+from memory_benchmark.observability.efficiency import EfficiencyCollector
 from memory_benchmark.evaluators.membench_choice_accuracy import (
     MemBenchChoiceAccuracyEvaluator,
 )
@@ -1533,6 +1535,106 @@ def test_artifact_evaluator_invalid_mean_score_fails_fast(
             evaluator=_FixedPayloadArtifactEvaluator(payload),
             expected_benchmark="locomo",
         )
+
+
+class _SupportDeclaringArtifactEvaluator(LLMJudgeEvaluator):
+    """声明 efficiency support 的固定 payload artifact evaluator。
+
+    仅用于验证 runner 对 `efficiency_observations` 内部字段的契约反例（缺字段、错误
+    类型、错误元素、disabled collector）；不构造真实 provider、不做真实 judge 调用。
+    """
+
+    metric_name = "support_declaring_metric"
+    benchmark_name = "locomo"
+
+    def __init__(self, payload: dict[str, object], **kwargs: object) -> None:
+        """保存固定 payload。"""
+
+        super().__init__(**kwargs)
+        self._payload = payload
+
+    def evaluate_run_artifacts(
+        self, *, paths: object, manifest: dict[str, object], max_workers: int = 1
+    ) -> dict[str, object]:
+        """忽略输入，直接返回构造时固定的 payload 拷贝。"""
+
+        del paths, manifest, max_workers
+        return dict(self._payload)
+
+
+@pytest.mark.parametrize(
+    ("efficiency_payload_extra", "error_text"),
+    [
+        ({}, "must return efficiency_observations"),
+        ({"efficiency_observations": {}}, "must be a list or tuple"),
+        (
+            {"efficiency_observations": ["not-an-observation"]},
+            "must contain only EfficiencyObservation",
+        ),
+    ],
+)
+def test_support_artifact_evaluator_efficiency_field_contract_fails_fast(
+    tmp_path: Path,
+    efficiency_payload_extra: dict[str, object],
+    error_text: str,
+) -> None:
+    """support evaluator 缺字段、字段类型错误、元素类型错误时 runner 必须 fail-fast。"""
+
+    run_dir = _build_run_dir(tmp_path)
+    _write_manifest(run_dir, benchmark_name="locomo")
+    payload = {
+        "metric_name": "support_declaring_metric",
+        "score_records": [],
+        "total_questions": 0,
+        "mean_score": 0.0,
+        "correct_count": None,
+        "summary": {},
+        **efficiency_payload_extra,
+    }
+
+    with pytest.raises(ConfigurationError, match=error_text):
+        run_artifact_evaluation(
+            run_dir=run_dir,
+            evaluator=_SupportDeclaringArtifactEvaluator(payload, model="gpt-4o-mini"),
+            expected_benchmark="locomo",
+        )
+
+
+def test_disabled_collector_writes_no_artifact_efficiency_files(
+    tmp_path: Path,
+) -> None:
+    """显式 disabled collector 的 support evaluator 不得写 model inventory 或 observation。"""
+
+    run_dir = _build_run_dir(tmp_path)
+    _write_manifest(run_dir, benchmark_name="locomo")
+    payload = {
+        "metric_name": "support_declaring_metric",
+        "score_records": [{"question_id": "q1", "score": 1.0}],
+        "total_questions": 1,
+        "mean_score": 1.0,
+        "correct_count": None,
+        "summary": {},
+    }
+    evaluator = _SupportDeclaringArtifactEvaluator(
+        payload,
+        model="gpt-4o-mini",
+        efficiency_collector=EfficiencyCollector(run_id="unit-run", enabled=False),
+    )
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=evaluator,
+        expected_benchmark="locomo",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    assert summary.mean_score == 1.0
+    assert not paths.evaluator_model_inventory_path(
+        "support_declaring_metric"
+    ).exists()
+    assert not paths.evaluator_efficiency_observations_path(
+        "support_declaring_metric"
+    ).exists()
 
 
 def _build_run_dir(tmp_path: Path) -> Path:

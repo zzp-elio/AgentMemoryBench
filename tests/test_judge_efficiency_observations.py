@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from memory_benchmark.evaluators import LoCoMoF1Evaluator, LoCoMoJudgeEvaluator
+from memory_benchmark.evaluators.llm_judge import LLMJudgeEvaluator
 from memory_benchmark.observability.efficiency import EfficiencyCollector
 from memory_benchmark.runners.evaluation import run_artifact_evaluation
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
@@ -98,6 +99,179 @@ def test_actual_llm_judge_records_model_inventory_and_token_usage(
     assert observations[0]["token_measurement_source"] == "api_usage"
     assert observations[0]["conversation_id"] == "conv-1"
     assert observations[0]["question_id"] == "conv-1:q1"
+
+
+class _MinimalArtifactJudgeEvaluator(LLMJudgeEvaluator):
+    """最小 artifact-level judge evaluator：在真实评测单元 scope 内做一次 judge 调用。
+
+    用于隔离验证 runner 的 artifact-level 效率观测契约：collector 启用时写出 metric 专属
+    model inventory 与恰好一条 judge LLM observation，且内部 `efficiency_observations`
+    字段不泄漏进 score/summary。
+    """
+
+    metric_name = "minimal_artifact_judge"
+    benchmark_name = "locomo"
+
+    def __init__(self, *, conversation_id: str, question_id: str, **kwargs: object) -> None:
+        """记录本 evaluator 会把 observation 归属到的真实 conversation/question 身份。"""
+
+        super().__init__(**kwargs)
+        self._conversation_id = conversation_id
+        self._question_id = question_id
+
+    def evaluate_run_artifacts(
+        self, *, paths: object, manifest: dict[str, object], max_workers: int = 1
+    ) -> dict[str, object]:
+        """在一个真实单元 scope 内做一次 judge 调用并把 observation 回传给 runner。"""
+
+        del paths, manifest, max_workers
+        sink = self._new_efficiency_observation_sink()
+        with sink.unit_scope(self._conversation_id, self._question_id):
+            model_response = self._call_model_with_usage("judge this prediction")
+            self._record_judge_llm_call(model_response)
+        payload = {
+            "metric_name": self.metric_name,
+            "score_records": [
+                {
+                    "question_id": self._question_id,
+                    "conversation_id": self._conversation_id,
+                    "score": 1.0,
+                    "is_correct": True,
+                }
+            ],
+            "total_questions": 1,
+            "mean_score": 1.0,
+            "correct_count": 1,
+            "summary": {"status": "ok"},
+        }
+        return self._finalize_artifact_payload(payload, sink)
+
+
+class _OfflineArtifactEvaluator:
+    """离线 artifact-level evaluator：不声明 efficiency support，不建立任何 judge scope。"""
+
+    metric_name = "offline_artifact_metric"
+
+    def evaluate_run_artifacts(
+        self, *, paths: object, manifest: dict[str, object], max_workers: int = 1
+    ) -> dict[str, object]:
+        """返回固定 payload，绝不产生 judge inventory/observation。"""
+
+        del paths, manifest, max_workers
+        return {
+            "metric_name": self.metric_name,
+            "score_records": [
+                {"question_id": "conv-1:q1", "conversation_id": "conv-1", "score": 1.0}
+            ],
+            "total_questions": 1,
+            "mean_score": 1.0,
+            "correct_count": None,
+            "summary": {},
+        }
+
+
+def test_artifact_level_api_evaluator_writes_inventory_and_exact_observation(
+    tmp_path: Path,
+) -> None:
+    """artifact-level API evaluator 经 runner 后写 metric 专属 inventory 与一条精确 observation。"""
+
+    run_dir = _build_minimal_run_dir(tmp_path)
+    evaluator = _MinimalArtifactJudgeEvaluator(
+        mode="compact",
+        model="gpt-4o-mini",
+        client=_FakeResponsesClient(text="true", input_tokens=53, output_tokens=2),
+        conversation_id="conv-1",
+        question_id="conv-1:q1",
+    )
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=evaluator,
+        expected_benchmark="locomo",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    inventory = json.loads(
+        paths.evaluator_model_inventory_path(
+            "minimal_artifact_judge"
+        ).read_text(encoding="utf-8")
+    )
+    observations = read_jsonl(
+        paths.evaluator_efficiency_observations_path("minimal_artifact_judge")
+    )
+
+    assert summary.run_id == "unit-run"
+    assert summary.metric_name == "minimal_artifact_judge"
+    assert inventory == {
+        "schema_version": 1,
+        "models": [
+            {
+                "model_id": "judge-llm",
+                "model_name": "gpt-4o-mini",
+                "model_role": "judge_llm",
+                "execution_mode": "api",
+                "revision_or_path": None,
+                "embedding_dimension": None,
+                "tokenizer_name": "gpt-4o-mini",
+            }
+        ],
+    }
+    assert len(observations) == 1
+    observation = observations[0]
+    assert observation["observation_type"] == "llm_call"
+    assert observation["stage"] == "judge"
+    assert observation["model_id"] == "judge-llm"
+    assert observation["input_tokens"] == 53
+    assert observation["output_tokens"] == 2
+    assert observation["token_measurement_source"] == "api_usage"
+    assert observation["conversation_id"] == "conv-1"
+    assert observation["question_id"] == "conv-1:q1"
+
+
+def test_artifact_efficiency_observations_do_not_leak_into_score_or_summary(
+    tmp_path: Path,
+) -> None:
+    """内部 `efficiency_observations` 字段不得出现在 summary JSON 或 score row 中。"""
+
+    run_dir = _build_minimal_run_dir(tmp_path)
+    evaluator = _MinimalArtifactJudgeEvaluator(
+        mode="compact",
+        model="gpt-4o-mini",
+        client=_FakeResponsesClient(text="true", input_tokens=7, output_tokens=1),
+        conversation_id="conv-1",
+        question_id="conv-1:q1",
+    )
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=evaluator,
+        expected_benchmark="locomo",
+    )
+
+    summary_json = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+    score_rows = read_jsonl(Path(summary.score_path))
+    assert "efficiency_observations" not in summary_json
+    assert all("efficiency_observations" not in row for row in score_rows)
+
+
+def test_offline_artifact_evaluator_creates_no_empty_judge_efficiency_files(
+    tmp_path: Path,
+) -> None:
+    """不声明 support 的离线 artifact evaluator 不得生成空的 judge inventory/observation。"""
+
+    run_dir = _build_minimal_run_dir(tmp_path)
+
+    run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=_OfflineArtifactEvaluator(),
+        expected_benchmark="locomo",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    assert not paths.evaluator_model_inventory_path("offline_artifact_metric").exists()
+    assert not paths.evaluator_efficiency_observations_path(
+        "offline_artifact_metric"
+    ).exists()
 
 
 class _FakeResponsesClient:

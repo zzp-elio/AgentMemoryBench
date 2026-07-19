@@ -178,13 +178,13 @@ class BeamRubricJudgeEvaluator(LLMJudgeEvaluator):
             return "yes" in response.lower()
         # The project Responses API wrapper accepts role-tagged input messages. This is
         # the same judge dependency as rubric scoring, not a new API/model class.
-        client = self._get_client()
-        model = self.model or self._get_settings().openai.model
-        response = client.responses.create(model=model, input=messages, temperature=0)
-        text = getattr(response, "output_text", None)
-        if not isinstance(text, str):
-            raise JudgeOutputError("BEAM equivalence response does not contain output_text")
-        return "yes" in text.lower()
+        # 走与 rubric 相同的计量外壳：原始 messages 原样发送、恰好记一次 usage observation。
+        model_response = self._invoke_judge_model(
+            api_input=messages,
+            tokenizer_prompt_text=_equivalence_messages_text(messages),
+        )
+        self._record_judge_llm_call(model_response)
+        return "yes" in model_response.text.lower()
 
     def evaluate_run_artifacts(
         self,
@@ -208,6 +208,7 @@ class BeamRubricJudgeEvaluator(LLMJudgeEvaluator):
             )
         )
 
+        sink = self._new_efficiency_observation_sink()
         score_records: list[dict[str, Any]] = []
         for question_id in public_by_id:
             if question_id not in prediction_by_id:
@@ -229,46 +230,50 @@ class BeamRubricJudgeEvaluator(LLMJudgeEvaluator):
             if not rubric:
                 continue
 
-            # 逐条 rubric item 打分；float 主分与官方 int 对照分同时保留。
-            item_scores: list[dict[str, Any]] = []
-            total_score = 0.0
-            official_int_total = 0
-            for rubric_item in rubric:
-                # Official evaluate_* leaves <question> untouched and replaces only
-                # rubric/response (compute_metrics.py:347-349 and repeated call sites).
-                prompt = BEAM_JUDGE_PROMPT.replace(
-                    "<rubric_item>", str(rubric_item)
-                ).replace(
-                    "<llm_response>", prediction_text
-                )
-                result = self._judge_json(prompt)
-                item_score = float(result["score"])
-                item_scores.append(
-                    {
-                        "rubric_item": rubric_item,
-                        "score": item_score,
-                        "reason": result.get("reason", ""),
-                    }
-                )
-                total_score += item_score
-                official_int_total += int(item_score)
+            conversation_id = public_record.get("conversation_id")
+            # 同一真实公开问题的全部 rubric-item judge 与 event-ordering 判等调用共用一个
+            # judge scope，靠 collector 的 call index 区分，不拆成伪 question。
+            with sink.unit_scope(conversation_id, question_id):
+                # 逐条 rubric item 打分；float 主分与官方 int 对照分同时保留。
+                item_scores: list[dict[str, Any]] = []
+                total_score = 0.0
+                official_int_total = 0
+                for rubric_item in rubric:
+                    # Official evaluate_* leaves <question> untouched and replaces only
+                    # rubric/response (compute_metrics.py:347-349 and repeated call sites).
+                    prompt = BEAM_JUDGE_PROMPT.replace(
+                        "<rubric_item>", str(rubric_item)
+                    ).replace(
+                        "<llm_response>", prediction_text
+                    )
+                    result = self._judge_json(prompt)
+                    item_score = float(result["score"])
+                    item_scores.append(
+                        {
+                            "rubric_item": rubric_item,
+                            "score": item_score,
+                            "reason": result.get("reason", ""),
+                        }
+                    )
+                    total_score += item_score
+                    official_int_total += int(item_score)
 
-            llm_judge_score = total_score / len(rubric) if rubric else 0.0
-            official_int_score = official_int_total / len(rubric) if rubric else 0.0
+                llm_judge_score = total_score / len(rubric) if rubric else 0.0
+                official_int_score = official_int_total / len(rubric) if rubric else 0.0
 
-            event_details: dict[str, Any] = {}
-            if ability == "event_ordering":
-                event_details = _event_ordering_score(
-                    reference=list(map(str, rubric)),
-                    system=prediction_text.split("\n"),
-                    equivalent=self._judge_equivalence,
-                )
+                event_details: dict[str, Any] = {}
+                if ability == "event_ordering":
+                    event_details = _event_ordering_score(
+                        reference=list(map(str, rubric)),
+                        system=prediction_text.split("\n"),
+                        equivalent=self._judge_equivalence,
+                    )
 
             score_records.append(
                 {
                     "record_kind": "beam_rubric_judge",
                     "question_id": question_id,
-                    "conversation_id": public_record.get("conversation_id"),
+                    "conversation_id": conversation_id,
                     "metric_name": self.metric_name,
                     "score": llm_judge_score,
                     "llm_judge_score_official_int": official_int_score,
@@ -284,7 +289,10 @@ class BeamRubricJudgeEvaluator(LLMJudgeEvaluator):
                 }
             )
 
-        return _build_evaluation_payload(score_records)
+        return self._finalize_artifact_payload(
+            _build_evaluation_payload(score_records),
+            sink,
+        )
 
 
 def _extract_rubric(private_record: dict[str, Any]) -> list[Any]:
@@ -321,6 +329,18 @@ def _equivalence_messages(first: str, second: str) -> list[dict[str, str]]:
             .replace("<second_paragraph>", second),
         },
     ]
+
+
+def _equivalence_messages_text(messages: list[dict[str, str]]) -> str:
+    """把 role-tagged 判等 messages 确定性拼接为 tokenizer 回退估算文本。
+
+    仅在 API usage 缺失时用于 token 估算；不改变发送给 API 的原始 messages，也不改变
+    官方 equivalence prompt。拼接顺序与内容固定，便于测试逐字断言。
+    """
+
+    return "\n".join(
+        f"{message['role']}: {message['content']}" for message in messages
+    )
 
 
 def _event_ordering_score(

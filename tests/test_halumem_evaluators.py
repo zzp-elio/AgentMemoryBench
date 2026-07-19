@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -31,6 +32,7 @@ from memory_benchmark.evaluators.registry import (
 from memory_benchmark.runners.evaluation import run_artifact_evaluation
 from memory_benchmark.runners.operation_level import _evaluator_private_session_label_record
 from memory_benchmark.storage import (
+    ExperimentPaths,
     evaluator_private_label_record,
     public_question_record,
     read_jsonl,
@@ -90,7 +92,7 @@ def test_halumem_extraction_evaluator_matches_official_routing_and_aggregates(
     """extraction 聚合应锁死 update 互斥路由、0.5 因子、FMR 和 F1。"""
 
     run_dir = _build_halumem_run_dir(tmp_path)
-    evaluator = HalumemExtractionEvaluator(client=FakeHalumemJudgeClient())
+    evaluator = HalumemExtractionEvaluator(model="gpt-4o-mini", client=FakeHalumemJudgeClient())
 
     summary = run_artifact_evaluation(
         run_dir=run_dir,
@@ -143,12 +145,12 @@ def test_halumem_update_and_qa_evaluators_use_official_inputs_and_breakdowns(
 
     update_summary = run_artifact_evaluation(
         run_dir=run_dir,
-        evaluator=HalumemUpdateEvaluator(client=client),
+        evaluator=HalumemUpdateEvaluator(model="gpt-4o-mini", client=client),
         expected_benchmark="halumem",
     )
     qa_summary = run_artifact_evaluation(
         run_dir=run_dir,
-        evaluator=HalumemQAEvaluator(client=client),
+        evaluator=HalumemQAEvaluator(model="gpt-4o-mini", client=client),
         expected_benchmark="halumem",
     )
 
@@ -214,7 +216,7 @@ def test_halumem_extraction_na_summary_when_session_reports_are_na(
 
     summary = run_artifact_evaluation(
         run_dir=run_dir,
-        evaluator=HalumemExtractionEvaluator(client=client),
+        evaluator=HalumemExtractionEvaluator(model="gpt-4o-mini", client=client),
         expected_benchmark="halumem",
     )
     payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
@@ -250,13 +252,13 @@ def test_halumem_empty_denominators_are_none_with_explicit_counts(
     )
 
     extraction = run_artifact_evaluation(
-        run_dir, HalumemExtractionEvaluator(client=FakeHalumemJudgeClient()), "halumem"
+        run_dir, HalumemExtractionEvaluator(model="gpt-4o-mini", client=FakeHalumemJudgeClient()), "halumem"
     )
     update = run_artifact_evaluation(
-        run_dir, HalumemUpdateEvaluator(client=FakeHalumemJudgeClient()), "halumem"
+        run_dir, HalumemUpdateEvaluator(model="gpt-4o-mini", client=FakeHalumemJudgeClient()), "halumem"
     )
     qa = run_artifact_evaluation(
-        run_dir, HalumemQAEvaluator(client=FakeHalumemJudgeClient()), "halumem"
+        run_dir, HalumemQAEvaluator(model="gpt-4o-mini", client=FakeHalumemJudgeClient()), "halumem"
     )
     extraction_payload = json.loads(Path(extraction.summary_path).read_text())
     update_payload = json.loads(Path(update.summary_path).read_text())
@@ -277,8 +279,12 @@ def test_halumem_memory_type_uses_real_upstream_evaluator_artifacts(
 
     run_dir = _build_halumem_run_dir(tmp_path)
     client = FakeHalumemJudgeClient()
-    run_artifact_evaluation(run_dir, HalumemExtractionEvaluator(client=client), "halumem")
-    run_artifact_evaluation(run_dir, HalumemUpdateEvaluator(client=client), "halumem")
+    run_artifact_evaluation(
+        run_dir, HalumemExtractionEvaluator(model="gpt-4o-mini", client=client), "halumem"
+    )
+    run_artifact_evaluation(
+        run_dir, HalumemUpdateEvaluator(model="gpt-4o-mini", client=client), "halumem"
+    )
     summary = run_artifact_evaluation(
         run_dir, HalumemMemoryTypeEvaluator(), "halumem"
     )
@@ -370,7 +376,7 @@ def test_halumem_qa_breakdown_reports_all_six_official_question_types(
     _write_jsonl(artifacts / "method_predictions.jsonl", predictions)
 
     summary = run_artifact_evaluation(
-        run_dir, HalumemQAEvaluator(client=FakeHalumemJudgeClient()), "halumem"
+        run_dir, HalumemQAEvaluator(model="gpt-4o-mini", client=FakeHalumemJudgeClient()), "halumem"
     )
     payload = json.loads(Path(summary.summary_path).read_text())
     assert {item["category"] for item in payload["category_breakdown"]} == set(
@@ -648,7 +654,7 @@ def test_halumem_update_skips_empty_retrieval_per_official_routing(
     client = FakeHalumemJudgeClient()
     summary = run_artifact_evaluation(
         run_dir=run_dir,
-        evaluator=HalumemUpdateEvaluator(client=client),
+        evaluator=HalumemUpdateEvaluator(model="gpt-4o-mini", client=client),
         expected_benchmark="halumem",
     )
     payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
@@ -657,3 +663,262 @@ def test_halumem_update_skips_empty_retrieval_per_official_routing(
     assert ratios["update_memory_num"] == 0
     assert ratios["correct_update_memory_ratio(all)"] is None
     assert payload["skipped_empty_retrieval_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# evaluator efficiency observation（经 runner 的真实 Responses 计量路径）
+# ---------------------------------------------------------------------------
+
+
+class _FakeHalumemResponsesClient:
+    """经 Responses API 复用 FakeHalumemJudgeClient 路由，返回 judge JSON + usage。
+
+    string prompt 交给委托 client 做官方路由，再以 `output_text` + Responses usage 返回，
+    从而锁定真实计量路径（api_usage 来源），而非伪造 token 或走 fake `judge_json` 捷径。
+    """
+
+    def __init__(self, *, input_tokens: int, output_tokens: int) -> None:
+        """保存 usage token，并内建做路由的委托 client。"""
+
+        self._delegate = FakeHalumemJudgeClient()
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
+        self.calls: list[dict[str, Any]] = []
+        self.responses = SimpleNamespace(create=self._create)
+
+    @property
+    def prompts(self) -> list[str]:
+        """暴露委托 client 记录的 prompt 序列，便于路由断言。"""
+
+        return self._delegate.prompts
+
+    def _create(self, *, model: str, input: Any, temperature: float) -> object:
+        """按 prompt 路由生成 judge JSON 文本，并附带 Responses API usage。"""
+
+        self.calls.append({"model": model, "input": input, "temperature": temperature})
+        payload = self._delegate.judge_json(input)
+        return SimpleNamespace(
+            output_text=json.dumps(payload),
+            usage=SimpleNamespace(
+                input_tokens=self._input_tokens,
+                output_tokens=self._output_tokens,
+            ),
+        )
+
+
+def test_halumem_extraction_records_session_scoped_observations(tmp_path: Path) -> None:
+    """extraction 真实 Responses 路径按 session 归属 observation，聚合结果不变。"""
+
+    run_dir = _build_halumem_run_dir(tmp_path)
+    client = _FakeHalumemResponsesClient(input_tokens=30, output_tokens=4)
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=HalumemExtractionEvaluator(model="gpt-4o-mini", client=client),
+        expected_benchmark="halumem",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    observations = read_jsonl(
+        paths.evaluator_efficiency_observations_path("halumem_extraction")
+    )
+    payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+
+    # 2 条 integrity（routed update 被跳过）+ 2 条 accuracy = 4 次真实 judge 调用。
+    assert len(client.calls) == 4
+    assert len(observations) == 4
+    assert len({observation["observation_id"] for observation in observations}) == 4
+    for observation in observations:
+        assert observation["observation_type"] == "llm_call"
+        assert observation["stage"] == "judge"
+        assert observation["model_id"] == "judge-llm"
+        assert observation["conversation_id"] == "user-1"
+        assert observation["question_id"] == "halumem_extraction:s1"
+        assert observation["input_tokens"] == 30
+        assert observation["output_tokens"] == 4
+        assert observation["token_measurement_source"] == "api_usage"
+    # 聚合结果与 fake judge_json 路径一致。
+    assert payload["overall_score"]["memory_extraction_f1"] == pytest.approx(1.0)
+    assert payload["overall_score"]["memory_update_routed_num"] == 1
+
+
+def test_halumem_update_records_observation_with_scope_identity(tmp_path: Path) -> None:
+    """update 真实 Responses 路径按 (session, gold index) 归属 observation，聚合不变。"""
+
+    run_dir = _build_halumem_run_dir(tmp_path)
+    client = _FakeHalumemResponsesClient(input_tokens=22, output_tokens=2)
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=HalumemUpdateEvaluator(model="gpt-4o-mini", client=client),
+        expected_benchmark="halumem",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    observations = read_jsonl(
+        paths.evaluator_efficiency_observations_path("halumem_update")
+    )
+    payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+
+    assert len(client.calls) == 1
+    assert len(observations) == 1
+    observation = observations[0]
+    assert observation["stage"] == "judge"
+    assert observation["model_id"] == "judge-llm"
+    assert observation["conversation_id"] == "user-1"
+    assert observation["question_id"] == "halumem_update:s1:2"
+    assert observation["token_measurement_source"] == "api_usage"
+    assert (
+        payload["overall_score"]["memory_update"]["correct_update_memory_ratio(all)"]
+        == 1.0
+    )
+
+
+def test_halumem_update_empty_retrieval_creates_no_observation(tmp_path: Path) -> None:
+    """空检索的 update point 被官方路由跳过，不建立 scope、不产生 observation。"""
+
+    from memory_benchmark.core.provider_protocol import RetrievalResult, SessionRef
+    from memory_benchmark.runners.operation_level import _update_probe_record
+
+    run_dir = _build_halumem_run_dir(tmp_path)
+    empty_probe = _update_probe_record(
+        session_ref=SessionRef(isolation_key="run_user-1", session_id="s1"),
+        memory_point=_memory_points()[1],
+        retrieval=RetrievalResult(formatted_memory="no relevant memory found", items=()),
+        duration_ms=1.0,
+    )
+    _write_jsonl(run_dir / "artifacts" / "update_probe_results.jsonl", [empty_probe])
+    client = _FakeHalumemResponsesClient(input_tokens=22, output_tokens=2)
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=HalumemUpdateEvaluator(model="gpt-4o-mini", client=client),
+        expected_benchmark="halumem",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    observations = read_jsonl(
+        paths.evaluator_efficiency_observations_path("halumem_update")
+    )
+    payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+
+    assert client.calls == []
+    assert observations == []
+    assert payload["skipped_empty_retrieval_count"] == 1
+
+
+def test_halumem_qa_records_question_scoped_observations(tmp_path: Path) -> None:
+    """QA 真实 Responses 路径按公开 question 归属 observation，聚合结果不变。"""
+
+    run_dir = _build_halumem_run_dir(tmp_path)
+    client = _FakeHalumemResponsesClient(input_tokens=18, output_tokens=1)
+
+    summary = run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=HalumemQAEvaluator(model="gpt-4o-mini", client=client),
+        expected_benchmark="halumem",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    observations = read_jsonl(
+        paths.evaluator_efficiency_observations_path("halumem_qa")
+    )
+    payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+
+    assert len(client.calls) == 2
+    assert len(observations) == 2
+    question_ids = {observation["question_id"] for observation in observations}
+    assert question_ids == {"user-1:s1:q1", "user-1:s1:q2"}
+    for observation in observations:
+        assert observation["conversation_id"] == "user-1"
+        assert observation["stage"] == "judge"
+        assert observation["token_measurement_source"] == "api_usage"
+    # QA 官方比例不因效率观测而变化。
+    assert payload["overall_score"]["question_answering"]["correct_qa_ratio(all)"] == 0.5
+
+
+def test_halumem_qa_observations_do_not_cross_conversations(tmp_path: Path) -> None:
+    """两个不同 conversation 的 QA 问题各自归属，observation 不串 conversation 且有序。"""
+
+    run_dir = _build_halumem_run_dir(tmp_path)
+    artifacts = run_dir / "artifacts"
+    _write_jsonl(
+        artifacts / "public_questions.jsonl",
+        [
+            {
+                "question_id": "user-1:s1:q1",
+                "conversation_id": "user-1",
+                "question_text": "What color is the notebook?",
+                "category": None,
+                "metadata": {},
+            },
+            {
+                "question_id": "user-2:s1:q1",
+                "conversation_id": "user-2",
+                "question_text": "What color is the notebook?",
+                "category": None,
+                "metadata": {},
+            },
+        ],
+    )
+    _write_jsonl(
+        artifacts / "method_predictions.jsonl",
+        [
+            {
+                "question_id": "user-1:s1:q1",
+                "conversation_id": "user-1",
+                "answer": "cyan",
+                "metadata": {},
+            },
+            {
+                "question_id": "user-2:s1:q1",
+                "conversation_id": "user-2",
+                "answer": "cyan",
+                "metadata": {},
+            },
+        ],
+    )
+    _write_jsonl(
+        artifacts / "evaluator_private_labels.jsonl",
+        [
+            evaluator_private_label_record(
+                GoldAnswerInfo(
+                    "user-1:s1:q1",
+                    "reference blue",
+                    ["keeps a cyan notebook"],
+                    {"question_type": "Preference", "session_id": "s1"},
+                ),
+                None,
+            ),
+            evaluator_private_label_record(
+                GoldAnswerInfo(
+                    "user-2:s1:q1",
+                    "reference blue",
+                    ["keeps a cyan notebook"],
+                    {"question_type": "Preference", "session_id": "s1"},
+                ),
+                None,
+            ),
+        ],
+    )
+    client = _FakeHalumemResponsesClient(input_tokens=15, output_tokens=1)
+
+    run_artifact_evaluation(
+        run_dir=run_dir,
+        evaluator=HalumemQAEvaluator(model="gpt-4o-mini", client=client),
+        expected_benchmark="halumem",
+    )
+
+    paths = ExperimentPaths(run_dir=run_dir)
+    observations = read_jsonl(
+        paths.evaluator_efficiency_observations_path("halumem_qa")
+    )
+
+    assert len(observations) == 2
+    by_question = {observation["question_id"]: observation for observation in observations}
+    assert by_question["user-1:s1:q1"]["conversation_id"] == "user-1"
+    assert by_question["user-2:s1:q1"]["conversation_id"] == "user-2"
+    # merge_observations 按 observation_id 确定性排序落盘。
+    observation_ids = [observation["observation_id"] for observation in observations]
+    assert observation_ids == sorted(observation_ids)
+    assert len(set(observation_ids)) == 2
