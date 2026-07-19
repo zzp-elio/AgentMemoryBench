@@ -81,7 +81,8 @@ V7_REVALIDATION_PENDING
 
 它不是“因为测试没报错”，也不是“因为作者自己跑过 LoCoMo”。但 v7 已改变所有格共用的
 public readout 与 embedding observation，因此本节现只证明 v6 历史链；current v7 必须重验
-完整时间 readout 与 build/retrieval embedding observations，不能沿用旧绿灯。
+完整时间 readout 与 build/retrieval embedding observations，不能沿用旧绿灯。用户已批准的新
+run 与验货门见 [v7 受影响格 B11 命令包](lightmem-v7-readout-observability-b11-command-pack.md)。
 
 ### 3.2 双 speaker 不是 user / assistant，如何不把身份弄错
 
@@ -191,6 +192,7 @@ Qdrant payload、效率三层 summary 与 evaluator artifact。后续 normalized
 - [LoCoMo 离线预检](lightmem-locomo-smoke-config-preflight.md)
 - [caption v6 + R1 实现与强验收](lightmem-locomo-image-caption-implementation.md)
 - [真实 smoke / frozen-v2 验货](lightmem-frozen-v2.md)
+- [current-v7 受影响门复验命令包](lightmem-v7-readout-observability-b11-command-pack.md)
 
 ---
 
@@ -344,6 +346,7 @@ current v6 的零 API preflight 已完成：
 - [LongMemEval 输入异形与时间审计](lightmem-longmemeval-input-time-audit.md)
 - [latest-main 六类输入与 B11 readiness 预检](lightmem-longmemeval-latest-main-preflight.md)
 - [已执行并含开箱判词的单/双 worker B11 命令包](lightmem-longmemeval-b11-command-pack.md)
+- [current-v7 受影响门复验命令包](lightmem-v7-readout-observability-b11-command-pack.md)
 - [LongMemEval dataset 稳定结构卡](../../../../../../survey/datasets/longmemeval.md)
 - [LongMemEval workflow 稳定卡](../../../../../../survey/workflows/longmemeval.md)
 
@@ -365,6 +368,11 @@ MemBench、BEAM、HaluMem 到站时，不复制 LoCoMo/LME 的处理逻辑。每
 
 只有对应章节完成并经过架构师强验收，状态图才能从
 `PENDING_GRID_RECERTIFICATION` 升级。旧五格 smoke 可以作导航，不能自动替后续章节盖章。
+
+MemBench 的第一步已按本原则收敛为一张
+[分层异常覆盖预检卡](../cards/actor-prompt-lightmem-membench-anomaly-coverage-preflight.md)：先用
+全量零 API census、production-path 强反例与 evaluator-private 测试定位默认 smoke 的盲区，再
+决定是否需要一个 100k missing-time real sentinel；不会把所有异常强塞进一次付费 run。
 
 ## 6. 本 dossier 的失效触发器
 

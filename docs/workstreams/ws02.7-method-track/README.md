@@ -152,9 +152,22 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
-## 当前断点（2026-07-18）
+## 当前断点（2026-07-19）
 
-- 2026-07-18（**LightMem × LongMemEval 两张零 API 修复已强验收；v7 真实 B11 待预算门；
+- 2026-07-19（**LightMem v7 四个受影响格真实 run 已获批；与 MemBench 零 API 预检双线并行；
+  Mem0 继续暂缓**，GPT-5.6 sol 架构师）：用户已批准 LongMemEval S-cleaned W1/W2 与 LoCoMo
+  3-round W1/W2 的预算、规模、run id。完整 predict/evaluate/judge/机器验货命令已落
+  `branches/method-recertification/lightmem/notes/
+  lightmem-v7-readout-observability-b11-command-pack.md`；四个 predict 外部串行，W2 内部双 worker，
+  重点验证 v7 完整 ISO readout、逐题 metadata 单事实源、build/retrieval embedding observation、
+  summary v2、caption lineage 与 state 隔离。并行只开放一张不改代码、不调用 API 的
+  `branches/method-recertification/lightmem/cards/
+  actor-prompt-lightmem-membench-anomaly-coverage-preflight.md`，由用户派发外部 actor；该卡把
+  MemBench 异常分为 source-lock census、production-path 强反例、真实 backend sentinel 与
+  evaluator-private 四层。两线均回卡/回结果并经架构师开箱前，LoCoMo/LME 不恢复 current-v7
+  passed，MemBench 也不提前开真实 smoke。
+
+- 2026-07-18（**历史预算前断点，已由上条 superseded：LightMem × LongMemEval 两张零 API 修复已强验收；v7 真实 B11 待预算门；
   Mem0 继续暂缓**，GPT-5.6 sol 架构师）：summary actor `8a81723` 合入主线 `68bb7f9`；
   LightMem actor `8f6f883` 首轮被 zero-hit/observer 透明性强反例驳回，Codex medium R1
   `1a07938` 关闭后合入 `d11d749` + `2f21291`。架构师独立门=summary 149、LightMem 204、
