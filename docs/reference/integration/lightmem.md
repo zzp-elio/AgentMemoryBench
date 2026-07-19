@@ -67,6 +67,13 @@
 > 修正版全验货通过。两格恢复 current-v7 `REAL_SMOKE_PASSED`，但其余三格未重认证，所以
 > LightMem 整体仍不 frozen。执行证据见 `ws02.7/branches/method-recertification/lightmem/
 > notes/lightmem-v7-readout-observability-b11-command-pack.md` §9。
+> 2026-07-19 R1 补充：MemBench registered path 的消费粒度已由错误的 `turn` 修为
+> `pair`。FirstAgent canonical `user→assistant` child 现在经生产事件流聚成一次真实
+> `TurnPair`/一次 `add_memory()`；ThirdAgent 连续 user 仍各自成为单边 pair，由 LightMem
+> 只补 structural assistant。注册级共享 resolver 同时驱动 factory 与顶层
+> `method.consume_granularity` manifest，并与真实 v3 实例交叉校验；该字段严格参与 resume，
+> 旧缺字段或 `turn↔pair` 都不兼容。此修复不改变 LightMem 算法 adapter，故
+> `LIGHTMEM_ADAPTER_VERSION` 保持 `conversation-qa-v7`。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
 - 算法源：vendored `third_party/methods/LightMem`（`src/lightmem/memory/lightmem.py`）
@@ -357,6 +364,12 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   2026-07-17 canonical split 又以 8 个正式文件全量复验关闭 role/content 映射门：FirstAgent
   的 user/assistant 各自保留原文与自身时间，不读 peer 时间；标准 smoke 按 6 source steps
   保留为 8 canonical turns，不切半 pair。最新真实 B11 结果见 frozen-v2 note。
+  2026-07-19 R1 又关闭 canonical split 到 registered LightMem factory 的连接层缺口：
+  MemBench 现声明 `consume_granularity="pair"`，FirstAgent 每个源 step 的两条 child 同批
+  进入 LightMem，ThirdAgent 的连续 user 不互配。原 content（含 place/time）逐字保留，
+  typed timestamp 只取各 child 自身 `turn_time`；100k 无时 noise 保持 `None`。`QA.time`
+  只进入官方 answer/query 模板，不反灌 history。8 文件 source-step 时间倒序分布
+  `3/7/2/21/0/3/1/2`（共 39）仍按原序、原 timestamp 投递，不排序或修钟。
   **2026-07-18 产品 readout 保真修复（v7）**：v6 真实 LongMemEval B11 开箱发现公共
   unified `formatted_memory`/`RetrievedItem.content` 误用 LoCoMo author harness 的
   pretty-date formatter（`_format_lightmem_memory`），把 Qdrant 完整 ISO timestamp
@@ -387,7 +400,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   已强验收：online-soft 按实际 items 写 valid(turn)/N/A，consolidated 恒 N/A，rank 审计前
   保持 pending；不建手写 method × benchmark × metric 白名单。M1 已强验收，evaluator 会严格
   消费逐题 status/reason/granularity，不再由静态 method 声明猜资格。
-  MemBench split 后，真实 canonical pair 的 candidate ids 为
+  MemBench split 后，registered `pair` 生产路径中真实 canonical pair 的 candidate ids 为
   `["n:user", "n:assistant"]`；两个 pair 同处一个 extraction batch 时，`source_id=0/1`
   仍分别只映射各自 pair，不发生跨 step union。因此 MemBench online-soft 可按官方
   pair-step group 评 any-of Recall，但不得把该证据解释为“知道事实来自 pair 内哪一侧”。
@@ -413,6 +426,10 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   不会误 resume 到新 build。lifecycle 主体
   `825132f` 与 missing-time `915f73c` + `3968373` 均已通过架构师定向/全量门。
   不 flush 检索到空记忆的历史判例仍有效。
+  2026-07-19 的 MemBench pair 修复不 bump v7：变化属于 benchmark→provider 的消费契约，
+  由顶层 `method.consume_granularity` 独立盖章并严格参与 resume。旧 manifest 缺该字段、
+  或旧 MemBench 值为 `turn`，均不得 resume 到新 `pair` 运行；LoCoMo=`turn`、
+  LongMemEval=`pair`、HaluMem=`session` 的其他格身份不被粗暴失效。
 - **B7 效率插桩 ✅（v7 LoCoMo/LME 实际调用观测已复验）**：build/answer/judge 三角色
   api_usage 真 token（2026-07-12 效率审计无拦截缺口）；LightMem add_memory 自带
   token/api_call_nums 返回值可做交叉参照（待留档）。v6 真实 LongMemEval B11 开箱发现

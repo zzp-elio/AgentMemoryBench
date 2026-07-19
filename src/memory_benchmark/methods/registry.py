@@ -25,6 +25,7 @@ from memory_benchmark.core import (
     MethodCapability,
     TaskFamily,
 )
+from memory_benchmark.core.provider_protocol import ConsumeGranularity
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     ModelDescriptor,
@@ -105,6 +106,8 @@ class MethodRegistration:
         display_name: 用于 CLI、manifest 和报错的人类可读 method 名称。
         protocol_version: method 显式声明的 provider 协议版本，供 manifest 盖章与
             worker 运行时交叉校验使用。
+        consume_granularity_resolver: 按当前 benchmark 解析实例实际消费粒度的纯函数；
+            factory 与 manifest 必须复用同一 resolver，避免运行身份与实例漂移。
         provenance_granularity: 可选静态 provenance 粒度；为空时沿用实例声明。
         retrieval_evidence_contract_version: 可选逐题 retrieval evidence 契约版本；
             非空时写入 method manifest 作为 resume 身份，声明该 run 的 answer prompt
@@ -134,6 +137,9 @@ class MethodRegistration:
     max_workers_getter: Callable[[Any], int]
     display_name: str
     protocol_version: str
+    consume_granularity_resolver: (
+        Callable[[str | None], ConsumeGranularity] | None
+    ) = None
     provenance_granularity: str | None = None
     retrieval_evidence_contract_version: str | None = None
     workload_estimator: Callable[[Conversation, Any], int] | None = None
@@ -173,6 +179,57 @@ class MethodRegistration:
             f"Supported: {supported}"
         )
 
+    def resolve_consume_granularity(
+        self,
+        benchmark_name: str | None,
+    ) -> ConsumeGranularity:
+        """解析当前 method × benchmark 的 concrete 消费粒度。"""
+
+        if self.consume_granularity_resolver is None:
+            raise ConfigurationError(
+                f"Registered method '{self.name}' does not declare "
+                "consume_granularity_resolver"
+            )
+        return self.consume_granularity_resolver(benchmark_name)
+
+
+def _turn_consume_granularity(_benchmark_name: str | None) -> ConsumeGranularity:
+    """返回固定 turn 消费粒度。"""
+
+    return "turn"
+
+
+def _mem0_consume_granularity(
+    benchmark_name: str | None,
+) -> ConsumeGranularity:
+    """按 benchmark 返回 Mem0 的消费粒度。"""
+
+    if benchmark_name in {"longmemeval", "halumem"}:
+        return "session"
+    if benchmark_name == "beam":
+        return "pair"
+    return "turn"
+
+
+def _lightmem_consume_granularity(
+    benchmark_name: str | None,
+) -> ConsumeGranularity:
+    """按 benchmark 返回 LightMem 的消费粒度。"""
+
+    if benchmark_name == "halumem":
+        return "session"
+    if benchmark_name in {"longmemeval", "membench"}:
+        return "pair"
+    return "turn"
+
+
+def _memoryos_consume_granularity(
+    benchmark_name: str | None,
+) -> ConsumeGranularity:
+    """按 benchmark 返回 MemoryOS 的消费粒度。"""
+
+    return "pair" if benchmark_name == "longmemeval" else "session"
+
 
 def _build_mem0_system(context: MethodBuildContext) -> BaseMemorySystem:
     """根据统一 build context 构造本地 OSS Mem0 adapter。"""
@@ -191,13 +248,7 @@ def _build_mem0_system(context: MethodBuildContext) -> BaseMemorySystem:
             for conversation in context.completed_conversations
         },
         efficiency_collector=context.efficiency_collector,
-        consume_granularity=(
-            "session"
-            if context.benchmark_name in {"longmemeval", "halumem"}
-            else "pair"
-            if context.benchmark_name == "beam"
-            else "turn"
-        ),
+        consume_granularity=_mem0_consume_granularity(context.benchmark_name),
         session_memory_report=context.benchmark_name == "halumem",
         benchmark_name=context.benchmark_name,
     )
@@ -396,13 +447,7 @@ def _build_lightmem_system(context: MethodBuildContext) -> BaseMemorySystem:
         storage_root=context.storage_root,
         path_settings=context.path_settings,
         efficiency_collector=context.efficiency_collector,
-        consume_granularity=(
-            "session"
-            if context.benchmark_name == "halumem"
-            else "pair"
-            if context.benchmark_name == "longmemeval"
-            else "turn"
-        ),
+        consume_granularity=_lightmem_consume_granularity(context.benchmark_name),
         session_memory_report=context.benchmark_name == "halumem",
         benchmark_name=context.benchmark_name,
     )
@@ -571,9 +616,7 @@ def _build_memoryos_system(context: MethodBuildContext) -> BaseMemorySystem:
         # LongMemEval 数据 role=user/assistant 适合 pair 聚合；LoCoMo 数据
         # role=speaker 名，pair 聚合失效，用 session 粒度由 adapter 内部按
         # speaker 配对成 add_memory。详见 plan-memoryos-migration.md T2。
-        consume_granularity=(
-            "pair" if context.benchmark_name == "longmemeval" else "session"
-        ),
+        consume_granularity=_memoryos_consume_granularity(context.benchmark_name),
         benchmark_name=context.benchmark_name,
     )
     for conversation in context.completed_conversations:
@@ -956,6 +999,7 @@ _REGISTRATIONS = {
         max_workers_getter=_amem_max_workers,
         display_name="A-Mem",
         protocol_version="v3",
+        consume_granularity_resolver=_turn_consume_granularity,
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_amem_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(
@@ -987,6 +1031,7 @@ _REGISTRATIONS = {
         max_workers_getter=_mem0_max_workers,
         display_name="Mem0",
         protocol_version="v3",
+        consume_granularity_resolver=_mem0_consume_granularity,
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_mem0_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(
@@ -1021,6 +1066,7 @@ _REGISTRATIONS = {
         max_workers_getter=_lightmem_max_workers,
         display_name="LightMem",
         protocol_version="v3",
+        consume_granularity_resolver=_lightmem_consume_granularity,
         provenance_granularity="turn",
         retrieval_evidence_contract_version="v1",
         allow_smoke_worker_override=True,
@@ -1054,6 +1100,7 @@ _REGISTRATIONS = {
         max_workers_getter=_memoryos_max_workers,
         display_name="MemoryOS",
         protocol_version="v3",
+        consume_granularity_resolver=_memoryos_consume_granularity,
         provenance_granularity="turn",
         retrieval_evidence_contract_version="v1",
         allow_smoke_worker_override=True,
@@ -1088,6 +1135,7 @@ _REGISTRATIONS = {
         max_workers_getter=_simplemem_max_workers,
         display_name="SimpleMem",
         protocol_version="v3",
+        consume_granularity_resolver=_turn_consume_granularity,
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_simplemem_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(
@@ -1143,6 +1191,18 @@ def resolve_registered_factory_retrieval_evidence_contract_version(
     for registration in _REGISTRATIONS.values():
         if registration.system_factory is system_factory:
             return registration.retrieval_evidence_contract_version
+    return None
+
+
+def resolve_registered_factory_consume_granularity(
+    system_factory: Callable[[MethodBuildContext], BaseMemorySystem],
+    benchmark_name: str | None,
+) -> ConsumeGranularity | None:
+    """按注册 factory 与 benchmark 返回 concrete 消费粒度。"""
+
+    for registration in _REGISTRATIONS.values():
+        if registration.system_factory is system_factory:
+            return registration.resolve_consume_granularity(benchmark_name)
     return None
 
 
@@ -1209,6 +1269,7 @@ __all__ = [
     "get_method_registration",
     "list_methods",
     "load_method_profile",
+    "resolve_registered_factory_consume_granularity",
     "resolve_registered_factory_provenance_granularity",
     "resolve_registered_factory_retrieval_evidence_contract_version",
     "resolve_registered_build_identity",

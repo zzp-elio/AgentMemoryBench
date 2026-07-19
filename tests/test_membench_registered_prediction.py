@@ -52,10 +52,10 @@ class _ProbeAsMem0(BenchmarkProbeProvider):
 
     instances: list["_ProbeAsMem0"] = []
 
-    def __init__(self, **_kwargs: object) -> None:
-        """忽略 method-specific 构造参数并记录实际探针实例。"""
+    def __init__(self, **kwargs: object) -> None:
+        """消费注册 factory 粒度，其余 method-specific 参数仅作兼容。"""
 
-        super().__init__()
+        super().__init__(consume_granularity=kwargs["consume_granularity"])
         _ProbeAsMem0.instances.append(self)
 
 
@@ -215,6 +215,7 @@ def test_membench_registered_prediction_offline_probe_workflow(
         )
     assert manifest["method"]["provenance_granularity"] == "turn"
     assert manifest["method"]["prompt_track"] == "unified"
+    assert manifest["method"]["consume_granularity"] == "turn"
 
     # prediction_transform 生效：fake 返回 `{"choice": "B"}`，transform 应归一为
     # 单字母 B（官方 json_schema 解析路径覆盖）。
@@ -249,6 +250,17 @@ def test_membench_registered_prediction_offline_probe_workflow(
         )]["question_time"]
         if question_time:
             assert question_time in prompt_text
+            history_turns = [
+                turn
+                for turn in probe.ingested_turns
+                if turn.metadata.get("conversation_id") == record["conversation_id"]
+            ]
+            assert history_turns
+            assert all(
+                turn.timestamp != question_time
+                and turn.metadata.get("original_turn_time") != question_time
+                for turn in history_turns
+            )
     assert len(fake_client.calls) == 4
 
     # 离线 choice-accuracy：4 题都给 B，fraction correct 取决于 gold；流程不要求

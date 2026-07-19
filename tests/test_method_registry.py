@@ -160,6 +160,35 @@ def test_built_in_methods_advertise_memory_retrieval_capability() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("method_name", "benchmark_name", "expected"),
+    [
+        ("amem", "membench", "turn"),
+        ("simplemem", "halumem", "turn"),
+        ("mem0", "longmemeval", "session"),
+        ("mem0", "halumem", "session"),
+        ("mem0", "beam", "pair"),
+        ("mem0", "membench", "turn"),
+        ("lightmem", "locomo", "turn"),
+        ("lightmem", "membench", "pair"),
+        ("lightmem", "longmemeval", "pair"),
+        ("lightmem", "halumem", "session"),
+        ("memoryos", "longmemeval", "pair"),
+        ("memoryos", "membench", "session"),
+    ],
+)
+def test_registration_resolves_concrete_consume_granularity(
+    method_name: str,
+    benchmark_name: str,
+    expected: str,
+) -> None:
+    """注册级 resolver 应锁定各 method 已裁定的 benchmark 消费粒度。"""
+
+    registration = get_method_registration(method_name)
+
+    assert registration.resolve_consume_granularity(benchmark_name) == expected
+
+
 def test_clean_retry_support_is_only_declared_by_methods_with_safe_state_cleanup() -> None:
     """只有能安全清理单个 conversation 状态的内置 method 才声明 clean retry。
 

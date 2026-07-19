@@ -71,7 +71,10 @@ from memory_benchmark.observability.efficiency import (
     MeasurementSource,
 )
 from memory_benchmark.runners.event_stream import GranularityAggregator, build_turn_events
-from memory_benchmark.runners.prediction import _method_manifest_with_protocol
+from memory_benchmark.runners.prediction import (
+    _ingest_memory_provider_conversation,
+    _method_manifest_with_protocol,
+)
 from tests.equivalence_utils import run_bridge_sequence, run_native_sequence
 
 
@@ -2731,6 +2734,15 @@ def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
             benchmark_name="longmemeval",
         )
     )
+    membench = _build_lightmem_system(
+        MethodBuildContext(
+            config=config,
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=path_settings,
+            storage_root=tmp_path / "membench",
+            benchmark_name="membench",
+        )
+    )
     halumem = _build_lightmem_system(
         MethodBuildContext(
             config=config,
@@ -2749,6 +2761,10 @@ def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
     assert longmemeval.consume_granularity == "pair"
     assert longmemeval.session_memory_report is False
     assert longmemeval.benchmark_name == "longmemeval"
+    assert isinstance(membench, MemoryProvider)
+    assert membench.consume_granularity == "pair"
+    assert membench.session_memory_report is False
+    assert membench.benchmark_name == "membench"
     assert isinstance(halumem, MemoryProvider)
     assert halumem.consume_granularity == "session"
     assert halumem.session_memory_report is True
@@ -4298,6 +4314,235 @@ def test_lightmem_membench_canonical_pair_yields_two_real_pair_candidate_ids() -
     assert LIGHTMEM_PLACEHOLDER_MARKER not in assistant_msg
     assert user_msg["source_external_ids"] == ["1:user", "1:assistant"]
     assert assistant_msg["source_external_ids"] == ["1:user", "1:assistant"]
+
+
+def test_lightmem_membench_production_path_ingests_firstagent_as_one_real_pair() -> None:
+    """生产事件流应把 FirstAgent 双 child 作为一次真实 pair 投递给 LightMem。"""
+
+    backend = FakeLightMemoryBackend()
+    system = _lightmem_evidence_system(benchmark_name="membench")
+    system.consume_granularity = get_method_registration(
+        "lightmem"
+    ).resolve_consume_granularity("membench")
+    system._backend_factory = lambda _conversation_id: backend
+    user_content = "User fact. (place: A; time: '2026-01-02 10:00' Friday)"
+    assistant_content = (
+        "Assistant fact. (place: B; time: '2026-01-02 10:01' Friday)"
+    )
+    conversation = Conversation(
+        conversation_id="first-production",
+        sessions=[
+            Session(
+                session_id="s1",
+                turns=[
+                    Turn(
+                        "1:user",
+                        "user",
+                        user_content,
+                        normalized_role="user",
+                        turn_time="2026-01-02 10:00",
+                    ),
+                    Turn(
+                        "1:assistant",
+                        "agent",
+                        assistant_content,
+                        normalized_role="assistant",
+                        turn_time="2026-01-02 10:01",
+                    ),
+                ],
+            )
+        ],
+        questions=[
+            Question(
+                question_id="q1",
+                conversation_id="first-production",
+                text="Which fact?",
+                question_time="2099-12-31 23:59",
+            )
+        ],
+    )
+
+    _ingest_memory_provider_conversation(
+        provider=system,
+        public_conversation=conversation,
+        run_id="pair-run",
+    )
+
+    assert system.consume_granularity == "pair"
+    assert len(backend.added_messages) == 1
+    messages = backend.added_messages[0]["messages"]
+    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert [message["content"] for message in messages] == [
+        user_content,
+        assistant_content,
+    ]
+    assert [message["time_stamp"] for message in messages] == [
+        "2026-01-02 10:00",
+        "2026-01-02 10:01",
+    ]
+    assert all(LIGHTMEM_PLACEHOLDER_MARKER not in message for message in messages)
+    assert all(
+        message["source_external_ids"] == ["1:user", "1:assistant"]
+        for message in messages
+    )
+    assert "2099-12-31 23:59" not in str(messages)
+
+
+def test_lightmem_membench_production_path_keeps_consecutive_thirdagent_singletons() -> None:
+    """连续 ThirdAgent user 不得互配，每条都应独立补 structural assistant。"""
+
+    backend = FakeLightMemoryBackend()
+    system = _lightmem_evidence_system(benchmark_name="membench")
+    system.consume_granularity = get_method_registration(
+        "lightmem"
+    ).resolve_consume_granularity("membench")
+    system._backend_factory = lambda _conversation_id: backend
+    conversation = Conversation(
+        conversation_id="third-production",
+        sessions=[
+            Session(
+                session_id="s1",
+                turns=[
+                    Turn("1", "user", "Noise one, unchanged.", normalized_role="user"),
+                    Turn("2", "user", "Noise two, unchanged.", normalized_role="user"),
+                ],
+            )
+        ],
+        questions=[
+            Question(
+                question_id="q1",
+                conversation_id="third-production",
+                text="Which noise?",
+                question_time="2099-12-31 23:59",
+            )
+        ],
+    )
+
+    _ingest_memory_provider_conversation(
+        provider=system,
+        public_conversation=conversation,
+        run_id="pair-run",
+    )
+
+    assert len(backend.added_messages) == 2
+    for source_id, call in zip(("1", "2"), backend.added_messages, strict=True):
+        user_message, assistant_message = call["messages"]
+        assert user_message["role"] == "user"
+        assert user_message["external_id"] == source_id
+        assert user_message["source_external_ids"] == [source_id]
+        assert user_message["time_stamp"] is None
+        assert LIGHTMEM_PLACEHOLDER_MARKER not in user_message
+        assert assistant_message["role"] == "assistant"
+        assert assistant_message[LIGHTMEM_PLACEHOLDER_MARKER] is True
+        assert assistant_message["source_external_ids"] == [source_id]
+        assert assistant_message["time_stamp"] is None
+    assert [
+        call["messages"][0]["content"] for call in backend.added_messages
+    ] == ["Noise one, unchanged.", "Noise two, unchanged."]
+    assert "2099-12-31 23:59" not in str(backend.added_messages)
+
+
+def test_lightmem_membench_production_path_preserves_two_sided_noise_none() -> None:
+    """100k 风格双侧无时 pair 应原文投递，且两侧 timestamp 都保持 None。"""
+
+    backend = FakeLightMemoryBackend()
+    system = _lightmem_evidence_system(benchmark_name="membench")
+    system.consume_granularity = "pair"
+    system._backend_factory = lambda _conversation_id: backend
+    conversation = Conversation(
+        conversation_id="first-noise",
+        sessions=[
+            Session(
+                session_id="s1",
+                turns=[
+                    Turn(
+                        "1:user", "user", "Noise user bytes.", normalized_role="user"
+                    ),
+                    Turn(
+                        "1:assistant",
+                        "agent",
+                        "Noise assistant bytes.",
+                        normalized_role="assistant",
+                    ),
+                ],
+            )
+        ],
+        questions=[
+            Question(
+                question_id="q1",
+                conversation_id="first-noise",
+                text="Noise?",
+                question_time="2099-12-31 23:59",
+            )
+        ],
+    )
+
+    _ingest_memory_provider_conversation(
+        provider=system,
+        public_conversation=conversation,
+        run_id="pair-run",
+    )
+
+    messages = backend.added_messages[0]["messages"]
+    assert [message["content"] for message in messages] == [
+        "Noise user bytes.",
+        "Noise assistant bytes.",
+    ]
+    assert [message["time_stamp"] for message in messages] == [None, None]
+    assert "2099-12-31 23:59" not in str(messages)
+
+
+def test_lightmem_membench_production_path_preserves_reverse_timestamp_order() -> None:
+    """数据原生时间倒序不得触发重排、修钟或跨 pair 时间回填。"""
+
+    backend = FakeLightMemoryBackend()
+    system = _lightmem_evidence_system(benchmark_name="membench")
+    system.consume_granularity = "pair"
+    system._backend_factory = lambda _conversation_id: backend
+    conversation = Conversation(
+        conversation_id="reverse-time",
+        sessions=[
+            Session(
+                session_id="s1",
+                turns=[
+                    Turn(
+                        "1:user", "user", "Later user", normalized_role="user",
+                        turn_time="2026-01-02 10:00",
+                    ),
+                    Turn(
+                        "1:assistant", "agent", "Later assistant",
+                        normalized_role="assistant", turn_time="2026-01-02 10:00",
+                    ),
+                    Turn(
+                        "2:user", "user", "Earlier user", normalized_role="user",
+                        turn_time="2026-01-02 09:00",
+                    ),
+                    Turn(
+                        "2:assistant", "agent", "Earlier assistant",
+                        normalized_role="assistant", turn_time="2026-01-02 09:00",
+                    ),
+                ],
+            )
+        ],
+    )
+
+    _ingest_memory_provider_conversation(
+        provider=system,
+        public_conversation=conversation,
+        run_id="pair-run",
+    )
+
+    assert [
+        [message["external_id"] for message in call["messages"]]
+        for call in backend.added_messages
+    ] == [["1:user", "1:assistant"], ["2:user", "2:assistant"]]
+    assert [
+        [message["time_stamp"] for message in call["messages"]]
+        for call in backend.added_messages
+    ] == [
+        ["2026-01-02 10:00", "2026-01-02 10:00"],
+        ["2026-01-02 09:00", "2026-01-02 09:00"],
+    ]
 
 
 def test_lightmem_membench_extraction_batch_keeps_pair_lineage_by_source_id() -> None:

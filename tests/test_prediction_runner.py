@@ -1311,6 +1311,7 @@ def test_runner_ingests_native_v3_provider_with_event_stream_and_reports(
         "prediction-run_conv-2",
     ]
     assert manifest["method"]["protocol_version"] == "v3"
+    assert manifest["method"]["consume_granularity"] == "turn"
     assert retrievals[0]["formatted_memory"] == "v3 memory for 问题 1"
     assert retrievals[0]["retrieved_items"][0]["source_turn_ids"] == ["conv-1:t1"]
     # provider 未返回 evidence 时逐题字段如实写 null，不偷读 manifest 拼假值。
@@ -1422,6 +1423,25 @@ def test_resume_manifest_rejects_missing_retrieval_evidence_contract_version() -
     assert _manifests_match_for_resume(without, {"method": dict(without["method"])})
     assert not _manifests_match_for_resume(without, with_v1)
     assert not _manifests_match_for_resume(with_v1, without)
+
+
+def test_resume_manifest_strictly_compares_consume_granularity() -> None:
+    """消费粒度缺字段或 turn/pair 双向变化都必须阻止 resume。"""
+
+    base = {
+        "protocol_version": "v3",
+        "prompt_track": "unified",
+        "profile": {},
+    }
+    missing = {"method": dict(base)}
+    turn = {"method": {**base, "consume_granularity": "turn"}}
+    pair = {"method": {**base, "consume_granularity": "pair"}}
+
+    assert _manifests_match_for_resume(turn, {"method": dict(turn["method"])})
+    assert not _manifests_match_for_resume(missing, turn)
+    assert not _manifests_match_for_resume(turn, missing)
+    assert not _manifests_match_for_resume(turn, pair)
+    assert not _manifests_match_for_resume(pair, turn)
 
 
 def _track_identity_resume_method_manifest() -> dict[str, object]:
@@ -3807,6 +3827,7 @@ def test_registered_isolated_prediction_does_not_construct_root_system(
         max_workers_getter=lambda config: config.max_workers,
         display_name="FakeMethod",
         protocol_version="",
+        consume_granularity_resolver=lambda _benchmark_name: "turn",
         supports_shared_instance_parallelism=False,
         build_identity_resolver=lambda config_manifest: BuildIdentityDeclaration(
             implementation_variant="product",
@@ -3859,9 +3880,13 @@ def test_registered_isolated_prediction_does_not_construct_root_system(
     )
 
     state_root = tmp_path / "outputs" / "isolated-root-side-effect" / "method_state"
+    manifest = json.loads(
+        (tmp_path / "outputs" / "isolated-root-side-effect" / "manifest.json").read_text()
+    )
     assert not (state_root / "constructed.txt").exists()
     assert (state_root / "worker_0" / "constructed.txt").is_file()
     assert (state_root / "worker_1" / "constructed.txt").is_file()
+    assert manifest["method"]["consume_granularity"] == "turn"
 
 
 def test_isolated_worker_rejects_turn_checkpoint_resume(
@@ -4127,6 +4152,29 @@ def test_validate_protocol_version_v3_accepts_memory_provider() -> None:
     """声明 v3 + 实例是 MemoryProvider → 通过。"""
 
     _validate_protocol_version("v3", _FakeV3Provider())
+
+
+def test_method_manifest_consume_granularity_matches_real_provider() -> None:
+    """声明粒度与真实 v3 实例一致时应盖章通过。"""
+
+    manifest = _method_manifest_with_protocol(
+        method_manifest={"consume_granularity": "turn"},
+        protocol_version="v3",
+        system=_FakeV3Provider(),
+    )
+
+    assert manifest["consume_granularity"] == "turn"
+
+
+def test_method_manifest_consume_granularity_mismatch_fails_fast() -> None:
+    """factory 实例与 resolver/manifest 粒度不一致时必须立即失败。"""
+
+    with pytest.raises(ConfigurationError, match="does not match method manifest"):
+        _method_manifest_with_protocol(
+            method_manifest={"consume_granularity": "pair"},
+            protocol_version="v3",
+            system=_FakeV3Provider(),
+        )
 
 
 def test_validate_protocol_version_v3_rejects_base_memory_system() -> None:

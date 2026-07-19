@@ -325,6 +325,7 @@ def test_lightmem_registered_prediction_runs_generic_runner_offline(
 
     assert manifest["method_name"] == "LightMem"
     assert manifest["method"]["config"]["profile_name"] == "smoke"
+    assert manifest["method"]["consume_granularity"] == "turn"
     assert predictions[0]["answer"] == "framework fake answer"
     assert public_questions[0]["question_id"] == "q-1"
     assert "gold_answers" not in public_questions[0]
@@ -456,6 +457,9 @@ def test_lightmem_native_config_track_flows_through_both_official_grids(
 
         assert manifest["method"]["config_track"] == "native"
         assert manifest["method"]["prompt_track"] == "native"
+        assert manifest["method"]["consume_granularity"] == (
+            "pair" if benchmark == "longmemeval" else "turn"
+        )
         assert (
             reader.answer_settings.temperature,
             reader.answer_settings.max_tokens,
@@ -473,6 +477,7 @@ def test_lightmem_native_config_track_flows_through_both_official_grids(
         if benchmark == "locomo":
             judge = LoCoMoJudgeEvaluator(
                 mode="compact",
+                model="gpt-4o-mini",
                 client=judge_client,
                 prompt_template_override=bundle.judge_profile.prompt_template,
                 skipped_categories=bundle.judge_profile.skipped_categories,
@@ -480,7 +485,11 @@ def test_lightmem_native_config_track_flows_through_both_official_grids(
             )
             assert "LIGHTMEM-LOCOMO-NATIVE-PROMPT" in reader.messages[0][0].content
         else:
-            judge = LongMemEvalJudgeEvaluator(mode="compact", client=judge_client)
+            judge = LongMemEvalJudgeEvaluator(
+                mode="compact",
+                model="gpt-4o-mini",
+                client=judge_client,
+            )
             assert "LIGHTMEM-LONGMEMEVAL-NATIVE-MEMORY" in reader.messages[0][1].content
         summary = run_artifact_evaluation(run_dir, judge, benchmark)
 

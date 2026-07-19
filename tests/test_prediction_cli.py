@@ -575,6 +575,7 @@ def test_registered_prediction_builds_system_from_registry_context(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -699,6 +700,31 @@ def test_registered_prediction_builds_system_from_registry_context(
     assert runner_calls[0]["clean_failed_ingest_conversation"] is not None
 
 
+@pytest.mark.parametrize(
+    ("benchmark_name", "expected"),
+    [("membench", "pair"), ("locomo", "turn"), ("halumem", "session")],
+)
+def test_lightmem_method_manifest_uses_concrete_registered_consume_granularity(
+    benchmark_name: str,
+    expected: str,
+) -> None:
+    """LightMem manifest 应写当前 benchmark 的 concrete 消费粒度。"""
+
+    from memory_benchmark.methods.registry import get_method_registration
+
+    registration = get_method_registration("lightmem")
+    manifest = prediction_cli._build_method_manifest(
+        config_manifest={"profile_name": "smoke"},
+        source_identity={"source_sha256": "fake"},
+        workload_estimate=None,
+        consume_granularity=registration.resolve_consume_granularity(
+            benchmark_name
+        ),
+    )
+
+    assert manifest["consume_granularity"] == expected
+
+
 def test_registered_prediction_passes_benchmark_policy_separately_from_method_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -754,6 +780,7 @@ def test_registered_prediction_passes_benchmark_policy_separately_from_method_ma
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -886,6 +913,7 @@ def test_registered_prediction_omits_benchmark_policy_when_unregistered(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1010,6 +1038,7 @@ def test_registered_prediction_rejects_v1_registration_with_unversioned_labels(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1403,6 +1432,7 @@ def test_registered_prediction_builds_framework_answer_reader(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1684,6 +1714,7 @@ def test_registered_prediction_allows_mem0_smoke_worker_override(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1810,6 +1841,7 @@ def test_registered_prediction_wires_efficiency_observability_when_enabled(
     runner_calls: list[dict[str, object]] = []
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -1961,6 +1993,7 @@ def test_all_expands_in_registration_order_and_uses_explicit_variant_suffixes(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -2079,6 +2112,7 @@ def test_longmemeval_single_variant_run_id_uses_explicit_suffix(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2164,6 +2198,7 @@ def test_locomo_run_id_does_not_add_single_variant_suffix(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2327,6 +2362,7 @@ def test_hierarchical_output_layout_groups_run_by_method_benchmark_and_mode(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         name="mem0",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
@@ -2427,6 +2463,7 @@ def test_duplicate_variant_suffix_is_rejected(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2499,6 +2536,7 @@ def test_other_registered_variant_suffix_is_rejected(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2640,6 +2678,7 @@ def test_second_child_preflight_failure_creates_no_output_or_method(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2751,6 +2790,7 @@ def test_openai_settings_load_only_after_all_preflights(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2856,6 +2896,7 @@ def test_symlink_child_run_path_outside_outputs_fails_before_prepare(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
@@ -2935,6 +2976,7 @@ def test_case_insensitive_child_run_destination_collision_fails_before_prepare(
     )
     method_registration = SimpleNamespace(
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         display_name="Mem0",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(

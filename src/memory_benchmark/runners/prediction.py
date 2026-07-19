@@ -50,6 +50,7 @@ from memory_benchmark.core.provider_protocol import (
 from memory_benchmark.core.validators import validate_dataset, validate_no_private_keys
 from memory_benchmark.methods.registry import (
     MethodBuildContext,
+    resolve_registered_factory_consume_granularity,
     resolve_registered_factory_provenance_granularity,
     resolve_registered_factory_retrieval_evidence_contract_version,
 )
@@ -390,6 +391,16 @@ def run_predictions(
         if system_factory is not None
         else None
     )
+    declared_consume_granularity = (
+        resolve_registered_factory_consume_granularity(
+            system_factory,
+            None
+            if build_context_template is None
+            else build_context_template.benchmark_name,
+        )
+        if system_factory is not None
+        else None
+    )
     method_manifest = _method_manifest_with_protocol(
         method_manifest=method_manifest,
         protocol_version=protocol_version,
@@ -399,6 +410,7 @@ def run_predictions(
         retrieval_evidence_contract_version=(
             declared_retrieval_evidence_contract_version
         ),
+        consume_granularity=declared_consume_granularity,
     )
     dataset_fingerprint, manifest = _build_prediction_resume_artifacts(
         dataset=dataset,
@@ -548,6 +560,9 @@ def run_predictions(
                     unified_prompt_builder=unified_prompt_builder,
                     prediction_transform=prediction_transform,
                     protocol_version=protocol_version,
+                    consume_granularity=_manifest_consume_granularity(
+                        method_manifest
+                    ),
                 )
             else:
                 _validate_protocol_version(protocol_version, system)
@@ -1301,6 +1316,7 @@ def _method_manifest_with_protocol(
     system: BaseMemorySystem | MemoryProvider | None = None,
     provenance_granularity: str | None = None,
     retrieval_evidence_contract_version: str | None = None,
+    consume_granularity: str | None = None,
 ) -> dict[str, object]:
     """按注册声明协议版本补充 manifest 协议身份字段。
 
@@ -1309,6 +1325,8 @@ def _method_manifest_with_protocol(
     provenance_granularity 同样优先使用注册级静态声明；未声明时才读取实例。
     retrieval_evidence_contract_version 只由注册级静态声明提供（无实例回退），非空时
     写入 method manifest 作为 resume 身份，同样不依赖真实 method 实例。
+    consume_granularity 优先使用与 factory 同源的注册级 resolver；未注册的真实 v3
+    provider 可从实例补出。声明与实例同时存在时必须严格一致。
     回退路径：当 protocol_version 为空且 system 可用时，沿用旧 isinstance 推断，
     用于未通过注册表的测试/自定义路径向后兼容。
     """
@@ -1341,7 +1359,73 @@ def _method_manifest_with_protocol(
             "retrieval_evidence_contract_version",
             retrieval_evidence_contract_version,
         )
+    manifest_consume_granularity = normalized.get("consume_granularity")
+    if consume_granularity is None and isinstance(
+        manifest_consume_granularity,
+        str,
+    ):
+        consume_granularity = manifest_consume_granularity
+    if (
+        consume_granularity is None
+        and isinstance(system, MemoryProvider)
+        and not isinstance(system, LegacyProviderBridge)
+    ):
+        consume_granularity = system.consume_granularity
+    if consume_granularity is not None:
+        _validate_consume_granularity_value(consume_granularity)
+        normalized.setdefault("consume_granularity", consume_granularity)
+    if isinstance(system, MemoryProvider) and not isinstance(
+        system,
+        LegacyProviderBridge,
+    ):
+        _validate_consume_granularity(
+            _manifest_consume_granularity(normalized),
+            system,
+        )
     return normalized
+
+
+def _validate_consume_granularity_value(consume_granularity: str) -> None:
+    """校验 manifest/provider 消费粒度是协议允许的 concrete 值。"""
+
+    if consume_granularity not in {"turn", "pair", "session", "conversation"}:
+        raise ConfigurationError(
+            "consume_granularity must be turn, pair, session or conversation; "
+            f"got {consume_granularity!r}"
+        )
+
+
+def _manifest_consume_granularity(
+    method_manifest: dict[str, object],
+) -> str | None:
+    """严格读取 method manifest 的可选消费粒度。"""
+
+    value = method_manifest.get("consume_granularity")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ConfigurationError("method.consume_granularity must be a string")
+    _validate_consume_granularity_value(value)
+    return value
+
+
+def _validate_consume_granularity(
+    declared: str | None,
+    system: BaseMemorySystem | MemoryProvider,
+) -> None:
+    """交叉校验 manifest 声明与真实 v3 provider 实例的消费粒度。"""
+
+    if declared is None or not isinstance(system, MemoryProvider):
+        return
+    if isinstance(system, LegacyProviderBridge):
+        return
+    actual = system.consume_granularity
+    _validate_consume_granularity_value(actual)
+    if actual != declared:
+        raise ConfigurationError(
+            "Provider consume_granularity does not match method manifest: "
+            f"declared={declared!r}, actual={actual!r}"
+        )
 
 
 def _validate_protocol_version(
@@ -1506,6 +1590,7 @@ def _run_isolated_worker_pipeline(
     ) = None,
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
     protocol_version: str = "",
+    consume_granularity: str | None = None,
 ) -> None:
     """使用独立 method instance 并行处理 conversation 的 ingest 与 answer。
 
@@ -1597,6 +1682,7 @@ def _run_isolated_worker_pipeline(
                 cancellation_event,
                 policy.max_consecutive_failures,
                 protocol_version=protocol_version,
+                consume_granularity=consume_granularity,
             )
             future_to_chunk[future] = worker_idx
 
@@ -1784,6 +1870,7 @@ def _isolated_worker(
     max_consecutive_failures: int | None = 3,
     *,
     protocol_version: str = "",
+    consume_granularity: str | None = None,
 ) -> tuple[_ConversationAnswerBatch | _ConversationFailureBatch, ...]:
     """单个独立 worker：创建 method instance，串行处理分配到的 conversation。
 
@@ -1793,6 +1880,7 @@ def _isolated_worker(
 
     system = _normalize_memory_system(system_factory(build_context))
     _validate_protocol_version(protocol_version, system)
+    _validate_consume_granularity(consume_granularity, system)
     results: list[_ConversationAnswerBatch | _ConversationFailureBatch] = []
     consecutive_failures = 0
     for work_item in work_items:

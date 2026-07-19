@@ -389,6 +389,9 @@ def run_registered_conversation_qa_prediction(
             "build identity"
         )
     build_identity = build_identity_resolver(config_manifest)
+    consume_granularity = method_registration.resolve_consume_granularity(
+        benchmark_name
+    )
     config_track_bundle = (
         None
         if config_track == "unified"
@@ -532,6 +535,7 @@ def run_registered_conversation_qa_prediction(
                 "retrieval_evidence_contract_version",
                 None,
             ),
+            consume_granularity=consume_granularity,
             track_identity=track_identity,
         )
         policy = PredictionRunPolicy(
@@ -1628,6 +1632,7 @@ def _build_method_manifest(
     prompt_track: str | None = None,
     config_track: str | None = None,
     retrieval_evidence_contract_version: str | None = None,
+    consume_granularity: str | None = None,
     track_identity: TrackIdentity | None = None,
 ) -> dict[str, object]:
     """构造不含 secret、可供 registered preflight 直接比较的 method manifest。"""
@@ -1646,6 +1651,12 @@ def _build_method_manifest(
         manifest["retrieval_evidence_contract_version"] = (
             retrieval_evidence_contract_version
         )
+    if consume_granularity is not None:
+        if consume_granularity not in {"turn", "pair", "session", "conversation"}:
+            raise ConfigurationError(
+                "consume_granularity must be turn, pair, session or conversation"
+            )
+        manifest["consume_granularity"] = consume_granularity
     if track_identity is not None:
         if not isinstance(track_identity, TrackIdentity):
             raise ConfigurationError("track_identity must be TrackIdentity or None")
