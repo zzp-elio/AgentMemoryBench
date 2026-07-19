@@ -103,8 +103,11 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     只取 FirstHigh+ThirdHigh 各首条、1 round/1 question、单 worker，不重复 W1/W2。用户已批准
     规模/run id；R0/R1 分别被 CLI 参数门和 registration 四源硬等式零 API 拦截。R2
     `6f48ee3` 把动态选择收成 variant 内有序非空子集、full 少源 fail-fast，并用真实 registry→
-    runner→artifact/fingerprint 两源离线 prediction 锁定；当前等用户按命令包 §0.1 无损归档
-    第二次现场后续跑。该旁路线不降低 `0_10k REAL_SMOKE_PASSED`，也不阻塞下一格。
+    runner→artifact/fingerprint 两源离线 prediction 锁定。用户后续真实 run 已完成；两个官方
+    no-time distractor 都实际进入 memory-build LLM 并合法输出零 LTM。首版机器门错误要求每个
+    conversation 必须有 Qdrant point；R3 改为 actual-call-aware 分层验收，现有产物通过，null
+    payload write 由确定性 local-Qdrant 强反例补足。裁决=
+    `100K_MISSING_TIME_SENTINEL_PASSED_ZERO_EXTRACTION`，无需重烧 API；完整输出见命令包 §6。
 16. BEAM 复用 frozen benchmark 事实，不重跑全量 census。Opus 4.8 的 pair 差量主体经架构师
     full diff 与 `330 passed` 强验收合入 `de40d63`：LightMem × BEAM 已从 `turn` 改为 concrete
     `pair`，manifest/resume identity 随之严格失效旧 run，RetrievalEvidence 仍诚实 N/A。
@@ -116,6 +119,10 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     异常账。[source-locked 异常账 R1 卡](cards/actor-prompt-longmemeval-anomaly-ledger-r1.md) 要求同时
     census S/M、逐条证伪草稿，并对表 canonical/evaluator-private/LightMem 三层处置；actor 只交
     自包含 audit note，架构师强验收后再集成稳定页，避免覆盖用户草稿。
+18. HaluMem benchmark frozen-v1 事实直接复用，不重跑 Medium/Long census。当前已形成
+    [current-v7 差量预检卡](cards/actor-prompt-lightmem-halumem-current-v7-preflight.md)：只核
+    session ingest/report、hybrid role、online-soft、增量 capture、operation-level 交错顺序、
+    product readout/observer 与 N/A 资格；READY 后才由架构师生成固定 Medium W1 B11 命令。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的
