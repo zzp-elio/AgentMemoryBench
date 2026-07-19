@@ -1136,6 +1136,75 @@ def test_lightmem_memory_entry_from_missing_time_keeps_lineage() -> None:
     assert mem.memory == "harbor cafe noise"
 
 
+def test_lightmem_official_insert_roundtrips_null_time_through_local_qdrant() -> None:
+    """官方 ``offline_update`` 应把缺时 MemoryEntry 原样写入真实本地 Qdrant。
+
+    100k 的无时间输入是 distractor，真实 extraction 合法地产生零 LTM，不能靠
+    诱导模型生成假记忆来证明持久化分支。本测试以确定性 MemoryEntry 进入官方
+    insert 路径，使用真实 Qdrant local client 验证 null payload 与 readout。
+    """
+
+    from qdrant_client import QdrantClient
+
+    import_lightmem_classes(load_path_settings())
+    lightmem_module = sys.modules["lightmem.memory.lightmem"]
+    lm_utils = sys.modules["lightmem.memory.utils"]
+    from lightmem.configs.retriever.embeddingretriever.qdrant import QdrantConfig
+    from lightmem.factory.retriever.embeddingretriever.qdrant import Qdrant
+
+    memory = lm_utils._create_memory_entry_from_fact(
+        {"source_id": 0, "fact": "public distractor-shaped memory"},
+        timestamps_list=[None],
+        weekday_list=[None],
+        speaker_list=[{"speaker_id": "user", "speaker_name": "user"}],
+        topic_id=3,
+        external_ids=["noise:1"],
+        source_external_ids_list=[["noise:1"]],
+    )
+    assert memory is not None
+
+    client = QdrantClient(location=":memory:")
+    retriever = Qdrant(
+        QdrantConfig(
+            client=client,
+            collection_name="null-time-roundtrip",
+            embedding_model_dims=2,
+            path=":memory:",
+        )
+    )
+    backend = SimpleNamespace(
+        config=SimpleNamespace(index_strategy="embedding"),
+        text_embedder=FakeLightMemEmbedder(),
+        embedding_retriever=retriever,
+        logger=logging.getLogger("test-lightmem-null-time-qdrant"),
+    )
+    try:
+        lightmem_module.LightMemory.offline_update(backend, [memory])
+
+        results = retriever.search(
+            query_vector=[1.0, 0.0],
+            limit=1,
+            filters=None,
+            return_full=True,
+        )
+        assert len(results) == 1
+        payload = results[0]["payload"]
+        assert payload["time_stamp"] is None
+        assert payload["float_time_stamp"] is None
+        assert payload["weekday"] is None
+        assert payload["memory"] == "public distractor-shaped memory"
+        assert payload["source_external_id"] == "noise:1"
+        assert payload["source_external_ids"] == ["noise:1"]
+        assert lightmem_module.LightMemory.retrieve(
+            backend,
+            "public distractor-shaped memory",
+            limit=1,
+            filters=None,
+        ) == ["public distractor-shaped memory"]
+    finally:
+        client.close()
+
+
 def test_lightmem_memory_entry_time_fields_are_optional() -> None:
     """R1-3：MemoryEntry 真实存储 None，因此 time_stamp/float_time_stamp/weekday 的
     annotation 必须是 Optional，让类型声明与运行时值一致。"""

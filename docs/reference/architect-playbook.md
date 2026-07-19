@@ -827,3 +827,7 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
 - **重开稳定层必须有触发器。**只有 source lock/官方资产变化、shared canonical/evaluator/prompt
   contract 变版、或新一手反证推翻旧判词，才重开 benchmark 调查；否则任务卡必须明确分栏
   “复用事实 / method-specific 差量”。这是慢就是快的摊销机制，不是降低验收标准。
+- **把草稿整理成稳定页本身不是重开触发器。**若 source hash 与已强验收 census 一致，整合卡
+  应直接引用既有计数，只复核草稿新增断言、variant 差异和当前代码处置；不得借“source-locked
+  ledger”换名重扫整库。2026-07-19 LongMemEval 稳定账卡错误地要求 S/M census 全量重算，
+  actor 虽完成但重复消耗本可避免；以后卡内必须逐条标出“继承事实 / 本批新增事实”。
