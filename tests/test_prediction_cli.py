@@ -702,7 +702,12 @@ def test_registered_prediction_builds_system_from_registry_context(
 
 @pytest.mark.parametrize(
     ("benchmark_name", "expected"),
-    [("membench", "pair"), ("locomo", "turn"), ("halumem", "session")],
+    [
+        ("membench", "pair"),
+        ("beam", "pair"),
+        ("locomo", "turn"),
+        ("halumem", "session"),
+    ],
 )
 def test_lightmem_method_manifest_uses_concrete_registered_consume_granularity(
     benchmark_name: str,
@@ -723,6 +728,48 @@ def test_lightmem_method_manifest_uses_concrete_registered_consume_granularity(
     )
 
     assert manifest["consume_granularity"] == expected
+
+
+def test_lightmem_beam_pair_manifest_breaks_resume_against_legacy_turn() -> None:
+    """BEAM 由 turn 改判 pair 后，旧 turn manifest 必须 resume mismatch。
+
+    验证 §5.8：LightMem×BEAM 的 concrete manifest 现写 `pair`；用真实
+    `_build_method_manifest` 生成的旧 `turn` 与新 `pair` manifest 经真实
+    `_manifests_match_for_resume` 严格比较——只有相同粒度才可复用旧
+    checkpoint，turn↔pair 双向都必须失效，不放宽严格门。
+    """
+
+    from memory_benchmark.methods.registry import get_method_registration
+    from memory_benchmark.runners.prediction import _manifests_match_for_resume
+
+    registration = get_method_registration("lightmem")
+    pair_granularity = registration.resolve_consume_granularity("beam")
+    assert pair_granularity == "pair"
+
+    new_pair = prediction_cli._build_method_manifest(
+        config_manifest={"profile_name": "smoke"},
+        source_identity={"source_sha256": "fake"},
+        workload_estimate=None,
+        consume_granularity=pair_granularity,
+    )
+    legacy_turn = prediction_cli._build_method_manifest(
+        config_manifest={"profile_name": "smoke"},
+        source_identity={"source_sha256": "fake"},
+        workload_estimate=None,
+        consume_granularity="turn",
+    )
+
+    assert new_pair["consume_granularity"] == "pair"
+    assert legacy_turn["consume_granularity"] == "turn"
+    assert _manifests_match_for_resume(
+        {"method": new_pair}, {"method": dict(new_pair)}
+    )
+    assert not _manifests_match_for_resume(
+        {"method": legacy_turn}, {"method": new_pair}
+    )
+    assert not _manifests_match_for_resume(
+        {"method": new_pair}, {"method": legacy_turn}
+    )
 
 
 def test_registered_prediction_passes_benchmark_policy_separately_from_method_manifest(

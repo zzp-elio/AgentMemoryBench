@@ -2743,6 +2743,15 @@ def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
             benchmark_name="membench",
         )
     )
+    beam = _build_lightmem_system(
+        MethodBuildContext(
+            config=config,
+            openai_settings=OpenAISettings(api_key="sk-test"),
+            path_settings=path_settings,
+            storage_root=tmp_path / "beam",
+            benchmark_name="beam",
+        )
+    )
     halumem = _build_lightmem_system(
         MethodBuildContext(
             config=config,
@@ -2765,6 +2774,10 @@ def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
     assert membench.consume_granularity == "pair"
     assert membench.session_memory_report is False
     assert membench.benchmark_name == "membench"
+    assert isinstance(beam, MemoryProvider)
+    assert beam.consume_granularity == "pair"
+    assert beam.session_memory_report is False
+    assert beam.benchmark_name == "beam"
     assert isinstance(halumem, MemoryProvider)
     assert halumem.consume_granularity == "session"
     assert halumem.session_memory_report is True
@@ -2785,6 +2798,11 @@ def test_lightmem_registry_specializes_consume_granularity_by_benchmark(
         protocol_version="v3",
         system=locomo,
     )["provenance_granularity"] == "turn"
+    assert _method_manifest_with_protocol(
+        method_manifest={},
+        protocol_version="v3",
+        system=beam,
+    )["consume_granularity"] == "pair"
 
 
 def test_lightmem_backend_config_uses_official_mini_profile_values() -> None:
@@ -4615,6 +4633,321 @@ def test_lightmem_membench_extraction_batch_keeps_pair_lineage_by_source_id() ->
     assert all(entry.source_external_id is None for entry in entries)
 
 
+def test_lightmem_beam_production_path_ingests_normal_pair_with_session_anchor() -> None:
+    """BEAM 正常 user→assistant 应经生产事件流投递为一次真实双边 pair。
+
+    验证 §5.2：consume_granularity 由 registry resolver 解析为 `pair`；一个真实
+    user 紧邻一个真实 assistant 只触发一次 backend 调用，两个真实 slot 无
+    placeholder，content/role/public id 原样保留；无自身时间的 assistant 只回落
+    本 session 的 time anchor（BEAM adapter 已把首 user turn 的 anchor 提升为
+    session_time），question time 绝不泄漏进注入 payload。
+    """
+
+    backend = FakeLightMemoryBackend()
+    system = _lightmem_evidence_system(benchmark_name="beam")
+    system.consume_granularity = get_method_registration(
+        "lightmem"
+    ).resolve_consume_granularity("beam")
+    system._backend_factory = lambda _conversation_id: backend
+    anchor = "2026-01-02 10:00"
+    conversation = Conversation(
+        conversation_id="beam-normal",
+        sessions=[
+            Session(
+                session_id="s1:t-anchor",
+                session_time=anchor,
+                turns=[
+                    Turn(
+                        "s1:t1",
+                        "user",
+                        "User asks a real thing.",
+                        normalized_role="user",
+                        turn_time=anchor,
+                    ),
+                    Turn(
+                        "s1:t2",
+                        "assistant",
+                        "Assistant gives a real answer.",
+                        normalized_role="assistant",
+                    ),
+                ],
+            )
+        ],
+        questions=[
+            Question(
+                question_id="q1",
+                conversation_id="beam-normal",
+                text="Which fact?",
+                question_time="2099-12-31 23:59",
+            )
+        ],
+    )
+
+    _ingest_memory_provider_conversation(
+        provider=system,
+        public_conversation=conversation,
+        run_id="beam-pair-run",
+    )
+
+    assert system.consume_granularity == "pair"
+    assert len(backend.added_messages) == 1
+    messages = backend.added_messages[0]["messages"]
+    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert [message["content"] for message in messages] == [
+        "User asks a real thing.",
+        "Assistant gives a real answer.",
+    ]
+    assert all(LIGHTMEM_PLACEHOLDER_MARKER not in message for message in messages)
+    assert [message["external_id"] for message in messages] == ["s1:t1", "s1:t2"]
+    assert all(
+        message["source_external_ids"] == ["s1:t1", "s1:t2"] for message in messages
+    )
+    # 无自身时间的 assistant 只从本 session anchor 回落，不修钟、不造时。
+    assert [message["time_stamp"] for message in messages] == [anchor, anchor]
+    assert "2099-12-31 23:59" not in str(messages)
+
+
+def test_lightmem_beam_production_path_keeps_positional_ids_as_pair_candidates() -> None:
+    """10m 风格 positional id（含 `pN:sM:tK`）应原样进入 pair candidate ids。
+
+    验证 §5.3：BEAM 10m public turn id 是 positional namespace，不能被改写或
+    截断；一个真实 pair 的两个 slot 必须携带这两个 positional id 的稳定去重集合。
+    """
+
+    backend = FakeLightMemoryBackend()
+    system = _lightmem_evidence_system(benchmark_name="beam")
+    system.consume_granularity = "pair"
+    system._backend_factory = lambda _conversation_id: backend
+    conversation = Conversation(
+        conversation_id="beam-10m",
+        sessions=[
+            Session(
+                session_id="p1:s1",
+                session_time="2026-03-01 09:00",
+                turns=[
+                    Turn(
+                        "p1:s1:t1",
+                        "user",
+                        "Positional user turn.",
+                        normalized_role="user",
+                        turn_time="2026-03-01 09:00",
+                    ),
+                    Turn(
+                        "p1:s1:t2",
+                        "assistant",
+                        "Positional assistant turn.",
+                        normalized_role="assistant",
+                        turn_time="2026-03-01 09:00",
+                    ),
+                ],
+            )
+        ],
+    )
+
+    _ingest_memory_provider_conversation(
+        provider=system,
+        public_conversation=conversation,
+        run_id="beam-pair-run",
+    )
+
+    assert len(backend.added_messages) == 1
+    messages = backend.added_messages[0]["messages"]
+    assert [message["external_id"] for message in messages] == [
+        "p1:s1:t1",
+        "p1:s1:t2",
+    ]
+    assert all(
+        message["source_external_ids"] == ["p1:s1:t1", "p1:s1:t2"]
+        for message in messages
+    )
+    assert all(LIGHTMEM_PLACEHOLDER_MARKER not in message for message in messages)
+
+
+def test_lightmem_beam_production_path_keeps_consecutive_users_as_singletons() -> None:
+    """连续 user 不得互配：每条各自成 singleton pair 并补自己的 assistant placeholder。
+
+    验证 §5.4：BEAM 10m 存在同 role adjacency；两个相邻 user turn 必须产生两次
+    独立 backend 调用，每次一个真实 user id + 一个镜像同 id 的 structural
+    assistant placeholder，不能把两条 user 互配或 union lineage。
+    """
+
+    backend = FakeLightMemoryBackend()
+    system = _lightmem_evidence_system(benchmark_name="beam")
+    system.consume_granularity = "pair"
+    system._backend_factory = lambda _conversation_id: backend
+    conversation = Conversation(
+        conversation_id="beam-consecutive-user",
+        sessions=[
+            Session(
+                session_id="p1:s1",
+                session_time="2026-03-01 09:00",
+                turns=[
+                    Turn(
+                        "p1:s1:t1",
+                        "user",
+                        "First user, unchanged.",
+                        normalized_role="user",
+                        turn_time="2026-03-01 09:00",
+                    ),
+                    Turn(
+                        "p1:s1:t2",
+                        "user",
+                        "Second user, unchanged.",
+                        normalized_role="user",
+                        turn_time="2026-03-01 09:01",
+                    ),
+                ],
+            )
+        ],
+    )
+
+    _ingest_memory_provider_conversation(
+        provider=system,
+        public_conversation=conversation,
+        run_id="beam-pair-run",
+    )
+
+    assert len(backend.added_messages) == 2
+    for source_id, call in zip(
+        ("p1:s1:t1", "p1:s1:t2"), backend.added_messages, strict=True
+    ):
+        user_message, assistant_message = call["messages"]
+        assert user_message["role"] == "user"
+        assert user_message["external_id"] == source_id
+        assert user_message["source_external_ids"] == [source_id]
+        assert LIGHTMEM_PLACEHOLDER_MARKER not in user_message
+        assert assistant_message["role"] == "assistant"
+        assert assistant_message[LIGHTMEM_PLACEHOLDER_MARKER] is True
+        assert assistant_message["source_external_ids"] == [source_id]
+    assert [
+        call["messages"][0]["content"] for call in backend.added_messages
+    ] == ["First user, unchanged.", "Second user, unchanged."]
+
+
+def test_lightmem_beam_production_path_orphan_assistant_never_pairs_across_session() -> None:
+    """assistant-first orphan 保留真实 turn，且不与下一 session 的 user 配对。
+
+    验证 §5.5：session 边界是硬边界。session1 的 assistant-first orphan 必须成为
+    `[placeholder user, real assistant]`，不丢弃、不改 role；session2 的 dangling
+    user 必须成为 `[real user, placeholder assistant]`；两者永不跨 session 配成
+    一个真实 pair。
+    """
+
+    backend = FakeLightMemoryBackend()
+    system = _lightmem_evidence_system(benchmark_name="beam")
+    system.consume_granularity = "pair"
+    system._backend_factory = lambda _conversation_id: backend
+    conversation = Conversation(
+        conversation_id="beam-orphan",
+        sessions=[
+            Session(
+                session_id="p1:s1",
+                session_time="2026-03-01 09:00",
+                turns=[
+                    Turn(
+                        "p1:s1:t1",
+                        "assistant",
+                        "Session-one assistant opens.",
+                        normalized_role="assistant",
+                        turn_time="2026-03-01 09:00",
+                    ),
+                ],
+            ),
+            Session(
+                session_id="p1:s2",
+                session_time="2026-03-02 09:00",
+                turns=[
+                    Turn(
+                        "p1:s2:t1",
+                        "user",
+                        "Session-two user opens.",
+                        normalized_role="user",
+                        turn_time="2026-03-02 09:00",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    _ingest_memory_provider_conversation(
+        provider=system,
+        public_conversation=conversation,
+        run_id="beam-pair-run",
+    )
+
+    assert len(backend.added_messages) == 2
+    first_user, first_assistant = backend.added_messages[0]["messages"]
+    assert first_user["role"] == "user"
+    assert first_user[LIGHTMEM_PLACEHOLDER_MARKER] is True
+    assert first_user["source_external_ids"] == ["p1:s1:t1"]
+    assert first_assistant["role"] == "assistant"
+    assert first_assistant["content"] == "Session-one assistant opens."
+    assert first_assistant["external_id"] == "p1:s1:t1"
+    assert LIGHTMEM_PLACEHOLDER_MARKER not in first_assistant
+
+    second_user, second_assistant = backend.added_messages[1]["messages"]
+    assert second_user["role"] == "user"
+    assert second_user["content"] == "Session-two user opens."
+    assert second_user["external_id"] == "p1:s2:t1"
+    assert LIGHTMEM_PLACEHOLDER_MARKER not in second_user
+    assert second_assistant["role"] == "assistant"
+    assert second_assistant[LIGHTMEM_PLACEHOLDER_MARKER] is True
+    assert second_assistant["source_external_ids"] == ["p1:s2:t1"]
+    # 跨 session 不得混 lineage：两个真实 turn 从不落进同一 backend 调用。
+    assert first_assistant["source_external_ids"] == ["p1:s1:t1"]
+    assert second_user["source_external_ids"] == ["p1:s2:t1"]
+
+
+def test_lightmem_beam_production_path_preserves_two_sided_none() -> None:
+    """10m 全缺时 session 的双 None 在 online_soft+preserve_none 下原样进入两个 slot。
+
+    验证 §5.6：BEAM 10m 存在唯一全缺时 session；显式双 None 不得被本批放宽成
+    空串或合成时间，两个真实 slot 的 time_stamp 都必须保持 None。
+    """
+
+    backend = FakeLightMemoryBackend()
+    system = _lightmem_evidence_system(benchmark_name="beam")
+    system.consume_granularity = "pair"
+    system._backend_factory = lambda _conversation_id: backend
+    conversation = Conversation(
+        conversation_id="beam-none",
+        sessions=[
+            Session(
+                session_id="p1:s1",
+                turns=[
+                    Turn(
+                        "p1:s1:t1",
+                        "user",
+                        "No-time user bytes.",
+                        normalized_role="user",
+                    ),
+                    Turn(
+                        "p1:s1:t2",
+                        "assistant",
+                        "No-time assistant bytes.",
+                        normalized_role="assistant",
+                    ),
+                ],
+            )
+        ],
+    )
+
+    _ingest_memory_provider_conversation(
+        provider=system,
+        public_conversation=conversation,
+        run_id="beam-pair-run",
+    )
+
+    assert len(backend.added_messages) == 1
+    messages = backend.added_messages[0]["messages"]
+    assert [message["content"] for message in messages] == [
+        "No-time user bytes.",
+        "No-time assistant bytes.",
+    ]
+    assert [message["time_stamp"] for message in messages] == [None, None]
+    assert all(LIGHTMEM_PLACEHOLDER_MARKER not in message for message in messages)
+
+
 def _capture_lightmem_extraction_messages(
     messages: list[dict[str, object]],
     messages_use: str,
@@ -5216,6 +5549,7 @@ def test_lightmem_evidence_matrix_per_benchmark() -> None:
     ev = beam._build_retrieval_evidence(items_empty)
     assert ev.semantic_provenance.status == "n_a"
     assert ev.semantic_provenance.reason_code == "beam_gold_is_single_message"
+    assert ev.provenance_granularity == "none"
 
     halu = _lightmem_evidence_system(benchmark_name="halumem")
     ev = halu._build_retrieval_evidence(items_empty)

@@ -172,6 +172,7 @@ def test_built_in_methods_advertise_memory_retrieval_capability() -> None:
         ("lightmem", "locomo", "turn"),
         ("lightmem", "membench", "pair"),
         ("lightmem", "longmemeval", "pair"),
+        ("lightmem", "beam", "pair"),
         ("lightmem", "halumem", "session"),
         ("memoryos", "longmemeval", "pair"),
         ("memoryos", "membench", "session"),

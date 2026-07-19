@@ -441,6 +441,18 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   由顶层 `method.consume_granularity` 独立盖章并严格参与 resume。旧 manifest 缺该字段、
   或旧 MemBench 值为 `turn`，均不得 resume 到新 `pair` 运行；LoCoMo=`turn`、
   LongMemEval=`pair`、HaluMem=`session` 的其他格身份不被粗暴失效。
+  2026-07-19 BEAM 同理由 `turn` 改判 `pair`（B11 前预检）：BEAM 100k/500k/1m 严格
+  user/assistant 交替，天然 user→assistant 应聚成一次真实双边 `TurnPair`/一次
+  `add_memory()`，旧 `turn` 会把它拆成 `[real user, placeholder assistant]` 与
+  `[placeholder user, real assistant]` 两次人工 pair，改变 buffer/segment/extract
+  调用边界。10m 的两处同 role adjacency、assistant-first 与 dangling turn 由现有
+  `GranularityAggregator(pair)` + LightMem placeholder 规则诚实保留，不跨 session
+  配对。仍不 bump `LIGHTMEM_ADAPTER_VERSION`：concrete `method.consume_granularity`
+  已严格参与 manifest/resume，旧 BEAM `turn` 身份失效但不连坐另四格。BEAM gold 仍是
+  单 message unit，故 BEAM Recall/NDCG 的 `RetrievalEvidence` 保持
+  `n_a/none/beam_gold_is_single_message`，改 pair 不写成 valid。此修复只改
+  registration/tests/integration note，不动 BEAM adapter、event stream、LightMem 算法
+  adapter、evaluator、prompt 或 gold。回卡强验收后再生成 100k+10m 两次真实 B11 命令。
 - **B7 效率插桩 ✅（v7 LoCoMo/LME 实际调用观测已复验）**：build/answer/judge 三角色
   api_usage 真 token（2026-07-12 效率审计无拦截缺口）；LightMem add_memory 自带
   token/api_call_nums 返回值可做交叉参照（待留档）。v6 真实 LongMemEval B11 开箱发现

@@ -218,7 +218,7 @@ def _lightmem_consume_granularity(
 
     if benchmark_name == "halumem":
         return "session"
-    if benchmark_name in {"longmemeval", "membench"}:
+    if benchmark_name in {"longmemeval", "membench", "beam"}:
         return "pair"
     return "turn"
 
