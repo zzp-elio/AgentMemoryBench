@@ -55,7 +55,7 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 TOML/builder | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅caption v6 | ✅物理 | 🟡v7 readout 代码 retested；真实 artifact 待重跑 | ✅LoCoMo/MemBench valid；LME/BEAM/HaluMem N/A；ranking pending 如实披露 | ✅online-soft | 🟡v7 observer 离线过；真实 observation 待验 | ✅ | ✅当前 MiniLM smoke build | ✅主 TOML；author builder 按政策延后到校准前 | 🟡v6 历史证据保留；v7 LME/LoCoMo B11 待重跑 | **v6 历史 v2；v7 待 B11** |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅caption v6 | ✅物理 | 🟡v7 readout 代码 retested；真实 artifact 待重跑 | ✅LoCoMo/MemBench valid；LME/BEAM/HaluMem N/A；ranking pending 如实披露 | ✅online-soft | 🟡v7 observer 离线过；真实 observation 待验 | ✅ | ✅当前 MiniLM smoke build | ✅主 TOML；author builder 按政策延后到校准前 | 🟡v7 LME/LoCoMo 待复验；MemBench/BEAM/HaluMem 待逐格重认证 | **v6 历史 v2；v7 未冻结** |
 | [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅effective time 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(旧 native 计量=前置声明2) | ✅B8+清单落档(M5,下载点声明4) | 🟡当前 MiniLM；性能主配置待裁 | 🟡truthful 旧身份已落；author builder 待迁 | 🟡13格历史证据保留；五格主复证 | **v1 局部重开** |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅当前 MiniLM smoke build | 🟡旧 readout 身份 truthful；author builder 待迁 | 🟡五格主 smoke | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |

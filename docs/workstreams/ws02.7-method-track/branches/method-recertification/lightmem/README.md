@@ -61,9 +61,10 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     summary 主体 `8a81723` 合入主线 `68bb7f9`；LightMem 主体 `8f6f883` 被架构师以 zero-hit
     双源与 observer 透明性强反例驳回，Codex R1 `1a07938` 关闭后合入主线
     `d11d749` + `2f21291`。两卡合流定向 325、主树全量 1557、compileall exit 0；真实 v6
-    W1/W2 零 API 重评已正确写 total=1/2、mean=null。当前只剩真实 v7 B11 artifact 复验；
+    W1/W2 零 API 重评已正确写 total=1/2、mean=null。当前最近的门是真实 v7 B11 artifact 复验；
     在 LongMemEval v7 门通过前仍保持 `B11_ARTIFACT_REPAIR_PENDING`；随后还要补 LoCoMo v7
-    受影响的 B4/B7/B11 最小复验，才能宣称当前 adapter frozen。
+    受影响的 B4/B7/B11 最小复验；之后仍须按本 dossier 逐格压实 MemBench、BEAM、HaluMem，
+    五格全部关闭后才能宣称当前 adapter frozen。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

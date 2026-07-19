@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem v6 smoke 作历史证据；LongMemEval/LoCoMo v7 受影响 B11 待复验；Mem0 暂缓）
+status: in-progress（LightMem v6 smoke 作历史证据；当前先复验 LME/LoCoMo v7，其余三格待重认证；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）

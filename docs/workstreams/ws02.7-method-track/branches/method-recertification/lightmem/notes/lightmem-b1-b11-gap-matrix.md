@@ -22,7 +22,7 @@
 | B8+ 韧性 | revalidated | timeout/retry wrapper 与失败态清理未受影响 | 真实 smoke 前对表 |
 | B9 模型/build 口径 | revalidated | 当前五格 smoke identity=MiniLM/384/cosine + hybrid + online-soft，强类型 manifest 可复算。效果参数/embedding 的最终裁决按政策延后，不冒充当前 smoke 缺口 | 进入 B11；首个效果 full 前再裁参数 |
 | B10 TOML/builder | revalidated | 当前 manifest 对既有 smoke build truthful；新 TOML section/完整 author builder 已明确排在首个 author calibration/效果 full 前，按政策不阻塞 5×10 smoke。官方 LME `user_only` 未来只能显式 author section，不能暗切 | 用当前 section 跑 B11；效果实验前迁移 |
-| B11 五格 smoke/冻结 | pending | 历史五格与 LoCoMo v6 `r3q1-w1`/`c2-w2` 继续作历史证据；v7 readout/observer 代码门已过，真实 artifact 尚未证明 | 先 LME v7，再 LoCoMo v7 最小复验；当前不 frozen |
+| B11 五格 smoke/冻结 | pending | 历史五格与 LoCoMo v6 `r3q1-w1`/`c2-w2` 继续作历史证据；v7 readout/observer 代码门已过，真实 artifact 尚未证明 | 先 LME v7，再 LoCoMo v7；随后逐格压实 MemBench/BEAM/HaluMem；当前不 frozen |
 
 ## 当前冻结判词
 
