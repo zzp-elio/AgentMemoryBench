@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；BEAM/HaluMem 待重认证；Mem0 暂缓）
+status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；BEAM 已到 B11 命令门；HaluMem 待重认证；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -41,10 +41,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `e10110f`（RetrievalEvidence M1 + 契约收敛 R1）→ `78196bc`/`65f5805`
   （LightMem caption v6 + 无 caption bytes R1）→ `68bb7f9`（retrieval summary v2）→
   `d11d749`/`2f21291`（LightMem readout/embedding v7 + R1）→ `6ba4060`/
-  `cdbf570`/`fbf84af`/`44e2968`（MemBench 异常审计 + pair/manifest R1-R3）。准确
+  `cdbf570`/`fbf84af`/`44e2968`（MemBench 异常审计 + pair/manifest R1-R3）→
+  `9bd2ab0`（MemBench source-filter CLI R1）→ `de40d63`（BEAM pair 差量）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1579 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 144.49s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮主树全量门=`1588 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 163.44s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
@@ -148,10 +149,13 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   current-v7 W1/W2；R1 验货按生产 storage-safe name+hash 修正后全绿：25 ISO hit、9 条
   FirstAgent 双 child lineage、16 条 ThirdAgent singleton lineage、25 次 build embedding，
   双 worker 物理隔离成立。本格现为 `REAL_SMOKE_PASSED`。100k 不重跑整套 W1/W2，只留
-  FirstHigh+ThirdHigh 单 worker missing-time 真实哨兵旁路线，等待用户明确批准规模/run id；
-  它不阻塞 BEAM。BEAM current resolver 的 `turn` 又会把天然 user→assistant 拆成两个人工
-  placeholder pair，已发零 API `pair` 差量修复卡。BEAM/HaluMem 仍 pending，故 LightMem
-  整体不 frozen。Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
+  FirstHigh+ThirdHigh 单 worker missing-time 真实哨兵；用户已批准规模/run id，R0 因
+  MemBench 专属 source 旗标的 CLI 正向门缺失而在 API 前中止，`9bd2ab0` 已修复并保留失败日志
+  的非破坏性归档流程。BEAM 的 `turn→pair` 差量已由 Opus 4.8 回卡、架构师逐 diff 与
+  `330 passed` 强验收，主线 `de40d63`；source-locked 异常账复核确认标准三 split role 干净、
+  10M 两处 dangling user/一处 content 错位/一格全缺时/5 次跨 session anchor 回退，均不需
+  猜修数据。BEAM 现到 100K+10M B11 命令门；HaluMem 仍 pending，故 LightMem 整体不 frozen。
+  Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
@@ -159,7 +163,24 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-19）
 
-- 2026-07-19（**MemBench 100k 只补缺时旁路哨兵；BEAM pair 差量修复可并行派发；后续 method
+- 2026-07-19（**100k 哨兵获批但被 CLI 预检 bug 零成本拦截，R1 已修；BEAM pair 差量与异常账
+  强验收通过，下一步并行是 100k 哨兵续跑 + BEAM B11 命令门**，GPT-5.6 sol 架构师）：用户批准
+  `lm-membench-v7-none100k-fh-th-r1q1-w1` 后，首轮命令在 provider/API 构造前误报
+  `--membench-sources is only supported for MemBench smoke`。根因是 MemBench 分支调用共享
+  validator 时漏传 `is_membench=True`；`9bd2ab0` 修正一行并新增显式两源正向回归，相关 CLI+
+  文档门 `86 passed`。失败目录只有 terminal log，命令包 §0 已给非破坏性归档与同 identity
+  重跑步骤。BEAM actor `ff8dfc5` 经架构师 full diff、独立定向 `330 passed, 1 warning` 后线性
+  合入 `de40d63`：唯一生产变化是 LightMem resolver 把 BEAM 加入 `pair`，manifest/resume
+  自动失效旧 `turn` run，adapter v7 不 bump，RetrievalEvidence 仍 N/A。五个 Arrow shard
+  hash 与 source lock 一致；独立 census 纠正 Sonnet 草稿：标准三 split 790 sessions/118,420
+  turns role 全干净；10M 是 77,569 groups/208,696 messages，两处 dangling follow-up，第二处
+  下一 assistant 明显答错槽；不是“2 次”而是 **5 次**相邻 session anchor 回退，另有一个全缺时
+  session。详细位置与不猜修裁决见 `docs/survey/异常情况/beam.md`。合流定向门=`428 passed,
+  1 warning`，主树全量=`1588 passed, 3 deselected, 2 warnings, 29 subtests passed`，compileall
+  exit 0。push 后用户先按 100k 命令包续跑；BEAM 另给 100K+10M 两个独立 run 的 B11 命令，
+  不混 variant。
+
+- 2026-07-19（**历史派卡前断点，已由上条 superseded：MemBench 100k 只补缺时旁路哨兵；BEAM pair 差量修复可并行派发；后续 method
   启用 benchmark 稳定层摊销**，GPT-5.6 sol 架构师）：production adapter 现场确认 100k
   FirstHigh/ThirdHigh 各首条在 1 round 裁剪下共有 4 个真实 turn，全部
   `turn_time=None/session_time=None`；最小哨兵固定 2 conversations × 1 question × 1 worker，

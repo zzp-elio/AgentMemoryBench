@@ -452,7 +452,14 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   单 message unit，故 BEAM Recall/NDCG 的 `RetrievalEvidence` 保持
   `n_a/none/beam_gold_is_single_message`，改 pair 不写成 valid。此修复只改
   registration/tests/integration note，不动 BEAM adapter、event stream、LightMem 算法
-  adapter、evaluator、prompt 或 gold。回卡强验收后再生成 100k+10m 两次真实 B11 命令。
+  adapter、evaluator、prompt 或 gold。actor 回卡已由架构师 full diff、独立定向
+  `330 passed, 1 warning`、合流定向 `428 passed, 1 warning`、主树全量 `1588 passed,
+  3 deselected, 2 warnings, 29 subtests passed` 与 compileall exit 0 强验收；下一步生成
+  100K+10M 两次真实 B11 命令。
+  BEAM source-locked 异常总账现见 `docs/survey/异常情况/beam.md`：标准三 split 的 role
+  形状全量干净；10M 只有两处 dangling follow-up user，其中一处伴随下一 assistant 主题
+  错位，另有一个全缺时 session 与 5 个跨 session anchor 回退。统一策略是保留 raw
+  content/role/order/time，pair 层只补结构 placeholder，绝不按内容猜搬回复或跨 session 修钟。
 - **B7 效率插桩 ✅（v7 LoCoMo/LME 实际调用观测已复验）**：build/answer/judge 三角色
   api_usage 真 token（2026-07-12 效率审计无拦截缺口）；LightMem add_memory 自带
   token/api_call_nums 返回值可做交叉参照（待留档）。v6 真实 LongMemEval B11 开箱发现

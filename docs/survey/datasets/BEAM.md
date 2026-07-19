@@ -59,3 +59,18 @@ expected_compliance/why_unanswerable/…）。
   `framework_supplementary`，不能称官方指标。
 - 快照自带 `.git`：官方代码 commit 已锁 `3e12035`（五 benchmark 首个
   可锁 commit 的快照）。
+
+## 4. 当前 release 的异常摘要
+
+详细位置、原文例子、统计命令含义与统一处置见
+[`异常情况/beam.md`](../异常情况/beam.md)。稳定摘要：
+
+- 100K/500K/1M 共 790 sessions、118,420 turns，role 形状严格 user→assistant；但 1M
+  四个 conversation 的 raw id 在后续 session 重启，现行 positional public id +
+  private multi-child any-of group 已吸收。
+- 10M 共 1,000 batches/sessions；只有两处 turn group 以 follow-up user 悬空并与下一组首
+  user 相邻，其中 conversation 2 的下一 assistant 还存在明显主题错位。框架保留原文原序，
+  不猜修数据；pair aggregator 以 dangling/new-pair 处理。
+- 10M 有一个全缺 `time_anchor` session，另有 5 个相邻 session anchor 回退；source time
+  原样保留，不跨 session 排序/修钟。
+- 10M 有一个非法 `'--'` evidence 原子，按 unmatched 私有 qrel 留痕，不泄漏给 method。

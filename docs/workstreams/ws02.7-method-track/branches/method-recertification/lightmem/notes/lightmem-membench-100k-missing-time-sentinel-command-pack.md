@@ -1,7 +1,7 @@
 # LightMem × MemBench 100k 缺失时间真实哨兵命令包
 
 > 状态：**用户已批准规模与 run id；R0 被 CLI 参数预检缺陷拦截，零 API、零 method
-> state，待 main 的参数门 R1 合入后按本文原身份续跑。**本哨兵不阻塞
+> state；main `9bd2ab0` 已修复参数门，按本文原身份续跑。**本哨兵不阻塞
 > LightMem × BEAM；它只补 `100k` 独有的真实 `time=None` 组合路径，不重复已经通过的
 > `0_10k` 单/双 worker B11，也不代表 100k full、效果、成本或 resume 认证。
 
