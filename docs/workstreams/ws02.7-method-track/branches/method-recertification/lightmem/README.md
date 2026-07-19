@@ -156,6 +156,15 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     [session flush R1 卡](cards/actor-prompt-lightmem-halumem-session-boundary-r1.md)；修复只校正
     bookkeeping + source identity，不调算法参数。三项官方 metric 的语义资格仍成立，待修复后
     再生成 Medium W1 全 evaluator 命令包。
+21. 用户明确授权当前 Codex 派 subagent；`gpt-5.6-sol/high` 的 `3716354` 已由架构师逐行验收并
+    重建身份合入主线 `8879af9`。实现没有发明 HaluMem 专用算法：sensory 只清已经全部 emitted
+    的 current message，`add_memory()` 只把 automatic prefix 与 forced tail 顺序合并，长期 LTM
+    不清；source identity 新增 sensory 文件，adapter version 保持 v7。真实 vendored 双 session
+    链与 7 类强反例、定向 217、等价全量 1611、标准 compileall/改动文件 py_compile 均通过。
+    B6 blocker 关闭，HaluMem 恢复 `READY_FOR_HALUMEM_B11_COMMAND`；下一步生成 Medium W1
+    extraction→update→qa→memory-type 全 evaluator 命令包。前四格 artifacts 的旧 source hash
+    不再冒充可 resume 的新 build；最终 frozen 前做 exact-smoke reachability，只有实证命中改变
+    输出的 final-threshold 路径才讨论最小重跑，不默认重烧四格。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

@@ -437,3 +437,34 @@ BLOCKED_SESSION_FLUSH_INTEGRITY
 `../cards/actor-prompt-lightmem-halumem-session-boundary-r1.md`。修复不得调 segmentation 参数或
 metric；只收敛 forced flush bookkeeping、automatic+tail segment 合并、真实 source identity 与
 强反例。
+
+## 11. 架构师 R3 强验收：最小修复关闭 blocker
+
+用户明确授权当前 Codex 派发 subagent 后，`gpt-5.6-sol/high` 在隔离 worktree 完成
+`3716354`；架构师亲读 6 文件完整 diff，确认生产改动只有：
+
+1. forced tail 全输出后以 `len(current buffer)` 作为清理位置；
+2. 同次 automatic segments 与 forced tail 顺序 `extend`；
+3. source identity 纳入 `sensory_memory.py`，adapter version 仍为 v7。
+
+真实 vendored `LightMemory + SenMemBufferManager + ShortMemBufferManager` 双 session test 只在远端
+extraction 与 insert 边界使用 fake；结果为 session 1 两条、session 2 一条，双方零串入，sensory/
+STM 归零且 session 1 LTM 在 session 2 后仍存在。另有 non-force、no-boundary、threshold crossing、
+identity/version 强反例。没有 reset、新 session API、参数/prompt/分段/抽取或 LTM 算法改动；故
+没有触发用户规定的 N/A 退路。
+
+架构师复验：定向 `217 passed, 1 warning`；全量首次只有跨 worktree SimpleMem 软链触发 3 条
+路径安全失败，其余 `1608 passed`，改为隔离复制资产后失败三条 `3 passed`，等价完整门为
+`1611 passed, 3 deselected, 2 warnings, 29 subtests`。标准 `src+tests` compileall 与两个改动
+vendored Python 文件 py_compile 均 exit 0。主体以真实协作模型 trailer 重建并合入主树
+`8879af9`。
+
+因此 §10 blocker 被关闭：
+
+```text
+READY_FOR_HALUMEM_B11_COMMAND
+```
+
+新 source identity 严格拒绝旧状态 resume。前四格旧 artifacts 继续是旧 hash 下的真实行为证据，
+但不伪装成新 build；最终 frozen 前先做 exact-smoke 零 API reachability，不能仅因 hash 变化就
+默认重烧 API。

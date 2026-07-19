@@ -120,6 +120,12 @@
 > `LightMemory` + `SenMemBufferManager` + `ShortMemBufferManager` 的双 session 零 API 反例已证明
 > report 只含当前 session、暂存态归零而既有 LTM 保留；fake 仅替换远端 extraction/insert
 > 边界。该 actor 交付仍待架构师 full diff 与强验收，故付费 HaluMem B11 和总状态暂不提前改绿。
+> 2026-07-19 R7 架构师验收：上述 actor 主体经 full diff、定向 `217 passed`、等价全量
+> `1611 passed`、标准 compileall 与改动文件 py_compile 强验收，以 `8879af9` 合入。real-core
+> 双 session report 严格本 session、暂存态全清、旧 LTM 保留，证明它是现有 force 语义的实现
+> 修复而非 HaluMem 专用算法。B6 恢复通过，HaluMem 重开真实 B11。source hash 已变，旧 run
+> 不可 resume；前四格旧 artifacts 先保留作历史行为证据，最终冻结前做 exact-smoke reachability，
+> 不因 hash 变化直接重烧四格。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
 - 算法源：vendored `third_party/methods/LightMem`（`src/lightmem/memory/lightmem.py`）
@@ -459,7 +465,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   v1 evidence 所以分数没算错，但公开 artifact 自相矛盾。`_retrieve_native()` 现在只
   构造一次 `RetrievalEvidence`，`RetrievalResult.evidence` 与 legacy
   `metadata["provenance_granularity"]` 读同一个实例，不再用 `items is not None` 单独猜。
-- **B6 flush 🟡 lifecycle identity 成立、HaluMem forced-session integrity 待修**：`add_memory(update="offline")`
+- **B6 flush ✅ lifecycle + forced-session integrity 已强验收**：`add_memory(update="offline")`
   的 force 刷洗与 direct insert 已成立；`online_soft` 主 profile 下 conversation
   边界不再追加 queue + all-entry update，LoCoMo 与其余四格同一时点。显式
   `locomo_offline_consolidated` 补充 profile 保留旧行为（要求显式

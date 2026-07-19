@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo/LME/MemBench/BEAM current-v7 已通过；HaluMem 被真实 forced-flush 反例阻断，修复后再跑 B11；Mem0 暂缓）
+status: in-progress（LightMem 前四格真实 smoke 已过旧 source identity；forced-flush R1 已修复并重开 HaluMem B11，最终冻结前补前四格零 API reachability；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -184,6 +184,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-19）
+
+- 2026-07-19（**LightMem forced-session flush R1 已强验收合入；HaluMem 重开 B11 命令门**，
+  GPT-5.6 sol 架构师）：用户授权 Codex subagent 后，`gpt-5.6-sol/high` 在隔离 worktree 提交
+  `3716354`；架构师 full diff 确认生产只做两处 bookkeeping：forced tail 输出后按 current
+  message 数清 sensory buffer，automatic prefix 与 forced tail 按原序 `extend`，另把 sensory
+  runtime 文件纳入 source identity。真实 `LightMemory→SenMem→ShortMem→offline insert` 双 session
+  强反例证明 report=`[s1 两条] / [s2 一条]`、零串入/零残留、旧 LTM 保留；无 reset、新 session
+  API、阈值/prompt/分段/抽取/LTM 算法改动。架构师独立定向=`217 passed, 1 warning`；全量先因
+  跨 worktree SimpleMem 软链被路径安全门拒绝而 `3 failed, 1608 passed`，改为隔离复制后失败三条
+  `3 passed`，等价总门=`1611 passed, 3 deselected, 2 warnings, 29 subtests`；标准 src+tests
+  compileall 与两个改动 vendored 文件 py_compile exit 0。主体重建身份后合入 `8879af9`。
+  HaluMem 当前=`READY_FOR_HALUMEM_B11_COMMAND`；若该真实 run 反证 session-local extraction，仍按
+  用户红线降 N/A，不为指标改算法。source hash 已变化，前四格旧 run 不可 resume；它们保留为
+  旧 identity 的真实行为证据，最终冻结前先做 exact-smoke 零 API reachability，不默认重烧 API。
 
 - 2026-07-19（**BEAM judge refill 已通过；HaluMem 旧 READY 被真实 buffer 反例推翻，先修
   session flush 再发命令**，GPT-5.6 sol 架构师）：用户报告两组既有 BEAM run 的 judge-only
