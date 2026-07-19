@@ -186,4 +186,3 @@ git diff --check
 4. 按 actor-handbook §4 回报：commit hash、测试尾行原文、实际改动文件、偏差/停工点、
    subagent/模型情况。implementation note 必须记录 manifest/resume 语义、生产 path 强反例、
    question-time 与 history-time 的单向边界，以及 Sonnet audit 的 R1 订正。
-
