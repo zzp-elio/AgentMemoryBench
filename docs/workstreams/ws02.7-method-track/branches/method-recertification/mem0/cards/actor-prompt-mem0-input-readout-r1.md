@@ -72,7 +72,7 @@ mem0-joint-ruling.md`。
 
 1. 先用 `methods/image_text.py::turn_text_with_images(turn)` 生成原文+结构化 caption；不得在
    benchmark adapter 提前写 wrapper，也不得读图片 query/URL/path/redownload metadata。
-2. 若 turn 有有效 `normalized_role in {system,user,assistant}`，content 是
+2. 若 turn 有当前 adapter 支持的有效 `normalized_role in {user,assistant}`，content 是
    `effective_time_prefix + rendered_text`，**不再**加 `turn.speaker:`。这样 Mem0
    `parse_messages()` 最终只产生一次 `user:`/`assistant:`。
 3. 若没有有效 normalized role（LoCoMo named speaker），content 是

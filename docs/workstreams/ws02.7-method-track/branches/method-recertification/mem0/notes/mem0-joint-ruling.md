@@ -39,10 +39,11 @@ assistant 的抽取语义；`Memory.add()` 默认把 `parse_messages(messages)` 
 
 - current-main LoCoMo harness 的 `CHUNK_SIZE=1`，官方自己逐条提交 singleton user 或 singleton
   assistant；
--默认 prompt 写的是 current conversation `turn(s)`；
+- 默认 prompt 写的是 current conversation `turn(s)`；
 - core 不校验 role 交替、首条必须 user、偶数长度或 pair 完整性；assistant-first、连续同 role、
   singleton、odd tail 均能进入同一 V3 pipeline；
-- `parse_messages()` 只要求每条消息有受支持的 role/content，不会因为另一侧缺失而报错。
+- `parse_messages()` 要求每条消息有 role/content 键并识别 system/user/assistant，但不会因为
+  另一侧缺失而报错；项目 adapter 仍只发当前已声明的 user/assistant，不借本轮扩 role 集合。
 
 因此 **MemBench ThirdAgent 的每条第三人称 observation 保持 singleton user add，绝不补
 placeholder**。FirstAgent 也保持两个 canonical child 分别 turn add；不要为了“看起来像对话”
