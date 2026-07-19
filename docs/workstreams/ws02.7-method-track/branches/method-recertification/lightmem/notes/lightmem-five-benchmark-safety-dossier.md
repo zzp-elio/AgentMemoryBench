@@ -28,7 +28,7 @@ Phase 1 确实有 50 个 method × benchmark **验证格子**，但不需要 50 
 |---|---|---|---|
 | LightMem × LoCoMo | `REAL_SMOKE_PASSED` | current-v7 3-round 单/双 worker 已实跑，readout、embedding observation、caption lineage、metric 与隔离验收通过 | 不是 full、效果、成本、resume 或 stable-ranking 认证 |
 | LightMem × LongMemEval | `REAL_SMOKE_PASSED` | current-v7 单/双 worker 已实跑，完整 ISO readout、zero-hit、embedding observation、N/A summary 与隔离验收通过 | 不代表 full、效果、成本校准或 turn-level retrieval metric 有资格 |
-| LightMem × MemBench | `PENDING_GRID_RECERTIFICATION` | 既有代码/历史 smoke 仍是证据索引 | 本 dossier 尚未逐异常重新对表，不在本页宣布通过 |
+| LightMem × MemBench | `READY_FOR_B11_SMOKE` | 全量异常 census、canonical pair、registered 投递、time/question 边界与 metric 私有面已离线强验收 | 尚未用 current pair identity 跑真实单/双 worker，不是 full/效果/成本认证 |
 | LightMem × BEAM | `PENDING_GRID_RECERTIFICATION` | 同上 | 同上 |
 | LightMem × HaluMem | `PENDING_GRID_RECERTIFICATION` | 同上 | 同上 |
 
@@ -51,7 +51,7 @@ Phase 1 确实有 50 个 method × benchmark **验证格子**，但不需要 50 
 | embedding | `all-MiniLM-L6-v2` / 384 / Qdrant cosine | 当前 smoke build 身份明确；效果主表最终 embedding 仍待正式实验前裁定 |
 | reader | benchmark-owned unified builder | LightMem 只提供 `formatted_memory`；answer prompt/LLM 在同 benchmark 内 method-neutral |
 | 隐私 | method 只收 public Turn/Query | answer、gold evidence、`has_answer`、judge label 不可达 ingest/retrieve/answer prompt |
-| 运行身份 | adapter `conversation-qa-v7` + protocol/manifest identity | readout/观测/caption/role/lifecycle 变化会阻止旧 store 被误 resume |
+| 运行身份 | adapter `conversation-qa-v7` + concrete `consume_granularity` + protocol/manifest identity | readout/观测/caption/role/lifecycle/投递粒度变化会阻止旧 store 被误 resume |
 
 最重要的共同边界是：**online-soft direct insert 可以逐题判断当前条目的 provenance；显式
 consolidated profile 会 merge/update，不能继承同样的 Recall/NDCG 资格。**本 dossier 的前两格
@@ -362,9 +362,70 @@ Recall/rank summary 都按全部问题计数并保持 `mean=null/status=n/a`，m
 
 ---
 
-## 5. 后续三格如何使用本页
+## 5. LightMem × MemBench：已到 `READY_FOR_B11_SMOKE`
 
-MemBench、BEAM、HaluMem 到站时，不复制 LoCoMo/LME 的处理逻辑。每格必须重新回答同一组问题：
+### 5.1 benchmark 原子与全量异常账
+
+source-locked 8 个正式文件共有 4,260 trajectories、452,245 source steps 和
+767,075 canonical turns。FirstAgent 的一个 dict step 是一个真实 user/assistant pair，
+canonical 层展开为两个 child，private gold 仍以 any-of group 只计一个官方 step；
+ThirdAgent 的 string step 只有一个 user child，连续 user 不得彼此配对。
+
+经架构师独立重算的稳定异常包括：100k 有 258,000/307,738 source steps 没有
+place/time 尾注；8 文件有 39 处相邻带时 step 时钟倒序；2 题 target 越界、1 题
+target 为空。详细位置、分布、OpenCode 旧计数勘误和处置见
+[`survey/异常情况/membench.md`](../../../../../../survey/异常情况/membench.md)。
+
+### 5.2 canonical → LightMem 真实投递
+
+外部预检首轮揭示 registered path 误把 MemBench 配为 `turn`：helper 直测虽然展示
+pair 语义，生产 runner 却把 FirstAgent 一个 source step 拆成两次 `add_memory()`。这是
+公开投递契约 bug，不是“需先付费证明 STM 可以容忍它”的未知项。
+
+R1 现用注册级单一 resolver 同时驱动 factory 与 manifest：LightMem × MemBench =
+`pair`。生产事件流强反例已证明：
+
+- FirstAgent 一 source step 只形成一个 `TurnPair`/一次 `add_memory()`，同批有两个
+  真实 role 和两个 child id，零 placeholder；
+- ThirdAgent 每个 singleton 各自形成单边 pair，LightMem 只补 structural assistant，
+  连续 user 不互配、lineage 不串；
+- concrete `consume_granularity` 已进入 strict manifest/resume identity；旧缺字段、
+  `turn↔pair` 均 mismatch，不通过 bump adapter v7 连坐其他 benchmark。
+
+实现与生产路径证据见
+[`lightmem-membench-pair-r1-implementation.md`](lightmem-membench-pair-r1-implementation.md)；
+首轮审计的有效 census 与 R1 勘误链见
+[`lightmem-membench-anomaly-coverage-preflight.md`](lightmem-membench-anomaly-coverage-preflight.md)。
+
+### 5.3 content、time 与 question time
+
+MemBench 每条消息尾部的 place/time 是 source content 的一部分；送入 LightMem 时不删除、
+不重写，同时把该 child 自身解析出的 `turn_time` 写入 typed `time_stamp`。
+100k no-time noise 的 content 原样保留，`time_stamp=None`；不从兄弟 turn、相邻消息、
+wall clock 或 QA 时间回填。39 处时钟倒序保留 source list 顺序和各自时间，不排序或修钟。
+
+`QA.time` 映射为 `Question.question_time`，只用于官方 answer builder 的
+`Question: (current time is {time}) ...`；它不进 history content/timestamp。这个单向边界已由
+official-template byte parity 与 registered artifact 强反例共同锁定。
+
+### 5.4 metric、隐私与尚未承诺的事
+
+target-step gold 只在 evaluator-private `GoldEvidenceGroup` 中可见，不可达 method/build/
+answer prompt。FirstAgent 的 pair-step 以两个 canonical child any-of 命中一次；2 个 OOB
+group 保留在分母且恒 miss，1 个 empty-target 题的 retrieval metric 记 N/A。LightMem
+online-soft 的 current semantic lineage 可用时，MemBench Recall 按 v1 逐题资格计分；
+stable ranking 仍不由本章臆测宣布。
+
+四层离线门已关闭，因此本格是 `READY_FOR_B11_SMOKE`。它还没有使用新 pair
+identity 跑过真实单/双 worker，所以不能写 `REAL_SMOKE_PASSED`；也不承诺 full、效果、
+成本、resume 或 100k 结果。真实 B11 的职责是验证真正 LightMem/Qdrant/LLM/并发/artifact
+链，不重复承担全库稀有异常抽样。
+
+---
+
+## 6. 后续两格如何使用本页
+
+BEAM、HaluMem 到站时，不复制 LoCoMo/LME/MemBench 的处理逻辑。每格必须重新回答同一组问题：
 
 1. benchmark 的自然原子和真实异常是什么；
 2. canonical adapter 是否保留所有 public facts、id、role、time/place/image；
@@ -379,12 +440,11 @@ MemBench、BEAM、HaluMem 到站时，不复制 LoCoMo/LME 的处理逻辑。每
 只有对应章节完成并经过架构师强验收，状态图才能从
 `PENDING_GRID_RECERTIFICATION` 升级。旧五格 smoke 可以作导航，不能自动替后续章节盖章。
 
-MemBench 的第一步已按本原则收敛为一张
-[分层异常覆盖预检卡](../cards/actor-prompt-lightmem-membench-anomaly-coverage-preflight.md)：先用
-全量零 API census、production-path 强反例与 evaluator-private 测试定位默认 smoke 的盲区，再
-决定是否需要一个 100k missing-time real sentinel；不会把所有异常强塞进一次付费 run。
+MemBench 这套“全量 census → deterministic test → registered probe → 真实 B11”分层方法
+已成为后续格子的复用模板；但 BEAM/HaluMem 的自然原子和 metric 资格不同，不得复制其
+pair 或 gold 结论。
 
-## 6. 本 dossier 的失效触发器
+## 7. 本 dossier 的失效触发器
 
 以下任一项变化，相关格子先降级、后复证：
 
@@ -399,7 +459,7 @@ MemBench 的第一步已按本原则收敛为一张
 本页的价值不在于永久保持绿色，而在于让任何新反证都能迅速指出：**哪一格、哪一层、哪条
 承诺需要重新打开。**
 
-## 7. 本次生成与 current-main 复核
+## 8. 本次生成与 current-main 复核
 
 本页于 2026-07-18 基于 main `480ff8c` 与已强验收底层 note 汇编。为防止“旧 note 摘要正确、
 current code 已漂移”，架构师用 dummy key + 不可达本机 base URL 合并复跑 LoCoMo/LME 承重集：
@@ -419,4 +479,18 @@ tests/test_longmemeval_retrieval_rank.py
 
 唯一 warning 是 vendored LightMem 的既有 Pydantic v2 class-config 弃用提示。测试未调用真实 API；
 文档标准门另行通过。该数字只证明 current-main 契约仍与本页一致，不替代 LoCoMo 已有真实
-smoke，也不冒充 LongMemEval 尚待执行的真实 B11。
+smoke；末句当时的 LongMemEval B11 待执行状态已由下方 current-v7 记录 supersede。
+
+2026-07-19 追加：LoCoMo/LongMemEval current-v7 真实单/双 worker 已由用户执行且经
+架构师开箱，两格均为 `REAL_SMOKE_PASSED`。MemBench 又经 source-lock census、
+production event/pair 强反例、registered manifest/runtime 交叉校验与 evaluator-private 契约复核，
+关闭离线四层门；首次主树 full 抓到的 9 个旧 fake fixture 漂移以生产零改方式
+修复。最终主树门：
+
+```text
+1579 passed, 3 deselected, 2 warnings, 29 subtests passed in 144.49s
+compileall: exit 0
+```
+
+该门只把 MemBench 升到 `READY_FOR_B11_SMOKE`；真实 LightMem/Qdrant/LLM/并发/artifact
+还没有以新 `pair` identity 运行，所以不写 `REAL_SMOKE_PASSED`。

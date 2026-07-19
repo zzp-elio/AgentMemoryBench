@@ -2,7 +2,7 @@
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
 > 状态：**FIVE_GRID_RECERTIFICATION_IN_PROGRESS（LoCoMo/LongMemEval current-v7
-> `REAL_SMOKE_PASSED`；MemBench/BEAM/HaluMem 待逐格压实）**。
+> `REAL_SMOKE_PASSED`；MemBench=`READY_FOR_B11_SMOKE`；BEAM/HaluMem 待逐格压实）**。
 > 2026-07-17 的 method-frozen-v2 与 v6 LoCoMo smoke 仍是有效历史证据，但 v7 改变
 > 公共 readout 与 embedding observation 契约，不能沿用 v6 artifact 宣称当前版本已
 > frozen。online-soft lifecycle 主体、MemBench 时间语义 Phase A 与 LightMem
@@ -64,7 +64,8 @@
 > 原命令包曾错误要求每个 conversation 都出现 build embedding；LongMemEval W1 为 0 LTM，
 > 因 segmenter 无 boundary 且抽取为 0，合法地只有 retrieval embedding。R1 改为“每题 retrieval
 > 必须观测；有持久化 entry 才按 entry 数约束 build；整组 benchmark 至少实见一次 build”，
-> 修正版全验货通过。两格恢复 current-v7 `REAL_SMOKE_PASSED`，但其余三格未重认证，所以
+> 修正版全验货通过。两格恢复 current-v7 `REAL_SMOKE_PASSED`；MemBench 已完成离线门但
+> 尚未重跑真实 B11，BEAM/HaluMem 未重认证，所以
 > LightMem 整体仍不 frozen。执行证据见 `ws02.7/branches/method-recertification/lightmem/
 > notes/lightmem-v7-readout-observability-b11-command-pack.md` §9。
 > 2026-07-19 R1 补充：MemBench registered path 的消费粒度已由错误的 `turn` 修为

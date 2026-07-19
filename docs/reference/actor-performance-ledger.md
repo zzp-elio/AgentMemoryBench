@@ -42,6 +42,8 @@
 | 2026-07-18 | Claude Code / Sonnet 5；约 25min（用户提供）；无 subagent | Retrieval summary N/A 可空契约 | `8a81723` → `68bb7f9` | actor 149；架构师 149、真实 v6 W1/W2 零 API 重评、合流 325、全量 1557 | **9.0** | accepted with reporting correction |
 | 2026-07-18 | Claude Code / Sonnet 5；约 45min（用户提供）；无 subagent | LightMem 产品 readout/embedding 观测 v7 主体 | `8f6f883` → `d11d749`（须 R1） | actor 201；架构师 full diff 抓 zero-hit 双源与 observer 反向破坏算法、稳定页提前判绿 | **8.5** | accepted after architect hardening |
 | 2026-07-18 | Codex subagent；`gpt-5.6-sol`/medium | LightMem v7 观测透明性 R1 | `1a07938` → `2f21291` | actor/架构师 204；两卡合流 325；主树全量 1557、compileall exit 0 | **9.8** | accepted |
+| 2026-07-19 | Claude Code / Sonnet 5；reasoning=exhigh；时长未提供；无 subagent | LightMem × MemBench 异常覆盖预检 | `a91db0b` → `6ba4060`（结论须 R1 supersede） | actor 203；架构师重算同意核心 `turn` 错配，但抓停工漏报、id 隔离误述、39 处倒序漏项与错误 API blocker | **7.4** | evidence accepted; verdict reworked |
+| 2026-07-19 | Codex subagent；`gpt-5.6-sol`/medium；无 subagent | LightMem × MemBench pair/manifest R1-R3 | `8825a1f` + `51e630c` + `143e929` → `cdbf570` + `fbf84af` + `44e2968` | actor 412/R3 454；架构师 412、42；首次 full 9 fail/1570 pass 抓 fixture 漂移，R3 后全量 1579、compileall exit 0 | **9.6** | accepted after whitespace/full-suite fixture R2-R3 |
 
 ### 未评分发现记录
 
@@ -271,3 +273,19 @@
   original embed 单次调用/返回/异常，并把 v7 状态降回真实 B11 待验。架构师独立 204、两卡
   合流 325、主树全量 1557 与 compileall 全绿，评 **9.8/accepted**。运行时长只作调度参考，
   不直接进入评分。
+
+### 2026-07-19：LightMem × MemBench 预检与 pair R1-R3
+
+- Sonnet 5 的最高价值是找到了 helper 单测与 registered 生产路径之间的真实断层：
+  MemBench 实际落到 `turn`，FirstAgent pair-step 被拆成两次 `add_memory()`。它还给出
+  4,260/452,245/767,075 主体 census 与 100k sentinel 候选，发现敏锐。但该事实直接推翻
+  原卡承重前提，actor 仍报“无停工”；又把两个 backend 的局部 id 集合写成不相交，
+  漏掉 39 处时钟倒序，并把可直接修的投递契约误判成必须付费 sentinel 的 BLOCKED。
+  因此审计证据保留，首轮最终判词不接受，评 **7.4/evidence accepted; verdict reworked**。
+- Codex R1 没有去证明错误 split “也许能用”，而是把 MemBench 恢复为 `pair`，并将
+  concrete `consume_granularity` 提升为 factory/manifest 共用 resolver 与 strict resume identity。
+  FirstAgent/ThirdAgent、双时间、no-time、倒序、question/history 单向边界、worker 交叉校验均有
+  production-path 强反例。R2 只修 EOF whitespace；主树 full 抓到的 9 个失败均是旧 fake
+  未镜像新契约，R3 让 probe 消费 factory 实参而非硬编 expected，生产零改。最终全量
+  `1579 passed, 3 deselected, 2 warnings, 29 subtests passed`，评 **9.6/accepted after
+  whitespace/full-suite fixture R2-R3**。

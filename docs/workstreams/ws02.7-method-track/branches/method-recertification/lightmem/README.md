@@ -51,7 +51,8 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
 10. 用户要求把“为什么敢跑、异常如何处理”变成可长期复查的安全说明，而不是留在聊天。
     [LightMem 五 benchmark 格子安全说明](notes/lightmem-five-benchmark-safety-dossier.md) 采用
     一 method 一 dossier、五 benchmark 分章：LoCoMo v6 是历史 real-smoke-passed、current v7
-    已重开；LongMemEval 已随 v6 实跑更新为 artifact repair pending；MemBench/BEAM/HaluMem 到站后逐格补，不用
+    已重开；LongMemEval 已随 v6 实跑更新为 artifact repair pending；MemBench 已完成离线异常与
+    pair 接线章节，BEAM/HaluMem 到站后逐格补，不用
     一份总绿灯掩盖未验章节。
 11. v6 真实 B11 的两个修复面已经拆成互不踩文件的并行卡并完成强验收：
     [LightMem 产品 readout/embedding 观测卡](cards/actor-prompt-lightmem-readout-observability-repair.md)
@@ -76,11 +77,15 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     resume，也不使整个 method frozen。
 13. 同期只开放一条不改代码、零 API 的下一格准备线：
     [LightMem × MemBench 分层异常覆盖预检卡](cards/actor-prompt-lightmem-membench-anomaly-coverage-preflight.md)。
-    它一次性核对两个 variant/四类 source 的 source-lock census、production-path 强反例、
-    evaluator-private 异常与真实 sentinel 必要性；不会与四个 v7 run 写同一文件或 state。用户
-    已派发外部 actor，当前执行中；回卡后须与 OWNER 新增的
-    `docs/survey/异常情况/membench.md` 逐锚交叉验收，不能把任一方摘要直接当事实。回卡强验收前
-    不得据历史 smoke 宣称 MemBench 格通过。
+    Sonnet 5 审计 `a91db0b` 的全量 census 与核心接线发现有价值，但它遗漏原卡停工门，
+    误把局部 id 集合写成跨 conversation 不相交，漏掉 39 处 source-step 时钟倒序，并把可修的
+    registered `turn` 错配判成需付费 sentinel 的 BLOCKED。架构师强验收后由 Codex
+    `8825a1f` + `51e630c` R1/R2 关闭：LightMem × MemBench 现为 `pair`，FirstAgent
+    一 source step 一次双边 `add_memory()`，ThirdAgent singleton 各自补 placeholder；原 place/time
+    content 不删，typed time 只读自身，`QA.time` 只进 answer builder。具体
+    `consume_granularity` 已进入 strict manifest/resume identity，不 bump v7 粗暴连坐其他格。
+    当前格子=`READY_FOR_B11_SMOKE`，不是 `REAL_SMOKE_PASSED`；下一步只等用户确认
+    MemBench 真实单/双 worker 的预算、规模与 run id。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

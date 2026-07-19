@@ -36,6 +36,6 @@
 | LongMemEval | — | pending；尚未完成架构师强验收 | 推进到 LightMem × LongMemEval 后续复验或该 benchmark 独立解冻 |
 | HaluMem | — | pending | LightMem 压到 HaluMem 时建立 |
 | BEAM | — | pending | LightMem 压到 BEAM 100K/10M 时分别建立 |
-| MemBench | — | pending | LightMem 压到 MemBench 时建立；variant/人称必须分栏 |
+| MemBench | [membench.md](membench.md) | dataset 事实 **verified**（2026-07-19）；LightMem pair 投递 R1 已强验收，真实 B11 待跑 | 任一文件 hash、step→child/gold group、timestamp/parser、pair aggregator 或 answer prompt 改变 |
 
 权威施工状态仍看对应 workstream README；本页只回答“异常事实已经调查到什么程度”。

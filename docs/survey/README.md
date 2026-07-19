@@ -41,7 +41,7 @@
 | LongMemEval | [benchmark](benchmarks/LongMemEval.md) | [dataset](datasets/longmemeval.md) | 待强验收 | [workflow](workflows/longmemeval.md) | user-side `has_answer` turn + answer session；主 retrieval 路径分母 419 |
 | HaluMem | [benchmark](benchmarks/HaluMem.md) | [dataset](datasets/halumem.md) | 待逐格建立 | [workflow](workflows/halumem.md) | memory-point fact；无 turn 回指，turn Recall=N/A |
 | BEAM | [benchmark](benchmarks/BEAM.md) | [dataset](datasets/BEAM.md) | 待按 variant 建立 | [workflow](workflows/BEAM.md) | `source_chat_ids` 本意指 message；1M 四个 conversation 有 raw-id 歧义；Recall 为 framework supplementary |
-| MemBench | [benchmark](benchmarks/MemBench.md) | [dataset](datasets/membench.md) | 待按 variant/人称建立 | [workflow](workflows/membench.md) | FirstAgent=pair-step、ThirdAgent=string-step；拆分后按 evaluator-private any-of group 计一次 |
+| MemBench | [benchmark](benchmarks/MemBench.md) | [dataset](datasets/membench.md) | [anomalies](异常情况/membench.md) | [workflow](workflows/membench.md) | FirstAgent=pair-step、ThirdAgent=string-step；拆分后按 evaluator-private any-of group 计一次 |
 
 五家 gold-unit 的完整一手对表与方案裁决见
 [canonical turn 与 gold evidence unit 审计](../workstreams/ws02.7-method-track/branches/input-role-semantics/notes/evidence-unit-contract-audit.md)。

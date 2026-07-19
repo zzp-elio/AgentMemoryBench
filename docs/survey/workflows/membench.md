@@ -1,6 +1,7 @@
 # MemBench 评测流程卡（现行契约）
 
-更新日期：2026-07-17（canonical pair split 已强验收；旧冻结记录见
+更新日期：2026-07-19（canonical pair split 已强验收；完整异常处置见
+[`异常情况/membench.md`](../异常情况/membench.md)；旧冻结记录见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/membench-frozen-v1.md`）
 
 ## 1. 官方流程（一手：`third_party/benchmarks/Membench-main/benchmark/`）
@@ -73,3 +74,7 @@ knowledge_update/lowlevel_rec/RecMultiSession/noisy/highlevel…）——
   `docs/workstreams/ws02.7-method-track/branches/input-role-semantics/notes/
   membench-canonical-split-implementation.md`（8 个正式数据文件 4,260 trajectories，
   step→child 映射零缺陷）。
+- 100k no-time noise 保持 `turn_time/session_time=None`；39 处 source-step 时间倒序保持
+  官方 list 顺序与各自 source time。`QA.time` 只填官方 answer prompt 的 `{time}`，不得
+  回填 history。稀有异常由全量 census + deterministic test + registered probe 覆盖，
+  不要求付费 smoke 恰好抽中每一例。

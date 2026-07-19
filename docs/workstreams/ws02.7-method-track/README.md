@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LME/LoCoMo current-v7 已通过；MemBench actor 在途，其余两格待重认证；Mem0 暂缓）
+status: in-progress（LightMem LME/LoCoMo current-v7 已通过；MemBench 已到 B11 待跑，其余两格待重认证；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -40,10 +40,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `d852fff`/`68b674b`（MemBench canonical split + 架构师 R1/R2）→ `5d8fce3`/
   `e10110f`（RetrievalEvidence M1 + 契约收敛 R1）→ `78196bc`/`65f5805`
   （LightMem caption v6 + 无 caption bytes R1）→ `68bb7f9`（retrieval summary v2）→
-  `d11d749`/`2f21291`（LightMem readout/embedding v7 + R1）。准确
+  `d11d749`/`2f21291`（LightMem readout/embedding v7 + R1）→ `6ba4060`/
+  `cdbf570`/`fbf84af`/`44e2968`（MemBench 异常审计 + pair/manifest R1-R3）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1557 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 130.60s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮主树全量门=`1579 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 144.49s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
@@ -140,15 +141,35 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   prediction/answer、全部 evaluator、raw/overall efficiency 与 worker Qdrant state；修正版机器
   验货为 LME ISO hit=2、LoCoMo ISO hit=16，build embedding calls=2/28。原模板把每个
   conversation 必须有 build embedding 写成过强断言；LME W1 0 LTM 时合法 0 build，R1 已改为
-  actual-call-aware 判据并落盘。LoCoMo/LME 恢复 current-v7 `REAL_SMOKE_PASSED`；MemBench 外部
-  actor 在途，且须与 OWNER 新增 `docs/survey/异常情况/membench.md` 交叉核验；BEAM/HaluMem
-  仍 pending，故 LightMem 整体不 frozen。Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
+  actual-call-aware 判据并落盘。LoCoMo/LME 恢复 current-v7 `REAL_SMOKE_PASSED`。MemBench 全量
+  异常审计与 OWNER `docs/survey/异常情况/membench.md` 已由架构师逐锚交叉；发现的
+  registered `turn` 错配已修为 `pair`，具体 `consume_granularity` 已进 strict
+  manifest/resume identity，question time 只进官方 answer builder。本格当前=
+  `READY_FOR_B11_SMOKE`，不是已通过；BEAM/HaluMem 仍 pending，故 LightMem 整体不
+  frozen。Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-19）
+
+- 2026-07-19（**LightMem × MemBench 四层离线门与 pair 投递已强验收；当前
+  `READY_FOR_B11_SMOKE`；等用户批真实预算/run id**，GPT-5.6 sol 架构师）：Sonnet 5
+  预检揭示 registered path 实际为 `turn`，但违反原卡停工门、误判局部 id 隔离、
+  漏 39 处 source-step 时钟倒序，且把可修接线误报成必须付费 sentinel 的 BLOCKED。架构师
+  独立重算确认 4,260 trajectories / 452,245 source steps / 767,075 canonical turns，
+  100k no-time=258,000/307,738 source steps、倒序 39、OOB 2、empty target 1。Codex
+  R1/R2 `cdbf570` + `fbf84af` 将 LightMem × MemBench 改为 `pair`：FirstAgent 一个官方
+  step 一次双边 `add_memory()`，ThirdAgent singleton 各自补 placeholder；place/time 原文
+  不删，typed time 只读自身，no-time 为 None，`QA.time` 只进官方 answer prompt。
+  公开 `method.consume_granularity` 现与 factory 共用 resolver，与实例交叉校验，严格参与
+  resume。首次主树全量抓到 9 个旧 fake 未镜像新契约，R3 `44e2968` 仅修 fixture，
+  生产零改；原 9 失败已复跑 `9 passed`，最终主树全量=`1579 passed, 3 deselected,
+  2 warnings, 29 subtests passed in 144.49s`，compileall exit 0。稳定异常账、安全 dossier
+  与手册已回填。
+  下一步不是再发零 API 审计，而是在用户确认规模/预算/run id 后执行 MemBench
+  真实单/双 worker B11；在 artifact 开箱前不得写 `REAL_SMOKE_PASSED`。
 
 - 2026-07-19（**LightMem LME/LoCoMo current-v7 四组真实 run 强验收通过；MemBench 零 API
   actor 在途；Mem0 继续暂缓**，GPT-5.6 sol 架构师）：四组 predict/evaluate/judge 均完成，
