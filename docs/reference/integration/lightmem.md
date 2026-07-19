@@ -1,9 +1,8 @@
 # LightMem 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**FIVE_GRID_RECERTIFICATION_IN_PROGRESS（五格 current-v7 真实行为门均为
-> `REAL_SMOKE_PASSED`；forced-flush exact-smoke 零 API reachability 已关闭，唯一剩余冻结门是
-> MemBench 100K FirstHigh+ThirdHigh W1 最小哨兵 refill）**。
+> 状态：**METHOD_FROZEN_V3（五格 current-v7 真实行为门、forced-flush exact-smoke
+> reachability 与 MemBench 100K current-identity refill 全部通过）**。
 > 2026-07-17 的 method-frozen-v2 与 v6 LoCoMo smoke 仍是有效历史证据，但 v7 改变
 > 公共 readout 与 embedding observation 契约，不能沿用 v6 artifact 宣称当前版本已
 > frozen。online-soft lifecycle 主体、MemBench 时间语义 Phase A 与 LightMem
@@ -66,8 +65,8 @@
 > 因 segmenter 无 boundary 且抽取为 0，合法地只有 retrieval embedding。R1 改为“每题 retrieval
 > 必须观测；有持久化 entry 才按 entry 数约束 build；整组 benchmark 至少实见一次 build”，
 > 修正版全验货通过。两格恢复 current-v7 `REAL_SMOKE_PASSED`；MemBench 已完成离线门但
-> 尚未重跑真实 B11，BEAM/HaluMem 未重认证，所以
-> LightMem 整体仍不 frozen。执行证据见 `ws02.7/branches/method-recertification/lightmem/
+> 尚未重跑真实 B11，BEAM/HaluMem 未重认证，所以 LightMem 当时仍不 frozen；该中间状态已由
+> 本页 R10 / frozen-v3 supersede。执行证据见 `ws02.7/branches/method-recertification/lightmem/
 > notes/lightmem-v7-readout-observability-b11-command-pack.md` §9。
 > 2026-07-19 R1 补充：MemBench registered path 的消费粒度已由错误的 `turn` 修为
 > `pair`。FirstAgent canonical `user→assistant` child 现在经生产事件流聚成一次真实
@@ -139,9 +138,15 @@
 > MemBench `0_10k`、BEAM 均不触达 forced-flush 输出改变；仅 MemBench 100K ThirdHigh 的 final
 > add 以 438+361 tokens 同时产出 automatic step 1 与 forced step 2，真实 vendored 链确认旧实现
 > 会漏 step 1。故主四格不重烧，只补 FirstHigh+ThirdHigh 100K W1 哨兵，current 状态为
-> `FROZEN_PENDING_100K_SENTINEL_REFILL`。同轮 HaluMem 官方表对账确认 extraction 六列、update/
+> `FROZEN_PENDING_100K_SENTINEL_REFILL`（该中间状态随后由 R10 关闭）。同轮 HaluMem 官方表对账确认 extraction 六列、update/
 > QA overall C/H/O 与 Event/Persona/Relationship 已实现；QA 六种 `question_type` 过去只分 Correct，
 > 已补为 C/H/O all/valid，并明确标为 framework supplementary 切片。
+> 2026-07-19 R10 最终冻结：用户执行 current source identity 的 100K FirstHigh+ThirdHigh W1
+> refill，架构师独立开箱确认 2/2 conversations/questions、source=`a44d7d99…`、pair/hybrid/
+> online-soft/preserve-none、FirstHigh/ThirdHigh memory-build=`1/2`、retrieval embedding=2，三项
+> evaluator 均落盘且 terminal logs 无错误。两段 distractor 合法产生 0 LTM/0 retrieval，三项
+> 0 分是诚实效果而非漏跑。B1-B11 据此关闭，current build=`method-frozen-v3`；完整证据见
+> `ws02.7/branches/method-recertification/lightmem/notes/lightmem-frozen-v3.md`。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
 - 算法源：vendored `third_party/methods/LightMem`（`src/lightmem/memory/lightmem.py`）
@@ -574,7 +579,7 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   LoCoMo/LME 改由 `author_locomo`/`author_longmemeval` section 选择各自完整 answer builder，
   并验收从 speaker/time/retrieved memories 到最终 messages 的变量构造；不能只复用旧
   `ANSWER_PROMPT` 模板或 readout bundle 宣称 parity。
-- **B11 smoke+冻结 🟡（FIVE_GRID_RECERTIFICATION_IN_PROGRESS）**：2026-07-14
+- **B11 smoke+冻结 ✅（method-frozen-v3）**：2026-07-14
   五格既有 flow-through 与 answer/judge/成本证据仍有效；既有 LoCoMo post-update recall
   数字撤销。online-soft lifecycle identity 已在 `825132f` 完成；逐题 RetrievalEvidence
   M0/M1 均已强验收，LightMem preserve-none Phase B 与 LongMemEval input-time 离线门也已
@@ -592,9 +597,10 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   worker 隔离均验收通过。该批当时只使两个格子恢复 `REAL_SMOKE_PASSED`；MemBench 随后已由
   上方 R2 真实 B11 关闭。BEAM 的 100K W2 + 10M W1 core artifacts/score 与后补 2+1 次
   judge observations 也已通过。HaluMem 的真实 buffer 反例已由 `8879af9` 最小 bookkeeping
-  修复，fixed Medium W1 随后完成并经 R8 开箱升为 `REAL_SMOKE_PASSED`。**当前五格真实行为门
-  全部通过；method 整体仍不 frozen，只因为前四格 artifacts 使用修复前 source identity，须先
-  做 exact-smoke 零 API reachability，不能拿旧 run 冒充新 build resume。**
+  修复，fixed Medium W1 随后完成并经 R8 开箱升为 `REAL_SMOKE_PASSED`。前四格 exact-smoke
+  reachability 随后只命中 MemBench 100K ThirdHigh；该最小哨兵已用 current identity 补跑并
+  开箱通过。**当前五格真实行为门与 source-identity 差量门全部关闭，正式冻结为
+  `method-frozen-v3`。**
   以下为 2026-07-13~14 的历史 smoke 证据：
   ① unified：空库悬案已关闭（diag-log1 复跑：1 round → force 刷洗 → 抽取 2 条
   记忆 → 检索命中，sentinel=0；此前空库判为抽取 LLM 单次返 0 波动，非结构性 bug）。

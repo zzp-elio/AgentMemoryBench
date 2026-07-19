@@ -55,7 +55,7 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 TOML/builder | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅caption v6 + MemBench/BEAM pair + HaluMem session | ✅五格真实 state；并行格物理隔离 | ✅v7 五格 readout/时间真实验收 | ✅LoCoMo/MemBench valid；LME/BEAM/HaluMem N/A；ranking pending 如实披露 | ✅online-soft + forced flush R1 | ✅prediction 与 artifact judge observations 实测 | ✅ | ✅当前 MiniLM smoke build | ✅主 TOML；author builder 按政策延后到校准前 | 🟡五格 `REAL_SMOKE_PASSED`；前四格 reachability 已关，仅待 MemBench 100K 最小哨兵 refill | **v6 历史 v2；current build 待 100K refill 后冻结裁决** |
+| [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅caption v6 + MemBench/BEAM pair + HaluMem session | ✅五格真实 state；并行格物理隔离 | ✅v7 五格 readout/时间真实验收 | ✅LoCoMo/MemBench valid；LME/BEAM/HaluMem N/A；ranking pending 如实披露 | ✅online-soft + forced flush R1 | ✅prediction 与 artifact judge observations 实测 | ✅ | ✅当前 MiniLM smoke build | ✅主 TOML；author builder 按政策延后到校准前 | ✅五格 `REAL_SMOKE_PASSED` + 100K current-identity refill | **method-frozen-v3** |
 | [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅effective time 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(旧 native 计量=前置声明2) | ✅B8+清单落档(M5,下载点声明4) | 🟡当前 MiniLM；性能主配置待裁 | 🟡truthful 旧身份已落；author builder 待迁 | 🟡13格历史证据保留；五格主复证 | **v1 局部重开** |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅当前 MiniLM smoke build | 🟡旧 readout 身份 truthful；author builder 待迁 | 🟡五格主 smoke | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -78,7 +78,8 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 > LightMem 因 2026-07-15 发现 LoCoMo post-update 无 semantic source mapping 而重开 B5/B11；
 > RetrievalEvidence M1、MemBench canonical/role、caption v6 与最新 LoCoMo 单/双 worker B11
 > 已全部关闭，2026-07-17 曾恢复为 method-frozen-v2；2026-07-18 v7 readout/embedding
-> 可观测契约修复已过代码门，但真实 v7 artifact 尚未重跑，故当前冻结状态重新打开。
+> 可观测契约一度重开冻结门，现已由五格 current-v7 artifact、forced-flush 修复与 100K
+> current-identity refill 全部关闭，升级为 method-frozen-v3。
 > A-Mem/SimpleMem 待各自 M 阶段。N/A 是
 > 能力结论，不是强造指标。
 

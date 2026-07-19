@@ -99,6 +99,7 @@ source id，不是重复 source turn。承重点是旧实现会把第一个 auto
    完整送入 step 1，故旧 `100K_MISSING_TIME_SENTINEL_PASSED_ZERO_EXTRACTION` 不能继续给 current
    source identity 盖章。
 3. 最小付费复验只需重跑既有 100k FirstHigh+ThirdHigh W1 哨兵，不重跑 0_10k W1/W2、LoCoMo、
-   LongMemEval 或 BEAM。完成前 LightMem current build 保持 `FROZEN_PENDING_100K_SENTINEL_REFILL`。
+   LongMemEval 或 BEAM。本 note 完成时状态为 `FROZEN_PENDING_100K_SENTINEL_REFILL`；R5 现已
+   用 current identity 补跑并关闭，最终判词见 `lightmem-frozen-v3.md`。
 4. 本探针只裁 exact smoke reachability，不外推 full：更长 history 当然可能命中 automatic+tail，
    但 current code 已有真实链强反例锁定正确合并行为。

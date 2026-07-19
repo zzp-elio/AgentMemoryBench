@@ -1,10 +1,11 @@
 # LightMem × MemBench 100k 缺失时间真实哨兵命令包
 
-> 状态（2026-07-19 R5 执行入口）：**用户已重新批准最小规模、真实 API 预算与新 run id。
+> 状态（2026-07-19 R5 验收通过）：**用户已按批准的最小规模与新 run id 完成真实 run，
+> 机器门和架构师独立开箱均通过，LightMem 已据此进入 method-frozen-v3。
 > 旧 source identity 的 R3 run 曾按当时源码通过；forced-flush
 > 修复后的 exact-smoke reachability 证明 ThirdHigh final add 正好命中 automatic+tail，旧实现
 > 实际漏掉 step 1，因此“不需要重跑”已被 supersede。当前必须用新 run id 最小补跑同一
-> FirstHigh+ThirdHigh W1 哨兵；当前可直接执行 §2→§3→§4。**本哨兵不阻塞
+> FirstHigh+ThirdHigh W1 哨兵；执行与验收结果见 §8。**本哨兵不阻塞
 > LightMem × BEAM；它只补 `100k` 独有的真实 `time=None` 组合路径，不重复已经通过的
 > `0_10k` 单/双 worker B11，也不代表 100k full、效果、成本或 resume 认证。
 
@@ -485,3 +486,24 @@ memory-build LLM 并没有看到完整 retained history；“两个 conversation
 不换样本、不追求非空 LTM。用户已于 2026-07-19 重新批准预算、规模与该 run id；§2–§4 已
 切换为可直接执行的新 identity 命令，并硬校验 current source hash=`a44d7d99…`。完整
 reachability 证据见 [forced-flush note](lightmem-front-four-forced-flush-reachability.md)。
+
+## 8. R5 current-identity 实际验收与冻结判词
+
+真实 run：`lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1-100k`。用户执行 §2–§4 后机器门
+PASS；架构师又独立读取 manifest、checkpoint、两条 answer、三份 metric、prediction efficiency、
+两座 local Qdrant 与 terminal logs。承重结果：
+
+```text
+source_sha256 = a44d7d99790496337270058d71f38737375ff4b2763495ed2b02baa43698d7e5
+completed conversations/questions = 2/2
+memory_build_llm_calls = {first-high: 1, third-high: 2}
+ltm = {first-high: 0, third-high: 0}
+retrieval_embedding_calls = 2
+choice/source/recall = 0/0/0; recall status = ok × 2
+terminal errors = 0
+```
+
+ThirdHigh 两次 memory-build 与 reachability note 的 automatic step 1 + forced step 2 对齐，旧漏段
+反证关闭。零 LTM、零 retrieved 与 0 分是官方 distractor 在本次方法上的诚实结果，不是漏跑；
+null timestamp insert/readout 继续由既有 local-Qdrant 强反例承重。裁决：
+`100K_CURRENT_IDENTITY_SENTINEL_PASSED_ZERO_EXTRACTION`，LightMem 唯一冻结门关闭。

@@ -191,13 +191,17 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     `third-high-highlevel-movie-0`（压缩后两批 438+361>512）。真实 vendored chain 进一步证明
     final add 同时产出 automatic step 1 与 forced step 2，旧实现确会覆盖前者。故 LoCoMo、LME、
     MemBench 0_10k、BEAM 主 smoke 不重烧；只需补跑 100k FirstHigh+ThirdHigh W1 哨兵，current
-    状态=`FROZEN_PENDING_100K_SENTINEL_REFILL`。用户已批准新 run id
+    当时状态=`FROZEN_PENDING_100K_SENTINEL_REFILL`（现由 item 25 supersede）。用户已批准新 run id
     `lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1` 与最小真实 API 预算，命令包 §2–§4 可直接
     执行。证据见
     [reachability note](notes/lightmem-front-four-forced-flush-reachability.md)。同轮 HaluMem 指标
     对表确认论文 extraction 六列、update/QA C/H/O 与三种 memory type 已实现，并补齐 QA 六种
     `question_type` 过去只分 Correct、未分 Hallucination/Omission 的聚合缺口；见
     [metric breakdown R1](notes/lightmem-halumem-metric-breakdown-r1.md)。
+25. 用户已执行 current-identity 100K refill；机器门与架构师独立开箱均通过。FirstHigh/
+    ThirdHigh memory-build=`1/2`，2/2 questions，source=`a44d7d99…`，三项 evaluator 完整，
+    zero-extraction/zero-hit 与三项 0 分语义一致。唯一冻结门关闭，LightMem 正式升级为
+    [`method-frozen-v3`](notes/lightmem-frozen-v3.md)；下一家转 Mem0。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem 五格真实行为门已过；forced-flush reachability 仅命中 MemBench 100k 补充哨兵，待 current-identity 最小 refill；Mem0 暂缓）
+status: in-progress（LightMem current-v7 已 method-frozen-v3；下一家转 Mem0）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -180,8 +180,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   现已齐；但前四格 artifacts 早于 sensory source identity，旧 run 不可 resume，故整体仍不
   frozen。exact-smoke 零 API reachability 已完成：13 个唯一 conversation 仅 MemBench 100k
   ThirdHigh 命中 final automatic+tail；真实 vendored 链确认旧 build 漏 step 1。LoCoMo/LME/
-  MemBench 0_10k/BEAM 主 smoke 均不重烧，当前只待 100k FirstHigh+ThirdHigh W1 哨兵用新
-  identity 补跑。HaluMem 论文细项对表同轮确认 extraction 六列、update/QA overall C/H/O 与
+  MemBench 0_10k/BEAM 主 smoke 均不重烧；100k FirstHigh+ThirdHigh W1 哨兵现已用新 identity
+  补跑并验收，LightMem 正式升级为 `method-frozen-v3`。HaluMem 论文细项对表同轮确认
+  extraction 六列、update/QA overall C/H/O 与
   Event/Persona/Relationship 已有；QA 六类 `question_type` 过去只分 Correct 的缺口已补成完整
   C/H/O all/valid 切片。
   定向 evaluator/registered/artifact/doc 门=`63 passed`，全量门=`1612 passed, 3 deselected,
@@ -194,6 +195,15 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-19）
 
+- 2026-07-19（**🧊 LightMem method-frozen-v3；下一家转 Mem0**，GPT-5.6 sol 架构师）：用户
+  完成 `lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1-100k`；机器门与架构师独立开箱均
+  PASS。manifest source=`a44d7d99…` 且包含 sensory runtime，2/2 conversations/questions，
+  FirstHigh/ThirdHigh memory-build=`1/2`，retrieval embedding=2，三项 evaluator 完整，logs
+  无错误。两段 distractor 合法 0 LTM/0 retrieved，三项 0 分与算法输出一致；ThirdHigh 两次
+  extraction 关闭旧 automatic-prefix 丢失反证。B1-B11 current-v7 全部关闭，冻结 note=
+  [lightmem-frozen-v3.md](branches/method-recertification/lightmem/notes/lightmem-frozen-v3.md)。
+  下一动作进入 Mem0 current-main 差量对表，不重复重做已冻结的 benchmark census。
+
 - 2026-07-19（**LightMem forced-flush reachability 已关闭；唯一冻结门收窄为 MemBench 100k
   哨兵 refill；HaluMem QA 分型补齐**，GPT-5.6 sol 架构师）：production registration + current
   本地 LLMLingua 对旧 B11 精确 crop 的 13 个唯一 conversation 做零 API probe，12 个不命中；
@@ -201,7 +211,7 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   产生 automatic step 1 与 forced step 2。真实 vendored LightMemory/SenMem/MiniLM 链确认修复后
   STM 收到两段且暂存态清零，旧实现会覆盖 step 1。裁决：LoCoMo、LongMemEval、MemBench
   0_10k、BEAM 不重烧，只补跑既有 FirstHigh+ThirdHigh 100k W1 哨兵；当前=
-  `FROZEN_PENDING_100K_SENTINEL_REFILL`。用户已批准 base run id
+  当时=`FROZEN_PENDING_100K_SENTINEL_REFILL`（现已由上条 frozen-v3 断点 supersede）。用户已批准 base run id
   `lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1`、固定最小规模与真实 API 预算；当前动作是执行
   100k 命令包 §2–§4。同轮复核 HaluMem 官方表：Extraction 六项、Update/
   QA overall C/H/O 与三种 memory type 已落盘；共享 QA evaluator 原来按 question_type 只有 Correct，
