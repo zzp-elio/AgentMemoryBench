@@ -1558,6 +1558,45 @@ def test_predict_smoke_rejects_membench_sources_on_other_benchmark(
     )
 
 
+def test_predict_smoke_accepts_explicit_membench_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MemBench smoke 应接受显式 source 子集并原样传给 command service。"""
+
+    received: list[PredictCommand] = []
+    monkeypatch.setattr(
+        main_cli,
+        "execute_predict",
+        lambda command: received.append(command)
+        or SimpleNamespace(run_id="run-1"),
+    )
+
+    exit_code = main_cli.main(
+        [
+            "predict",
+            "smoke",
+            "--root",
+            str(tmp_path),
+            "--method",
+            "lightmem",
+            "--benchmark",
+            "membench",
+            "--variant",
+            "100k",
+            "--run-id",
+            "lightmem-membench-100k-smoke",
+            "--allow-api",
+            "--membench-sources",
+            "first_high,third_high",
+        ]
+    )
+
+    assert exit_code == 0
+    assert len(received) == 1
+    assert received[0].membench_sources == ("first_high", "third_high")
+
+
 @pytest.mark.parametrize("unsupported_axis", ["--turns", "--sessions", "--sources"])
 def test_predict_beam_smoke_rejects_unwired_history_axes(
     tmp_path: Path,

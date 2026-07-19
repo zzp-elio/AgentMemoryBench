@@ -1,8 +1,45 @@
 # LightMem × MemBench 100k 缺失时间真实哨兵命令包
 
-> 状态：**拟定规模与 run id，等待用户明确批准真实 API 后执行。**本哨兵不阻塞
+> 状态：**用户已批准规模与 run id；R0 被 CLI 参数预检缺陷拦截，零 API、零 method
+> state，待 main 的参数门 R1 合入后按本文原身份续跑。**本哨兵不阻塞
 > LightMem × BEAM；它只补 `100k` 独有的真实 `time=None` 组合路径，不重复已经通过的
 > `0_10k` 单/双 worker B11，也不代表 100k full、效果、成本或 resume 认证。
+
+## 0. R0 参数门事故与无损续跑
+
+用户于 2026-07-19 按本文执行首轮 predict，CLI 在任何 provider/API/backend 构造前报：
+
+```text
+Error: --membench-sources is only supported for MemBench smoke
+```
+
+命令没有把 benchmark 写错。根因是
+`cli/main.py::_validate_smoke_axis_args()` 已进入 `benchmark == "membench"` 分支，却调用
+`_validate_membench_sources(args.membench_sources)` 时漏传 `is_membench=True`；后面的正常化层
+本来传对了该参数，但永远到不了。R1 必须同时保留“非 MemBench 显式传入会拒绝”的负例，并
+新增“MemBench 显式两源会进入 command service”的正例，不能删校验绕过。
+
+失败目录里现场确认只有 `logs/terminal.predict.log`；没有 manifest、checkpoint、Qdrant、
+artifact 或 API 结果。R1 合入后先把它**非破坏性归档**，再复用原 run id：
+
+```bash
+cd /Users/wz/Desktop/memoryBenchmark
+
+MB100_BASE=lm-membench-v7-none100k-fh-th-r1q1-w1
+MB100_RUN=${MB100_BASE}-100k
+MB100_ROOT=outputs/runs/lightmem/membench/100k/smoke/unified
+FAILED_DIR="$MB100_ROOT/$MB100_RUN"
+FAILED_ARCHIVE="$MB100_ROOT/${MB100_RUN}.failed-cli-preflight-20260719"
+
+test -f "$FAILED_DIR/logs/terminal.predict.log"
+grep -F -- "--membench-sources is only supported for MemBench smoke" \
+  "$FAILED_DIR/logs/terminal.predict.log"
+test ! -e "$FAILED_ARCHIVE"
+mv "$FAILED_DIR" "$FAILED_ARCHIVE"
+test ! -e "$FAILED_DIR"
+```
+
+这不是 resume：R0 根本没有可恢复的执行状态。归档后重新执行 §2 起的完整命令即可。
 
 ## 1. 架构裁决与最小规模
 
@@ -41,9 +78,9 @@ answer builder，不能反灌 history。
 本 smoke 不从 pair 数推算 LLM 调用/费用。真实 memory LLM、embedding、answer LLM 调用以
 run 的 efficiency artifact 为准。
 
-## 2. 用户批准后的环境门
+## 2. R1 合入后的环境门
 
-用户必须先明确批准上节规模与 run id；获批后在同一个新 zsh 中执行：
+规模与 run id 已获用户批准；确认 main 含 R1 后，在同一个新 zsh 中执行：
 
 ```bash
 cd /Users/wz/Desktop/memoryBenchmark

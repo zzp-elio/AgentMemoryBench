@@ -684,7 +684,7 @@ def _validate_smoke_axis_args(args: argparse.Namespace) -> None:
                 "MemBench smoke uses --rounds; do not pass --turns, --sessions "
                 "or --sources"
             )
-        _validate_membench_sources(args.membench_sources)
+        _validate_membench_sources(args.membench_sources, is_membench=True)
         return
     if args.benchmark == "beam":
         if (
