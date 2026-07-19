@@ -84,14 +84,18 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     一 source step 一次双边 `add_memory()`，ThirdAgent singleton 各自补 placeholder；原 place/time
     content 不删，typed time 只读自身，`QA.time` 只进 answer builder。具体
     `consume_granularity` 已进入 strict manifest/resume identity，不 bump v7 粗暴连坐其他格。
-    当前格子=`READY_FOR_B11_SMOKE`，不是 `REAL_SMOKE_PASSED`；下一步只等用户确认
-    MemBench 真实单/双 worker 的预算、规模与 run id。
+    该离线格当时=`READY_FOR_B11_SMOKE`；现已由下条真实 B11 supersede。
 14. 用户于 2026-07-19 批准进入 LightMem × MemBench 真实 B11。当前
     [命令包](notes/lightmem-membench-b11-command-pack.md) 固定 `0_10k` 四源各 1 条：W1/W2
     都是 4 conversations × 1 round × 1 question，只有 predict worker 数分别为 1/2；
     `--conversations 1` 是 per-source limit，不能误改为 2 而把成本翻倍。三项适用 evaluator
-    为 choice accuracy → source accuracy → recall，全部零 API。命令已交用户，artifact
-    尚未回收，故状态仍为 `READY_FOR_B11_SMOKE`。
+    为 choice accuracy → source accuracy → recall，全部零 API。用户已完成两个 run；R0
+    机器验货因 storage-safe 目录可读前缀截断而误报，R1 改用生产 helper 的完整 name+hash
+    映射后通过。架构师亲读 manifest、answer/readout、evidence、三项 summary、raw/overall
+    efficiency、terminal/event logs 与每个 Qdrant state：25 ISO hit、First/Third lineage=9/16、
+    build/retrieval embedding=25/8，W2 worker 隔离成立。本格现为 current-v7
+    `REAL_SMOKE_PASSED`；命令、误判与开箱判词均在命令包 §7。LightMem 还缺 BEAM/HaluMem，
+    整体不 frozen。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LME/LoCoMo current-v7 已通过；MemBench 已到 B11 待跑，其余两格待重认证；Mem0 暂缓）
+status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；BEAM/HaluMem 待重认证；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -144,9 +144,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   actual-call-aware 判据并落盘。LoCoMo/LME 恢复 current-v7 `REAL_SMOKE_PASSED`。MemBench 全量
   异常审计与 OWNER `docs/survey/异常情况/membench.md` 已由架构师逐锚交叉；发现的
   registered `turn` 错配已修为 `pair`，具体 `consume_granularity` 已进 strict
-  manifest/resume identity，question time 只进官方 answer builder。本格当前=
-  `READY_FOR_B11_SMOKE`，不是已通过；BEAM/HaluMem 仍 pending，故 LightMem 整体不
-  frozen。Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
+  manifest/resume identity，question time 只进官方 answer builder。用户随后完成 MemBench
+  current-v7 W1/W2；R1 验货按生产 storage-safe name+hash 修正后全绿：25 ISO hit、9 条
+  FirstAgent 双 child lineage、16 条 ThirdAgent singleton lineage、25 次 build embedding，
+  双 worker 物理隔离成立。本格现为 `REAL_SMOKE_PASSED`。BEAM/HaluMem 仍 pending，故
+  LightMem 整体不 frozen。Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
@@ -154,15 +156,19 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-19）
 
-- 2026-07-19（**LightMem × MemBench B11 规模/run id 已获用户批准；命令已交付，等待真实
-  artifact**，GPT-5.6 sol 架构师）：命令包固定 `0_10k` 默认四源，`--conversations 1`
-  按每 source 各取 1 条，因此 W1/W2 都是 4 conversations，而非 1；W2 只把 predict worker
-  改为 2，不把 per-source limit 加倍。run child ids=`lm-membench-v7-pair-r1q1-ps1-w1-0-10k` /
-  `lm-membench-v7-pair-r1q1-ps1-w2-0-10k`；随后串行执行 choice/source/recall 三项零 API
-  evaluator 与机器验货。命令全文见
-  `branches/method-recertification/lightmem/notes/lightmem-membench-b11-command-pack.md`。
-  artifact 开箱前本格仍为 `READY_FOR_B11_SMOKE`。本条 supersede 紧接下方“等用户批预算/run
-  id”的旧断点。
+- 2026-07-19（**LightMem × MemBench current-v7 单/双 worker B11 强验收通过；下一格转
+  BEAM 预检**，GPT-5.6 sol 架构师）：用户执行 W1/W2 各四源 4 conversations；predict、
+  choice/source/recall evaluator 均无运行错误。R0 机器验货把 Qdrant 的 64 字符可读前缀误当
+  完整 conversation identity，FirstHigh 的 `-0` 被合法截断后匹配失败；R1 改用生产
+  `_storage_safe_collection_name(default_isolation_key(...))` 的完整 name+SHA-1 映射，现有 run
+  无需重烧 API。修正版验货：W1 12、W2 13 条 LTM；8/8 query embedding、25/25 build
+  embedding 对齐；25 个完整 ISO readout；FirstAgent 双 child lineage=9、ThirdAgent singleton
+  lineage=16；W2 四个 conversation 分别且唯一落到 worker 0/1。W2 一条 `invalid_choice` 是
+  smoke 只保留 step 1、而 gold 在 step 119 时模型诚实拒答，parser 正确记 0 分，不是
+  builder/并发故障。两轮 choice/source=0.5、Recall=1/6，只作 artifact 证据，不作效果结论。
+  本格升为 `REAL_SMOKE_PASSED`；完整原始输出与边界见
+  `branches/method-recertification/lightmem/notes/lightmem-membench-b11-command-pack.md` §7。
+  LightMem 还缺 BEAM/HaluMem，整体仍不 frozen。
 
 - 2026-07-19（**LightMem × MemBench 四层离线门与 pair 投递已强验收；当前
   `READY_FOR_B11_SMOKE`；等用户批真实预算/run id**，GPT-5.6 sol 架构师）：Sonnet 5

@@ -795,3 +795,16 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   被替换 method 的身份，也不能为救旧 fixture 放松 consumer gate。共享结构校验只在生产层
   单源；benchmark-policy 排除仍保留 benchmark 私有语义，并在全量 artifact preflight 后、
   provider eligibility 前执行。
+
+### 14.4 2026-07-19：验货器也必须尊重生产 identity 与任务边界
+
+- **人类可读 storage 前缀不是 identity。**LightMem × MemBench B11 的 R0 验货器用完整
+  `conversation_id` 在 Qdrant 目录名里做子串搜索；生产 helper 会把 isolation key 的可读部分
+  截成 64 字符并追加完整 key 的 hash，FirstHigh 尾部 `-0` 因截断不可见，于是好 run 被误报。
+  验货器若要反推内部 state，必须调用生产侧同一 identity helper，或消费显式 manifest/index；
+  不得解析可能截断、slug 化、大小写折叠的展示名。hash 是身份的一部分，不是装饰。
+- **模型拒答不自动等于 pipeline 失败。**同批 W2 有一条 `invalid_choice`；继续对照 raw answer、
+  cropped history 与 private target 后确认 smoke 只保留 step 1，而 gold 在 step 119，模型只是
+  没有无依据猜 A-D，parser 正确记 0。接线 smoke 的硬门是 prompt 变量、artifact、隔离、观测
+  与错误处理；答案正确率是效果层。遇到非预期答案先分“输入里有没有答案、输出契约是否诚实、
+  parser 是否按声明处理”，不能用重跑 API 把随机答案洗成绿色。

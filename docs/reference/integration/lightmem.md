@@ -1,8 +1,8 @@
 # LightMem 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**FIVE_GRID_RECERTIFICATION_IN_PROGRESS（LoCoMo/LongMemEval current-v7
-> `REAL_SMOKE_PASSED`；MemBench=`READY_FOR_B11_SMOKE`；BEAM/HaluMem 待逐格压实）**。
+> 状态：**FIVE_GRID_RECERTIFICATION_IN_PROGRESS（LoCoMo/LongMemEval/MemBench
+> current-v7 `REAL_SMOKE_PASSED`；BEAM/HaluMem 待逐格压实）**。
 > 2026-07-17 的 method-frozen-v2 与 v6 LoCoMo smoke 仍是有效历史证据，但 v7 改变
 > 公共 readout 与 embedding observation 契约，不能沿用 v6 artifact 宣称当前版本已
 > frozen。online-soft lifecycle 主体、MemBench 时间语义 Phase A 与 LightMem
@@ -75,6 +75,16 @@
 > `method.consume_granularity` manifest，并与真实 v3 实例交叉校验；该字段严格参与 resume，
 > 旧缺字段或 `turn↔pair` 都不兼容。此修复不改变 LightMem 算法 adapter，故
 > `LIGHTMEM_ADAPTER_VERSION` 保持 `conversation-qa-v7`。
+> 2026-07-19 R2 补充：MemBench current-v7 `0_10k` 四源 W1/W2 已由用户真实执行并经
+> 架构师开箱。两个 run 各 4/4 conversations/questions；25 个 product readout 均为完整 ISO，
+> 25 条 LTM 与 25 次 build embedding、8 次 retrieval embedding 对齐；FirstAgent 双 child
+> lineage=9、ThirdAgent singleton lineage=16；W2 四源只落入各自 worker state。R0 验货器曾
+> 把 Qdrant 64 字符可读前缀当完整 identity，FirstHigh 的 `-0` 被合法截断后误报；R1 改用
+> production storage-safe name+hash 后同一批 run 全绿，无需重烧 API。choice/source 两轮均
+> 0.5、Recall 均 1/6，只作 artifact 可算证据；一条 invalid choice 是 smoke 未包含 gold step
+> 时的诚实拒答，不是 builder/parser 故障。本格=`REAL_SMOKE_PASSED`，不外推 100k/full/效果/
+> 成本/resume；证据见 `ws02.7/branches/method-recertification/lightmem/notes/
+> lightmem-membench-b11-command-pack.md` §7。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
 - 算法源：vendored `third_party/methods/LightMem`（`src/lightmem/memory/lightmem.py`）
@@ -484,8 +494,9 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   旧 artifact 不可 resume 或外推。2026-07-19 新建的 LongMemEval/LoCoMo 单、双 worker 四组
   run 已关闭这两个格子的 v7 受影响 B4/B7/B11 门：完整 timestamp、zero-hit sentinel/
   answer_context、metadata/evidence、build/retrieval observation、summary v2、caption lineage 与
-  worker 隔离均验收通过。**这只使两个格子恢复 `REAL_SMOKE_PASSED`；MemBench、BEAM、HaluMem
-  仍待逐格重认证，故 method 整体不得恢复 frozen。**
+  worker 隔离均验收通过。该批当时只使两个格子恢复 `REAL_SMOKE_PASSED`；MemBench 随后已由
+  上方 R2 真实 B11 关闭。**当前 LoCoMo/LME/MemBench 三格通过，BEAM/HaluMem 仍待逐格
+  重认证，故 method 整体不得恢复 frozen。**
   以下为 2026-07-13~14 的历史 smoke 证据：
   ① unified：空库悬案已关闭（diag-log1 复跑：1 round → force 刷洗 → 抽取 2 条
   记忆 → 检索命中，sentinel=0；此前空库判为抽取 LLM 单次返 0 波动，非结构性 bug）。

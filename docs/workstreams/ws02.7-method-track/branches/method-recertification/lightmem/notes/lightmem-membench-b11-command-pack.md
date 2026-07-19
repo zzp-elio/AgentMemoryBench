@@ -1,8 +1,9 @@
 # LightMem × MemBench current-v7 pair B11 命令包
 
-> 状态：2026-07-19 用户已批准进入真实 smoke；命令待用户执行，artifact 尚未回收。
-> 本页只认证 `0_10k` 的 current-v7 主配置、pair 投递、单/双 worker、三项适用离线指标与
-> artifact 链。不代表 100k、full、效果、成本、resume 或 LightMem 整体 frozen。
+> 状态：**2026-07-19 两个 run 已执行，R1 机器验货修正后经架构师 artifact 开箱通过；
+> 本格=`REAL_SMOKE_PASSED`。**本页只认证 `0_10k` 的 current-v7 主配置、pair 投递、
+> 单/双 worker、三项适用离线指标与 artifact 链。不代表 100k、full、效果、成本、resume
+> 或 LightMem 整体 frozen。原验货器的目录名误判与修正版原样输出见 §7。
 
 ## 1. 已裁规模与 run 身份
 
@@ -146,6 +147,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from qdrant_client import QdrantClient
+from memory_benchmark.methods.lightmem_adapter import _storage_safe_collection_name
+from memory_benchmark.runners.event_stream import default_isolation_key
 
 
 ISO_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\s")
@@ -182,6 +185,13 @@ def qdrant_payloads(
 
     payloads_by_conversation = {key: [] for key in conversation_ids}
     locations: dict[str, set[str]] = defaultdict(set)
+    database_to_conversation = {
+        _storage_safe_collection_name(
+            default_isolation_key(run_dir.name, conversation_id)
+        ): conversation_id
+        for conversation_id in conversation_ids
+    }
+    assert len(database_to_conversation) == len(conversation_ids)
     for location, root in roots:
         assert root.is_dir() and any(root.iterdir()), root
         databases = [
@@ -192,9 +202,11 @@ def qdrant_payloads(
             and (path / "collection").is_dir()
         ]
         for database in databases:
-            matched = [cid for cid in conversation_ids if f"_{cid}_" in database.name]
-            assert len(matched) == 1, (database, matched)
-            conversation_id = matched[0]
+            conversation_id = database_to_conversation.get(database.name)
+            assert conversation_id is not None, (
+                database,
+                sorted(database_to_conversation),
+            )
             locations[conversation_id].add(location)
             client = QdrantClient(path=str(database))
             try:
@@ -409,3 +421,56 @@ PY
 artifact、三项 summary、raw/overall efficiency、terminal log 与 Qdrant state 后，本格才能从
 `READY_FOR_B11_SMOKE` 改为 `REAL_SMOKE_PASSED`。分数高低不作为 smoke 通过条件；结构、隐私、
 身份、隔离或观测缺失则是硬失败。
+
+## 7. R1：Qdrant 目录身份修正与架构师开箱判词
+
+### 7.1 原验货器为何误报
+
+用户完成两个 predict 与三项 evaluator 后，R0 验货器在第一个 W1 Qdrant database 报：
+
+```text
+AssertionError: (PosixPath('.../lightmem_lm-membench-v7-pair-r1q1-ps1-w1-0-10k_first-high-highlevel-movie_3ba7e0e943'), [])
+```
+
+run 没有丢 `conversation_id=-0`。生产路径先构造完整 isolation key
+`default_isolation_key(run_id, conversation_id)`，再由
+`_storage_safe_collection_name()` 把可读部分截为 64 字符并追加完整 isolation key 的 SHA-1
+前 10 位。FirstHigh 的 key 较长，因此目录可读前缀恰好在 `movie-0` 的 `-0` 之前截断；R0
+用 `f"_{conversation_id}_" in database.name` 反推身份，错误地把有损前缀当成完整身份字段。
+
+R1 改为用生产侧同一对 helper 为每个 `(run_id, conversation_id)` 计算**完整预期 database
+name**，再做一对一映射；稳定 hash 参与匹配，不做模糊前缀猜测。这只修本文零 API验货器，
+不改 production、run 或 artifact，也不需要重跑任何 API。
+
+### 7.2 修正后机器验货原样输出
+
+```text
+PASS lm-membench-v7-pair-r1q1-ps1-w1-0-10k: parse={'parsed': 4}, ltm={'first-high-highlevel-movie-0': 3, 'third-low-simple-roles-0': 4, 'first-low-simple-roles-0': 1, 'third-high-highlevel-movie-0': 4}, build_embeds={'first-low-simple-roles-0': 1, 'third-high-highlevel-movie-0': 4, 'first-high-highlevel-movie-0': 3, 'third-low-simple-roles-0': 4}, retrieval_embeds=4, locations={'first-high-highlevel-movie-0': {'run'}, 'first-low-simple-roles-0': {'run'}, 'third-high-highlevel-movie-0': {'run'}, 'third-low-simple-roles-0': {'run'}}
+PASS lm-membench-v7-pair-r1q1-ps1-w2-0-10k: parse={'parsed': 3, 'invalid_choice': 1}, ltm={'first-high-highlevel-movie-0': 3, 'third-low-simple-roles-0': 4, 'first-low-simple-roles-0': 2, 'third-high-highlevel-movie-0': 4}, build_embeds={'first-high-highlevel-movie-0': 3, 'third-high-highlevel-movie-0': 4, 'third-low-simple-roles-0': 4, 'first-low-simple-roles-0': 2}, retrieval_embeds=4, locations={'first-high-highlevel-movie-0': {'worker_0'}, 'third-high-highlevel-movie-0': {'worker_0'}, 'first-low-simple-roles-0': {'worker_1'}, 'third-low-simple-roles-0': {'worker_1'}}
+PASS ALL LightMem×MemBench B11: iso_hits=25, first_pair_lineage=9, third_singleton_lineage=16, build_embedding_calls=25
+```
+
+### 7.3 artifact 开箱
+
+- 两个 run 都是 4/4 conversations、4/4 questions、checkpoint `Completed`；manifest 为
+  `conversation-qa-v7`、`consume_granularity=pair`、`hybrid`、`online_soft`、
+  `preserve_none`、unified builder、RetrievalEvidence v1；
+- W1 state 在 run 级 Qdrant，四个 conversation 各一套 database；W2 中 FirstHigh/ThirdHigh
+  只在 `worker_0`，FirstLow/ThirdLow 只在 `worker_1`，无跨 worker collection；
+- 25 条持久化 LTM 与 25 次 memory-build embedding observation 对齐；8 道 query 的 retrieval
+  embedding 全齐。readout 共 25 个 item，全部保留完整 ISO timestamp；
+- FirstAgent 实见 9 条同时含 `:user`/`:assistant` 的双 child lineage；ThirdAgent 实见 16 条
+  去重后单 child lineage，证明真实 pair 与 singleton+placeholder 两条路径均落库；
+- 两个 run 的 choice/source accuracy 都是 0.5，MemBench Recall 都是 1/6，四题均
+  `status=ok/provenance_granularity=turn`，summary contract=`retrieval-summary-v2`；这些分数只作
+  artifact 完整性证据，不是效果结论；
+- W2 的一条 `invalid_choice` 原始回答是“没有关于 niece company 的信息”。该 smoke 只保留
+  FirstLow 第 1 个 source step，而该题 gold target 是 step 119；检索 Recall 正确为 0，模型
+  没有瞎猜 A-D，parser 也正确落 `invalid_choice`/0 分。W1 同题随机猜 A 但同样计错。两次 prompt
+  均含公开 question time 与四个 choices，因此这不是 builder/parser/并发故障；
+- terminal/run/method/event logs 无 traceback、exception、timeout 或失败 conversation。文本
+  `retry_failed_conversations=false` 不是错误事件。
+
+**架构师裁决：LightMem × MemBench current-v7 `0_10k` 单/双 worker B11 通过，格子升为
+`REAL_SMOKE_PASSED`。**仍不外推 100k、full、效果、成本、resume、stable ranking，也不使
+LightMem 整体 frozen；下一格按既定顺序进入 BEAM 异常/接口预检。

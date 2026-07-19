@@ -5,6 +5,9 @@
 > 过强断言，导致零落库的 LongMemEval W1 误报；run 本身不失败，详见 §9。
 > 本轮只重验 `conversation-qa-v7` 改动实际影响的 LongMemEval 与 LoCoMo，不能据此宣布
 > LightMem 五格冻结。MemBench、BEAM、HaluMem 仍按各自异常覆盖门逐格推进。
+> 后续状态：MemBench 已于同日完成 current-v7 pair W1/W2 并升为 `REAL_SMOKE_PASSED`，见
+> [`lightmem-membench-b11-command-pack.md`](lightmem-membench-b11-command-pack.md) §7；本页
+> 下文的 MemBench pending 文字均是本批执行当时的历史断面。
 
 ## 1. 为什么必须新建四个 run
 

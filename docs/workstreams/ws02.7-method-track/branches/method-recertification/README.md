@@ -38,8 +38,9 @@ method-frozen 后发生了实质变化。旧证据不删除，但不能靠历史
 
 **LightMem 是唯一 active method。** Gold group、hybrid role、MemBench canonical split 与
 RetrievalEvidence M1 已全部关闭；旧“当前可并行派发两张卡”的文字已过时并删除。现在先在
-当前 main 定点重验 gap matrix 与 B1-B11 离线证据，只重跑受影响的 build/smoke。LoCoMo/LME
-的 v6 run 只保留历史证据；用户已于 2026-07-19 批准 current-v7 四个最小单/双 worker run，
-执行命令见 LightMem 子线的 v7 command pack。与用户执行真实 run 并行，只开放
-LightMem × MemBench 的 docs-only/zero-API 分层异常覆盖预检；不并行推进 Mem0/MemoryOS，也不
-提前启动 MemBench 真实 API。权威实时动作仍看父级 `../../README.md` 恢复胶囊与最新断点。
+当前 main 定点重验 gap matrix 与 B1-B11 证据，只重跑受影响的 build/smoke。LoCoMo/LME
+current-v7 四组最小 W1/W2 与 MemBench current-v7 四源 W1/W2 均已真实执行并经架构师开箱，
+三格为 `REAL_SMOKE_PASSED`；MemBench 的 pair/singleton lineage、ISO readout、embedding
+observation 与 worker 隔离证据见其 B11 command pack §7。现在沿同一纪律进入 BEAM 格的
+异常/接口离线预检；不并行推进 Mem0/MemoryOS，也不提前启动下一格真实 API。权威实时动作仍看
+父级 `../../README.md` 恢复胶囊与最新断点。
