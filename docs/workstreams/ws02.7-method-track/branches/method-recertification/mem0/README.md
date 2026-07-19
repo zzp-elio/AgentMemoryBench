@@ -4,7 +4,7 @@ Mem0 是 method-recertification 的第二家。LightMem 已经把五个 source-l
 schema、异常、canonical id、private gold group、prompt 与 metric 资格压实；本子线不再重做
 benchmark census，只审 Mem0 产品接口与五格 method 差量。
 
-## 本轮并行拓扑
+## 第一波审计拓扑（已完成）
 
 第一波只做六份互不写同一文件的离线审计：
 
@@ -17,17 +17,32 @@ benchmark census，只审 Mem0 产品接口与五格 method 差量。
 | [Mem0 × BEAM 差量预检](cards/actor-prompt-mem0-beam-delta-preflight.md) | pair 投递、10M dangling/错位/缺时、positional id 与 rubric | `notes/mem0-beam-delta-preflight.md` |
 | [Mem0 × HaluMem 差量预检](cards/actor-prompt-mem0-halumem-delta-preflight.md) | 整 session add/result report、交错测评、当前 session extraction 与三类 metric | `notes/mem0-halumem-delta-preflight.md` |
 
-六张卡可以从同一 main 基线在六个隔离 worktree 并行执行，因为都只新增各自 note。benchmark
-卡只记录 framework 实际交给 `Memory.add()` 的调用序列，不替核心卡裁 Mem0 内部是否接受该
-shape；核心卡也不代替五格检查 canonical 映射。架构师必须等六份证据汇合后作一次联合裁决。
+六张卡已从 main `6643e56` 的隔离 worktree 回卡，架构师线性合入为
+`40e82ac`、`74379e6`、`7d0aeb6`、`a3a84bc`、`e5139a0`、`73b4791`。benchmark 卡只记录
+framework 实际交给 `Memory.add()` 的调用序列，不替核心卡裁 Mem0 内部是否接受该 shape；
+核心卡也不代替五格检查 canonical 映射。六线联合裁决见
+[`mem0-joint-ruling.md`](notes/mem0-joint-ruling.md)。
+
+## 第二波双卡施工拓扑（当前）
+
+联合裁决确认 **Mem0 role-aware 但不要求 pair**，所以任何 benchmark 都不因本轮新增
+placeholder；真实缺口拆成两张不写同一文件的卡，可并行施工：
+
+| 卡 | 解决什么 | 写集 |
+|---|---|---|
+| [Mem0 五格输入/readout R1](cards/actor-prompt-mem0-input-readout-r1.md) | LoCoMo 显式 speaker_a/b、caption wrapper、role-native 正文去重复前缀、MemBench generic readout、adapter v3 | `mem0_adapter.py` + Mem0/五格 tests + integration note |
+| [HaluMem operation runner R1](cards/actor-prompt-halumem-operation-runner-retry-topk-r1.md) | update scorer top-10、失败状态、clean retry 与 CLI 接线 | `operation_level.py` + `run_prediction.py` + runner tests |
+
+这次从“一张共享实现卡”改为两张，不是把工作拆碎：第一张只改 method build/readout identity，
+第二张只改 method-neutral operation state machine，写集、失败域和验收门均独立。强塞一张卡会
+让 adapter 字节语义与 resume 状态机互相遮蔽，也无法安全并行。
 
 ## 合流门
 
-1. 六份 note 由架构师 full diff、抽锚与文档门强验收；
-2. 形成一份跨五格 gap matrix，明确哪些是现成能力、N/A、文档漂移或真实代码缺口；
-3. 如需生产修改，只发**一张**共享实现卡统一改 `mem0_adapter.py` / registry / tests，禁止五个
-   actor 分别改共享 adapter；
-4. 定向与全量门关闭后，再按五格生成最小真实 smoke 命令；未经用户逐格批准预算、规模和
+1. 六份 note 已由架构师合流并形成联合 gap matrix；
+2. 两张 R1 卡分别回卡，由架构师 full diff、强反例复跑；
+3. 两卡线性合流后跑扩大定向、主树全量 pytest 与 compileall；adapter v3 旧 store 禁 resume；
+4. 再按五格生成最小真实 smoke 命令；未经用户逐格批准预算、规模和
    run id，不调用 API。
 
 稳定 benchmark 事实入口：

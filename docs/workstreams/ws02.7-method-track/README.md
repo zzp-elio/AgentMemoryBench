@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（Mem0 current-main 六线差量预检卡已就绪）
+status: in-progress（Mem0 六线联合裁决完成；两张 R1 卡待并行施工）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -192,15 +192,36 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   分章的 living dossier 承载，禁止一份总绿灯代裁。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
-- **Mem0 current-main 重认证拓扑**：LightMem 已把五 benchmark 稳定事实压实，Mem0 不再逐格
-  重做 census。现行第一波为 `branches/method-recertification/mem0/` 下 1 张产品 core
-  messages/namespace/time 契约卡 + 5 张 benchmark 差量卡；六张只新增不同 note，可在隔离
-  worktree 并行。架构师联合裁决后，若需代码修改只发一张跨五格共享实现卡，禁止五个 actor
-  并发改 `mem0_adapter.py`。未获用户逐格预算/规模/run id 批准前不调用真实 API。
+- **Mem0 current-main 重认证拓扑**：六份 Sonnet 5 docs-only 审计已线性进入 main
+  `40e82ac..73b4791`，联合判词=`BLOCKED_ON_TWO_CODE_CARDS`。Mem0 默认 V3 extraction
+  role-aware，但 singleton/assistant-first/连续同 role/odd tail 均合法；**MemBench ThirdAgent
+  不补 placeholder**，任何非空伪回复都属于数据造假。真正 build 缺口是 LoCoMo 显式
+  `speaker_a=user/speaker_b=assistant`（10 个 conversation 仅 4 个由 A 首发）、共享 caption
+  wrapper、role-native content 去重复前缀、MemBench generic readout；另有 method-neutral
+  HaluMem update top-10 scorer 输入与 clean-failed-ingest resume。两张卡写集不重叠，可在隔离
+  worktree 并行；见 `branches/method-recertification/mem0/`。未获用户逐格预算/规模/run id
+  批准前不调用真实 API。
+- **2026-07-20 汇报门**：用户目标是在 2026-07-20 下午前尽量冻结 Mem0、MemoryOS、A-Mem、
+  SimpleMem，并填写 `reports/report-progress-2026-07-20.md`。该目标要求复用 LightMem 已锁定的
+  benchmark 稳定层，不再做无反证的全量 census；但不得把用户/外部工具对后续 method 接口的
+  初步判断当 checklist。MemoryOS forced pair、A-Mem 无 role turn、SimpleMem speaker/time/content
+  等均只作到站前线索，仍须从产品源码验证；Recall/NDCG 与 HaluMem session extraction 均按
+  method×benchmark×metric 独立判 valid/N/A/pending。预算估算只能从真实 pilot observation
+  推导，不用 add 数猜 LLM 次数。
 
 ## 当前断点（2026-07-19）
 
-- 2026-07-19（**Mem0 六线差量预检卡已就绪；待用户跨模型派发**，GPT-5.6 sol 架构师）：
+- 2026-07-19（**Mem0 六线联合裁决完成；两张 R1 卡需要并行派发**，GPT-5.6 sol 架构师）：
+  六个 actor commit 已逐一检查只改各自 note、线性合入 main。联合复核纠正三处局部审计：
+  ① role-aware 不等于 pair-required，MemBench ThirdAgent/BEAM dangling/LoCoMo singleton 均不补
+  placeholder；② LoCoMo first-seen 映射在 6/10 conversation 与官方显式 A/B 角色相反；③
+  1,226 是全部 caption turn，316 是无 URL 子集，不能写成两组或“每次 smoke 必命中”。当前
+  **需要派发** `mem0-input-readout-r1.md`（修五格输入 bytes）和
+  `halumem-operation-runner-retry-topk-r1.md`（修 top-10 + clean retry），推荐分别 Sonnet 5 max/
+  high；两卡写集不重叠，可并行。回卡前不运行 API、不生成 smoke 命令。联合裁决=
+  [mem0-joint-ruling.md](branches/method-recertification/mem0/notes/mem0-joint-ruling.md)。
+
+- 2026-07-19（**历史派卡断点，已由上条 superseded：Mem0 六线差量预检卡已就绪**，GPT-5.6 sol 架构师）：
   LightMem frozen-v3 后不再重复调查五个 benchmark。已建立
   [`mem0` 重认证子线](branches/method-recertification/mem0/README.md)：一张 core 卡专裁
   `Memory.add` 连续 role、single/list、多次 add、`user_id/agent_id/run_id`、两代 LoCoMo

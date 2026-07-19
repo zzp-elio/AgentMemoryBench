@@ -856,3 +856,21 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   应直接引用既有计数，只复核草稿新增断言、variant 差异和当前代码处置；不得借“source-locked
   ledger”换名重扫整库。2026-07-19 LongMemEval 稳定账卡错误地要求 S/M census 全量重算，
   actor 虽完成但重复消耗本可避免；以后卡内必须逐条标出“继承事实 / 本批新增事实”。
+
+### 14.6 2026-07-19：role-aware prompt 不等于 pair-required 接口
+
+- **prompt 描述抽取语义，core 校验才定义输入形状。**Mem0 V3 prompt 明确说同时从 user 与
+  assistant 抽取，`parse_messages()` 也把 role 写进 LLM 文本；这证明 role 是一等语义，却不能
+  推出一次 `add()` 必须含完整 user+assistant pair。current-main 官方 LoCoMo harness
+  `CHUNK_SIZE=1`、core 无 alternation/evenness/user-first 校验，直接构成 singleton 合法的一手
+  反证。以后判断 placeholder 前必须闭合“签名/运行期校验 → 官方真实调用 shape → prompt 下游
+  消费”，不能从 prompt 文案反推接口硬约束。
+- **placeholder 是算法输入，不是排版填空。**空 assistant 也会进入 parse/embedding/extraction/
+  last-message 上下文；非空 “I get it!” 更是制造数据。只有 method 接口结构上硬要求 pair，且
+  项目已经裁定 placeholder 的公开语义时才可补；支持 singleton 的 method 一律保留真实 fragment。
+- **批边界属于 method identity。**`add([user, assistant])` 与连续两次 singleton add 会改变
+  extraction batch、已有记忆和 last messages；不能因最终文本相似就互换。benchmark canonical
+  unit、framework consume granularity、method 实际 API batch 三层都要分别记录。
+- **外部调查是线索，不是判词。**本判例中 OpenCode 找到的 prompt 锚是正确线索，但用户明确
+  要求架构师不能无脑照搬。正确做法是先承认锚成立，再指出其逻辑射程，主动寻找官方 singleton
+  反例和 core 负空间；既不能因来源是二手就全盘否定，也不能把“事实正确”扩写成“推论必然”。

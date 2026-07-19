@@ -329,3 +329,18 @@ text+caption 的裸拼（case6/case8，真实数据各 1,226/316 个 turn 命中
 范围是否影响其余四格（LongMemEval/MemBench/BEAM/HaluMem，据 mem0.md B2 均无独立
 caption 处理路径，MemBench 原文本身可能已内嵌 place/time 但未见图片处理注释）由架构师
 联合裁决决定，本卡不越权改代码。
+
+## 6. 架构师联合验收勘误（2026-07-19）
+
+本节保留 actor 首轮历史，同时由联合裁决 supersede 两处过强表述：
+
+1. source-locked 全量复算确认，整个 conversation 第一条来自 `speaker_a` 的只有 4/10；其余
+   6/10 先由 `speaker_b` 发言。因此“first-seen 与显式 speaker_a/b 通常一致”不足以放行，
+   current adapter 还有一个与 caption 并列的确定性 role 映射缺口。
+2. 1,226 是全部 caption turn，316 是其中 caption-without-URL 的子集，不是两条独立路径各自
+   命中。真实 smoke 是否命中 caption 取决于裁剪位置，不能写“每次都触发”。确定性强反例负责
+   证明通用 wrapper；真实 B11 只证明所选样本的实际路径。
+
+完整判词与施工边界见同目录 `mem0-joint-ruling.md`。本 note 的局部
+`BLOCKED(caption-raw-concat-no-wrapper)` 已被联合总判词
+`BLOCKED_ON_TWO_CODE_CARDS` 吸收，不再单独指导派工。

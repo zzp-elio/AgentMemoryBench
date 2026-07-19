@@ -56,8 +56,9 @@ LightMem 已关闭的异常样本。只有三类触发器允许重开 benchmark 
 
 LightMem current-v7 已完成五格真实 smoke、forced-flush reachability 与 100k refill，冻结为
 `method-frozen-v3`。**Mem0 现为唯一 active method**，入口为
-[`mem0/README.md`](mem0/README.md)。第一波并行卡只新增六份互不冲突的 note：一份产品
-`messages/namespace/time` core 契约 + 五份 benchmark 差量预检；benchmark 稳定层一律复用
-LightMem 已压实的 source lock/异常账，不再重跑 census。六份证据经架构师联合裁决后，若有
-代码缺口只允许一张共享实现卡修改 Mem0 adapter/registry/tests，再进入五格最小真实 smoke。
-MemoryOS 继续等待 Mem0 收口。权威实时动作仍看父级 `../../README.md` 恢复胶囊与最新断点。
+[`mem0/README.md`](mem0/README.md)。第一波六份互不冲突的 docs-only 审计已经合流；联合裁决
+确认 Mem0 role-aware 但不要求 pair，任何格都不因此新增 placeholder。当前第二波为两张写集
+正交的 R1 卡：Mem0 adapter 输入/readout 保真，以及 method-neutral HaluMem operation runner
+top-10/clean retry；两者可并行，回卡后再合流跑全量门与五格最小真实 smoke。benchmark 稳定层
+继续复用 LightMem source lock/异常账，不重跑 census。MemoryOS 继续等待 Mem0 收口。权威实时
+动作仍看父级 `../../README.md` 恢复胶囊与最新断点。

@@ -310,3 +310,16 @@ LongMemEval，因为它与 HaluMem 共享 `_retrieve_native`）。
    随笔记交联合裁决决定是否需要共享实现卡跟进。
 
 不授权真实 smoke；本卡不改动生产代码、不改动其他文件。
+
+## 9. 架构师联合验收升格（2026-07-19）
+
+本 note 的 `READY_FOR_JOINT_RULING` 只表示审计完成，不表示 HaluMem 可直接 smoke。联合裁决
+把 §6 两项从“单趟不阻塞”升格为 **Mem0 frozen 前必须关闭**：
+
+- update scorer 的输入必须由共享 operation runner 截成有序 top-10；不改 Mem0 TOML 的产品
+  retrieval depth，也不谎称 provider 底层只检索 10；
+- operation runner 必须接入标准 clean-failed-ingest 契约，失败写 `failed_ingest`，显式 retry
+  有 hook 才先清理重跑，无 hook fail-closed。
+
+完整理由和允许改动范围见同目录 `mem0-joint-ruling.md`；不得只拿本 note 的单趟正常探针跳过
+这两道操作正确性门。
