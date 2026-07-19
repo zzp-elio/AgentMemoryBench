@@ -540,6 +540,7 @@ def test_registered_mock_v3_prediction_can_be_evaluated_offline(
     fake_method_registration = SimpleNamespace(
         name="mock-v3",
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
             {
@@ -992,6 +993,7 @@ def test_longmemeval_s_smoke_registered_prediction_stays_offline_and_separates_p
     fake_method_registration = SimpleNamespace(
         name="offline-fake",
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
             {
@@ -1653,6 +1655,7 @@ def _patch_membench_mock_prediction(
     fake_method_registration = SimpleNamespace(
         name="mock-v3",
         build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "turn",
         task_families=frozenset({TaskFamily.CONVERSATION_QA}),
         provided_capabilities=frozenset(
             {

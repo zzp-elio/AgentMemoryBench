@@ -20,6 +20,7 @@ from memory_benchmark.benchmark_adapters.longmemeval_prompt import (
 from memory_benchmark.cli import run_prediction as run_prediction_module
 from memory_benchmark.config import OpenAISettings
 from memory_benchmark.config.settings import PathSettings
+from memory_benchmark.core.provider_protocol import ConsumeGranularity
 from memory_benchmark.core.validators import validate_no_private_keys
 from memory_benchmark.evaluators.f1 import F1Evaluator
 from memory_benchmark.evaluators.longmemeval_recall import (
@@ -39,10 +40,15 @@ class _ProbeAsMem0(BenchmarkProbeProvider):
 
     instances: list["_ProbeAsMem0"] = []
 
-    def __init__(self, **_kwargs: object) -> None:
-        """忽略 method-specific 构造参数并记录实际探针实例。"""
+    def __init__(
+        self,
+        *,
+        consume_granularity: ConsumeGranularity,
+        **_kwargs: object,
+    ) -> None:
+        """接收 factory 粒度、忽略其余 method 参数并记录探针实例。"""
 
-        super().__init__()
+        super().__init__(consume_granularity=consume_granularity)
         _ProbeAsMem0.instances.append(self)
 
 

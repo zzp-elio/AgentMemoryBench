@@ -27,6 +27,7 @@ from memory_benchmark.cli import run_prediction as run_prediction_module
 from memory_benchmark.cli.commands import EvaluateCommand, execute_evaluate
 from memory_benchmark.config import OpenAISettings
 from memory_benchmark.config.settings import PathSettings
+from memory_benchmark.core.provider_protocol import ConsumeGranularity
 from memory_benchmark.core.validators import validate_no_private_keys
 from memory_benchmark.evaluators.locomo_f1 import LoCoMoF1Evaluator
 from memory_benchmark.evaluators.locomo_recall import LoCoMoRetrievalRecallEvaluator
@@ -50,10 +51,15 @@ class _ProbeAsMem0(BenchmarkProbeProvider):
 
     instances: list["_ProbeAsMem0"] = []
 
-    def __init__(self, **_kwargs: object) -> None:
-        """忽略 mem0 factory 传入的构造参数，探针使用默认设置。"""
+    def __init__(
+        self,
+        *,
+        consume_granularity: ConsumeGranularity,
+        **_kwargs: object,
+    ) -> None:
+        """接收 mem0 factory 粒度并忽略其余构造参数。"""
 
-        super().__init__()
+        super().__init__(consume_granularity=consume_granularity)
         _ProbeAsMem0.instances.append(self)
 
 
