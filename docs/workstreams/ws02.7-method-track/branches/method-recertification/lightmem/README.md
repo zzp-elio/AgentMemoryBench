@@ -61,21 +61,26 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     summary 主体 `8a81723` 合入主线 `68bb7f9`；LightMem 主体 `8f6f883` 被架构师以 zero-hit
     双源与 observer 透明性强反例驳回，Codex R1 `1a07938` 关闭后合入主线
     `d11d749` + `2f21291`。两卡合流定向 325、主树全量 1557、compileall exit 0；真实 v6
-    W1/W2 零 API 重评已正确写 total=1/2、mean=null。当前最近的门是真实 v7 B11 artifact 复验；
-    在 LongMemEval v7 门通过前仍保持 `B11_ARTIFACT_REPAIR_PENDING`；随后还要补 LoCoMo v7
-    受影响的 B4/B7/B11 最小复验；之后仍须按本 dossier 逐格压实 MemBench、BEAM、HaluMem，
-    五格全部关闭后才能宣称当前 adapter frozen。
+    W1/W2 零 API 重评已正确写 total=1/2、mean=null。该批当时把真实 v7 B11 artifact 复验留作
+    最近门；现已由下条四-run 验收关闭。之后仍须按本 dossier 逐格压实 MemBench、BEAM、
+    HaluMem，五格全部关闭后才能宣称当前 adapter frozen。
 12. 用户于 2026-07-19 批准 LongMemEval/LoCoMo current-v7 的真实 API 预算、规模与 run id。
     [v7 受影响格 B11 命令包](notes/lightmem-v7-readout-observability-b11-command-pack.md) 固定四个
     串行 predict：LME W1/W2 与 LoCoMo W1/W2；每格随后执行全部当前适用 evaluator 和零 API
     机器验货。命令包只重验完整 ISO product readout、逐题 metadata 单事实源、build/retrieval
-    embedding observation、retrieval summary v2、caption lineage 与 worker state；在用户回传
-    结果并经架构师开箱前，两格状态不提前升绿。
+    embedding observation、retrieval summary v2、caption lineage 与 worker state。四组 run 已
+    全部执行，架构师已亲读 artifact、terminal log 与 Qdrant state；原机器验货脚本把“每个
+    conversation 均须 build embedding”写成过强断言，LongMemEval W1 因 0 LTM 合法误报。
+    R1 改为 actual-call-aware 判据后全验货通过：LME ISO hit=2、LoCoMo ISO hit=16、build
+    calls 分别 2/28。两格现为 current-v7 `REAL_SMOKE_PASSED`，但不代表 full/效果/成本/
+    resume，也不使整个 method frozen。
 13. 同期只开放一条不改代码、零 API 的下一格准备线：
     [LightMem × MemBench 分层异常覆盖预检卡](cards/actor-prompt-lightmem-membench-anomaly-coverage-preflight.md)。
     它一次性核对两个 variant/四类 source 的 source-lock census、production-path 强反例、
-    evaluator-private 异常与真实 sentinel 必要性；不会与四个 v7 run 写同一文件或 state。卡已
-    写好，**需要用户派发**；回卡强验收前不得据历史 smoke 宣称 MemBench 格通过。
+    evaluator-private 异常与真实 sentinel 必要性；不会与四个 v7 run 写同一文件或 state。用户
+    已派发外部 actor，当前执行中；回卡后须与 OWNER 新增的
+    `docs/survey/异常情况/membench.md` 逐锚交叉验收，不能把任一方摘要直接当事实。回卡强验收前
+    不得据历史 smoke 宣称 MemBench 格通过。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

@@ -1,6 +1,8 @@
 # LightMem v7 readout / observability 受影响格 B11 复验命令包
 
-> 状态：用户已于 2026-07-19 批准本命令包的预算、规模与 run id；待用户执行。
+> 状态：**2026-07-19 四个 run 已执行并经架构师 artifact 开箱验收；本页 §7 已按实际调用
+> 语义完成 R1。**原版验货脚本把“每个 conversation 都必须有 memory-build embedding”写成
+> 过强断言，导致零落库的 LongMemEval W1 误报；run 本身不失败，详见 §9。
 > 本轮只重验 `conversation-qa-v7` 改动实际影响的 LongMemEval 与 LoCoMo，不能据此宣布
 > LightMem 五格冻结。MemBench、BEAM、HaluMem 仍按各自异常覆盖门逐格推进。
 
@@ -173,6 +175,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 from qdrant_client import QdrantClient
@@ -194,7 +197,11 @@ def read_jsonl(path: Path) -> list[dict]:
     ]
 
 
-def qdrant_payloads(run_dir: Path, expected_workers: int) -> list[dict]:
+def qdrant_payloads_by_conversation(
+    run_dir: Path,
+    expected_workers: int,
+    conversation_ids: set[str],
+) -> dict[str, list[dict]]:
     state_root = run_dir / "method_state"
     worker_dirs = sorted(state_root.glob("worker_*"))
     if expected_workers == 1:
@@ -205,13 +212,22 @@ def qdrant_payloads(run_dir: Path, expected_workers: int) -> list[dict]:
         qdrant_roots = tuple(worker / "qdrant" for worker in worker_dirs)
     assert all(root.is_dir() and any(root.iterdir()) for root in qdrant_roots)
 
-    payloads: list[dict] = []
+    payloads_by_conversation = {
+        conversation_id: [] for conversation_id in conversation_ids
+    }
     for qdrant_root in qdrant_roots:
         for database in sorted(path for path in qdrant_root.iterdir() if path.is_dir()):
             if database.name.endswith("_summary"):
                 continue
             if not (database / "collection").is_dir():
                 continue
+            matched_ids = [
+                conversation_id
+                for conversation_id in conversation_ids
+                if f"_{conversation_id}_" in database.name
+            ]
+            assert len(matched_ids) == 1, (database, matched_ids)
+            conversation_id = matched_ids[0]
             client = QdrantClient(path=str(database))
             try:
                 for collection in client.get_collections().collections:
@@ -222,10 +238,12 @@ def qdrant_payloads(run_dir: Path, expected_workers: int) -> list[dict]:
                         with_vectors=False,
                     )
                     assert next_offset is None, (database, collection.name)
-                    payloads.extend(point.payload or {} for point in points)
+                    payloads_by_conversation[conversation_id].extend(
+                        point.payload or {} for point in points
+                    )
             finally:
                 client.close()
-    return payloads
+    return payloads_by_conversation
 
 
 cases = (
@@ -265,6 +283,7 @@ cases = (
 
 lme_iso_hit_count = 0
 locomo_iso_hit_count = 0
+build_embedding_call_counts = Counter()
 
 for case in cases:
     run_id = case["run_id"]
@@ -403,10 +422,10 @@ for case in cases:
     embeds = [row for row in observations if row["observation_type"] == "embedding_call"]
     build_embeds = [row for row in embeds if row["stage"] == "memory_build"]
     retrieval_embeds = [row for row in embeds if row["stage"] == "retrieval"]
-    assert build_embeds, f"{run_id}: no memory-build embedding observation"
     assert retrieval_embeds, f"{run_id}: no retrieval embedding observation"
-    assert conversation_ids <= {row["conversation_id"] for row in build_embeds}
     assert question_ids <= {row["question_id"] for row in retrieval_embeds}
+    build_counts = Counter(row["conversation_id"] for row in build_embeds)
+    build_embedding_call_counts[benchmark] += len(build_embeds)
     for row in embeds:
         assert row["model_id"] == "lightmem-embedding"
         assert row["input_tokens"] > 0
@@ -419,7 +438,28 @@ for case in cases:
     assert embedding_tokens
     assert sum(item["call_count"] for item in embedding_tokens.values()) == len(embeds)
 
-    payloads = qdrant_payloads(run_dir, expected_workers)
+    payloads_by_conversation = qdrant_payloads_by_conversation(
+        run_dir,
+        expected_workers,
+        conversation_ids,
+    )
+    persisted_counts = {
+        conversation_id: len(payloads)
+        for conversation_id, payloads in payloads_by_conversation.items()
+    }
+    for conversation_id, persisted_count in persisted_counts.items():
+        if persisted_count:
+            assert build_counts[conversation_id] >= persisted_count, (
+                run_id,
+                conversation_id,
+                persisted_count,
+                build_counts[conversation_id],
+            )
+    payloads = [
+        payload
+        for conversation_payloads in payloads_by_conversation.values()
+        for payload in conversation_payloads
+    ]
     if benchmark == "locomo":
         assert payloads, f"{run_id}: no LTM payloads"
         assert all(isinstance(payload.get("source_external_ids"), list) for payload in payloads)
@@ -434,16 +474,23 @@ for case in cases:
     ):
         assert (run_dir / "logs" / terminal_name).is_file()
 
+    nonzero_persisted_counts = {
+        key: value for key, value in persisted_counts.items() if value
+    }
     print(
-        f"PASS {run_id}: questions={expected_questions}, workers={expected_workers}, "
-        f"embedding_calls={len(embeds)}"
+        f"PASS {run_id} ltm {nonzero_persisted_counts} "
+        f"build_embeds {dict(build_counts)} "
+        f"retrieval_embeds {len(retrieval_embeds)}"
     )
 
 assert lme_iso_hit_count > 0, "LongMemEval v7 runs had no hit with an ISO timestamp"
 assert locomo_iso_hit_count > 0, "LoCoMo v7 runs had no hit with an ISO timestamp"
+assert build_embedding_call_counts["longmemeval"] > 0
+assert build_embedding_call_counts["locomo"] > 0
 print(
-    "PASS v7 readout delta: "
-    f"lme_iso_items={lme_iso_hit_count}, locomo_iso_items={locomo_iso_hit_count}"
+    "PASS ALL corrected verifier "
+    f"lme_iso {lme_iso_hit_count} locomo_iso {locomo_iso_hit_count} "
+    f"build_totals {dict(build_embedding_call_counts)}"
 )
 PY
 ```
@@ -458,3 +505,57 @@ PY
 terminal log、manifest、prompt、Qdrant 与 efficiency artifact 都在 run 目录中，架构师会直接
 开箱。零报错仍不等于最终验收，且四个 run 通过也只关闭 LoCoMo/LME 的 v7 受影响门，不替代
 MemBench、BEAM、HaluMem 的逐格重认证。
+
+## 9. 2026-07-19 实际执行、R1 与架构师验收
+
+### 9.1 原验货断言为什么误报
+
+用户执行原 §7 后，唯一 assertion 为：
+
+```text
+AssertionError: lm-lme-v7-r1q1-w1-s-cleaned: no memory-build embedding observation
+```
+
+这是**命令包判据错误，不是 run 或 observer 错误**。该 W1 的裁剪输入只有一个 real-real
+pair；vendored `sensory_memory.py::cut_with_segmenter()` 在 segmenter 不返回 boundary 时直接
+交回整个 buffer，不调用 semantic segmentation embedding。该题 memory-build LLM 又合法返回
+0 条 memory，`lightmem.py::offline_update()` 因此没有 entry 可 embed/insert，Qdrant LTM 为
+0。它仍产生了 1 次 retrieval embedding。相同 conversation 在 W2 中仍为 0 LTM/0 build
+embedding；W2 的另一个 conversation 落库 2 条 memory，并产生 2 次 insert build embedding，
+证明 observer 对实际调用没有漏记。
+
+因此 R1 判据改为：
+
+1. 每道实际 query 必须有 retrieval embedding observation；
+2. 每个有持久化 LTM entry 的 conversation，build embedding 次数不得少于持久化 entry 数；
+3. 0 LTM conversation 允许 0 build embedding，不伪造“应发生”的调用；
+4. 本轮每个 benchmark 的整组 run 必须至少真实观察到一次 build embedding。
+
+### 9.2 修正后机器验货原样结果
+
+```text
+PASS lm-lme-v7-r1q1-w1-s-cleaned ltm {} build_embeds {} retrieval_embeds 1
+PASS lm-lme-v7-r1q1-c2-w2-s-cleaned ltm {'118b2229': 2} build_embeds {'118b2229': 2} retrieval_embeds 2
+PASS lm-locomo-v7-r3q1-w1 ltm {'conv-26': 5} build_embeds {'conv-26': 11} retrieval_embeds 1
+PASS lm-locomo-v7-r3q1-c2-w2 ltm {'conv-26': 5, 'conv-30': 6} build_embeds {'conv-26': 11, 'conv-30': 6} retrieval_embeds 2
+PASS ALL corrected verifier lme_iso 2 locomo_iso 16 build_totals {'longmemeval': 2, 'locomo': 28}
+```
+
+架构师同时亲读四组 manifest、prediction/answer rows、checkpoint、全部 evaluator summary、
+terminal logs、raw efficiency observations、overall aggregation 与每个 worker 的 Qdrant state：
+
+- 四组均为 `conversation-qa-v7`、hybrid、online-soft、MiniLM-384，行数/worker/state 隔离正确；
+- LongMemEval hit 与 LoCoMo hit 的公共 readout 均保留完整 ISO timestamp，且没有 LoCoMo author
+  pretty-date wrapper；zero-hit sentinel 与 `answer_context` 一致；
+- metadata 与 v1 RetrievalEvidence granularity 单事实源一致：LongMemEval 为
+  `n_a/none/pair_source_id_not_turn_exact`，LoCoMo 为 `valid/turn`；
+- LongMemEval Recall/rank summary v2 均为 total=1/2、scored=0、mean=null、status=n/a；LoCoMo
+  Recall summary 均为 status=ok，本轮逐题为 1；stable ranking 仍保持 pending；
+- model inventory 只含 `gpt-4o-mini`、`lightmem-memory-llm`、`lightmem-embedding`；所有实际
+  embedding observation 都是正 token、非负 latency、`tokenizer_estimate/framework_timer`；
+- LoCoMo W1/W2 均有 caption-bearing `D1:5` 的持久化 lineage；双 worker 的 conversation 与
+  Qdrant state 没有交叉；全部 terminal log 无 traceback/error/timeout 命中。
+
+本轮只证明 cropped smoke 的接线与 v7 受影响契约，不是 full、效果、成本或 resume 认证。
+LoCoMo 与 LongMemEval 两格可恢复为 current-v7 `REAL_SMOKE_PASSED`；LightMem 整体仍须逐格
+压实 MemBench、BEAM、HaluMem，不能据本轮恢复 method frozen。

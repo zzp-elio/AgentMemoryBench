@@ -94,7 +94,12 @@
     HaluMem 判例）。极小切片下评测中间产物可以退化（update 检索空 →
     官方语义路由回 integrity → update 聚合桶空、公式 0 分母），这不是
     smoke 失败，反而是 smoke 应暴露的 evaluator 边界。断言"调用发生过"，
-    别断言"桶里有东西"；smoke 分数无意义是设计而非缺陷。
+    别断言"桶里有东西"；smoke 分数无意义是设计而非缺陷。**2026-07-19
+    LightMem v7 R1 勘误**："断言调用发生过"只适用于输入必然触发的路径（如每题
+    retrieval query）。对受 buffer/segment/抽取结果控制的 build 调用，observer 的职责是
+    记录**实际发生**的调用，不能反向要求算法必须调用；应用可审计副作用建条件下界——
+    有持久化 entry 就必须有相应 insert embedding，0 entry 可以是 0 build call，同时在整组
+    smoke 中另取至少一个真实非零样本证明 observer 接线。监控判据不得伪造算法流程。
 
 14. **用户的旧拍板也可以被推翻，但必须新拍板 + 留痕**（2026-07-11
     smoke 裁 round 判例：用户先拍"session 内不裁 turn"，后自己推翻为

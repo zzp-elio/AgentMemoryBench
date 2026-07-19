@@ -1,8 +1,8 @@
 # LightMem 当前主线 B1-B11 gap matrix
 
-> 2026-07-18 current-v7 更新：下表的 `method-frozen-v2` 是 v6 历史快照。v7 改变公共
-> product readout 与 embedding observation，故当前 B4/B7/B11 重新打开：LongMemEval v7
-> 先复验，随后 LoCoMo v7 补受影响最小 B11；真实 artifact 通过前不得恢复 frozen。
+> 2026-07-19 current-v7 更新：LongMemEval 与 LoCoMo 单/双 worker 四组真实 artifact 已关闭
+> v7 重新打开的 B4/B7 及这两个格子的 B11；`method-frozen-v2` 仍只是 v6 历史快照。
+> MemBench、BEAM、HaluMem 尚未按 current-main 逐格重认证，因此 method 整体仍不 frozen。
 
 > 抽锚日期：2026-07-17；最新真实 smoke 基线 main `568b95d`。状态只用
 > `revalidated / retested / N/A / pending`。role/evidence-unit 新反证见
@@ -13,22 +13,23 @@
 | B1 来源锁/产品接口 | revalidated | 仍走 vendored `LightMemory.add_memory/retrieve` 通用产品接口；未换 eval fork | role 修复不改接口选择 |
 | B2 注入粒度 | retested | LoCoMo v3 已从 `turn_images` 恢复 `ImageRef`；legacy/v3 caption-bearing message 共用共享 helper，无有效 caption 保留原文 bytes；真实 v6 LTM lineage 覆盖 caption-bearing `conv-26/D1:5` | 冻结；不再改注入协议 |
 | B3 隔离/clean | retested | 单 worker 直接使用 run 级 `method_state/qdrant`；双 worker 使用 `worker_0/worker_1`，分别只含 conv-26/conv-30 独立 Qdrant collection | 冻结；失败清理钩继续由离线强反例覆盖 |
-| B4 输入/时间/formatted_memory | retested | 时间链仍成立；离线探针确认 legacy=v3、wrapper 恰一次、旧 wrapper/query/URL 零泄漏；真实 3-round build 中 D1:5 产生带正确 lineage 的 LTM entry，formatted memory 非空 | 冻结；不要求抽取 LLM 逐字保留 caption wrapper |
+| B4 输入/时间/formatted_memory | revalidated | v7 LME hit 保留完整 ISO、zero-hit sentinel 一致；LoCoMo 16 个 hit 同样走 product ISO readout；无 author pretty-date wrapper。真实 3-round build 中 D1:5 仍有正确 lineage | LoCoMo/LME 受影响门关闭；其余格随逐格重认证抽查 |
 | B5 provenance | retested | RetrievalEvidence M1 已严格消费逐题事实：online-soft LoCoMo 单 utterance与 MemBench pair-step 可 valid；LME/BEAM/HaluMem N/A，consolidated 恒 N/A，stable ranking 仍 pending。assistant-first 镜像保 lineage/speaker，但 pair index 不具 child-exact time/turn provenance | B11 核对 artifact status，不再用静态资格猜测 |
 | B5+ 无损改造 | retested | evaluator-private gold group 已无损表达 MemBench pair-step 与 BEAM multi-child；hybrid pair candidate 全有或全无，MemBench cross-batch 强反例已通过 | M1 只消费，不重写 group/schema |
 | B6 flush/finalize | revalidated | online-soft direct insert、end_conversation 最后一批 flush 与补充 consolidated gate 证据仍有效 | role 改后定向回归 |
-| B7 效率插桩 | retested | 两组 run 均有 model inventory、raw observations、overall/by-conversation/by-question summary；hybrid 会改变合法 token 数但不改变计量入口 | 冻结 |
+| B7 效率插桩 | revalidated | 四个 v7 run 每题均有 retrieval embedding；LoCoMo 共 28 次、LME 共 2 次真实 build embedding，与 LTM insert 对齐。LME W1 0 LTM/0 build 是未发生调用，不是漏观测；raw 与 overall 聚合一致 | 采用 actual-call-aware 判据；其余格随逐格重认证抽查 |
 | B8 检索副作用 | retested | retrieve 路径与 lifecycle 裁决未变；真实单/双 worker state 独立且无跨 conversation collection | 冻结 |
 | B8+ 韧性 | revalidated | timeout/retry wrapper 与失败态清理未受影响 | 真实 smoke 前对表 |
 | B9 模型/build 口径 | revalidated | 当前五格 smoke identity=MiniLM/384/cosine + hybrid + online-soft，强类型 manifest 可复算。效果参数/embedding 的最终裁决按政策延后，不冒充当前 smoke 缺口 | 进入 B11；首个效果 full 前再裁参数 |
 | B10 TOML/builder | revalidated | 当前 manifest 对既有 smoke build truthful；新 TOML section/完整 author builder 已明确排在首个 author calibration/效果 full 前，按政策不阻塞 5×10 smoke。官方 LME `user_only` 未来只能显式 author section，不能暗切 | 用当前 section 跑 B11；效果实验前迁移 |
-| B11 五格 smoke/冻结 | pending | 历史五格与 LoCoMo v6 `r3q1-w1`/`c2-w2` 继续作历史证据；v7 readout/observer 代码门已过，真实 artifact 尚未证明 | 先 LME v7，再 LoCoMo v7；随后逐格压实 MemBench/BEAM/HaluMem；当前不 frozen |
+| B11 五格 smoke/冻结 | pending | LoCoMo/LME current-v7 各 W1/W2 已恢复 `REAL_SMOKE_PASSED`；readout、evidence、summary v2、embedding observation、caption 与 worker state 均开箱通过 | 逐格压实 MemBench、BEAM、HaluMem；当前不 frozen |
 
 ## 当前冻结判词
 
 LightMem 的 v6 重认证曾完成：**B1-B11 当时均有证据，build 为 `method-frozen-v2`。**
-当前 v7 因公共 readout/embedding observation 变化重新打开 B4/B7/B11；真实 v7 artifact
-通过前不 frozen。旧 `method-frozen-v1/v2` 继续作为历史快照，不覆盖、不改写。
+current-v7 的 LoCoMo/LongMemEval 受影响门已用新 artifact 关闭，但五格重认证尚缺
+MemBench、BEAM、HaluMem，所以仍不 frozen。旧 `method-frozen-v1/v2` 继续作为历史快照，
+不覆盖、不改写。
 已声明的 stable-ranking、k>10、author builder/效果参数与真实 resume 缺口见
-[`lightmem-frozen-v2.md`](lightmem-frozen-v2.md)；它们不推翻历史 v6 判词，但 current v7 的
-B4/B7/B11 是实际阻断门。
+[`lightmem-frozen-v2.md`](lightmem-frozen-v2.md)；它们不推翻历史 v6 判词。current-v7 的
+B4/B7 受影响差量已经关闭，实际阻断只剩 B11 的 MemBench/BEAM/HaluMem 三格重认证。

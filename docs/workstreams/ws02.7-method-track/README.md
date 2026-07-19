@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem v6 smoke 作历史证据；当前先复验 LME/LoCoMo v7，其余三格待重认证；Mem0 暂缓）
+status: in-progress（LightMem LME/LoCoMo current-v7 已通过；MemBench actor 在途，其余两格待重认证；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -134,27 +134,36 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   9 个 turn-unmatched gold unit、1 个重复 occurrence 与 4 道 empty-evidence QA 只走
   evaluator-private 通道，不要求 LightMem 特判。caption 卡已关闭，不再重复派发。
   B9/B10 效果配置迁移仍按既有政策不阻塞 smoke，但首个效果 full/author calibration 前必须完成。
-  用户 2026-07-18 改定顺序：离开 LightMem 前继续逐格压实 LongMemEval；current-main
-  role/pair/time/query/metric 差量预检已关闭，用户也已完成 latest-v6 单/双 worker 真实 B11。
-  开箱确认 pipeline、隐私、逐题 N/A、judge 与 worker 隔离成立，但公共 readout 把 Qdrant 完整
-  ISO timestamp 降成 date-only，embedding inventory 无逐调用 observation，legacy metadata 与
-  v1 evidence 粒度冲突；共享 retrieval summary 又把全 N/A 写成 0 分/0 题。当前判词为
-  `B11_ARTIFACT_REPAIR_PENDING`。两张零 API 卡已强验收：summary v2=`68bb7f9`；LightMem
-  v7 主体 + Codex R1=`d11d749` + `2f21291`。真实 v6 W1/W2 重评已正确写 total=1/2、
-  mean=null；合流 325、全量 1557、compileall exit 0。下一步仅为用户重新批准预算/run_id 后
-  执行真实 LongMemEval v7 B11，随后补 LoCoMo v7 受影响最小复验；在此之前不恢复 frozen。
-  Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric Pack M0 已关闭，不反向解冻 LightMem build。
-  用户要求的格子
-  “安全感”已制度化为**每 method 一份、五 benchmark 分章**的 living dossier；LightMem 首份在
-  `branches/method-recertification/lightmem/notes/lightmem-five-benchmark-safety-dossier.md`，
-  LoCoMo=v7-revalidation-pending、LME=B11-artifact-repair-pending，其余三格仍 pending，禁止一份
-  总绿灯代裁。
+  v6 开箱抓到的 product readout、embedding observation、metadata/evidence 与 summary 四处
+  缺口已经 summary v2=`68bb7f9`、LightMem v7=`d11d749` + `2f21291` 关闭；用户又于
+  2026-07-19 完成 LME/LoCoMo current-v7 各 W1/W2 四组真实 run。架构师亲读 manifest、
+  prediction/answer、全部 evaluator、raw/overall efficiency 与 worker Qdrant state；修正版机器
+  验货为 LME ISO hit=2、LoCoMo ISO hit=16，build embedding calls=2/28。原模板把每个
+  conversation 必须有 build embedding 写成过强断言；LME W1 0 LTM 时合法 0 build，R1 已改为
+  actual-call-aware 判据并落盘。LoCoMo/LME 恢复 current-v7 `REAL_SMOKE_PASSED`；MemBench 外部
+  actor 在途，且须与 OWNER 新增 `docs/survey/异常情况/membench.md` 交叉核验；BEAM/HaluMem
+  仍 pending，故 LightMem 整体不 frozen。Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
+  Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
+  分章的 living dossier 承载，禁止一份总绿灯代裁。
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 
 ## 当前断点（2026-07-19）
 
-- 2026-07-19（**LightMem v7 四个受影响格真实 run 已获批；与 MemBench 零 API 预检双线并行；
+- 2026-07-19（**LightMem LME/LoCoMo current-v7 四组真实 run 强验收通过；MemBench 零 API
+  actor 在途；Mem0 继续暂缓**，GPT-5.6 sol 架构师）：四组 predict/evaluate/judge 均完成，
+  terminal logs 无 traceback/error/timeout，manifest/行数/checkpoint/worker state 全对。LME W1
+  为 0 LTM/0 build embedding 的合法 zero-hit，原验货模板因此误报；W2 另一个 conversation
+  落库 2 条并有 2 次 build embedding，observer 有效。actual-call-aware R1 全验货 PASS：
+  LME/LoCoMo ISO items=2/16，build calls=2/28；LME retrieval summary v2 全 N/A 可空，LoCoMo
+  Recall 正常，caption `D1:5` lineage 与双 worker 隔离成立。命令、误判原因、修正版输出与开箱
+  证据已回填 `branches/method-recertification/lightmem/notes/
+  lightmem-v7-readout-observability-b11-command-pack.md` §9。两格升为 `REAL_SMOKE_PASSED`，不外推
+  full/效果/成本/resume，也不恢复 method frozen。MemBench 卡已由用户派发，当前等待回卡；
+  回卡后把 actor note 与 OWNER/OpenCode 的 `docs/survey/异常情况/membench.md` 逐个 source anchor、
+  count、production path 和 evaluator-private 边界交叉验收，再裁是否发真实 MemBench smoke。
+
+- 2026-07-19（**历史执行前断点，已由上条 superseded：LightMem v7 四个受影响格真实 run 已获批；与 MemBench 零 API 预检双线并行；
   Mem0 继续暂缓**，GPT-5.6 sol 架构师）：用户已批准 LongMemEval S-cleaned W1/W2 与 LoCoMo
   3-round W1/W2 的预算、规模、run id。完整 predict/evaluate/judge/机器验货命令已落
   `branches/method-recertification/lightmem/notes/
