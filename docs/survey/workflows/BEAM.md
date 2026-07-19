@@ -1,6 +1,6 @@
 # BEAM 评测流程卡（现行契约）
 
-更新日期：2026-07-16（evidence-group 复核；旧冻结记录见
+更新日期：2026-07-19（任务匹配指标勘误；旧冻结记录见
 `docs/workstreams/ws02.6-first-smoke-hardening/notes/beam-frozen-v1.md`）
 
 ## 1. 官方流程（一手：`third_party/benchmarks/BEAM/src/`）
@@ -39,7 +39,8 @@ evaluate：artifact-only
   │    turn provenance 按 evaluator-private raw-id group any-match；1M 歧义 id 可多 child；
   │    未声明 N/A；abstention N/A；session 粒度显式报错
   │    不静默【sN 前缀派生留 Method Track】）
-  └── f1（framework 补充，非官方）
+  └── 通用 token-F1 / normalized EM / substring EM：公式组件可复用，但 BEAM
+      是 rubric 任务，现行 registry 不启用；不能把“通用公式”误写成“任务通用指标”
 ```
 
 分类别聚合：category=ability，10 类分开报告（category_breakdown，

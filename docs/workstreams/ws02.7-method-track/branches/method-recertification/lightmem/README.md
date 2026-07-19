@@ -113,7 +113,11 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     `pair`，manifest/resume identity 随之严格失效旧 run，RetrievalEvidence 仍诚实 N/A。
     source-locked 异常账又确认标准三 split role 干净、10M 两处 dangling user/一处 content
     错位/一格全缺时/五次跨 session anchor 回退，统一 preserve、不猜修。当前到 100K+10M
-    两次真实 B11 命令门。
+    两次真实 B11 命令门。用户已批准固定规模与预算；现已形成
+    [current-v7 B11 命令包](notes/lightmem-beam-current-v7-b11-command-pack.md)：100K 用
+    2 conversations × 2 workers 复验 pair 后隔离，10M 用 1 conversation × 1 worker 覆盖
+    plan/batch 结构；两者均 1 round/1 question，串行执行。适用指标仅 BEAM rubric judge 与
+    Recall N/A，不把已从 registry 移除的 token-F1/EM 强加给 rubric 任务。
 17. LongMemEval source-locked 异常账已由 Opus 4.8 回卡并经架构师强验收集成到
     `docs/survey/异常情况/longmemeval.md`。actor 正确补出 S/M 结构差、duplicate session id 与
     草稿 role 根因降格；架构师 R1 另抓到 124 题 `answer_session_ids` 仅列表顺序不同、集合相同，

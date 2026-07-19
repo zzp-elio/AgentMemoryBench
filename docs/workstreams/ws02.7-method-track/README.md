@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；MemBench 100k 旁路关闭；BEAM 已到 B11 命令门；HaluMem 差量预检待派；Mem0 暂缓）
+status: in-progress（LightMem LoCoMo/LME/MemBench current-v7 已通过；MemBench 100k 旁路关闭；BEAM B11 命令待跑；HaluMem 差量预检 actor 在途；Mem0 暂缓）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -161,10 +161,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   差量已由 Opus 4.8 回卡、架构师逐 diff 与
   `330 passed` 强验收，主线 `de40d63`；source-locked 异常账复核确认标准三 split role 干净、
   10M 两处 dangling user/一处 content 错位/一格全缺时/5 次跨 session anchor 回退，均不需
-  猜修数据。BEAM 现到 100K+10M B11 命令门。MemBench 100k 缺时真实哨兵以合法
+  猜修数据。BEAM 现有已获用户预算批准的 100K+10M B11 命令包待跑。MemBench 100k 缺时真实哨兵以合法
   zero-extraction + local-Qdrant null-write 两层关闭，无需重烧。LongMemEval 稳定异常账已集成；
   架构师 R1 订正 S/M 124 题 evidence-id 仅顺序不同、集合相同。HaluMem current-v7 差量预检卡
-  已形成，等待用户派发；故 LightMem 整体仍不 frozen。
+  已由用户派发，actor 在途；故 LightMem 整体仍不 frozen。
   Mem0 → MemoryOS → A-Mem → SimpleMem 顺延；Metric
   Pack M0 已关闭，不反向解冻 LightMem build。格子“安全感”继续由一 method 一份、五 benchmark
   分章的 living dossier 承载，禁止一份总绿灯代裁。
@@ -173,8 +173,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-19）
 
-- 2026-07-19（**MemBench 100k 缺时旁路已关闭；LongMemEval 稳定异常账强验收并带 R1 集成；
-  HaluMem current-v7 差量卡待用户派发**，GPT-5.6 sol 架构师）：真实 run
+- 2026-07-19（**MemBench 100k 缺时旁路已关闭；BEAM current-v7 B11 已获预算批准并形成
+  双结构命令包；HaluMem current-v7 差量 actor 在途**，GPT-5.6 sol 架构师）：真实 run
   `lm-membench-v7-none100k-fh-th-r1q1-w1-100k` 的两个官方 no-time distractor 均实际进入
   memory-build LLM 并合法产出 0 LTM；首版机器门错误要求每个 conversation 必须有 Qdrant point。
   R3 改为 actual-call-aware：真实 run 承担 normalizer/extraction/zero-hit，新增确定性
@@ -184,8 +184,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   比较抓到 S/M 124 题 `answer_session_ids` 只是 same-set reordered，已在 audit R1 与稳定页订正，
   无生产修复。过重卡重复 census 的责任归架构师并写入 playbook。下一条可并行线只派
   `actor-prompt-lightmem-halumem-current-v7-preflight.md`：复用 frozen-v1，不重扫 Medium/Long，
-  只核 current-v7 session capture/online-soft/operation-level/readout/evidence 差量；真实 B11
-  命令等 READY 回卡后再给。BEAM 100K+10M B11 仍可独立推进，但未经用户再次确认命令/预算不调用。
+  只核 current-v7 session capture/online-soft/operation-level/readout/evidence 差量；用户已派发，
+  真实 B11 命令仍等 READY 回卡。BEAM 预算已由用户明确批准，固定为 100K 的
+  2 conversations×2 workers 与 10M 的 1 conversation×1 worker，均 1 round/1 question；
+  `lightmem-beam-current-v7-b11-command-pack.md` 已锁定两条串行 predict、Recall N/A、rubric judge
+  与 actual-call-aware 机器门，等待用户执行。
 
 - 2026-07-19（**100k 哨兵连续两次被零 API 预检门拦截，source-subset R2 已端到端修复；
   LongMemEval 稳定异常账承认 pending 并形成审计卡**，GPT-5.6 sol 架构师）：用户批准
