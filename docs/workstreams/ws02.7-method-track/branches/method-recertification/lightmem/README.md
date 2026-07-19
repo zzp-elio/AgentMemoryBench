@@ -165,6 +165,14 @@ LightMem 是 method-recertification 的第一家。历史 frozen 证据保留，
     extraction→update→qa→memory-type 全 evaluator 命令包。前四格 artifacts 的旧 source hash
     不再冒充可 resume 的新 build；最终 frozen 前做 exact-smoke reachability，只有实证命中改变
     输出的 final-threshold 路径才讨论最小重跑，不默认重烧四格。
+22. 用户已批准并接收
+    [HaluMem current-v7 B11 命令包](notes/lightmem-halumem-current-v7-b11-command-pack.md)：
+    CLI base id=`lm-halumem-v7-flush-r1-w1`，child id 自动追加 `-medium`；固定 Medium
+    1 conversation / 4 sessions × 2 turns / 1 QA / workers=1，不传任何裁剪轴。命令包先从
+    predict artifacts 精确预览真实 judge 路由调用数，再依次执行 extraction→update→qa→
+    memory-type→三项通用离线答案指标；最终机器门把 session report 与 Qdrant plural lineage
+    逐 session 对账，并核 judge scope/efficiency。当前状态为 `COMMAND_HANDED_TO_USER`，尚不写
+    `REAL_SMOKE_PASSED`。
 
 LightMem unified 主 profile 固定 `messages_use="hybrid"`；LongMemEval Table 2 的
 `user_only` 只作 reproduction profile。hybrid 卡只关闭 role/content 可见性与诚实的

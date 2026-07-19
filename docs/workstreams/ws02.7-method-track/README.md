@@ -195,9 +195,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   跨 worktree SimpleMem 软链被路径安全门拒绝而 `3 failed, 1608 passed`，改为隔离复制后失败三条
   `3 passed`，等价总门=`1611 passed, 3 deselected, 2 warnings, 29 subtests`；标准 src+tests
   compileall 与两个改动 vendored 文件 py_compile exit 0。主体重建身份后合入 `8879af9`。
-  HaluMem 当前=`READY_FOR_HALUMEM_B11_COMMAND`；若该真实 run 反证 session-local extraction，仍按
-  用户红线降 N/A，不为指标改算法。source hash 已变化，前四格旧 run 不可 resume；它们保留为
-  旧 identity 的真实行为证据，最终冻结前先做 exact-smoke 零 API reachability，不默认重烧 API。
+  HaluMem 当前=`COMMAND_HANDED_TO_USER`；固定 Medium W1 的
+  [全 evaluator 命令包](branches/method-recertification/lightmem/notes/lightmem-halumem-current-v7-b11-command-pack.md)
+  已落盘，base id=`lm-halumem-v7-flush-r1-w1`、child id 自动追加 `-medium`。若该真实 run
+  反证 session-local extraction，仍按用户红线降 N/A，不为指标改算法。source hash 已变化，
+  前四格旧 run 不可 resume；它们保留为旧 identity 的真实行为证据，最终冻结前先做
+  exact-smoke 零 API reachability，不默认重烧 API。
 
 - 2026-07-19（**BEAM judge refill 已通过；HaluMem 旧 READY 被真实 buffer 反例推翻，先修
   session flush 再发命令**，GPT-5.6 sol 架构师）：用户报告两组既有 BEAM run 的 judge-only
