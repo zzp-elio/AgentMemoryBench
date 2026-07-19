@@ -104,7 +104,7 @@ class SenMemBufferManager:
 
         if force_segment:
             segments.append(self.buffer[start_idx:])
-            start_idx = len(boundaries)
+            start_idx = len(self.buffer)
 
         if start_idx > 0: 
             del self.buffer[:start_idx]

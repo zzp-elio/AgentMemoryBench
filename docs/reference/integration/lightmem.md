@@ -113,6 +113,13 @@
 > 足以得到 session-local report，则 extraction/memory-type 诚实判 N/A，不另造算法。详见
 > `ws02.7/branches/method-recertification/lightmem/notes/lightmem-halumem-current-v7-preflight.md`
 > §10 与对应 session-boundary R1 卡。
+> 2026-07-19 R6 actor 实现补充：R1 只校正上述两处 bookkeeping。forced branch 在输出
+> remaining tail 后以 current buffer 的 message 数作为清理位置；`add_memory()` 保留
+> `add_messages()` 已产生的 automatic segments，再顺序追加 forced tail。source identity
+> 同步纳入 `sensory_memory.py`，adapter version 保持 `conversation-qa-v7`。真实 vendored
+> `LightMemory` + `SenMemBufferManager` + `ShortMemBufferManager` 的双 session 零 API 反例已证明
+> report 只含当前 session、暂存态归零而既有 LTM 保留；fake 仅替换远端 extraction/insert
+> 边界。该 actor 交付仍待架构师 full diff 与强验收，故付费 HaluMem B11 和总状态暂不提前改绿。
 
 - adapter：`src/memory_benchmark/methods/lightmem_adapter.py`
 - 算法源：vendored `third_party/methods/LightMem`（`src/lightmem/memory/lightmem.py`）
@@ -492,6 +499,10 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
   `SenMemBufferManager` 证明 forced flush 的清理位置错误；`LightMemory.add_memory()` 还会用
   forced tail 覆盖同次 automatic prefix。前者可跨 session 残留/崩溃，后者可丢本 session
   较早内容，故 B6 暂降 🟡。冻结 smoke 的 2-turn crop 恰好少触发 boundary 不能作为豁免。
+  R1 actor 已按现有 force 语义提交最小修复与 real-core 强反例：force 只清已全部输出的
+  sensory current buffer，automatic prefix 与 tail 保持全序、各一次进入 STM/extraction；
+  short-memory forced extraction 自身仍按官方实现清空，LTM 不清。source identity 覆盖新增的
+  sensory runtime 文件，v7 不 bump。架构师强验收前本项仍保持 🟡，不据 actor 自报启动付费 run。
 - **B7 效率插桩 🟡（共享代码与 BEAM real refill 已过；HaluMem 实跑待完成）**：普通 prediction
   与逐题 judge 路径可记录各自 api_usage/token；LightMem add_memory 自带
   token/api_call_nums 返回值可做交叉参照（待留档）。v6 真实 LongMemEval B11 开箱发现

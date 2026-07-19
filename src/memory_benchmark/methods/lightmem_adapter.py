@@ -357,6 +357,7 @@ def build_lightmem_source_identity(
         "README.md",
         "pyproject.toml",
         "src/lightmem/memory/lightmem.py",
+        "src/lightmem/factory/memory_buffer/sensory_memory.py",
         "experiments/locomo/add_locomo.py",
         "experiments/locomo/search_locomo.py",
         "experiments/locomo/prompts.py",

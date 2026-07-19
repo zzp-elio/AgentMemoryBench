@@ -187,8 +187,47 @@ def test_lightmem_source_identity_covers_official_core_files() -> None:
 
     assert identity["source_sha256"]
     assert "src/lightmem/memory/lightmem.py" in identity["files"]
+    assert (
+        "src/lightmem/factory/memory_buffer/sensory_memory.py"
+        in identity["files"]
+    )
     assert "experiments/locomo/add_locomo.py" in identity["files"]
     assert "experiments/locomo/search_locomo.py" in identity["files"]
+
+
+def test_lightmem_source_identity_changes_with_sensory_buffer_bytes(
+    tmp_path: Path,
+) -> None:
+    """sensory runtime 字节变化必须改变 method source identity。"""
+
+    required_files = [
+        "README.md",
+        "pyproject.toml",
+        "src/lightmem/memory/lightmem.py",
+        "src/lightmem/factory/memory_buffer/sensory_memory.py",
+        "experiments/locomo/add_locomo.py",
+        "experiments/locomo/search_locomo.py",
+        "experiments/locomo/prompts.py",
+        "experiments/longmemeval/run_lightmem_gpt.py",
+    ]
+    for relative_path in required_files:
+        source_file = tmp_path / relative_path
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+        source_file.write_text(f"fixture:{relative_path}\n", encoding="utf-8")
+
+    path_settings = SimpleNamespace(
+        resolve_third_party_method_path=lambda _name: tmp_path
+    )
+    before = build_lightmem_source_identity(path_settings)
+    sensory_path = (
+        tmp_path / "src/lightmem/factory/memory_buffer/sensory_memory.py"
+    )
+    sensory_path.write_text("fixture:sensory:changed\n", encoding="utf-8")
+    after = build_lightmem_source_identity(path_settings)
+
+    assert before["source_sha256"] != after["source_sha256"]
+    assert before["file_count"] == after["file_count"] == len(required_files)
+    assert LIGHTMEM_ADAPTER_VERSION == "conversation-qa-v7"
 
 
 def test_lightmem_can_import_official_lightmemory_class() -> None:
@@ -1386,6 +1425,214 @@ def test_lightmem_month_name_timestamp_is_accepted_by_official_normalizer(
     assert normalized[0]["time_stamp"].endswith("T00:00:00.000")
     assert normalized[0]["session_time"] == _turn_timestamp(turn, session)
     assert turn.turn_time == raw_timestamp
+
+
+def _forced_boundary_components():
+    """返回能稳定产生第一条 pair 边界的离线 tokenizer/segmenter/embedder。"""
+
+    class _Tokenizer:
+        """按空白稳定计数。"""
+
+        def encode(self, text: str) -> list[str]:
+            """返回空白 token。"""
+
+            return text.split()
+
+    class _Segmenter:
+        """两个及以上 user turn 时提出第一条边界。"""
+
+        def propose_cut(self, texts: list[str]) -> list[int]:
+            """为多 pair buffer 返回非空 coarse boundary。"""
+
+            return [1] if len(texts) >= 2 else []
+
+    class _Embedder:
+        """让前两个测试 turn 正交，稳定产生 fine boundary。"""
+
+        def embed(self, text: str) -> list[float]:
+            """按第一条 user 内容返回正交向量。"""
+
+            if "user-1" in text:
+                return [1.0, 0.0]
+            if "user-2" in text:
+                return [0.0, 1.0]
+            return [1.0, 1.0]
+
+    return _Tokenizer(), _Segmenter(), _Embedder()
+
+
+class _NoopLightMemLogger:
+    """提供 vendored pipeline 需要的无输出 logger。"""
+
+    def __getattr__(self, _name: str):
+        """所有日志方法都返回空操作。"""
+
+        return lambda *_args, **_kwargs: None
+
+
+class _AutomaticTailSensory:
+    """稳定返回 automatic prefix 与 forced tail。"""
+
+    def add_messages(self, _messages, _segmenter, _embedder):
+        """模拟 threshold crossing 已输出 AUTO。"""
+
+        return [[{"role": "user", "content": "AUTO"}]]
+
+    def cut_with_segmenter(self, _segmenter, _embedder, _force):
+        """模拟 force 继续输出 remaining TAIL。"""
+
+        return [[{"role": "user", "content": "TAIL"}]]
+
+
+class _RecordingShortMemory:
+    """记录 add_memory 下发的 segment 全序列。"""
+
+    def __init__(self) -> None:
+        """初始化为空记录。"""
+
+        self.received = None
+
+    def add_segments(self, segments, _messages_use, _force_extract):
+        """记录 segment 后阻止进入抽取 API 路径。"""
+
+        self.received = segments
+        return 0, []
+
+
+def _buffer_pair(pair_id: str) -> list[dict[str, str]]:
+    """构造一个带稳定内容的 user/assistant pair。"""
+
+    return [
+        {"role": "user", "content": f"user-{pair_id}"},
+        {"role": "assistant", "content": f"assistant-{pair_id}"},
+    ]
+
+
+def test_lightmem_force_segment_second_session_is_clean() -> None:
+    """非空 boundary 后清空暂存态，下一 forced flush 只输出新 session。"""
+
+    import_lightmem_classes(load_path_settings())
+    from lightmem.factory.memory_buffer.sensory_memory import SenMemBufferManager
+
+    tokenizer, segmenter, embedder = _forced_boundary_components()
+    sensory = SenMemBufferManager(max_tokens=2, tokenizer=tokenizer)
+    sensory.add_messages(
+        _buffer_pair("1") + _buffer_pair("2"),
+        segmenter,
+        embedder,
+    )
+    first_segments = sensory.cut_with_segmenter(
+        segmenter,
+        embedder,
+        force_segment=True,
+    )
+    assert sensory.buffer == []
+    assert sensory.big_buffer == []
+    assert sensory.token_count == 0
+    sensory.add_messages(_buffer_pair("3"), segmenter, embedder)
+    second_segments = sensory.cut_with_segmenter(
+        segmenter,
+        embedder,
+        force_segment=True,
+    )
+
+    assert [message["content"] for segment in first_segments for message in segment] == [
+        "user-1",
+        "assistant-1",
+        "user-2",
+        "assistant-2",
+    ]
+    assert [message["content"] for segment in second_segments for message in segment] == [
+        "user-3",
+        "assistant-3",
+    ]
+    assert sensory.buffer == []
+    assert sensory.big_buffer == []
+    assert sensory.token_count == 0
+
+
+def test_lightmem_force_segment_no_boundary_still_cleans_buffer() -> None:
+    """无 boundary 的官方整段 forced flush 行为保持不变。"""
+
+    import_lightmem_classes(load_path_settings())
+    from lightmem.factory.memory_buffer.sensory_memory import SenMemBufferManager
+
+    tokenizer, segmenter, embedder = _forced_boundary_components()
+    sensory = SenMemBufferManager(max_tokens=2, tokenizer=tokenizer)
+    pair = _buffer_pair("3")
+    sensory.add_messages(pair, segmenter, embedder)
+
+    segments = sensory.cut_with_segmenter(
+        segmenter,
+        embedder,
+        force_segment=True,
+    )
+
+    assert segments == [pair]
+    assert sensory.buffer == []
+    assert sensory.big_buffer == []
+    assert sensory.token_count == 0
+
+
+def test_lightmem_non_force_cut_preserves_unemitted_tail() -> None:
+    """非 force cut 只删已输出 prefix，并保留未输出 tail。"""
+
+    import_lightmem_classes(load_path_settings())
+    from lightmem.factory.memory_buffer.sensory_memory import SenMemBufferManager
+
+    tokenizer, segmenter, embedder = _forced_boundary_components()
+    sensory = SenMemBufferManager(max_tokens=2, tokenizer=tokenizer)
+    first_pair = _buffer_pair("1")
+    second_pair = _buffer_pair("2")
+    sensory.buffer = first_pair + second_pair
+    sensory.token_count = 2
+
+    segments = sensory.cut_with_segmenter(
+        segmenter,
+        embedder,
+        force_segment=False,
+    )
+
+    assert segments == [first_pair]
+    assert sensory.buffer == second_pair
+    assert sensory.big_buffer == []
+    assert sensory.token_count == 1
+
+
+def test_lightmem_force_appends_automatic_segments_before_tail() -> None:
+    """同次 add_memory 的 automatic prefix 与 forced tail 必须依次各下发一次。"""
+
+    classes = import_lightmem_classes(load_path_settings())
+
+    backend = classes["LightMemory"].__new__(classes["LightMemory"])
+    backend.config = SimpleNamespace(
+        extraction_mode="flat",
+        pre_compress=False,
+        topic_segment=True,
+        messages_use="hybrid",
+    )
+    backend.logger = _NoopLightMemLogger()
+    backend.senmem_buffer_manager = _AutomaticTailSensory()
+    backend.shortmem_buffer_manager = _RecordingShortMemory()
+    backend.segmenter = object()
+    backend.text_embedder = object()
+
+    backend.add_memory(
+        [
+            {
+                "role": "user",
+                "content": "input",
+                "time_stamp": "2026-01-01T00:00:00",
+            }
+        ],
+        force_segment=True,
+        force_extract=True,
+    )
+
+    assert backend.shortmem_buffer_manager.received == [
+        [{"role": "user", "content": "AUTO"}],
+        [{"role": "user", "content": "TAIL"}],
+    ]
 
 
 def test_lightmem_external_id_survives_official_preprocessing_pipeline() -> None:
@@ -5587,6 +5834,200 @@ def test_lightmem_halumem_irregular_session_is_one_flattened_add_call() -> None:
         ["u1"],
         ["u1"],
     ]
+
+
+def _build_real_buffer_halumem_backend():
+    """构造真实 sensory/STM 与 fake extraction/insert 边界的 LightMemory。"""
+
+    classes = import_lightmem_classes(load_path_settings())
+    from lightmem.factory.memory_buffer.sensory_memory import SenMemBufferManager
+    from lightmem.factory.memory_buffer.short_term_memory import ShortMemBufferManager
+
+    class _ExtractionManager:
+        """把真实 STM 收到的每个 segment 映射成一条可审计 memory。"""
+
+        def __init__(self) -> None:
+            """初始化抽取输入记录。"""
+
+            self.extract_inputs: list[list[list[str]]] = []
+
+        def meta_text_extract(
+            self,
+            *,
+            extract_list,
+            messages_use,
+            topic_id_mapping,
+            extraction_mode,
+            custom_prompts,
+        ):
+            """按原 segment 顺序生成 fake extraction 结果。"""
+
+            assert messages_use == "hybrid"
+            assert topic_id_mapping
+            assert extraction_mode == "flat"
+            results = []
+            for batch in extract_list:
+                batch_ids = [
+                    [str(message.get("external_id")) for message in segment]
+                    for segment in batch
+                ]
+                self.extract_inputs.append(batch_ids)
+                results.append(
+                    {
+                        "cleaned_result": [
+                            [
+                                {
+                                    "source_id": source_id,
+                                    "fact": "memory:" + ",".join(ids),
+                                }
+                            ]
+                            for source_id, ids in enumerate(batch_ids)
+                        ],
+                        "input_prompt": [],
+                        "output_prompt": "offline-fixture",
+                    }
+                )
+            return results
+
+    tokenizer, segmenter, embedder = _forced_boundary_components()
+    backend = classes["LightMemory"].__new__(classes["LightMemory"])
+    backend.config = SimpleNamespace(
+        extraction_mode="flat",
+        pre_compress=False,
+        topic_segment=True,
+        messages_use="hybrid",
+        metadata_generate=True,
+        text_summary=True,
+        update="offline",
+        index_strategy="embedding",
+    )
+    backend.logger = _NoopLightMemLogger()
+    backend.segmenter = segmenter
+    backend.text_embedder = embedder
+    backend.senmem_buffer_manager = SenMemBufferManager(
+        max_tokens=2,
+        tokenizer=tokenizer,
+    )
+    backend.shortmem_buffer_manager = ShortMemBufferManager(
+        max_tokens=2000,
+        tokenizer="gpt-4o-mini",
+    )
+    backend.manager = _ExtractionManager()
+    backend.embedding_retriever = FakeLightMemEmbeddingRetriever()
+    backend.token_stats = {
+        "add_memory_calls": 0,
+        "add_memory_prompt_tokens": 0,
+        "add_memory_completion_tokens": 0,
+        "add_memory_total_tokens": 0,
+    }
+    return backend
+
+
+def _halumem_buffer_session(
+    session_id: str,
+    session_time: str,
+    label: str,
+    pair_count: int,
+) -> Session:
+    """构造 production adapter 使用的多 pair HaluMem session。"""
+
+    turns = []
+    for pair_index in range(1, pair_count + 1):
+        for short_role, normalized_role in (
+            ("u", "user"),
+            ("a", "assistant"),
+        ):
+            turns.append(
+                Turn(
+                    turn_id=f"{session_id}-{short_role}{pair_index}",
+                    speaker=normalized_role,
+                    normalized_role=normalized_role,
+                    content=f"session-{label}-{normalized_role}-{pair_index}",
+                )
+            )
+    return Session(
+        session_id=session_id,
+        session_time=session_time,
+        turns=turns,
+    )
+
+
+def test_lightmem_halumem_real_buffers_isolate_consecutive_session_reports() -> None:
+    """生产 adapter 经真实 sensory/STM 后仍只报告当前 session 候选。"""
+
+    backend = _build_real_buffer_halumem_backend()
+    provider = LightMem(
+        config=_missing_time_config(),
+        backend_factory=lambda _key: backend,
+        answer_client=FakeLightMemAnswerClient(),
+        consume_granularity="session",
+        session_memory_report=True,
+        benchmark_name="halumem",
+    )
+    conversation = Conversation(
+        conversation_id="c-halu-real-buffers",
+        sessions=[
+            _halumem_buffer_session("s1", "2026-01-01", "one", 2),
+            _halumem_buffer_session("s2", "2026-01-02", "two", 1),
+        ],
+        metadata={"source_path": "data/halumem/sample.jsonl"},
+    )
+    isolation_key = "halu-run_c-halu-real-buffers"
+    all_events = tuple(build_turn_events(conversation, isolation_key))
+    reports = []
+    first_ltm_memories = []
+    for session in conversation.sessions:
+        session_events = tuple(
+            event for event in all_events if event.session_id == session.session_id
+        )
+        provider.ingest(
+            SessionBatch(
+                isolation_key=isolation_key,
+                session_id=session.session_id,
+                events=session_events,
+                session_time=session_events[0].timestamp,
+            )
+        )
+        reports.append(
+            provider.end_session(
+                SessionRef(
+                    isolation_key=isolation_key,
+                    session_id=session.session_id,
+                )
+            )
+        )
+        if session.session_id == "s1":
+            first_ltm_memories = [
+                str(entry["payload"]["memory"])
+                for entry in backend.embedding_retriever.entries[3:]
+            ]
+
+    assert reports[0] is not None
+    assert reports[1] is not None
+    assert reports[0].memories == [
+        "memory:s1-u1,s1-a1",
+        "memory:s1-u2,s1-a2",
+    ]
+    assert reports[1].memories == ["memory:s2-u1,s2-a1"]
+    assert all("s2-" not in memory for memory in reports[0].memories)
+    assert all("s1-" not in memory for memory in reports[1].memories)
+    assert [
+        str(entry["payload"]["memory"])
+        for entry in backend.embedding_retriever.entries[3:5]
+    ] == first_ltm_memories
+    assert [
+        str(entry["payload"]["memory"])
+        for entry in backend.embedding_retriever.entries[3:]
+    ] == [
+        "memory:s1-u1,s1-a1",
+        "memory:s1-u2,s1-a2",
+        "memory:s2-u1,s2-a1",
+    ]
+    assert backend.senmem_buffer_manager.buffer == []
+    assert backend.senmem_buffer_manager.big_buffer == []
+    assert backend.senmem_buffer_manager.token_count == 0
+    assert backend.shortmem_buffer_manager.buffer == []
+    assert backend.shortmem_buffer_manager.token_count == 0
 
 
 def test_lightmem_evidence_matrix_per_benchmark() -> None:

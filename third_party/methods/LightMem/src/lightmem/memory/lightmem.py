@@ -332,7 +332,13 @@ class LightMemory:
         all_segments = self.senmem_buffer_manager.add_messages(compressed_messages, self.segmenter, self.text_embedder)
 
         if force_segment:
-            all_segments = self.senmem_buffer_manager.cut_with_segmenter(self.segmenter, self.text_embedder, force_segment)
+            all_segments.extend(
+                self.senmem_buffer_manager.cut_with_segmenter(
+                    self.segmenter,
+                    self.text_embedder,
+                    force_segment,
+                )
+            )
         
         if not all_segments:
             self.logger.debug(f"[{call_id}] No segments generated, returning empty result")
