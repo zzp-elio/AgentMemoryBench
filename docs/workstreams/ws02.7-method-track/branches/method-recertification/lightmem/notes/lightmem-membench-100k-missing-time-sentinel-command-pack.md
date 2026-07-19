@@ -1,9 +1,10 @@
 # LightMem × MemBench 100k 缺失时间真实哨兵命令包
 
-> 状态（2026-07-19 R4 勘误）：**旧 source identity 的 R3 run 曾按当时源码通过；forced-flush
+> 状态（2026-07-19 R5 执行入口）：**用户已重新批准最小规模、真实 API 预算与新 run id。
+> 旧 source identity 的 R3 run 曾按当时源码通过；forced-flush
 > 修复后的 exact-smoke reachability 证明 ThirdHigh final add 正好命中 automatic+tail，旧实现
 > 实际漏掉 step 1，因此“不需要重跑”已被 supersede。当前必须用新 run id 最小补跑同一
-> FirstHigh+ThirdHigh W1 哨兵；预算/run id 待用户再次确认。**本哨兵不阻塞
+> FirstHigh+ThirdHigh W1 哨兵；当前可直接执行 §2→§3→§4。**本哨兵不阻塞
 > LightMem × BEAM；它只补 `100k` 独有的真实 `time=None` 组合路径，不重复已经通过的
 > `0_10k` 单/双 worker B11，也不代表 100k full、效果、成本或 resume 认证。
 
@@ -106,8 +107,8 @@ extraction → zero-hit readout” 的组合。no-time 数据是官方 distracto
 | rounds | 1 |
 | questions | 1 |
 | workers | 1；并发/隔离已由 0_10k W2 验收，不重复烧 |
-| base run id | `lm-membench-v7-none100k-fh-th-r1q1-w1` |
-| artifact run id | `lm-membench-v7-none100k-fh-th-r1q1-w1-100k` |
+| base run id | `lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1` |
+| artifact run id | `lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1-100k` |
 
 production adapter 零 API 现场确认该切片为：
 
@@ -123,7 +124,7 @@ answer builder，不能反灌 history。
 本 smoke 不从 pair 数推算 LLM 调用/费用。真实 memory LLM、embedding、answer LLM 调用以
 run 的 efficiency artifact 为准。
 
-## 2. R2 合入后的环境门
+## 2. R5 current-identity 环境门
 
 规模与 run id 已获用户批准；确认 main 含 R2 后，在同一个新 zsh 中执行：
 
@@ -141,7 +142,7 @@ test -d data/membench/Membenchdata/data2test/100k
 test -d models/all-MiniLM-L6-v2
 test -d models/llmlingua-2-bert-base-multilingual-cased-meetingbank
 
-MB100_BASE=lm-membench-v7-none100k-fh-th-r1q1-w1
+MB100_BASE=lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1
 MB100_RUN=${MB100_BASE}-100k
 MB100_ROOT=outputs/runs/lightmem/membench/100k/smoke/unified
 TMP_LOG_ROOT="${TMPDIR:-/tmp}/memory-benchmark-lightmem-membench-100k-sentinel"
@@ -214,8 +215,9 @@ from memory_benchmark.methods.lightmem_adapter import _storage_safe_collection_n
 from memory_benchmark.runners.event_stream import default_isolation_key
 
 
-RUN_ID = "lm-membench-v7-none100k-fh-th-r1q1-w1-100k"
+RUN_ID = "lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1-100k"
 RUN_DIR = Path("outputs/runs/lightmem/membench/100k/smoke/unified") / RUN_ID
+EXPECTED_SOURCE_SHA256 = "a44d7d99790496337270058d71f38737375ff4b2763495ed2b02baa43698d7e5"
 EXPECTED_CONVERSATIONS = {
     "first-high-highlevel-movie-0",
     "third-high-highlevel-movie-0",
@@ -281,6 +283,9 @@ assert method["protocol_version"] == "v3"
 assert method["consume_granularity"] == "pair"
 assert method["prompt_track"] == "unified"
 assert method["retrieval_evidence_contract_version"] == "v1"
+assert method["source"]["source_sha256"] == EXPECTED_SOURCE_SHA256
+assert method["source"]["file_count"] == 8
+assert "src/lightmem/factory/memory_buffer/sensory_memory.py" in method["source"]["files"]
 assert config["adapter_version"] == "conversation-qa-v7"
 assert config["messages_use"] == "hybrid"
 assert config["lifecycle_profile"] == "online_soft"
@@ -421,7 +426,7 @@ print(
     f"retrieved={dict(retrieved_by_conversation)}, "
     f"memory_build_llm_calls={dict(memory_build_llm_by_conversation)}, "
     f"build_embedding_calls={len(build)}, retrieval_embedding_calls={len(retrieval)}, "
-    f"qdrant_write={qdrant_write_status}"
+    f"qdrant_write={qdrant_write_status}, source_sha256={EXPECTED_SOURCE_SHA256}"
 )
 PY
 ```
@@ -475,8 +480,8 @@ memory-build LLM 并没有看到完整 retained history；“两个 conversation
 伪造结果，但它缺少 segment-level reachability，判词据此降级为
 `SUPERSEDED_BY_FORCED_FLUSH_SOURCE_IDENTITY`。
 
-当前建议新 base run id：`lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1`，artifact run id 自动
+当前新 base run id：`lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1`，artifact run id 自动
 为 `...-100k`。规模仍为 FirstHigh+ThirdHigh 各 1 conversation / 1 round / 1 question / W1；
-不换样本、不追求非空 LTM。用户确认预算与 run id 后，复用 §3 的 predict/evaluate 结构，并把
-§4 的 `RUN_ID` 改为新 id；另须在验货中核 current source hash=`a44d7d99…`。完整 reachability
-证据见 [forced-flush note](lightmem-front-four-forced-flush-reachability.md)。
+不换样本、不追求非空 LTM。用户已于 2026-07-19 重新批准预算、规模与该 run id；§2–§4 已
+切换为可直接执行的新 identity 命令，并硬校验 current source hash=`a44d7d99…`。完整
+reachability 证据见 [forced-flush note](lightmem-front-four-forced-flush-reachability.md)。

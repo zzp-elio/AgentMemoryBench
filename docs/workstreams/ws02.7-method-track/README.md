@@ -201,7 +201,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   产生 automatic step 1 与 forced step 2。真实 vendored LightMemory/SenMem/MiniLM 链确认修复后
   STM 收到两段且暂存态清零，旧实现会覆盖 step 1。裁决：LoCoMo、LongMemEval、MemBench
   0_10k、BEAM 不重烧，只补跑既有 FirstHigh+ThirdHigh 100k W1 哨兵；当前=
-  `FROZEN_PENDING_100K_SENTINEL_REFILL`。同轮复核 HaluMem 官方表：Extraction 六项、Update/
+  `FROZEN_PENDING_100K_SENTINEL_REFILL`。用户已批准 base run id
+  `lm-membench-v7-flush-r1-none100k-fh-th-r1q1-w1`、固定最小规模与真实 API 预算；当前动作是执行
+  100k 命令包 §2–§4。同轮复核 HaluMem 官方表：Extraction 六项、Update/
   QA overall C/H/O 与三种 memory type 已落盘；共享 QA evaluator 原来按 question_type 只有 Correct，
   现补为 C/H/O 的 all/valid 双分母并保留旧 alias，零真实 API。证据分别见
   [reachability](branches/method-recertification/lightmem/notes/lightmem-front-four-forced-flush-reachability.md)
