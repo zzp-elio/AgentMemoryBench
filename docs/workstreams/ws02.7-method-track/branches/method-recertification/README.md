@@ -54,13 +54,10 @@ LightMem 已关闭的异常样本。只有三类触发器允许重开 benchmark 
 
 ## 当前状态
 
-**LightMem 是唯一 active method。** Gold group、hybrid role、MemBench canonical split 与
-RetrievalEvidence M1 已全部关闭；旧“当前可并行派发两张卡”的文字已过时并删除。现在先在
-当前 main 定点重验 gap matrix 与 B1-B11 证据，只重跑受影响的 build/smoke。LoCoMo/LME
-current-v7 四组最小 W1/W2 与 MemBench current-v7 四源 W1/W2 均已真实执行并经架构师开箱，
-三格为 `REAL_SMOKE_PASSED`；MemBench 的 pair/singleton lineage、ISO readout、embedding
-observation 与 worker 隔离证据见其 B11 command pack §7。100k missing-time 单 worker 哨兵也已
-以“真实 zero-extraction + 确定性 local-Qdrant null write”两层关闭，无需重跑。BEAM 已到
-100K+10M B11 命令门；HaluMem 只开启 source-locked current-v7 method 差量预检，不重做
-benchmark census。Mem0/MemoryOS 继续等待 LightMem 五格收口。权威实时动作仍看父级
-`../../README.md` 恢复胶囊与最新断点。
+LightMem current-v7 已完成五格真实 smoke、forced-flush reachability 与 100k refill，冻结为
+`method-frozen-v3`。**Mem0 现为唯一 active method**，入口为
+[`mem0/README.md`](mem0/README.md)。第一波并行卡只新增六份互不冲突的 note：一份产品
+`messages/namespace/time` core 契约 + 五份 benchmark 差量预检；benchmark 稳定层一律复用
+LightMem 已压实的 source lock/异常账，不再重跑 census。六份证据经架构师联合裁决后，若有
+代码缺口只允许一张共享实现卡修改 Mem0 adapter/registry/tests，再进入五格最小真实 smoke。
+MemoryOS 继续等待 Mem0 收口。权威实时动作仍看父级 `../../README.md` 恢复胶囊与最新断点。
