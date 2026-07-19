@@ -138,6 +138,49 @@ def _filter_source_paths(
     return tuple(p for p in paths if any(pat in p.name for pat in patterns))
 
 
+def resolve_membench_source_paths(
+    variant_spec: BenchmarkVariantSpec,
+    request: BenchmarkLoadRequest,
+) -> tuple[Path, ...]:
+    """把 MemBench source 名称解析为 source-locked、有序文件子集。
+
+    显式 source 子集只属于 smoke 调试/哨兵路径；full 必须保留 concrete
+    variant 的全部四源。返回顺序永远沿用 ``variant_spec``，不接受调用方
+    顺序制造新的 dataset identity。
+    """
+
+    unknown_names = tuple(
+        name
+        for name in request.membench_sources
+        if name not in _MEMBENCH_SOURCE_NAME_TO_PATTERN
+    )
+    if unknown_names:
+        allowed = ", ".join(sorted(_MEMBENCH_SOURCE_NAME_TO_PATTERN))
+        raise ConfigurationError(
+            f"Unknown --membench-sources value(s) {unknown_names!r}. Allowed: {allowed}"
+        )
+
+    selected = _filter_source_paths(
+        variant_spec.source_relative_paths,
+        request.membench_sources,
+    )
+    if not selected:
+        allowed = ", ".join(sorted(_MEMBENCH_SOURCE_NAME_TO_PATTERN))
+        raise ConfigurationError(
+            f"--membench-sources filter produced empty source set for variant "
+            f"'{request.variant}'. Allowed names: {allowed}"
+        )
+    if (
+        request.run_scope is RunScope.FULL
+        and selected != variant_spec.source_relative_paths
+    ):
+        raise ConfigurationError(
+            "--membench-sources is only supported for MemBench smoke; "
+            "full runs must use every source in the selected variant"
+        )
+    return selected
+
+
 def _combined_source_sha256(
     project_root: str | Path,
     source_relative_paths: tuple[Path, ...],
@@ -322,15 +365,7 @@ def prepare_membench_run(
             f"Unknown membench variant '{request.variant}'. Allowed: {allowed}"
         )
 
-    source_paths = _filter_source_paths(
-        variant_spec.source_relative_paths, request.membench_sources
-    )
-    if not source_paths:
-        allowed = ", ".join(sorted(_MEMBENCH_SOURCE_NAME_TO_PATTERN))
-        raise ConfigurationError(
-            f"--membench-sources filter produced empty source set for variant "
-            f"'{request.variant}'. Allowed names: {allowed}"
-        )
+    source_paths = resolve_membench_source_paths(variant_spec, request)
 
     if request.run_scope is RunScope.FULL:
         dataset = MemBenchAdapter(project_root, variant=request.variant).load()

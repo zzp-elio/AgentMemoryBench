@@ -117,6 +117,7 @@ def _make_registration(
     smoke_policy: BenchmarkSmokePolicy | None = None,
     resume_policy: BenchmarkResumePolicy | None = None,
     gold_evidence_contract_version: str | None = None,
+    source_path_resolver=None,
 ) -> BenchmarkRegistration:
     """构造用于测试的最小 registration。"""
 
@@ -149,6 +150,7 @@ def _make_registration(
         default_variant=default_variant,
         prepare_run=prepare_run,
         prediction_enabled=True,
+        source_path_resolver=source_path_resolver,
         smoke_policy=smoke_policy,
         resume_policy=resume_policy,
         gold_evidence_contract_version=gold_evidence_contract_version,
@@ -419,6 +421,32 @@ def test_registration_prepare_rejects_returned_source_path_mismatch() -> None:
         registration.prepare(
             Path("."),
             BenchmarkLoadRequest(variant="demo", run_scope=RunScope.FULL),
+        )
+
+
+def test_registration_prepare_rejects_resolved_path_outside_variant() -> None:
+    """动态 source resolver 不能逃出 concrete variant 的 source lock。"""
+
+    registration = _make_registration(
+        variants=(
+            BenchmarkVariantSpec(
+                name="demo",
+                source_relative_paths=(
+                    Path("data/demo/one.json"),
+                    Path("data/demo/two.json"),
+                ),
+            ),
+        ),
+        default_variant="demo",
+        source_path_resolver=lambda _spec, _request: (
+            Path("data/demo/unregistered.json"),
+        ),
+    )
+
+    with pytest.raises(ConfigurationError, match="ordered subset"):
+        registration.prepare(
+            Path("."),
+            BenchmarkLoadRequest(variant="demo", run_scope=RunScope.SMOKE),
         )
 
 
@@ -833,6 +861,43 @@ def test_membench_registration_prepares_full_and_per_file_smoke_datasets() -> No
     assert "smoke_policy" in smoke_run.dataset.metadata
     assert "resume_policy" in smoke_run.dataset.metadata
     assert smoke_run.source_relative_paths == registration.variants[0].source_relative_paths
+
+    selected_100k = registration.prepare(
+        Path("."),
+        BenchmarkLoadRequest(
+            variant="100k",
+            run_scope=RunScope.SMOKE,
+            smoke_conversation_limit=1,
+            smoke_turn_limit=1,
+            membench_sources=("first_high", "third_high"),
+        ),
+    )
+    expected_selected_paths = (
+        registration.variants[1].source_relative_paths[0],
+        registration.variants[1].source_relative_paths[2],
+    )
+    assert selected_100k.source_relative_paths == expected_selected_paths
+    assert selected_100k.dataset.metadata["source_paths"] == [
+        path.as_posix() for path in expected_selected_paths
+    ]
+    assert [
+        conversation.conversation_id
+        for conversation in selected_100k.dataset.conversations
+    ] == [
+        "first-high-highlevel-movie-0",
+        "third-high-highlevel-movie-0",
+    ]
+    assert selected_100k.dataset.metadata["smoke_selected_conversation_count"] == 2
+
+    with pytest.raises(ConfigurationError, match="only supported for MemBench smoke"):
+        registration.prepare(
+            Path("."),
+            BenchmarkLoadRequest(
+                variant="100k",
+                run_scope=RunScope.FULL,
+                membench_sources=("first_high", "third_high"),
+            ),
+        )
 
     wider_smoke = registration.prepare(
         Path("."),

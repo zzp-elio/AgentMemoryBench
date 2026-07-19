@@ -90,11 +90,11 @@ def _assert_no_forbidden_keys(payload: object, forbidden_keys: set[str]) -> None
             _assert_no_forbidden_keys(item, forbidden_keys)
 
 
-def test_membench_registered_prediction_offline_probe_workflow(
+def _install_offline_probe_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """跑通 MemBench 0_10k 4 源 smoke 的 ingest → answer → 离线 choice/recall 链路。"""
+) -> _FakeUnifiedAnswerClient:
+    """安装 registered prediction 所需的离线 method/answer 边界。"""
 
     _ProbeAsMem0.instances.clear()
     path_settings = PathSettings(
@@ -126,6 +126,16 @@ def test_membench_registered_prediction_offline_probe_workflow(
         raising=False,
     )
     monkeypatch.setattr(method_registry_module, "Mem0", _ProbeAsMem0)
+    return fake_client
+
+
+def test_membench_registered_prediction_offline_probe_workflow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """跑通 MemBench 0_10k 4 源 smoke 的 ingest → answer → 离线 choice/recall 链路。"""
+
+    fake_client = _install_offline_probe_runtime(tmp_path, monkeypatch)
 
     result = run_prediction_module.run_registered_conversation_qa_prediction(
         project_root=PROJECT_ROOT,
@@ -321,3 +331,52 @@ def test_membench_registered_prediction_offline_probe_workflow(
     prediction_private_keys = explicit_private_keys
     for record in predictions:
         _assert_no_forbidden_keys(record, prediction_private_keys)
+
+
+def test_membench_registered_prediction_accepts_explicit_100k_source_subset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """100k 两源 smoke 应穿过真实 registry、runner 与 fingerprint 接线。"""
+
+    fake_client = _install_offline_probe_runtime(tmp_path, monkeypatch)
+
+    result = run_prediction_module.run_registered_conversation_qa_prediction(
+        project_root=PROJECT_ROOT,
+        method_name="mem0",
+        benchmark_name="membench",
+        profile_name="smoke",
+        variant="100k",
+        run_id="membench-100k-explicit-sources",
+        confirm_api=True,
+        smoke_round_limit=1,
+        smoke_conversation_limit=1,
+        question_limit_per_conversation=1,
+        enable_efficiency_observability=False,
+        output_layout="hierarchical",
+        membench_sources=("first_high", "third_high"),
+    )
+
+    assert len(result.runs) == 1
+    summary = result.runs[0].summary
+    assert summary.total_conversations == summary.completed_conversations == 2
+    assert summary.total_questions == summary.completed_questions == 2
+    assert len(_ProbeAsMem0.instances) == 1
+    assert len(_ProbeAsMem0.instances[0].ingested_turns) == 4
+    assert len(fake_client.calls) == 2
+
+    run_dir = Path(summary.prediction_path).resolve().parent.parent
+    paths = ExperimentPaths.create(run_dir)
+    public_questions = read_jsonl(paths.public_questions_path)
+    assert {record["conversation_id"] for record in public_questions} == {
+        "first-high-highlevel-movie-0",
+        "third-high-highlevel-movie-0",
+    }
+
+    fingerprint = json.loads(
+        (run_dir / "artifacts/dataset_fingerprint.json").read_text(encoding="utf-8")
+    )
+    assert {Path(row["path"]).name for row in fingerprint["source_paths"]} == {
+        "FirstAgentDataHighLevel_multiple_100.json",
+        "ThirdAgentDataHighLevel_multiple_100.json",
+    }

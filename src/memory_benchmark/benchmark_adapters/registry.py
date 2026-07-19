@@ -67,6 +67,7 @@ from .membench import (
     build_membench_unified_answer_prompt,
     normalize_membench_choice_prediction,
     prepare_membench_run_with_policy_metadata,
+    resolve_membench_source_paths,
 )
 
 
@@ -347,6 +348,13 @@ class BenchmarkRegistration:
         Callable[[Question, RetrievalResult], AnswerPromptResult] | None
     ) = None
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None
+    # 少数 benchmark 的 smoke 可从 concrete variant 中选择 source-locked 子集。
+    # resolver 只决定期望路径；prepare() 仍独立校验它是静态声明的有序非空子集，
+    # 并要求 adapter 返回值与 resolver 完全一致。
+    source_path_resolver: (
+        Callable[[BenchmarkVariantSpec, BenchmarkLoadRequest], tuple[Path, ...]]
+        | None
+    ) = None
     # smoke/resume policy 是可选声明：只有完成 B2-B5 审计的 benchmark 才注册,
     # 未注册的 benchmark 保持现状兼容路径（CLI 沿用全局默认值/legacy 行为）。
     smoke_policy: BenchmarkSmokePolicy | None = None
@@ -447,6 +455,25 @@ class BenchmarkRegistration:
             raise ConfigurationError(f"{self.name}: run_scope must be a RunScope value")
 
         variant_spec = self.variant_spec(request.variant)
+        expected_source_paths = variant_spec.source_relative_paths
+        if self.source_path_resolver is not None:
+            expected_source_paths = tuple(
+                self.source_path_resolver(variant_spec, request)
+            )
+            expected_source_set = frozenset(expected_source_paths)
+            ordered_declared_subset = tuple(
+                path
+                for path in variant_spec.source_relative_paths
+                if path in expected_source_set
+            )
+            if (
+                not expected_source_paths
+                or expected_source_paths != ordered_declared_subset
+            ):
+                raise ConfigurationError(
+                    f"{self.name}: resolved source paths must be a non-empty ordered "
+                    f"subset of variant '{request.variant}'"
+                )
         prepared = self.prepare_run(Path(project_root), request)
 
         if prepared.variant != request.variant:
@@ -467,9 +494,10 @@ class BenchmarkRegistration:
                 raise ConfigurationError(
                     f"{self.name}: prepared source_relative_paths must stay under project root: {path}"
                 )
-        if tuple(prepared.source_relative_paths) != variant_spec.source_relative_paths:
+        if tuple(prepared.source_relative_paths) != expected_source_paths:
             raise ConfigurationError(
-                f"{self.name}: prepared source_relative_paths do not match variant '{request.variant}'"
+                f"{self.name}: prepared source_relative_paths do not match requested "
+                f"source selection for variant '{request.variant}'"
             )
 
         metadata = prepared.dataset.metadata
@@ -547,6 +575,10 @@ def _try_register_adapter(
         Callable[[Question, RetrievalResult], AnswerPromptResult] | None
     ) = None,
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None = None,
+    source_path_resolver: (
+        Callable[[BenchmarkVariantSpec, BenchmarkLoadRequest], tuple[Path, ...]]
+        | None
+    ) = None,
     smoke_policy: BenchmarkSmokePolicy | None = None,
     resume_policy: BenchmarkResumePolicy | None = None,
     gold_evidence_contract_version: str | None = None,
@@ -573,6 +605,7 @@ def _try_register_adapter(
             operation_level=operation_level,
             unified_prompt_builder=unified_prompt_builder,
             prediction_transform=prediction_transform,
+            source_path_resolver=source_path_resolver,
             smoke_policy=smoke_policy,
             resume_policy=resume_policy,
             gold_evidence_contract_version=gold_evidence_contract_version,
@@ -660,6 +693,7 @@ def _build_default_registry() -> BenchmarkRegistry:
         prompt_track="unified",
         unified_prompt_builder=build_membench_unified_answer_prompt,
         prediction_transform=normalize_membench_choice_prediction,
+        source_path_resolver=resolve_membench_source_paths,
         gold_evidence_contract_version="v1",
     )
     _try_register_adapter(

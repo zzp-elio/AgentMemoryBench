@@ -1,7 +1,8 @@
 # LightMem × MemBench 100k 缺失时间真实哨兵命令包
 
-> 状态：**用户已批准规模与 run id；R0 被 CLI 参数预检缺陷拦截，零 API、零 method
-> state；main `9bd2ab0` 已修复参数门，按本文原身份续跑。**本哨兵不阻塞
+> 状态：**用户已批准规模与 run id；R0/R1 先后被 CLI 参数门与 registration source identity
+> 门拦截，两次均为零 API、零 method state。R2 已把 source 子集接成 source-locked 的端到端
+> registration 契约；按本文原身份续跑。**本哨兵不阻塞
 > LightMem × BEAM；它只补 `100k` 独有的真实 `time=None` 组合路径，不重复已经通过的
 > `0_10k` 单/双 worker B11，也不代表 100k full、效果、成本或 resume 认证。
 
@@ -41,6 +42,47 @@ test ! -e "$FAILED_DIR"
 
 这不是 resume：R0 根本没有可恢复的执行状态。归档后重新执行 §2 起的完整命令即可。
 
+## 0.1 R1 source identity 门事故与无损续跑
+
+`9bd2ab0` 让显式两源参数进入 command service 后，第二次 predict 又在 provider/API/backend
+构造前报：
+
+```text
+Error: membench: prepared source_relative_paths do not match variant '100k'
+```
+
+命令与数据仍然没有写错。根因是 source filter 只接到了 MemBench adapter：adapter 按请求正确
+返回 concrete `100k` variant 的两源有序子集，但 benchmark registration 仍把 adapter 返回值
+硬等式比较为 variant 的四源全集。R2 没有删除 source-lock 校验，而是给 registration 增加显式
+source resolver：静态 variant 继续声明四源全集；smoke 动态选择只能得到其中的有序非空子集；
+adapter 返回路径、dataset metadata 与 fingerprint 必须与该选择精确一致；full 少源继续 fail-fast。
+
+第二个失败目录也只含 `logs/terminal.predict.log`，没有 manifest、checkpoint、Qdrant、artifact
+或 API 结果。保留 R0 归档，再把 R1 现场非破坏性归档：
+
+```bash
+cd /Users/wz/Desktop/memoryBenchmark
+
+MB100_BASE=lm-membench-v7-none100k-fh-th-r1q1-w1
+MB100_RUN=${MB100_BASE}-100k
+MB100_ROOT=outputs/runs/lightmem/membench/100k/smoke/unified
+FAILED_DIR="$MB100_ROOT/$MB100_RUN"
+FAILED_ARCHIVE="$MB100_ROOT/${MB100_RUN}.failed-source-contract-preflight-20260719"
+
+test -f "$FAILED_DIR/logs/terminal.predict.log"
+grep -F -- "prepared source_relative_paths do not match variant '100k'" \
+  "$FAILED_DIR/logs/terminal.predict.log"
+test ! -e "$FAILED_ARCHIVE"
+mv "$FAILED_DIR" "$FAILED_ARCHIVE"
+test ! -e "$FAILED_DIR"
+test -d "$MB100_ROOT/${MB100_RUN}.failed-cli-preflight-20260719"
+```
+
+R2 的离线 registered regression 使用真实 registry、MemBench 100k 两源 adapter、prediction
+runner、artifact 与 dataset fingerprint，只在 method/answer 边界换成 fake；它锁定 2
+conversations、2 questions、4 canonical turns 与恰好两个 source fingerprints。故这次不是再用
+CLI mock 证明“参数传到了下一层”，而是已经穿过本次失败的 identity 门。
+
 ## 1. 架构裁决与最小规模
 
 旧预检曾因为 MemBench 错接为 `turn`，把“STM 是否跨两次 add 合并 FirstAgent 双侧”误判成
@@ -78,9 +120,9 @@ answer builder，不能反灌 history。
 本 smoke 不从 pair 数推算 LLM 调用/费用。真实 memory LLM、embedding、answer LLM 调用以
 run 的 efficiency artifact 为准。
 
-## 2. R1 合入后的环境门
+## 2. R2 合入后的环境门
 
-规模与 run id 已获用户批准；确认 main 含 R1 后，在同一个新 zsh 中执行：
+规模与 run id 已获用户批准；确认 main 含 R2 后，在同一个新 zsh 中执行：
 
 ```bash
 cd /Users/wz/Desktop/memoryBenchmark
