@@ -52,6 +52,8 @@ benchmark 的 schema、异常、canonical id、private gold group、prompt 与 e
 
 - 架构师裁决与施工历史：
   [`notes/memoryos-shared-r1-implementation.md`](notes/memoryos-shared-r1-implementation.md)。
+- 用户已批准的五格真实 smoke、8 个固定 run、全部 evaluator 与统一机器验货：
+  [`notes/memoryos-v2-five-grid-b11-command-pack.md`](notes/memoryos-v2-five-grid-b11-command-pack.md)。
 - main 线性提交：`6602aab` → `4300591` → `c5e7541` → `1207083` → `ef3b4f2` →
   `dcc5fd6`。保留首轮被强验收驳回及 R1-R5 修正历史，不以最终绿测抹掉错误路径。
 - 当前已锁：session 边界不跨配、单侧页跨 capacity 不丢、双空拒绝、timestamp
@@ -60,6 +62,8 @@ benchmark 的 schema、异常、canonical id、private gold group、prompt 与 e
 - 验收门：Terra 核心四文件 `158 passed`；架构师独立共享注册/metric 回归 `165 passed`、
   R5 定向 `80 passed`；main 无 API 全量
   `1666 passed, 3 deselected, 2 warnings, 29 subtests passed in 145.12s`；compileall exit 0。
+- 当前只等待用户按命令包串行执行 8 个 run 并回传 HaluMem 调用预览与统一机器门 PASS 尾行；
+  未授权扩大 smoke 或转 full。
 
 ## 第一波五卡拓扑（历史取证入口）
 
