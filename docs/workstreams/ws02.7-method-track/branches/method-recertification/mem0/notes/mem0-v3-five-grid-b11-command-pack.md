@@ -2,22 +2,37 @@
 
 > 状态：**待用户执行**。命令生成基线为 `main@8344072`；该基线已经完成 Mem0 两张 R1
 > 的 full-diff 强验收、主树全量 `1637 passed, 3 deselected, 2 warnings, 29 subtests
-> passed` 与 `compileall exit 0`。本页只授权下列 6 个 run；不授权 full、resume、扩大题数、
+> passed` 与 `compileall exit 0`。本页只授权下列 8 个 run；不授权 full、resume、扩大题数、
 > 删除失败现场或切换模型。全部真实 LLM 仍按项目政策使用 `gpt-4o-mini`。
+>
+> **R1（2026-07-20）**：首版 `d6cc492` 误称 LongMemEval 单题仍灌完整 haystack，并据此删去
+> LME W2；用户在执行前拦下。current-main 注册层与零 API prepare 探针证明 `--rounds 1`
+> 将每个 instance 裁为 2 turns。本版保留该勘误历史，并让四个非 HaluMem benchmark 各自
+> 通过真实双 worker 门；首版命令已 superseded，禁止继续执行。
 
-## 1. 为什么是六个 run，而不是每格机械复制 W1 + W2
+## 1. 八个 run：四个非 HaluMem benchmark 都有真实并行门
 
-本轮认证的是五个 benchmark 的真实 build → retrieve → framework answer → evaluator 链，外加
-单实例与隔离 worker 两类执行路径：
+本轮认证五个 benchmark 的真实 build → retrieve → framework answer → evaluator 链。LoCoMo、
+LongMemEval、MemBench、BEAM 的 canonical shape 与 Mem0 consume granularity 不同，因此四格各自
+至少跑一次真实双 worker，不能拿另一格的并行证据代验；HaluMem 的 operation runner 按官方
+交错测评契约固定 `workers=1`。
 
 | benchmark | run | 规模与目的 |
 |---|---|---|
-| LoCoMo | `mem0-locomo-v3-r3q1-w1` | 1 conversation × 3 rounds × 1 question；覆盖具名 speaker、逐 turn time 与首个 image caption |
-| LongMemEval | `mem0-lme-v3-r1q1-w1-s-cleaned` | S-cleaned 1 instance × 1 question；一题仍携带完整 haystack，是本轮最贵的一格，不重复跑 W2 |
+| LoCoMo | `mem0-locomo-v3-r3q1-w1` | 1 conversation × 3 rounds × 1 question × 1 worker；覆盖非隔离路径、具名 speaker、逐 turn time 与首个 image caption |
+| LoCoMo | `mem0-locomo-v3-r3q1-c2-w2` | 2 conversations × 3 rounds × 各 1 question × 2 workers；认证该格 turn ingest 的隔离并发 |
+| LongMemEval | `mem0-lme-v3-r1q1-w1-s-cleaned` | S-cleaned 1 instance × **1 round=2 turns** × 1 question × 1 worker |
+| LongMemEval | `mem0-lme-v3-r1q1-c2-w2-s-cleaned` | S-cleaned 2 instances × 各 **1 round=2 turns** × 各 1 question × 2 workers；认证 session ingest 的隔离并发 |
 | MemBench | `mem0-membench-v3-r1q1-ps1-w2-0-10k` | 四 source 各 1 trajectory、共 4 questions、2 workers；同时覆盖 FirstAgent 双 child 与 ThirdAgent singleton |
 | BEAM | `mem0-beam-v3-pair-r1q1-c2-w2-100k` | 100K 2 conversations、2 workers；覆盖标准 pair 与隔离并发 |
 | BEAM | `mem0-beam-v3-pair-r1q1-w1-10m` | 10M 1 conversation、1 worker；保留不同 source shape 的真实入口 |
 | HaluMem | `mem0-halumem-v3-r1-w1-medium` | Medium 固定 smoke：1 conversation、4 sessions、1 QA；边写边做 extraction/update/QA |
+
+LongMemEval 的“一题”只裁 question 数，不负责裁历史；真正的历史门是 registered
+`--rounds 1`。current-main `_build_longmemeval_smoke_dataset()` 会在每个 instance 全局只保留
+前一个完整双 turn round。2026-07-20 零 API 现场探针：W1 的首条 raw 550 turns → retained 2；
+W2 的两条 raw 550/485 turns → 各 retained 2。旧审计中“单题仍灌完整 haystack”的说法已被
+current source、registered test 与该探针共同推翻，不得再用于预算判断。
 
 MemBench 100K 的 missing-time 不另烧一轮：Mem0 对缺时没有 LightMem 那种第三方 normalizer 分支，
 现行规则只是 `turn → session → None` 且不合成 header；R1 已用真实 adapter 强反例锁住。BEAM
@@ -51,11 +66,14 @@ test -d data/BEAM/beam_10M_dataset/10M
 test -f data/halumem/HaluMem-Medium.jsonl
 test -d models/all-MiniLM-L6-v2
 
-LOCO_RUN=mem0-locomo-v3-r3q1-w1
+LOCO_RUN_W1=mem0-locomo-v3-r3q1-w1
+LOCO_RUN_W2=mem0-locomo-v3-r3q1-c2-w2
 LOCO_ROOT=outputs/runs/mem0/locomo/smoke/unified
 
-LME_BASE=mem0-lme-v3-r1q1-w1
-LME_RUN=${LME_BASE}-s-cleaned
+LME_BASE_W1=mem0-lme-v3-r1q1-w1
+LME_BASE_W2=mem0-lme-v3-r1q1-c2-w2
+LME_RUN_W1=${LME_BASE_W1}-s-cleaned
+LME_RUN_W2=${LME_BASE_W2}-s-cleaned
 LME_ROOT=outputs/runs/mem0/longmemeval/s-cleaned/smoke/unified
 
 MB_BASE=mem0-membench-v3-r1q1-ps1-w2
@@ -77,70 +95,129 @@ HALU_ROOT=outputs/runs/mem0/halumem/medium/smoke/unified
 TMP_LOG_ROOT="${TMPDIR:-/tmp}/memory-benchmark-mem0-v3-b11"
 mkdir -p "$TMP_LOG_ROOT"
 
-test ! -e "$LOCO_ROOT/$LOCO_RUN"
-test ! -e "$LME_ROOT/$LME_RUN"
+test ! -e "$LOCO_ROOT/$LOCO_RUN_W1"
+test ! -e "$LOCO_ROOT/$LOCO_RUN_W2"
+test ! -e "$LME_ROOT/$LME_RUN_W1"
+test ! -e "$LME_ROOT/$LME_RUN_W2"
 test ! -e "$MB_ROOT/$MB_RUN"
 test ! -e "$BEAM100_ROOT/$BEAM100_RUN"
 test ! -e "$BEAM10_ROOT/$BEAM10_RUN"
 test ! -e "$HALU_ROOT/$HALU_RUN"
 ```
 
-不得打印或 `cat .env`。若最后六条 `test ! -e` 任一失败，不要删除旧目录；先把冲突 run id
+不得打印或 `cat .env`。若最后八条 `test ! -e` 任一失败，不要删除旧目录；先把冲突 run id
 交给架构师裁决。
 
 ## 3. LoCoMo：具名 speaker、caption、turn Recall
 
+### 3.1 单 worker
+
 ```bash
 uv run memory-benchmark predict smoke \
   --root . --method mem0 --benchmark locomo --config-track unified \
-  --run-id "$LOCO_RUN" --rounds 3 --conversations 1 \
+  --run-id "$LOCO_RUN_W1" --rounds 3 --conversations 1 \
   --questions-per-conversation 1 --workers 1 --allow-api \
-  2>&1 | tee "$TMP_LOG_ROOT/$LOCO_RUN.predict.log"
+  2>&1 | tee "$TMP_LOG_ROOT/$LOCO_RUN_W1.predict.log"
 PREDICT_STATUS=$?
-mkdir -p "$LOCO_ROOT/$LOCO_RUN/logs"
-mv "$TMP_LOG_ROOT/$LOCO_RUN.predict.log" \
-  "$LOCO_ROOT/$LOCO_RUN/logs/terminal.predict.log"
+mkdir -p "$LOCO_ROOT/$LOCO_RUN_W1/logs"
+mv "$TMP_LOG_ROOT/$LOCO_RUN_W1.predict.log" \
+  "$LOCO_ROOT/$LOCO_RUN_W1/logs/terminal.predict.log"
 test "$PREDICT_STATUS" -eq 0
 
-uv run memory-benchmark evaluate --root . --run-id "$LOCO_RUN" \
+uv run memory-benchmark evaluate --root . --run-id "$LOCO_RUN_W1" \
   --metric locomo-f1 --metric f1 --metric normalized-em \
   --metric substring-em --metric locomo-recall --workers 1 \
-  2>&1 | tee "$LOCO_ROOT/$LOCO_RUN/logs/terminal.evaluate-offline.log"
+  2>&1 | tee "$LOCO_ROOT/$LOCO_RUN_W1/logs/terminal.evaluate-offline.log"
 test "$?" -eq 0
 
-uv run memory-benchmark evaluate --root . --run-id "$LOCO_RUN" \
+uv run memory-benchmark evaluate --root . --run-id "$LOCO_RUN_W1" \
   --metric locomo-judge --judge-profile compact --workers 1 --allow-api \
-  2>&1 | tee "$LOCO_ROOT/$LOCO_RUN/logs/terminal.evaluate-judge.log"
+  2>&1 | tee "$LOCO_ROOT/$LOCO_RUN_W1/logs/terminal.evaluate-judge.log"
+test "$?" -eq 0
+```
+
+### 3.2 双 worker
+
+```bash
+uv run memory-benchmark predict smoke \
+  --root . --method mem0 --benchmark locomo --config-track unified \
+  --run-id "$LOCO_RUN_W2" --rounds 3 --conversations 2 \
+  --questions-per-conversation 1 --workers 2 --allow-api \
+  2>&1 | tee "$TMP_LOG_ROOT/$LOCO_RUN_W2.predict.log"
+PREDICT_STATUS=$?
+mkdir -p "$LOCO_ROOT/$LOCO_RUN_W2/logs"
+mv "$TMP_LOG_ROOT/$LOCO_RUN_W2.predict.log" \
+  "$LOCO_ROOT/$LOCO_RUN_W2/logs/terminal.predict.log"
+test "$PREDICT_STATUS" -eq 0
+
+uv run memory-benchmark evaluate --root . --run-id "$LOCO_RUN_W2" \
+  --metric locomo-f1 --metric f1 --metric normalized-em \
+  --metric substring-em --metric locomo-recall --workers 1 \
+  2>&1 | tee "$LOCO_ROOT/$LOCO_RUN_W2/logs/terminal.evaluate-offline.log"
+test "$?" -eq 0
+
+uv run memory-benchmark evaluate --root . --run-id "$LOCO_RUN_W2" \
+  --metric locomo-judge --judge-profile compact --workers 2 --allow-api \
+  2>&1 | tee "$LOCO_ROOT/$LOCO_RUN_W2/logs/terminal.evaluate-judge.log"
 test "$?" -eq 0
 ```
 
 低 Recall、EM 或 judge 分数不是结构失败；本格必须形成 `valid/turn` retrieval evidence。当前
 stable ranking 仍是 `pending`，因此不追加未经资格审计的排序指标。
 
-## 4. LongMemEval：完整 S haystack、session Recall、rank N/A
+## 4. LongMemEval：每 instance 一个双 turn round、session Recall、rank N/A
 
-只有 §3 全绿后执行：
+只有 §3 全绿后执行。
+
+### 4.1 单 worker
 
 ```bash
 uv run memory-benchmark predict smoke \
   --root . --method mem0 --benchmark longmemeval --variant s_cleaned \
-  --config-track unified --run-id "$LME_BASE" --workers 1 --allow-api \
-  2>&1 | tee "$TMP_LOG_ROOT/$LME_RUN.predict.log"
+  --config-track unified --run-id "$LME_BASE_W1" --rounds 1 --conversations 1 \
+  --questions-per-conversation 1 --workers 1 --allow-api \
+  2>&1 | tee "$TMP_LOG_ROOT/$LME_RUN_W1.predict.log"
 PREDICT_STATUS=$?
-mkdir -p "$LME_ROOT/$LME_RUN/logs"
-mv "$TMP_LOG_ROOT/$LME_RUN.predict.log" \
-  "$LME_ROOT/$LME_RUN/logs/terminal.predict.log"
+mkdir -p "$LME_ROOT/$LME_RUN_W1/logs"
+mv "$TMP_LOG_ROOT/$LME_RUN_W1.predict.log" \
+  "$LME_ROOT/$LME_RUN_W1/logs/terminal.predict.log"
 test "$PREDICT_STATUS" -eq 0
 
-uv run memory-benchmark evaluate --root . --run-id "$LME_RUN" \
+uv run memory-benchmark evaluate --root . --run-id "$LME_RUN_W1" \
   --metric f1 --metric normalized-em --metric substring-em \
   --metric longmemeval-recall --metric longmemeval-retrieval-rank --workers 1 \
-  2>&1 | tee "$LME_ROOT/$LME_RUN/logs/terminal.evaluate-offline.log"
+  2>&1 | tee "$LME_ROOT/$LME_RUN_W1/logs/terminal.evaluate-offline.log"
 test "$?" -eq 0
 
-uv run memory-benchmark evaluate --root . --run-id "$LME_RUN" \
+uv run memory-benchmark evaluate --root . --run-id "$LME_RUN_W1" \
   --metric longmemeval-judge --judge-profile compact --workers 1 --allow-api \
-  2>&1 | tee "$LME_ROOT/$LME_RUN/logs/terminal.evaluate-judge.log"
+  2>&1 | tee "$LME_ROOT/$LME_RUN_W1/logs/terminal.evaluate-judge.log"
+test "$?" -eq 0
+```
+
+### 4.2 双 worker
+
+```bash
+uv run memory-benchmark predict smoke \
+  --root . --method mem0 --benchmark longmemeval --variant s_cleaned \
+  --config-track unified --run-id "$LME_BASE_W2" --rounds 1 --conversations 2 \
+  --questions-per-conversation 1 --workers 2 --allow-api \
+  2>&1 | tee "$TMP_LOG_ROOT/$LME_RUN_W2.predict.log"
+PREDICT_STATUS=$?
+mkdir -p "$LME_ROOT/$LME_RUN_W2/logs"
+mv "$TMP_LOG_ROOT/$LME_RUN_W2.predict.log" \
+  "$LME_ROOT/$LME_RUN_W2/logs/terminal.predict.log"
+test "$PREDICT_STATUS" -eq 0
+
+uv run memory-benchmark evaluate --root . --run-id "$LME_RUN_W2" \
+  --metric f1 --metric normalized-em --metric substring-em \
+  --metric longmemeval-recall --metric longmemeval-retrieval-rank --workers 1 \
+  2>&1 | tee "$LME_ROOT/$LME_RUN_W2/logs/terminal.evaluate-offline.log"
+test "$?" -eq 0
+
+uv run memory-benchmark evaluate --root . --run-id "$LME_RUN_W2" \
+  --metric longmemeval-judge --judge-profile compact --workers 2 --allow-api \
+  2>&1 | tee "$LME_ROOT/$LME_RUN_W2/logs/terminal.evaluate-judge.log"
 test "$?" -eq 0
 ```
 
@@ -344,7 +421,7 @@ update 的 correct/hallucination/omission，QA 的 correct/hallucination/omissio
 保留 QA question type，`halumem-memory-type` 保留 Event/Persona/Relationship 三类，而不是只有
 overall。
 
-## 8. 六个 run 的统一机器验货（零 API）
+## 8. 八个 run 的统一机器验货（零 API）
 
 全部命令 exit 0 后执行。该门验证 current v3 身份、规模、worker state、逐题 retrieval 资格、
 所有适用 summary、judge 观测与 HaluMem 细分项；不以 smoke 分数高低判成败。
@@ -389,9 +466,33 @@ cases = (
                           "terminal.evaluate-judge.log"),
     },
     {
+        "run_dir": Path("outputs/runs/mem0/locomo/smoke/unified/mem0-locomo-v3-r3q1-c2-w2"),
+        "benchmark": "locomo", "variant": "locomo10", "questions": 2,
+        "workers": 2, "conversations": 2, "consume": "turn",
+        "semantic": "valid", "granularity": "turn", "query_top_k": 10,
+        "summaries": ("locomo_f1", "f1", "normalized_em", "substring_em",
+                      "locomo_recall", "locomo_judge_accuracy"),
+        "null_summaries": (),
+        "judge_metrics": ("locomo_judge_accuracy",),
+        "terminal_logs": ("terminal.predict.log", "terminal.evaluate-offline.log",
+                          "terminal.evaluate-judge.log"),
+    },
+    {
         "run_dir": Path("outputs/runs/mem0/longmemeval/s-cleaned/smoke/unified/mem0-lme-v3-r1q1-w1-s-cleaned"),
         "benchmark": "longmemeval", "variant": "s_cleaned", "questions": 1,
         "workers": 1, "conversations": 1, "consume": "session",
+        "semantic": "valid", "granularity": "session", "query_top_k": 10,
+        "summaries": ("f1", "normalized_em", "substring_em", "longmemeval_recall",
+                      "longmemeval_retrieval_rank", "longmemeval_judge_accuracy"),
+        "null_summaries": ("longmemeval_retrieval_rank",),
+        "judge_metrics": ("longmemeval_judge_accuracy",),
+        "terminal_logs": ("terminal.predict.log", "terminal.evaluate-offline.log",
+                          "terminal.evaluate-judge.log"),
+    },
+    {
+        "run_dir": Path("outputs/runs/mem0/longmemeval/s-cleaned/smoke/unified/mem0-lme-v3-r1q1-c2-w2-s-cleaned"),
+        "benchmark": "longmemeval", "variant": "s_cleaned", "questions": 2,
+        "workers": 2, "conversations": 2, "consume": "session",
         "semantic": "valid", "granularity": "session", "query_top_k": 10,
         "summaries": ("f1", "normalized_em", "substring_em", "longmemeval_recall",
                       "longmemeval_retrieval_rank", "longmemeval_judge_accuracy"),
@@ -565,7 +666,7 @@ assert qa["category_breakdown"] and all(
 expected_types = {"Event Memory", "Persona Memory", "Relationship Memory"}
 assert {row["category"] for row in memory_type["category_breakdown"]} == expected_types
 print(
-    "PASS Mem0 five-grid B11 machine gate: 6 runs, all eligible metrics, "
+    "PASS Mem0 five-grid B11 machine gate: 8 runs, all eligible metrics, "
     "worker isolation, retrieval eligibility and HaluMem breakdowns present"
 )
 PY
@@ -574,6 +675,6 @@ PY
 ## 9. 回收协议
 
 用户执行后只需告诉架构师“全部完成”或粘贴**第一处 exception/PASS 尾行**；无需把所有 terminal
-输出手工复制进聊天。架构师会直接从上述 6 个 run 目录开箱：逐 manifest、artifact、summary、
+输出手工复制进聊天。架构师会直接从上述 8 个 run 目录开箱：逐 manifest、artifact、summary、
 efficiency、sidecar/Qdrant 与 worker state 复核。机器门 PASS 也不自动等于 frozen；开箱后才做
 B11 对表、生成 Mem0 frozen note、更新报告与清理本轮断点。

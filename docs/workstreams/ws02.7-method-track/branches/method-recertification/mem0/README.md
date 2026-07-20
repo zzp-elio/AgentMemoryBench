@@ -46,7 +46,8 @@ placeholder；真实缺口拆成两张不写同一文件的卡，可并行施工
    compileall exit 0；adapter v3 旧 store 经真实 preflight 禁 resume；
 4. ✅ 五格最小真实 smoke 的规模、run id、全部适用 evaluator 与统一机器门已锁入
    [`mem0-v3-five-grid-b11-command-pack.md`](notes/mem0-v3-five-grid-b11-command-pack.md)；
-   当前动作是用户按该页串行执行 6 个 run，架构师随后直接开箱验货。命令包之外的 full、
+   当前动作是用户按该页串行执行 8 个 run；四个非 HaluMem benchmark 各含真实双 worker 门，
+   架构师随后直接开箱验货。命令包之外的 full、
    resume、扩大题数与模型切换仍未授权。
 
 稳定 benchmark 事实入口：

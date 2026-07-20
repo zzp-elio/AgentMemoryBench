@@ -343,6 +343,13 @@
     一比一映射。架构师原预检卡把“公开候选与成本形状”塞进 B11，诱导 actor 把约 200 pair
     写成约 200 次 extraction LLM；即使 actor 越过了证据边界，卡片混轴仍是架构师责任。以后
     预检卡只判 ready/blocked，smoke 卡只给接线规模，成本外推另读首条完整 pilot 产物。
+    **2026-07-20 Mem0 命令包重复踩坑**：架构师把“一题”误当作“完整 haystack”，没有先跑
+    registered prepare 探针；但 current LongMemEval `--rounds 1` 明确把 raw 550/485 turns
+    各裁成 2 turns。以后发布 B11 命令前必须把 `question crop` 与 `history crop` 分列，并用
+    零 API prepare 输出锁定 original/retained 规模，不能从题数、旧 note 或正式评测形状反推。
+    同时，若本轮验收要求并行，具有不同 canonical shape/`consume_granularity` 的 benchmark
+    必须各自至少跑一次真实多 worker；另一格的 worker 隔离只能证明共享机制，不能代替该格
+    ingest/state 路径的运行时证据。
 
 ## 4. 审查手艺（隐性知识核心）
 
