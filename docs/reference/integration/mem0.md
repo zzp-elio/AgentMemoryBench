@@ -20,15 +20,46 @@
 
 | 框架钩子 | adapter 行为 | 落到 Mem0 官方接口 |
 |---|---|---|
-| `ingest(TurnEvent)` | `consume_granularity="turn"`；`_ingest_native_turn` 做 speaker→user/assistant 交替角色映射 | `_add_with_provenance` → `Memory.add([message], run_id=isolation_key, metadata=…, infer=…, prompt=…)` |
+| `ingest(TurnEvent)` | `consume_granularity="turn"`；`_ingest_native_turn` 经 `_resolve_speaker_roles` 解析 speaker→role：LoCoMo（`benchmark_name=="locomo"`）用公开 `speaker_a`/`speaker_b` conversation metadata 显式映射，不按首现推断，缺字段/空白/相同/未声明第三方均 fail-fast；其余 benchmark 保持跨调用累积的首现映射（既有兼容边界） | `_add_with_provenance` → `Memory.add([message], run_id=isolation_key, metadata=…, infer=…, prompt=…)` |
 | `ingest(SessionBatch)` | `_ingest_native_session`：常规 session 按位置两两切块；HaluMem `session_memory_report` 路径整 session 单次 add | 同上逐 chunk/session 调 `Memory.add()` |
 | `end_session` | HaluMem 用：返回本 session `add().results` 产出的 `SessionMemoryReport` | 无额外官方调用（复用 add 返回值） |
 | `end_conversation` | —（无钩子；Mem0 add 即建，无缓冲） | — |
 | `retrieve(query)` | `retrieve` 处理公开 Question；`_retrieve_native` 处理 v3 `RetrievalQuery` | `Memory.search(..., filters={"run_id": isolation_key}, top_k=…)` |
 
-HaluMem update 的 `top_k=10` 只对 Mem0 原生接口有直接含义：Mem0 `Memory.search` 支持该参数，
-重认证 R1 将只在 `purpose="memory_update_probe"` 时执行 query 请求；普通 QA/其他 benchmark
-仍用 TOML product profile。该行为不能外推为 HaluMem shared scorer 对所有 method 强制 10 条。
+HaluMem update 的 `top_k=10` 只对 Mem0 原生接口有直接含义：`_retrieve_native()` 现在只在
+`purpose="memory_update_probe"` 时把 `RetrievalQuery.top_k` 忠实传给 `Memory.search()`
+（五格输入/readout 保真 R1 已实现）；普通 QA/其他 benchmark 仍用 TOML product profile 的
+`self.config.top_k`。`RetrievalResult.metadata` 同步区分 `top_k`（本次实际值）/
+`configured_top_k`（profile 默认值）/`top_k_source`（`"query_top_k"` 或 `"config_top_k"`）。
+该行为不能外推为 HaluMem shared scorer 对所有 method 强制 10 条。
+
+## R1 五格输入/readout 保真修复（本卡）
+
+联合裁决 `branches/method-recertification/mem0/notes/mem0-joint-ruling.md` 定位的五个
+输入/readout 保真缺口已由本卡关闭，完整证据见
+`branches/method-recertification/mem0/notes/mem0-input-readout-r1-implementation.md`：
+
+1. **LoCoMo 显式 speaker 映射**：不再按 speaker 首次出现顺序猜 user/assistant（该算法在
+   source-locked `locomo10.json` 10 个 conversation 中会把 6 个的角色整体反转），改用
+   `Conversation.metadata["speaker_a"/"speaker_b"]` 固定映射，legacy `add()` 与 v3 event
+   ingest 共用同一对 helper（`_build_locomo_speaker_roles` / `_require_declared_locomo_speakers`）。
+2. **共享 caption wrapper**：`_turn_to_message()` 改用 `methods/image_text.py::turn_text_with_images()`
+   渲染正文+caption，caption 统一 `[Sharing image that shows: …]`，不再裸拼、不泄漏
+   query/URL/path。
+3. **role-native content 去重复前缀**：turn 携带当前 adapter 支持的有效 `normalized_role`
+   （LongMemEval/MemBench/BEAM/HaluMem）时，content 不再额外前置 `turn.speaker:`——避免
+   Mem0 `parse_messages()` 在已结构化的 role 之上再看到一遍重复文本；无有效 role 的具名
+   speaker（LoCoMo）content 仍前置真实 speaker 名。
+4. **native sanity readout 身份收紧**：`_reader_prompt_kind()` 现在只要 `benchmark_name`
+   显式存在但不在 `{locomo, longmemeval, beam}`（即 MemBench、HaluMem）就直接返回
+   `generic`，不再被 `question_time`/`category` 巧合带偏成 longmemeval/locomo；只有
+   `benchmark_name is None` 的旧版兼容调用保留原启发式。
+5. **HaluMem update top-k 透传**：见上段。
+
+`MEM0_ADAPTER_VERSION` 从 `conversation-qa-v2` 升为 `conversation-qa-v3`（五格输入 build
+bytes 已改变，旧 v2 memory state 不可 resume）。以上修复只改变进入 extraction/embedding 的
+message role/content 与检索请求 top-k，不改 Mem0 V3 extraction/update/dedup/vector search
+算法本身，不改 benchmark canonical 数据、granularity 或 metric。
 
 ## B1-B11 当前结论
 

@@ -59,6 +59,7 @@ from memory_benchmark.core.provider_protocol import (
     TurnPair,
     UnitRef,
 )
+from memory_benchmark.methods.image_text import turn_text_with_images
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
@@ -68,7 +69,7 @@ from memory_benchmark.observability.efficiency import (
 
 
 MEM0_METHOD_DIRECTORY = "mem0-main"
-MEM0_ADAPTER_VERSION = "conversation-qa-v2"
+MEM0_ADAPTER_VERSION = "conversation-qa-v3"
 MEM0_READER_PROMPT_VERSION = "mem0-memory-benchmarks-reader-v4"
 MEM0_PROVENANCE_SIDECAR_SCHEMA_VERSION = 1
 MEM0_PROVENANCE_SIDECAR_FILENAME = "provenance-sidecar.json"
@@ -522,12 +523,12 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         """写入 v3 turn 单元，复用旧 turn message 构造逻辑。"""
 
         self._ensure_native_namespace(event)
-        speaker_roles = self._native_speaker_roles.setdefault(event.isolation_key, {})
         turn = self._turn_from_event(event)
-        if turn.speaker not in speaker_roles:
-            speaker_roles[turn.speaker] = (
-                "user" if len(speaker_roles) % 2 == 0 else "assistant"
-            )
+        speaker_roles = self._resolve_speaker_roles(
+            event.isolation_key,
+            event.metadata.get("conversation_metadata") or {},
+            [turn],
+        )
         session_time = self._session_time_from_event(event)
         self._add_with_provenance(
             [self._turn_to_message(turn, speaker_roles, session_time=session_time)],
@@ -543,13 +544,12 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
 
         first = pair.first
         self._ensure_native_namespace(first)
-        speaker_roles = self._native_speaker_roles.setdefault(first.isolation_key, {})
         turns = [self._turn_from_event(event) for event in pair.turns]
-        for turn in turns:
-            if turn.speaker not in speaker_roles:
-                speaker_roles[turn.speaker] = (
-                    "user" if len(speaker_roles) % 2 == 0 else "assistant"
-                )
+        speaker_roles = self._resolve_speaker_roles(
+            first.isolation_key,
+            first.metadata.get("conversation_metadata") or {},
+            turns,
+        )
         session_time = self._session_time_from_event(first)
         conversation = self._native_conversation_from_event(first)
         session = self._native_session_from_event(first)
@@ -579,13 +579,12 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
 
         first = batch.events[0]
         self._ensure_native_namespace(first)
-        speaker_roles = self._native_speaker_roles.setdefault(batch.isolation_key, {})
         turns = [self._turn_from_event(event) for event in batch.events]
-        for turn in turns:
-            if turn.speaker not in speaker_roles:
-                speaker_roles[turn.speaker] = (
-                    "user" if len(speaker_roles) % 2 == 0 else "assistant"
-                )
+        speaker_roles = self._resolve_speaker_roles(
+            batch.isolation_key,
+            first.metadata.get("conversation_metadata") or {},
+            turns,
+        )
         session_time = self._session_time_from_event(first)
         conversation = self._native_conversation_from_event(first)
         session = self._native_session_from_event(first)
@@ -805,7 +804,7 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
             self._conversation_public_metadata(conversation)
         )
 
-        speaker_roles = self._build_speaker_roles(conversation)
+        speaker_roles = self._legacy_speaker_roles(conversation)
         if self._is_longmemeval_conversation(conversation):
             raise ConfigurationError(
                 "Mem0 LongMemEval does not support turn-level resume; use "
@@ -977,7 +976,12 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         )
 
     def _retrieve_native(self, query: RetrievalQuery) -> RetrievalResult:
-        """执行 v3 检索并返回不生成最终答案的 RetrievalResult。"""
+        """执行 v3 检索并返回不生成最终答案的 RetrievalResult。
+
+        `purpose="memory_update_probe"` 时忠实采用 `query.top_k`（HaluMem 官方
+        update probe 请求窗口，如 10）；其余 purpose（含 `qa`）继续使用
+        `self.config.top_k` product profile，不因本卡改变标准检索深度。
+        """
 
         with self._namespace_lock:
             is_added = query.isolation_key in self._added_conversation_ids
@@ -1005,6 +1009,13 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 f"Mem0 question text is empty: {native_question.question_id}"
             )
 
+        effective_top_k = (
+            query.top_k if query.purpose == "memory_update_probe" else self.config.top_k
+        )
+        top_k_source = (
+            "query_top_k" if query.purpose == "memory_update_probe" else "config_top_k"
+        )
+
         retrieval_started_ns = perf_counter_ns()
         collector = self._efficiency_collector
         if collector is not None and collector.enabled:
@@ -1012,13 +1023,13 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                 raw_result = self._memory.search(
                     native_question.text,
                     filters={"run_id": query.isolation_key},
-                    top_k=self.config.top_k,
+                    top_k=effective_top_k,
                 )
         else:
             raw_result = self._memory.search(
                 native_question.text,
                 filters={"run_id": query.isolation_key},
-                top_k=self.config.top_k,
+                top_k=effective_top_k,
             )
         memories = self._normalize_search_results(raw_result)
         injected_memory_text = self._memory_context_text(memories)
@@ -1069,7 +1080,9 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                     for memory in memories
                 ],
                 "retrieved_memory_count": len(memories),
-                "top_k": self.config.top_k,
+                "top_k": effective_top_k,
+                "configured_top_k": self.config.top_k,
+                "top_k_source": top_k_source,
                 "answer_prompt_profile": self._reader_prompt_kind(native_question),
             },
             evidence=self._build_retrieval_evidence(),
@@ -1440,13 +1453,93 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
                     )
         return roles
 
+    def _legacy_speaker_roles(self, conversation: Conversation) -> dict[str, str]:
+        """解析 legacy `add(Conversation)` 路径使用的 speaker→role 映射。
+
+        LoCoMo 用显式 `speaker_a`/`speaker_b` conversation metadata，规则与 v3
+        `_resolve_speaker_roles` 共用同一对 helper；其余 benchmark 保持既有首现
+        映射不变。
+        """
+
+        if self.benchmark_name == "locomo":
+            roles = self._build_locomo_speaker_roles(conversation.metadata)
+            all_turns = [
+                turn for session in conversation.sessions for turn in session.turns
+            ]
+            self._require_declared_locomo_speakers(all_turns, roles)
+            return roles
+        return self._build_speaker_roles(conversation)
+
+    def _resolve_speaker_roles(
+        self,
+        isolation_key: str,
+        conversation_metadata: dict[str, Any],
+        turns: list[Turn],
+    ) -> dict[str, str]:
+        """解析 v3 ingest 入口使用的 speaker→role 映射，规则与 legacy 路径对齐。
+
+        LoCoMo 用显式 `speaker_a`/`speaker_b` conversation metadata，不按首现
+        推断；其余 benchmark 保持跨调用累积的首现映射（既有兼容边界，本卡不
+        放宽）。
+        """
+
+        if self.benchmark_name == "locomo":
+            roles = self._build_locomo_speaker_roles(conversation_metadata)
+            self._require_declared_locomo_speakers(turns, roles)
+            return roles
+        speaker_roles = self._native_speaker_roles.setdefault(isolation_key, {})
+        for turn in turns:
+            if turn.speaker not in speaker_roles:
+                speaker_roles[turn.speaker] = (
+                    "user" if len(speaker_roles) % 2 == 0 else "assistant"
+                )
+        return speaker_roles
+
+    @staticmethod
+    def _build_locomo_speaker_roles(metadata: dict[str, Any]) -> dict[str, str]:
+        """从 LoCoMo conversation 公开 metadata 构造显式 speaker_a/b→user/assistant 映射。
+
+        不按首现推断：source-locked `locomo10.json` 10 个 conversation 中有 6 个
+        由 `speaker_b` 首发，首现算法会把官方角色整体反转。缺字段、空白或两者
+        相同均 fail-fast，避免静默套用错误角色。
+        """
+
+        speaker_a = metadata.get("speaker_a")
+        speaker_b = metadata.get("speaker_b")
+        speaker_a = speaker_a.strip() if isinstance(speaker_a, str) else ""
+        speaker_b = speaker_b.strip() if isinstance(speaker_b, str) else ""
+        if not speaker_a or not speaker_b:
+            raise ConfigurationError(
+                "Mem0 LoCoMo conversation metadata must declare non-empty "
+                "speaker_a and speaker_b"
+            )
+        if speaker_a == speaker_b:
+            raise ConfigurationError(
+                "Mem0 LoCoMo speaker_a and speaker_b must be distinct"
+            )
+        return {speaker_a: "user", speaker_b: "assistant"}
+
+    @staticmethod
+    def _require_declared_locomo_speakers(
+        turns: list[Turn],
+        speaker_roles: dict[str, str],
+    ) -> None:
+        """校验每个 turn 的 speaker 都在显式 speaker_a/b 声明内，拒绝未声明的第三方。"""
+
+        for turn in turns:
+            if turn.speaker not in speaker_roles:
+                raise ConfigurationError(
+                    "Mem0 LoCoMo turn speaker is not declared in "
+                    f"speaker_a/speaker_b: {turn.speaker}"
+                )
+
     @staticmethod
     def _turn_to_message(
         turn: Turn,
         speaker_roles: dict[str, str],
         session_time: str | None = None,
     ) -> dict[str, str]:
-        """把统一 Turn 转成 Mem0 message，并显式保留 speaker 和时间语义。
+        """把统一 Turn 转成 Mem0 message，并显式保留角色和时间语义。
 
         唯一 effective timestamp fallback：非空 `turn.turn_time` 优先，否则才
         用 `session_time`；两者都缺则不追加时间头。该契约覆盖 BEAM/HaluMem
@@ -1455,30 +1548,31 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         表示）三种形态。Mem0 旧版本会在 turn/session 同时有值时双前缀；这里替换为
         唯一渲染。marker 由 benchmark adapter 通过公开 `turn.metadata` 写入
         `source_timestamp_embedded_in_content`，不写 `if benchmark == ...` 特判。
+
+        正文渲染统一走共享 `turn_text_with_images()`，caption 用唯一
+        `[Sharing image that shows: ...]` wrapper。turn 有当前 adapter 支持的
+        有效 `normalized_role`（user/assistant）时直接采用该值作 role，content
+        不再前置 speaker——否则 Mem0 `parse_messages()` 会在已结构化的 role 之上
+        再看到一遍重复文本。没有有效 `normalized_role` 的具名 speaker（如
+        LoCoMo）content 仍前置真实 speaker 名，因为双 speaker 不是通用
+        user/assistant 人称，role 需要靠 `speaker_roles` 映射得到。
         """
 
         normalized_role = (turn.normalized_role or "").strip().lower()
-        role = (
-            normalized_role
-            if normalized_role in VALID_MESSAGE_ROLES
-            else speaker_roles.get(turn.speaker, "user")
-        )
-        content_parts = [turn.content.strip()] if turn.content.strip() else []
-        content_parts.extend(
-            image.caption.strip()
-            for image in turn.images
-            if image.caption and image.caption.strip()
-        )
-        if not content_parts:
+        has_valid_role = normalized_role in VALID_MESSAGE_ROLES
+        role = normalized_role if has_valid_role else speaker_roles.get(turn.speaker, "user")
+        rendered_text = turn_text_with_images(turn)
+        if not rendered_text:
             raise ConfigurationError(f"Mem0 turn has no text content: {turn.turn_id}")
         prefix = Mem0._effective_time_prefix(
             turn.turn_time,
             session_time,
             turn.metadata.get("source_timestamp_embedded_in_content"),
         )
+        body = rendered_text if has_valid_role else f"{turn.speaker}: {rendered_text}"
         return {
             "role": role,
-            "content": f"{prefix}{turn.speaker}: {' '.join(content_parts)}",
+            "content": f"{prefix}{body}",
         }
 
     @staticmethod
@@ -1881,10 +1975,19 @@ class Mem0(BaseMemoryProvider, BaseResumableMemorySystem, MemoryProvider):
         ]
 
     def _reader_prompt_kind(self, question: Question) -> str:
-        """选择 Mem0 官方 benchmark prompt；未知数据集保持通用 fallback。"""
+        """选择 Mem0 官方 benchmark prompt；未知数据集保持通用 fallback。
+
+        显式 benchmark identity 优先于任何数据形态启发式：只有三家有官方 native
+        prompt 的 benchmark 返回对应名字，其余显式 identity（如 MemBench、
+        HaluMem）一律 `generic`，不得因 `question_time`/`category` 巧合被误判成
+        longmemeval/locomo。只有 `benchmark_name is None` 的旧版兼容调用才回退
+        到下方启发式匹配。
+        """
 
         if self.benchmark_name in {"locomo", "longmemeval", "beam"}:
             return self.benchmark_name
+        if self.benchmark_name is not None:
+            return "generic"
         metadata = self._conversation_metadata.get(question.conversation_id, {})
         source_text = " ".join(
             str(value)

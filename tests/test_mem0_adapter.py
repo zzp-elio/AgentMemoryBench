@@ -18,7 +18,7 @@ import pytest
 
 import memory_benchmark.methods.registry as method_registry
 from memory_benchmark.config.settings import OpenAISettings, load_path_settings
-from memory_benchmark.core import Conversation, Question, Session, Turn
+from memory_benchmark.core import Conversation, ImageRef, Question, Session, Turn
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.provider_protocol import (
     MemoryProvider,
@@ -623,7 +623,12 @@ def test_add_writes_each_turn_separately_with_conversation_namespace() -> None:
 
 
 def test_add_batches_longmemeval_turns_as_user_assistant_pairs() -> None:
-    """LongMemEval 应按官方 `CHUNK_SIZE=2` 把 user+assistant pair 写入 Mem0。"""
+    """LongMemEval 应按官方 `CHUNK_SIZE=2` 把 user+assistant pair 写入 Mem0。
+
+    turn 已带结构化 `normalized_role`，content 不再前置 `user:`/`assistant:`——
+    否则 Mem0 `parse_messages()` 会在已经是 role 字段的文本上再看到一遍
+    `user: user: ...`，这正是五格输入保真修复要去掉的重复渲染。
+    """
 
     backend = FakeMemoryBackend()
     system = Mem0(
@@ -643,14 +648,14 @@ def test_add_batches_longmemeval_turns_as_user_assistant_pairs() -> None:
             "role": "user",
             "content": (
                 "[Session time: 2024-01-01] "
-                "user: I prefer jasmine tea in the morning."
+                "I prefer jasmine tea in the morning."
             ),
         },
         {
             "role": "assistant",
             "content": (
                 "[Session time: 2024-01-01] "
-                "assistant: I will keep that preference in mind."
+                "I will keep that preference in mind."
             ),
         },
     ]
@@ -659,7 +664,7 @@ def test_add_batches_longmemeval_turns_as_user_assistant_pairs() -> None:
             "role": "user",
             "content": (
                 "[Session time: 2024-01-03] "
-                "user: Mint tea is acceptable at night."
+                "Mint tea is acceptable at night."
             ),
         }
     ]
@@ -725,7 +730,9 @@ def test_mem0_legacy_add_skips_duplicate_turn_time_when_content_has_marker() -> 
     first-person dict step 把 user/agent 拼成一行，时间字面值 `2024-10-01 08:00`
     在原 content 内出现 2 次（user 段、agent 段各 1 次）。renderer marker 触发跳过
     `[Turn time]` 前缀，故最终 message 中该时间字面值仍只出现 2 次（来自原文），
-    不含 `[Turn time:` 前缀；place 子串（`Boston, MA`）仍保留。
+    不含 `[Turn time:` 前缀；place 子串（`Boston, MA`）仍保留。turn 的
+    `normalized_role="user"` 有效，五格输入保真修复后 content 不再额外前置
+    `user:`——原文本身就以 `'user':` 开头，不是 renderer 加的。
     """
 
     backend = FakeMemoryBackend()
@@ -747,8 +754,10 @@ def test_mem0_legacy_add_skips_duplicate_turn_time_when_content_has_marker() -> 
     # 关键断言：renderer 没有再前置一遍，否则会出现 3 次
     assert message_content.count("2024-10-01 08:00") == 2
     assert "place: Boston, MA" in message_content
-    # 不删除原文——speaker 前缀是 renderer 既有行为
-    assert message_content.startswith("user: 'user': ")
+    # role-native content 不再前置 adapter 自己的 "user: "；原文只保留它本来的
+    # "'user': " 字面值一次
+    assert message_content.startswith("'user': I watched it.")
+    assert message_content == _MEMBENCH_TURN_CONTENT
 
 
 def test_mem0_v3_ingest_dedups_marker_after_event_stream() -> None:
@@ -953,20 +962,25 @@ def test_mem0_observation_time_prompt_text_unchanged() -> None:
     )
 
 
-def test_mem0_adapter_version_bumped_to_v2_with_v1_legacy_mention() -> None:
-    """adapter manifest 版本为 v2（manifest 严格比较拒绝旧 run resume）。
+def test_mem0_adapter_version_bumped_to_v3_with_v2_legacy_mention() -> None:
+    """adapter manifest 版本为 v3（manifest 严格比较拒绝旧 v2 run resume）。
 
-    不删除旧值—只升当前 `MEM0_ADAPTER_VERSION`；旧 v1 既不能用 import-time
-    旧值诱导，也不应通过 sidecar 或 file artifact 重建。直接断言 to_manifest()
-    与模块全局值都等于 v2。
+    五格输入/readout 保真修复改变了进入 extraction/embedding 的 build bytes
+    （LoCoMo 显式 role 映射、role-native 去重复前缀、caption wrapper），因此
+    `MEM0_ADAPTER_VERSION` 必须从 v2 再升一版；不删除旧值——只升当前值。旧 v2
+    memory state 不得被声明兼容：`manifest["adapter_version"] != "conversation-qa-v2"`
+    这一条本身就是"旧 v2 resume 必然 manifest 不等而 fail-fast"的强反例，manifest
+    整体走 `==` 精确比较（见 `runners/prediction.py` resume 语义），任何单键不等都会
+    拒绝 resume。
     """
 
     from memory_benchmark.methods.mem0_adapter import MEM0_ADAPTER_VERSION
 
-    assert MEM0_ADAPTER_VERSION == "conversation-qa-v2"
+    assert MEM0_ADAPTER_VERSION == "conversation-qa-v3"
     manifest = Mem0Config.smoke().to_manifest()
-    assert manifest["adapter_version"] == "conversation-qa-v2"
-    # 显式不再声明 v1，防止未来误降回旧版
+    assert manifest["adapter_version"] == "conversation-qa-v3"
+    # 显式不再声明 v2，防止旧 run 的 manifest 被误判兼容并静默 resume
+    assert manifest["adapter_version"] != "conversation-qa-v2"
     assert manifest["adapter_version"] != "conversation-qa-v1"
 
 
@@ -1122,7 +1136,12 @@ def test_native_mem0_longmemeval_assistant_first_session_keeps_official_chunks()
 
 
 def test_mem0_halumem_session_report_returns_current_session_add_results() -> None:
-    """HaluMem session 模式应在边界返回本 session 的 Mem0 add().results。"""
+    """HaluMem session 模式应在边界返回本 session 的 Mem0 add().results。
+
+    turn 已带结构化 `normalized_role="user"`，session report 里的 memory 文本
+    不应再看到 adapter 自己前置的 `user:`——content renderer 只改变正文渲染，
+    不影响 session report/lineage 的 session id 顺序与条数。
+    """
 
     conversation = Conversation(
         conversation_id="halu-user-1",
@@ -1180,11 +1199,11 @@ def test_mem0_halumem_session_report_returns_current_session_add_results() -> No
     ]
     assert reports[0] is not None
     assert reports[0].memories == [
-        "[Session time: Sep 01, 2025, 10:00:00] user: session a message 0",
+        "[Session time: Sep 01, 2025, 10:00:00] session a message 0",
     ]
     assert reports[1] is not None
     assert reports[1].memories == [
-        "[Session time: Sep 02, 2025, 10:00:00] user: session b message 0",
+        "[Session time: Sep 02, 2025, 10:00:00] session b message 0",
     ]
     assert provider.session_memory_report is True
     assert [len(call["messages"]) for call in provider._memory.add_calls] == [3, 1]
@@ -2222,3 +2241,667 @@ def test_mem0_configures_vendored_openai_clients_with_timeout_and_retries() -> N
     assert backend.embedding_model.client.option_calls == [
         {"timeout": 12.5, "max_retries": 6}
     ]
+
+
+# ---- Mem0 五格输入/readout 保真 R1 强反例 ------------------------------------
+# 联合裁决=docs/workstreams/ws02.7-method-track/branches/method-recertification/
+# mem0/notes/mem0-joint-ruling.md。五个真实缺口：LoCoMo 显式 speaker_a/b 映射、
+# 共享 caption wrapper、role-native content 去重复前缀、MemBench/HaluMem native
+# sanity readout 误标、HaluMem update probe top_k 透传。不新增任何 placeholder。
+
+
+def _build_locomo_conversation(
+    *,
+    conversation_id: str,
+    speaker_a: str,
+    speaker_b: str,
+    first_speaker: str,
+) -> Conversation:
+    """构造两 turn 的 LoCoMo 风格 conversation：无 normalized_role，显式声明 speaker_a/b。"""
+
+    second_speaker = speaker_b if first_speaker == speaker_a else speaker_a
+    return Conversation(
+        conversation_id=conversation_id,
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2023-05-08",
+                turns=[
+                    Turn(
+                        turn_id=f"{conversation_id}:t0",
+                        speaker=first_speaker,
+                        content=f"{first_speaker} speaks first.",
+                    ),
+                    Turn(
+                        turn_id=f"{conversation_id}:t1",
+                        speaker=second_speaker,
+                        content=f"{second_speaker} replies.",
+                    ),
+                ],
+            )
+        ],
+        metadata={"speaker_a": speaker_a, "speaker_b": speaker_b},
+    )
+
+
+def test_mem0_locomo_explicit_speaker_mapping_locks_speaker_b_first_via_legacy_add() -> None:
+    """LoCoMo speaker_a 首发与 speaker_b 首发都必须得到同一显式映射（speaker_a=user）。
+
+    current-main 的首现 `_build_speaker_roles` 会在 speaker_b 首发时把官方角色
+    整体反转——source-locked `locomo10.json` 10 个 conversation 里恰有 6 个是这种
+    形状。这里用同一对 speaker_a/speaker_b 分别构造 speaker_a 先说和 speaker_b
+    先说两个 conversation，必须得到完全相同的 user/assistant 归属，与说话顺序
+    无关。
+    """
+
+    speaker_a_first = _build_locomo_conversation(
+        conversation_id="locomo-a-first",
+        speaker_a="Caroline",
+        speaker_b="Melanie",
+        first_speaker="Caroline",
+    )
+    speaker_b_first = _build_locomo_conversation(
+        conversation_id="locomo-b-first",
+        speaker_a="Caroline",
+        speaker_b="Melanie",
+        first_speaker="Melanie",
+    )
+
+    backend = FakeMemoryBackend()
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        benchmark_name="locomo",
+    )
+
+    system.add([speaker_a_first])
+    system.add([speaker_b_first])
+
+    a_first_roles = [
+        backend.add_calls[0]["messages"][0]["role"],
+        backend.add_calls[1]["messages"][0]["role"],
+    ]
+    b_first_roles = [
+        backend.add_calls[2]["messages"][0]["role"],
+        backend.add_calls[3]["messages"][0]["role"],
+    ]
+    # Caroline(=speaker_a) 恒为 user、Melanie(=speaker_b) 恒为 assistant，
+    # 与谁先说话无关——这正是 current-main 首现算法会算错的地方。
+    assert a_first_roles == ["user", "assistant"]
+    assert b_first_roles == ["assistant", "user"]
+    assert backend.add_calls[0]["messages"][0]["content"] == (
+        "[Session time: 2023-05-08] Caroline: Caroline speaks first."
+    )
+    assert backend.add_calls[2]["messages"][0]["content"] == (
+        "[Session time: 2023-05-08] Melanie: Melanie speaks first."
+    )
+
+
+def test_mem0_locomo_v3_event_speaker_mapping_matches_legacy_add_byte_for_byte() -> None:
+    """v3 event 路径必须用同一显式映射；speaker_b 首发时 legacy 与 v3 产出字节完全一致。"""
+
+    conversation = _build_locomo_conversation(
+        conversation_id="locomo-v3-b-first",
+        speaker_a="Caroline",
+        speaker_b="Melanie",
+        first_speaker="Melanie",
+    )
+
+    legacy_backend = FakeMemoryBackend()
+    legacy_system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=legacy_backend,
+        reader_client=FakeReaderClient(),
+        benchmark_name="locomo",
+    )
+    legacy_system.add([conversation])
+
+    v3_backend = FakeMemoryBackend()
+    v3_system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=v3_backend,
+        reader_client=FakeReaderClient(),
+        benchmark_name="locomo",
+        consume_granularity="turn",
+    )
+    events = tuple(build_turn_events(conversation, "locomo-run_locomo-v3-b-first"))
+    for event in events:
+        v3_system.ingest(event)
+
+    legacy_messages = [call["messages"][0] for call in legacy_backend.add_calls]
+    v3_messages = [call["messages"][0] for call in v3_backend.add_calls]
+    assert legacy_messages == v3_messages
+    assert [message["role"] for message in v3_messages] == ["assistant", "user"]
+
+
+def test_mem0_locomo_speaker_mapping_fails_fast_on_missing_blank_or_equal_metadata() -> None:
+    """缺 speaker_a、空白 speaker_b、二者相同，均必须 fail-fast，不回落首现推断。"""
+
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+        benchmark_name="locomo",
+    )
+
+    def _single_turn_conversation(conversation_id: str, metadata: dict[str, object]) -> Conversation:
+        """构造只含一个 turn 的最小 conversation，专用于校验 metadata fail-fast。"""
+
+        return Conversation(
+            conversation_id=conversation_id,
+            sessions=[
+                Session(
+                    session_id="s1",
+                    session_time="2023-05-08",
+                    turns=[Turn(turn_id="t0", speaker="Caroline", content="hi")],
+                )
+            ],
+            metadata=metadata,
+        )
+
+    with pytest.raises(ConfigurationError, match="speaker_a and speaker_b"):
+        system.add(
+            [_single_turn_conversation("locomo-missing-a", {"speaker_b": "Melanie"})]
+        )
+    with pytest.raises(ConfigurationError, match="speaker_a and speaker_b"):
+        system.add(
+            [
+                _single_turn_conversation(
+                    "locomo-blank-b", {"speaker_a": "Caroline", "speaker_b": "   "}
+                )
+            ]
+        )
+    with pytest.raises(ConfigurationError, match="must be distinct"):
+        system.add(
+            [
+                _single_turn_conversation(
+                    "locomo-equal", {"speaker_a": "Caroline", "speaker_b": "Caroline"}
+                )
+            ]
+        )
+
+
+def test_mem0_locomo_speaker_mapping_fails_fast_on_undeclared_third_speaker() -> None:
+    """真实 turn 出现未在 speaker_a/b 声明的第三方发言者时必须 fail-fast。"""
+
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+        benchmark_name="locomo",
+    )
+    conversation = Conversation(
+        conversation_id="locomo-third-speaker",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2023-05-08",
+                turns=[
+                    Turn(turn_id="t0", speaker="Caroline", content="hi"),
+                    Turn(turn_id="t1", speaker="Stranger", content="who are you?"),
+                ],
+            )
+        ],
+        metadata={"speaker_a": "Caroline", "speaker_b": "Melanie"},
+    )
+
+    with pytest.raises(ConfigurationError, match="not declared in"):
+        system.add([conversation])
+
+
+def test_mem0_locomo_singleton_turns_have_exactly_one_message_and_no_placeholder() -> None:
+    """LoCoMo 单独 user turn、单独 assistant turn 各自只产生一条 message，无 placeholder。"""
+
+    backend = FakeMemoryBackend()
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        benchmark_name="locomo",
+    )
+    metadata = {"speaker_a": "Caroline", "speaker_b": "Melanie"}
+
+    user_only = Conversation(
+        conversation_id="locomo-user-singleton",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2023-05-08",
+                turns=[Turn(turn_id="t0", speaker="Caroline", content="solo user turn")],
+            )
+        ],
+        metadata=metadata,
+    )
+    assistant_only = Conversation(
+        conversation_id="locomo-assistant-singleton",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2023-05-08",
+                turns=[Turn(turn_id="t0", speaker="Melanie", content="solo assistant turn")],
+            )
+        ],
+        metadata=metadata,
+    )
+
+    system.add([user_only])
+    system.add([assistant_only])
+
+    assert [len(call["messages"]) for call in backend.add_calls] == [1, 1]
+    assert backend.add_calls[0]["messages"][0]["role"] == "user"
+    assert backend.add_calls[0]["messages"][0]["content"] == (
+        "[Session time: 2023-05-08] Caroline: solo user turn"
+    )
+    assert backend.add_calls[1]["messages"][0]["role"] == "assistant"
+    assert backend.add_calls[1]["messages"][0]["content"] == (
+        "[Session time: 2023-05-08] Melanie: solo assistant turn"
+    )
+
+
+def test_mem0_locomo_caption_wrapper_variants_render_exactly_once() -> None:
+    """正文+caption、caption-only、多个 caption、空白 caption：wrapper 恰一次，query/URL 不泄漏。"""
+
+    backend = FakeMemoryBackend()
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        benchmark_name="locomo",
+    )
+    metadata = {"speaker_a": "Caroline", "speaker_b": "Melanie"}
+
+    def _single_image_conversation(
+        conversation_id: str, content: str, images: list[ImageRef]
+    ) -> Conversation:
+        """构造只含一个带图片 turn 的最小 conversation，session_time=None 避免时间前缀干扰。"""
+
+        return Conversation(
+            conversation_id=conversation_id,
+            sessions=[
+                Session(
+                    session_id="s1",
+                    session_time=None,
+                    turns=[
+                        Turn(
+                            turn_id="t0",
+                            speaker="Caroline",
+                            content=content,
+                            images=images,
+                        )
+                    ],
+                )
+            ],
+            metadata=metadata,
+        )
+
+    text_and_caption = _single_image_conversation(
+        "locomo-caption-text",
+        "check this out",
+        [
+            ImageRef(
+                image_id="img-1",
+                path="images/vase.jpg?query=vase&token=secret",
+                caption="a blue vase on a table",
+                metadata={"query": "vase"},
+            )
+        ],
+    )
+    caption_only = _single_image_conversation(
+        "locomo-caption-only",
+        "",
+        [ImageRef(image_id="img-2", path="images/cat.jpg", caption="a sleeping cat")],
+    )
+    multi_caption = _single_image_conversation(
+        "locomo-caption-multi",
+        "two photos",
+        [
+            ImageRef(image_id="img-3", caption="a red bike"),
+            ImageRef(image_id="img-4", caption="a green door"),
+        ],
+    )
+    blank_caption = _single_image_conversation(
+        "locomo-caption-blank",
+        "no usable caption here",
+        [
+            ImageRef(image_id="img-5", caption="   "),
+            ImageRef(image_id="img-6", caption=None),
+        ],
+    )
+
+    for conversation in (text_and_caption, caption_only, multi_caption, blank_caption):
+        system.add([conversation])
+
+    contents = [call["messages"][0]["content"] for call in backend.add_calls]
+
+    assert contents[0] == (
+        "Caroline: check this out [Sharing image that shows: a blue vase on a table]"
+    )
+    assert contents[0].count("[Sharing image that shows:") == 1
+    assert "query" not in contents[0]
+    assert "secret" not in contents[0]
+    assert "vase.jpg" not in contents[0]
+
+    assert contents[1] == "Caroline: [Sharing image that shows: a sleeping cat]"
+
+    assert contents[2] == (
+        "Caroline: two photos [Sharing image that shows: a red bike] "
+        "[Sharing image that shows: a green door]"
+    )
+    assert contents[2].count("[Sharing image that shows:") == 2
+
+    assert contents[3] == "Caroline: no usable caption here"
+    assert "[Sharing image that shows:" not in contents[3]
+
+
+def test_mem0_longmemeval_consecutive_same_role_session_has_no_role_text_duplication() -> None:
+    """LongMemEval 连续同 role（如两个连续 user）必须保持官方位置切块，且无角色文本重复。"""
+
+    conversation = Conversation(
+        conversation_id="lme-consecutive",
+        sessions=[
+            Session(
+                session_id="haystack-cc",
+                session_time="2024-02-01",
+                turns=[
+                    Turn(
+                        turn_id=f"haystack-cc:t{index}",
+                        speaker=role,
+                        normalized_role=role,
+                        content=f"message {index}",
+                    )
+                    for index, role in enumerate(["user", "user", "assistant"])
+                ],
+            )
+        ],
+        metadata={"source_path": "data/longmemeval/longmemeval_s_cleaned.json"},
+    )
+    backend = FakeMemoryBackend()
+    system = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        consume_granularity="session",
+        benchmark_name="longmemeval",
+    )
+    events = tuple(build_turn_events(conversation, "lme-run_lme-consecutive"))
+    batch = SessionBatch(
+        isolation_key="lme-run_lme-consecutive",
+        session_id="haystack-cc",
+        events=events,
+        session_time="2024-02-01",
+    )
+
+    system.ingest(batch)
+
+    assert [len(call["messages"]) for call in backend.add_calls] == [2, 1]
+    first_chunk = backend.add_calls[0]["messages"]
+    second_chunk = backend.add_calls[1]["messages"]
+    assert [message["role"] for message in first_chunk] == ["user", "user"]
+    assert first_chunk[0]["content"] == "[Session time: 2024-02-01] message 0"
+    assert first_chunk[1]["content"] == "[Session time: 2024-02-01] message 1"
+    assert second_chunk[0]["role"] == "assistant"
+    for message in first_chunk + second_chunk:
+        assert "user: " not in message["content"]
+        assert "assistant: " not in message["content"]
+
+
+def test_mem0_membench_first_agent_children_and_third_agent_singleton_render_original_text_once() -> None:
+    """MemBench FirstAgent 两个 canonical child 各自 singleton；ThirdAgent singleton user；
+
+    正文/内嵌时间原样一次，marker=True 时无 [Turn time]/[Session time] header，
+    且 role-native content 不再重复前置角色文本。
+    """
+
+    backend = FakeMemoryBackend()
+    provider = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        consume_granularity="turn",
+        benchmark_name="membench",
+    )
+    conversation = Conversation(
+        conversation_id="membench-fa-ta",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time=None,
+                turns=[
+                    Turn(
+                        turn_id="s1:user",
+                        speaker="user",
+                        normalized_role="user",
+                        content=(
+                            "(place: Boston, MA; time: '2024-10-01 08:00' Monday) "
+                            "I watched a movie."
+                        ),
+                        turn_time="2024-10-01 08:00",
+                        metadata={"source_timestamp_embedded_in_content": True},
+                    ),
+                    Turn(
+                        turn_id="s1:agent",
+                        speaker="agent",
+                        normalized_role="assistant",
+                        content=(
+                            "(place: Boston, MA; time: '2024-10-01 08:00' Monday) Noted."
+                        ),
+                        turn_time="2024-10-01 08:00",
+                        metadata={"source_timestamp_embedded_in_content": True},
+                    ),
+                ],
+            ),
+            Session(
+                session_id="s2",
+                session_time=None,
+                turns=[
+                    Turn(
+                        turn_id="s2:third",
+                        speaker="user",
+                        normalized_role="user",
+                        content=(
+                            "(place: Boston, MA; time: '2024-10-01 09:00' Monday) "
+                            "The user watched a movie."
+                        ),
+                        turn_time="2024-10-01 09:00",
+                        metadata={"source_timestamp_embedded_in_content": True},
+                    ),
+                ],
+            ),
+        ],
+    )
+    events = tuple(build_turn_events(conversation, "membench-run_membench-fa-ta"))
+    for event in events:
+        provider.ingest(event)
+
+    assert [len(call["messages"]) for call in backend.add_calls] == [1, 1, 1]
+    first_child = backend.add_calls[0]["messages"][0]
+    second_child = backend.add_calls[1]["messages"][0]
+    third_agent = backend.add_calls[2]["messages"][0]
+    assert first_child["role"] == "user"
+    assert first_child["content"] == (
+        "(place: Boston, MA; time: '2024-10-01 08:00' Monday) I watched a movie."
+    )
+    assert second_child["role"] == "assistant"
+    assert second_child["content"] == (
+        "(place: Boston, MA; time: '2024-10-01 08:00' Monday) Noted."
+    )
+    assert third_agent["role"] == "user"
+    assert third_agent["content"] == (
+        "(place: Boston, MA; time: '2024-10-01 09:00' Monday) The user watched a movie."
+    )
+    for message in (first_child, second_child, third_agent):
+        assert "user:" not in message["content"]
+        assert "assistant:" not in message["content"]
+        assert "[Turn time" not in message["content"]
+        assert "[Session time" not in message["content"]
+
+
+def test_mem0_beam_dangling_tail_produces_singleton_add_with_no_synthetic_partner() -> None:
+    """BEAM 10M 风格奇数 session（user,assistant,user）：dangling tail 只单独 add，不补 assistant。"""
+
+    backend = FakeMemoryBackend()
+    provider = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        consume_granularity="pair",
+        benchmark_name="beam",
+    )
+    conversation = Conversation(
+        conversation_id="beam-dangling",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="2024-04-02T00:00:00",
+                turns=[
+                    Turn(
+                        turn_id="s1:t0",
+                        speaker="user",
+                        normalized_role="user",
+                        content="first user turn",
+                    ),
+                    Turn(
+                        turn_id="s1:t1",
+                        speaker="assistant",
+                        normalized_role="assistant",
+                        content="assistant reply",
+                    ),
+                    Turn(
+                        turn_id="s1:t2",
+                        speaker="user",
+                        normalized_role="user",
+                        content="dangling user turn",
+                    ),
+                ],
+            )
+        ],
+    )
+    events = tuple(build_turn_events(conversation, "beam-run_beam-dangling"))
+
+    for signal in GranularityAggregator("pair").aggregate(
+        events,
+        isolation_key="beam-run_beam-dangling",
+    ):
+        if isinstance(signal, TurnPair):
+            provider.ingest(signal)
+
+    assert len(backend.add_calls) == 2
+    assert [len(call["messages"]) for call in backend.add_calls] == [2, 1]
+    normal_pair = backend.add_calls[0]["messages"]
+    assert [message["role"] for message in normal_pair] == ["user", "assistant"]
+    assert normal_pair[0]["content"] == "[Session time: 2024-04-02T00:00:00] first user turn"
+    assert normal_pair[1]["content"] == "[Session time: 2024-04-02T00:00:00] assistant reply"
+
+    dangling_call = backend.add_calls[1]
+    assert len(dangling_call["messages"]) == 1
+    assert dangling_call["messages"][0]["role"] == "user"
+    assert dangling_call["messages"][0]["content"] == (
+        "[Session time: 2024-04-02T00:00:00] dangling user turn"
+    )
+    assert dangling_call["metadata"]["turn_ids"] == ["s1:t2"]
+
+
+def test_mem0_halumem_update_probe_uses_query_top_k_while_qa_keeps_configured_top_k() -> None:
+    """`purpose=memory_update_probe` 时忠实采用 `query.top_k`；`qa` 仍用 profile top_k。
+
+    HaluMem 官方 update probe 请求窗口为 10（`operation_level.py` 硬编码），与
+    `Mem0Config.smoke().top_k=20` 的标准检索深度不同。qa 请求刻意传入
+    `top_k=5`（不同于 config 的 20），证明 qa purpose 是真正忽略 `query.top_k`，
+    而不是恰好与 config 数值相同。
+    """
+
+    backend = FakeMemoryBackend()
+    provider = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=backend,
+        reader_client=FakeReaderClient(),
+        benchmark_name="halumem",
+    )
+    event = tuple(build_turn_events(_build_conversation(), "halumem-run_conv-1"))[0]
+    provider.ingest(event)
+
+    update_result = provider.retrieve(
+        RetrievalQuery(
+            isolation_key="halumem-run_conv-1",
+            query_text="some memory point content",
+            question_time=None,
+            top_k=10,
+            purpose="memory_update_probe",
+        )
+    )
+    qa_result = provider.retrieve(
+        RetrievalQuery(
+            isolation_key="halumem-run_conv-1",
+            query_text="qa question",
+            question_time=None,
+            top_k=5,
+            purpose="qa",
+        )
+    )
+
+    assert backend.search_calls[0]["top_k"] == 10
+    assert backend.search_calls[1]["top_k"] == 20
+    assert update_result.metadata["top_k"] == 10
+    assert update_result.metadata["configured_top_k"] == 20
+    assert update_result.metadata["top_k_source"] == "query_top_k"
+    assert qa_result.metadata["top_k"] == 20
+    assert qa_result.metadata["configured_top_k"] == 20
+    assert qa_result.metadata["top_k_source"] == "config_top_k"
+
+
+def test_mem0_reader_prompt_kind_explicit_non_native_identity_stays_generic() -> None:
+    """显式 benchmark_name 不在三家官方 native prompt 名单时一律 generic，不猜成别家。
+
+    MemBench 100% 问题都带 `question_time`；HaluMem category 恰好撞上 LoCoMo
+    启发式使用的数字类目。两者都必须仍返回 generic，不能被数据形态启发式带偏。
+    """
+
+    membench = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+        benchmark_name="membench",
+    )
+    membench_question = Question(
+        question_id="q1",
+        conversation_id="c1",
+        text="What happened?",
+        question_time="2024-10-01 08:00",
+    )
+    assert membench._reader_prompt_kind(membench_question) == "generic"
+
+    halumem = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+        benchmark_name="halumem",
+    )
+    halumem_question = Question(
+        question_id="q2",
+        conversation_id="c2",
+        text="What happened?",
+        category="1",
+    )
+    assert halumem._reader_prompt_kind(halumem_question) == "generic"
+
+
+def test_mem0_reader_prompt_kind_none_identity_still_uses_legacy_heuristics() -> None:
+    """`benchmark_name is None` 的旧版兼容调用必须保留 `question_time` 兜底启发式。
+
+    只有显式 identity 缺失时才允许这条启发式生效；上一条测试锁住显式非三家
+    identity 必须走 generic，两条测试合起来证明分支互不覆盖。
+    """
+
+    legacy = Mem0(
+        config=Mem0Config.smoke(),
+        memory_backend=FakeMemoryBackend(),
+        reader_client=FakeReaderClient(),
+    )
+    question = Question(
+        question_id="q1",
+        conversation_id="c1",
+        text="What happened?",
+        question_time="2024-10-01 08:00",
+    )
+    assert legacy._reader_prompt_kind(question) == "longmemeval"
