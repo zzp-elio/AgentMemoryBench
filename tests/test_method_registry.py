@@ -59,6 +59,25 @@ def test_mem0_registration_declares_capabilities_factory_and_api_boundary() -> N
     assert not hasattr(registration, "api_key")
 
 
+def test_mem0_registration_model_inventory_excludes_unused_answer_llm() -> None:
+    """Mem0 inventory 不应声明 registered 主路径从不调用的 legacy reader。
+
+    registered v3 主路径的最终回答由 framework reader 生成；Mem0
+    ``get_answer()`` 里的 ``mem0-answer-llm`` 只在直接调用兼容接口时产生
+    observation，不能混入 registered run 的预声明 inventory。
+    """
+
+    registration = get_method_registration("mem0")
+
+    assert registration.efficiency_model_inventory_getter is not None
+    assert registration.efficiency_instrumentation_identity_getter is not None
+    inventory = registration.efficiency_model_inventory_getter(Mem0Config.smoke())
+    model_ids = [model.model_id for model in inventory]
+
+    assert model_ids == ["mem0-memory-llm", "mem0-embedding"]
+    assert "mem0-answer-llm" not in model_ids
+
+
 def test_memoryos_registration_uses_generic_contract() -> None:
     """MemoryOS registration 应声明统一 runner 所需的完整静态契约。"""
 

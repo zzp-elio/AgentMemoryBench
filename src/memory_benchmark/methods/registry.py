@@ -538,7 +538,13 @@ def _mem0_max_workers(config: Any) -> int:
 
 
 def _mem0_efficiency_model_inventory(config: Any) -> tuple[ModelDescriptor, ...]:
-    """返回 Mem0 efficiency observation 会引用的模型身份。"""
+    """返回 Mem0 registered 主路径实际会引用的模型身份。
+
+    不声明 ``mem0-answer-llm``：registered v3 主路径只调用
+    ``ingest()``/``retrieve()``，最终 answer LLM 由 framework
+    ``FrameworkAnswerReader`` 执行并另行追加到 model inventory。Mem0
+    ``get_answer()`` 的 reader observation 只属于直接调用 legacy 接口的路径。
+    """
 
     if not isinstance(config, Mem0Config):
         raise ConfigurationError("Mem0 model inventory getter requires Mem0Config")
@@ -549,13 +555,6 @@ def _mem0_efficiency_model_inventory(config: Any) -> tuple[ModelDescriptor, ...]
             model_role="memory_llm",
             execution_mode="api",
             tokenizer_name=config.extraction_model,
-        ),
-        ModelDescriptor(
-            model_id="mem0-answer-llm",
-            model_name=config.reader_model,
-            model_role="answer_llm",
-            execution_mode="api",
-            tokenizer_name=config.reader_model,
         ),
         ModelDescriptor(
             model_id="mem0-embedding",

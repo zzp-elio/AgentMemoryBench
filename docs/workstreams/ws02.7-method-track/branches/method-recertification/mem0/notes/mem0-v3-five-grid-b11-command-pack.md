@@ -589,7 +589,13 @@ for case in cases:
     for row in answers:
         assert isinstance(row["formatted_memory"], str)
         assert isinstance(row["retrieved_items"], list)
-        assert row["retrieval_query_top_k"] == case["query_top_k"]
+        if case["query_top_k"] is None:
+            # HaluMem 走 operation-level runner；该 answer artifact 没有普通
+            # prediction retrieve(query, top_k) 字段。缺席才是真实契约，不能
+            # 把不存在的公共查询深度伪写成 null。
+            assert "retrieval_query_top_k" not in row, (run_dir, row)
+        else:
+            assert row["retrieval_query_top_k"] == case["query_top_k"]
         evidence = row["retrieval_evidence"]
         assert evidence["semantic_provenance"]["status"] == case["semantic"]
         assert evidence["provenance_granularity"] == case["granularity"]
