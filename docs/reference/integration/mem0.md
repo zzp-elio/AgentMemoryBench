@@ -1,9 +1,11 @@
 # Mem0 接入实例（B1-B11 逐项）
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**method-frozen-v1 局部重开（2026-07-16：product-default build 与 B10 build 轴）**。
-> source-time B4 离线修复已验收；冻结证据与九项声明缺口见
-> `../../workstreams/ws02.7-method-track/notes/mem0-frozen-v1.md`；下列 B1-B11 是现行
+> 状态：**method-frozen-v2（2026-07-20 current-v3 五格重认证完成）**。
+> 现行冻结证据与声明缺口见
+> `../../workstreams/ws02.7-method-track/branches/method-recertification/mem0/notes/mem0-frozen-v2.md`；
+> `../../workstreams/ws02.7-method-track/notes/mem0-frozen-v1.md` 保留为历史快照。
+> 下列 B1-B11 是现行
 > 结论，不再把 2026-07-13 的预填风险冒充当前状态。2026-07-15 ADD-only/provenance
 > 负空间审计已由架构师验收：memory mutation 仅 ADD；同时确认 sidecar 是 ingest 批
 > 归属，不自动等于 fact-level turn provenance。现行逐格裁决见
@@ -90,37 +92,38 @@ message role/content 与检索请求 top-k，不改 Mem0 V3 extraction/update/de
   声明 valid(session)，不得冒充 turn；BEAM pair 的批 id 并集不能证明每条 fact 同时承载
   两个 turn，turn Recall=N/A；HaluMem 官方无 retrieval recall。
 - **B6 ✅ no-op flush**：`add()` 同步抽取并写入，无 conversation 尾部缓冲。
-- **B7 ✅ api_usage（带声明缺口）**：build/answer/judge 观测已贯通；三格 native
-  injected-token 计量尚未完全跟随官方实际嵌入段，列入 R0 前置包。
+- **B7 ✅ api_usage（带声明缺口）**：build/embedding/retrieval/framework answer 与
+  artifact-level judge 观测已在五格真实 run 贯通。开箱发现 registered inventory 多声明不可达
+  `mem0-answer-llm`；actual observations 为 0，`14b6c31` 已与 LightMem 同契约删除该条，legacy
+  `get_answer()` 的直接调用观测仍保留。旧 native injected-token 计量差异继续列入作者校准前置包。
 - **B8 ✅ 副作用/韧性**：失败清理为 `delete_all(run_id)` + 批准的 third_party
   `SQLiteManager.delete_messages(session_scope)` 最小 diff + sidecar 清除；两类业务 API
   点有 timeout/retry。operation-level runner 现与标准 runner 共用 clean-failed-ingest
   状态机：失败原子写 `failed_ingest` 及精确 stage，默认 resume 跳过，显式 retry 无 hook
   fail-closed、有 hook 则先清 namespace 恰一次再从 session 1 重建；partial operation
   artifacts 不落盘。首次模型下载仍需新机器预热预检。
-- **B9 🟡 当前 smoke 配置已声明；性能主配置待裁**：2026-07-09 shared MiniLM 配置/产物与
+- **B9 ✅ 当前 smoke build 已真实复证；性能主配置待裁**：2026-07-09 shared MiniLM 配置/产物与
   2026-07-16 product-default 审计都保留为真实历史。现行政策把 embedding 作为 TOML 普通
   build 字段：5×10 smoke 保持当前 MiniLM，不提前烧 OpenAI embedding；真实效果实验前再裁
   `official_full` 是否采用 `text-embedding-3-small`/1536/Qdrant cosine。若切换，托管权重
   revision 只能声明 `provider_managed_unpinned`，并须全量重建、重开 B8+/B11、由用户确认
   预算/规模/run_id。官方 0.1 相关性门槛导致空检索仍属于方法语义，不当作框架故障。
-- **B10 🟡 truthful v1 已落，TOML/builder 迁移待性能阶段**：旧 native 注册 LoCoMo、LongMemEval、
+- **B10 ✅ current 主配置 truthful；author TOML/builder 迁移待性能阶段**：旧 native 注册 LoCoMo、LongMemEval、
   BEAM；当前真实覆盖仅 readout，embedding/build override 未生效。新 manifest 已声明
   `native_scope=readout_only`、current controlled MiniLM 与 answer/judge
   `framework_model_override`，不再由裸 `config_track=native` 暗示 full-native。首个作者校准
   run 前须把有证据的 LoCoMo/LongMemEval/BEAM 设置改由 `author_<benchmark>` TOML section
   选择完整 answer builder；旧 judge 路由泛化和论文校准仍属于前置包。
-- **B11 🟡 离线代码门关闭；新五格主 smoke 待复证**：13 格历史 predict、免费/付费指标与既定
-  并行门保留，但旧 build 不能替代 adapter v3。既有 BEAM provenance recall 与 LongMemEval
-  turn-level/rank 数字不再作可信指标声明；RetrievalEvidence M1 已严格消费逐题资格。
-  input/readout v3 与 operation clean retry 经扩大定向 244 passed、主树全量 1637 passed +
-  29 subtests、compileall exit 0 强验收。下一步五格真实 smoke 必须抽查新 message bytes、
-  retrieval evidence、HaluMem extraction/update/QA 与失败恢复身份；完成 artifact 开箱前不恢复 frozen。
+- **B11 ✅ current-v3 五格真实 smoke + 冻结**：8 个 run 覆盖 LoCoMo/LME W1+W2、MemBench
+  four-source W2、BEAM 100K W2 + 10M W1、HaluMem Medium operation W1；适用 answer/retrieval/
+  judge/细分 metric、worker state、Qdrant↔sidecar、效率与 public/private artifact 均由架构师开箱。
+  LongMemEval rank 与 BEAM Recall 按资格分别写 `pending`/`N/A`，没有硬算。最终证据见
+  `mem0-frozen-v2.md`。
 
 ## 特殊情况
 1. Mem0 是当前唯一混合隔离方法，不能把 worker 内逻辑隔离误写成全局纯逻辑隔离。
-2. `method-frozen-v1` 允许携带声明缺口，不等于这些缺口消失；解冻边界和 R0 前置包以
-   frozen note §3-§4 为准。
+2. `method-frozen-v2` 允许携带声明缺口，不等于这些缺口消失；解冻边界与效果阶段前置项以
+   current frozen note §7-§8 为准。
 3. `ADD_ONLY_MUTATION_PROVEN` 只回答旧 memory 是否被改写/删除；它不替代 semantic
    provenance 审计。任务卡旧标签 `ADD_ONLY_PROVEN` 的过宽语义以现行 ruling 为准。
 4. 论文 LoCoMo 双库不是“更保险的单库”：它把每个 turn 写两次，绑定只抽 user 的 v2 custom

@@ -51,12 +51,13 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 
 ## 二、Method 侧（B1-B11）
 
-判据 B1-B11 见 checklist。**method-frozen-v1** = B1-B11 全过 + 架构师验收 + `notes/<m>-frozen-v1.md`。
+判据 B1-B11 见 checklist。**method-frozen-vN** = current build 的 B1-B11 全过 + 架构师验收 +
+对应版本 frozen note；旧版本保留为历史快照，不覆盖改写。
 
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 TOML/builder | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅caption v6 + MemBench/BEAM pair + HaluMem session | ✅五格真实 state；并行格物理隔离 | ✅v7 五格 readout/时间真实验收 | ✅LoCoMo/MemBench valid；LME/BEAM/HaluMem N/A；ranking pending 如实披露 | ✅online-soft + forced flush R1 | ✅prediction 与 artifact judge observations 实测 | ✅ | ✅当前 MiniLM smoke build | ✅主 TOML；author builder 按政策延后到校准前 | ✅五格 `REAL_SMOKE_PASSED` + 100K current-identity refill | **method-frozen-v3** |
-| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅五格 role/granularity v3 | ✅混合(par2×4实弹) | ✅time/caption/role 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(旧 native 计量=前置声明2) | ✅clean retry + 精确失败 stage | 🟡当前 MiniLM；性能主配置待裁 | 🟡truthful 旧身份已落；author builder 待迁 | 🟡离线代码门关闭；五格真实复证待跑 | **v1 局部重开；待 B11** |
+| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅五格 role/granularity v3 | ✅混合(W2×4实弹) | ✅time/caption/role 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅五格 prediction+judge 实测 | ✅clean retry + 精确失败 stage | ✅当前 MiniLM smoke build；性能主配置待裁 | ✅current 主配置 truthful；author builder 待迁 | ✅五格 8 run 开箱 + inventory R1 | **method-frozen-v2** |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅当前 MiniLM smoke build | 🟡旧 readout 身份 truthful；author builder 待迁 | 🟡五格主 smoke | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -76,9 +77,10 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 > build；性能主配置到站后逐 method 裁定。
 > MemoryOS 已完成 M1 一手取证与 M2 离线施工/全量门，只差排到其顺序后的 B11 真实 smoke；
 > Mem0 五格 input/readout v3 与 HaluMem operation clean retry 已于 2026-07-20 以
-> `7fb3cd9`/`e1b2c9c`、`1bdfa98`/`5d1f91e` 强验收，扩大定向 244 passed、主树全量
-> 1637 passed + 29 subtests、compileall exit 0；当前只剩五格真实 smoke/artifact 开箱，
-> 因此仍是局部重开而不是 frozen。
+> `7fb3cd9`/`e1b2c9c`、`1bdfa98`/`5d1f91e` 强验收，随后 8 个真实 run 的 manifest、metric、
+> judge scope、worker state、Qdrant↔sidecar 与 public/private artifact 全部开箱。机器门的
+> HaluMem field-presence 误判已订正；actual observations 反证不可达 legacy reader 后，
+> registered model inventory 以 `14b6c31` 收紧。Mem0 现恢复为 `method-frozen-v2`。
 > LightMem 因 2026-07-15 发现 LoCoMo post-update 无 semantic source mapping 而重开 B5/B11；
 > RetrievalEvidence M1、MemBench canonical/role、caption v6 与最新 LoCoMo 单/双 worker B11
 > 已全部关闭，2026-07-17 曾恢复为 method-frozen-v2；2026-07-18 v7 readout/embedding

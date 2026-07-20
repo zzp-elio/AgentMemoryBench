@@ -46,9 +46,14 @@ placeholder；真实缺口拆成两张不写同一文件的卡，可并行施工
    compileall exit 0；adapter v3 旧 store 经真实 preflight 禁 resume；
 4. ✅ 五格最小真实 smoke 的规模、run id、全部适用 evaluator 与统一机器门已锁入
    [`mem0-v3-five-grid-b11-command-pack.md`](notes/mem0-v3-five-grid-b11-command-pack.md)；
-   当前动作是用户按该页串行执行 8 个 run；四个非 HaluMem benchmark 各含真实双 worker 门，
-   架构师随后直接开箱验货。命令包之外的 full、
-   resume、扩大题数与模型切换仍未授权。
+   用户已串行完成 8 个 run；四个非 HaluMem benchmark 各含真实双 worker 门，架构师已完成
+   manifest/artifact/summary/efficiency/sidecar/Qdrant/state 开箱。首次 HaluMem
+   `retrieval_query_top_k` KeyError 证实是验货器跨 runner 误读字段，修正后原地全绿；
+5. ✅ 开箱发现 registered inventory 多声明不可达 `mem0-answer-llm`，以 `14b6c31` 离线收紧并
+   由 actual observations=0 + 144 项定向回归关闭；最终主树全量 1638 passed + 29 subtests、
+   compileall exit 0；不改实验结果、不重烧 API；
+6. ✅ 最终冻结记录为 [`mem0-frozen-v2.md`](notes/mem0-frozen-v2.md)。full、resume、扩大题数、
+   product-default embedding 与作者校准仍按声明缺口另行授权，不由本轮 smoke 代证。
 
 稳定 benchmark 事实入口：
 

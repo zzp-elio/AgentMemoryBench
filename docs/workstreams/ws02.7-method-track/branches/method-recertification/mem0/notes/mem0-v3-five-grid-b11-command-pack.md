@@ -1,6 +1,7 @@
 # Mem0 current-v3 五格 B11 真实 smoke 命令包
 
-> 状态：**待用户执行**。命令生成基线为 `main@8344072`；该基线已经完成 Mem0 两张 R1
+> 状态：**已执行并由架构师开箱验收；Mem0 B11 关闭**。命令生成基线为 `main@8344072`；
+> 该基线已经完成 Mem0 两张 R1
 > 的 full-diff 强验收、主树全量 `1637 passed, 3 deselected, 2 warnings, 29 subtests
 > passed` 与 `compileall exit 0`。本页只授权下列 8 个 run；不授权 full、resume、扩大题数、
 > 删除失败现场或切换模型。全部真实 LLM 仍按项目政策使用 `gpt-4o-mini`。
@@ -9,6 +10,11 @@
 > LME W2；用户在执行前拦下。current-main 注册层与零 API prepare 探针证明 `--rounds 1`
 > 将每个 instance 裁为 2 turns。本版保留该勘误历史，并让四个非 HaluMem benchmark 各自
 > 通过真实双 worker 门；首版命令已 superseded，禁止继续执行。
+>
+> **R2（2026-07-20）**：首次机器门把 HaluMem operation-level answer artifact 误当普通
+> prediction artifact，直接索引不存在的 `retrieval_query_top_k`。现按真实契约改为：普通四格
+> 必须等于 10；HaluMem 必须缺席。既有 8 个 run 原地复验全绿，无需重跑 API。最终冻结证据见
+> [`mem0-frozen-v2.md`](mem0-frozen-v2.md)。
 
 ## 1. 八个 run：四个非 HaluMem benchmark 都有真实并行门
 
@@ -678,7 +684,21 @@ print(
 PY
 ```
 
-## 9. 回收协议
+## 9. 实际执行与验收结果
+
+用户完成全部 8 个 run；HaluMem 付费 judge 预览/实耗为 extraction/update/QA=`8/7/1`。
+修正后的统一机器门尾行：
+
+```text
+PASS Mem0 five-grid B11 machine gate: 8 runs, all eligible metrics, worker isolation, retrieval eligibility and HaluMem breakdowns present
+```
+
+架构师另行核对 checkpoint/log、public/private artifact、Qdrant↔sidecar、逐 metric summary、
+judge scope 与 actual model observations；完整结论进入 `mem0-frozen-v2.md`。开箱发现并离线关闭
+一个不改变实验结果的 truthful inventory 缺口：registered v3 从不调用的 `mem0-answer-llm`
+此前被过度声明，修复为 `14b6c31`。旧 run 不改写、不重烧。
+
+## 10. 回收协议
 
 用户执行后只需告诉架构师“全部完成”或粘贴**第一处 exception/PASS 尾行**；无需把所有 terminal
 输出手工复制进聊天。架构师会直接从上述 8 个 run 目录开箱：逐 manifest、artifact、summary、

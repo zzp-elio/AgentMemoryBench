@@ -904,3 +904,20 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   独立 benchmark 仓库则是单 namespace、V3 双 role 抽取、singleton add。即使两者都由官方
   维护，也不能把前者降格成 TOML 参数差；改变写入倍数、namespace 或检索融合就是独立
   implementation variant。
+
+### 14.8 2026-07-20：验货要区分字段缺席与 null，并用 observation 反审 inventory
+
+- **“预期无值”不等于“字段必须存在且为 null”。**Mem0 B11 机器门给 HaluMem 的
+  `query_top_k` 预期写了 `None`，却仍直接索引普通 prediction 才有的
+  `retrieval_query_top_k`，对正确的 operation-level artifact 报 `KeyError`。验货器必须先按
+  runner/schema 判断字段所有权：契约要求缺席时断言 key 不存在，要求 nullable 时才读 null；
+  不能把 Python 里的一个 sentinel 同时表示两种协议。
+- **model inventory 不能只看配置对象，必须和真实 observation 对账。**Mem0 registry 曾声明
+  `mem0-answer-llm`，但 registered v3 只调用 `ingest/retrieve`，最终回答由 framework reader
+  执行；8 个真实 run 对该 id 的 actual-call count 全为 0。凡 inventory 声称“本 run 可能引用”
+  的模型，B11 至少要做 `declared ids ↔ actual observed ids ↔ 可达调用链` 三方核对；legacy
+  直接调用可保留自己的 observation 代码，但不可混进 registered 主路径预声明。
+- **纯 artifact identity 修复不机械重烧算法 run。**若 diff 只删除已被真实 observation 证明
+  不可达的预声明行，且不改变 message、state、retrieve、answer、score 或调用次数，可用既有
+  actual observations + 强回归关闭，并在 frozen note 披露旧 artifact 与 current writer 的差异；
+  这比篡改历史 outputs 或无意义重付 API 更可审计。

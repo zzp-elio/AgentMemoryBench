@@ -43,10 +43,9 @@ LightMem 已关闭的异常样本。只有三类触发器允许重开 benchmark 
    M1 均已强验收关闭；M1 主线为 `5d8fce3` + `e10110f`。
 2. **LightMem 第一家**：重点重验 online-soft 主 profile、missing-time 扩展、逐题 evidence、
    canonical-required MiniLM build identity、五 benchmark B4/B5/B6/B9/B10/B11。
-3. **Mem0 第二家**：把 source-time、ADD-only/provenance、truthful identity 与
-   product-default OpenAI embedding 迁移放在同一认证链；另有已知 B2 债：当前 adapter 仍裸拼
-   caption，尚未采用 R7 v2 的 `[Sharing image that shows: {caption}]` wrapper。到 Mem0 站再用
-   同一共享 helper 修复并升 build identity，不扩大当前 LightMem 卡；真实重建仍须用户批预算。
+3. **Mem0 第二家（已完成）**：current-v3 已关闭 source-time、caption、role、provenance、
+   truthful identity、operation clean retry 与五格真实 B11，冻结为 `method-frozen-v2`。
+   product-default OpenAI embedding 属效果阶段，若切换须用户批预算并全量重建，不阻塞 smoke。
 4. **MemoryOS 第三家**：PyPI product identity、speaker/provenance sidecar、降级审计、
    readout-native 与五格 smoke 一次收口；ChromaDB variant 不混入主轨。
 5. **A-Mem → SimpleMem**：各自补全 product/reproduction identity 后重走 B1-B11。
@@ -54,11 +53,8 @@ LightMem 已关闭的异常样本。只有三类触发器允许重开 benchmark 
 
 ## 当前状态
 
-LightMem current-v7 已完成五格真实 smoke、forced-flush reachability 与 100k refill，冻结为
-`method-frozen-v3`。**Mem0 现为唯一 active method**，入口为
-[`mem0/README.md`](mem0/README.md)。第一波六份互不冲突的 docs-only 审计已经合流；联合裁决
-确认 Mem0 role-aware 但不要求 pair，任何格都不因此新增 placeholder。当前第二波为两张写集
-正交的 R1 卡：Mem0 adapter 输入/readout 保真，以及 method-neutral HaluMem operation runner
-top-10/clean retry；两者可并行，回卡后再合流跑全量门与五格最小真实 smoke。benchmark 稳定层
-继续复用 LightMem source lock/异常账，不重跑 census。MemoryOS 继续等待 Mem0 收口。权威实时
-动作仍看父级 `../../README.md` 恢复胶囊与最新断点。
+LightMem current-v7 已冻结为 `method-frozen-v3`；Mem0 current-v3 的 8 个真实 run、全部适用
+metric/judge、worker state 与 artifact 开箱也已关闭，冻结为 `method-frozen-v2`。**MemoryOS 现为
+唯一 active method**：复用前两家已压实的 benchmark 稳定层，只做其 PyPI product identity、
+forced-pair/session 映射、readout/provenance 与五格 runtime 差量，不再重做 dataset census。
+权威实时动作仍看父级 `../../README.md` 恢复胶囊与最新断点。

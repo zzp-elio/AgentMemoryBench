@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（Mem0 双 R1 已强验收合流；五格 B11 命令已锁，待用户执行）
+status: in-progress（LightMem frozen-v3、Mem0 frozen-v2；当前转 MemoryOS 五格重认证）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -49,9 +49,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `23d785f`（artifact judge 观测边界/卡）→ `174bd46`（artifact-level judge efficiency
   共享修复）→ `f9cd0f7`（BEAM judge refill 命令门）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1637 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 202.14s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
-  model 资产后才跑该门，不能把缺资产失败混成代码回归。
+  hash。本轮主树全量门=`1638 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 174.94s`；标准 `src+tests` compileall exit 0。两条 warning 均为既有 vendored
+  deprecation，不能把环境/第三方噪声混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
   身份裁决与 Track identity M0 已关闭；当前按逐 method 串行顺序排在 LightMem、Mem0 后，
@@ -205,8 +205,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   Memobase wrapper 用 token budget，shared scorer 不校验 top-k，禁止共享 runner 截 items 或
   拆 formatted text。adapter 已升 `conversation-qa-v3`，旧 v2 resume 由真实 manifest
   preflight 拒绝；operation runner 失败态精确区分 ingest/extraction/update/QA/end/cleanup，
-  默认 resume 跳过，显式 retry 必须先 clean。离线代码门已关闭，下一步仅是五格真实 B11
-  smoke 与 artifact 开箱；未获用户逐格预算/规模/run id 批准前不调用真实 API。
+  默认 resume 跳过，显式 retry 必须先 clean。用户已完成 current-v3 五格 8 个真实 run；架构师
+  从 manifest、metric、judge scope、worker state、Qdrant↔sidecar 与 public/private artifact
+  逐层开箱，B11 全绿。验货器的 HaluMem field-presence 误判已订正；registered inventory 的
+  不可达 legacy reader 也以 `14b6c31` 收紧。Mem0 现冻结为 `method-frozen-v2`，当前转 MemoryOS。
 - **2026-07-20 汇报门**：用户目标是在 2026-07-20 下午前尽量冻结 Mem0、MemoryOS、A-Mem、
   SimpleMem，并填写 `reports/report-progress-2026-07-20.md`。该目标要求复用 LightMem 已锁定的
   benchmark 稳定层，不再做无反证的全量 census；但不得把用户/外部工具对后续 method 接口的
@@ -216,6 +218,17 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   推导，不用 add 数猜 LLM 次数。
 
 ## 当前断点（2026-07-20）
+
+- 2026-07-20（**🧊 Mem0 method-frozen-v2；下一家转 MemoryOS**，GPT-5.6 sol 架构师）：用户按
+  `mem0-v3-five-grid-b11-command-pack.md` 完成 8 个真实 run。修正 HaluMem operation artifact
+  不应拥有 `retrieval_query_top_k` 的验货器误判后，统一机器门 8/8 PASS；架构师另核 checkpoint、
+  terminal logs、全部 summary、judge `1+2 / 1+2 / 2+1 / 8+7+1` scopes、12 个 state root 的
+  Qdrant↔sidecar 等式及私有字段负空间。开箱还发现 registry 过度声明 registered v3 不可达的
+  `mem0-answer-llm`；8 个 run actual observations 该 id=0，`14b6c31` 只收紧 inventory，144 项
+  定向回归与主树全量 1638 passed + 29 subtests 全绿，compileall exit 0；不改算法或结果、无需
+  重烧。冻结证据=`branches/method-recertification/mem0/notes/
+  mem0-frozen-v2.md`。**当前唯一动作转 MemoryOS current-main 五格差量重认证**；复用已冻结
+  benchmark 稳定层，不重做 census。
 
 - 2026-07-20（**Mem0 双 R1 + 架构师 R1 强验收完成；转五格真实 B11**，GPT-5.6 sol 架构师）：
   Sonnet 5 两张回卡分别为 `1de6ef8`（Mem0 五格 input/readout）与 `40ca6da`（HaluMem

@@ -1,5 +1,9 @@
 # Mem0 method-frozen-v1 冻结记录
 
+> **历史快照，已由 2026-07-20 的 current-v3 重认证 supersede。**现行冻结判词为
+> [`../branches/method-recertification/mem0/notes/mem0-frozen-v2.md`](../branches/method-recertification/mem0/notes/mem0-frozen-v2.md)；
+> 本页保留 v1 当时的证据、勘误与声明缺口，不再作为 current B11 状态入口。
+
 > 冻结日 2026-07-14(Fable 5)。**冻结语义**:自本记录起,改
 > `mem0_adapter.py` / `mem0_native_prompts.py` / registry 的 mem0 注册行 /
 > 两个已批 third_party 最小 diff,须在 ws02.7 README 断点区写解冻理由,
