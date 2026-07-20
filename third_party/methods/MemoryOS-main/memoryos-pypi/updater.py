@@ -101,7 +101,7 @@ class Updater:
         evicted_qas = []
         while self.short_term_memory.is_full():
             qa = self.short_term_memory.pop_oldest()
-            if qa and qa.get("user_input") and qa.get("agent_response"):
+            if qa and (qa.get("user_input") or qa.get("agent_response")):
                 evicted_qas.append(qa)
         
         if not evicted_qas:
@@ -119,7 +119,8 @@ class Updater:
                 "page_id": generate_id("page"),
                 "user_input": qa_pair.get("user_input", ""),
                 "agent_response": qa_pair.get("agent_response", ""),
-                "timestamp": qa_pair.get("timestamp", get_timestamp()),
+                "timestamp": qa_pair.get("timestamp"),
+                "meta_data": dict(qa_pair.get("meta_data") or {}),
                 "preloaded": False, # Default for new pages from short-term
                 "analyzed": False,  # Default for new pages from short-term
                 "pre_page": None,
@@ -236,4 +237,4 @@ class Updater:
                 if line.strip() and line.strip().lower() not in ["none", "- none", "- none."]:
                     self.long_term_memory.add_assistant_knowledge(line.strip())
 
-        # LongTermMemory.save() is called by its add/update methods 
+        # LongTermMemory.save() is called by its add/update methods

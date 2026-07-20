@@ -5,7 +5,7 @@
 再按 group any-of 计分"的重复逻辑。本模块把这段**真正公共**的部分收敛为单一
 入口 `recall_at_k`：
 
-- 只消费 `retrieved_items[:top_k]`，每项 `source_turn_ids` 按原序展开，稳定
+- 只消费 always-on 条目和前 `top_k` 个 ranked 条目，`source_turn_ids` 按原序展开，稳定
   去重后再计分；重复 source id 不重复命中；
 - gold group any-of 命中与 recall 比值仍复用 `gold_evidence_groups` 中已有的
   `group_is_hit` / `group_recall_score`，本模块不写第二份 recall 公式；
@@ -81,12 +81,35 @@ def top_k_source_ids(
     """
 
     seen: dict[str, None] = {}
-    for item in retrieved_items[:top_k]:
+    for item in selected_retrieval_items(retrieved_items, top_k):
         for source_id in item["source_turn_ids"]:
             projected = source_id_projector(source_id)
             if projected not in seen:
                 seen[projected] = None
     return tuple(seen)
+
+
+def selected_retrieval_items(
+    retrieved_items: list[dict[str, Any]], top_k: int
+) -> list[dict[str, Any]]:
+    """选择 Recall 输入：always-on 全取，ranked 才由 query k 限制。
+
+    未声明 `selection_mode` 的历史 artifact 继续按 ranked 处理；`non_evidence`
+    条目可进入产品 readout，却不应伪造可计分的 turn provenance。
+    """
+
+    selected: list[dict[str, Any]] = []
+    ranked_count = 0
+    for item in retrieved_items:
+        metadata = item.get("metadata")
+        mode = metadata.get("selection_mode", "ranked") if isinstance(metadata, dict) else "ranked"
+        if mode == "always_on":
+            selected.append(item)
+        elif mode == "ranked":
+            if ranked_count < top_k:
+                selected.append(item)
+            ranked_count += 1
+    return selected
 
 
 def recall_at_k(
@@ -138,5 +161,6 @@ __all__ = [
     "SourceIdProjector",
     "identity_source_id",
     "recall_at_k",
+    "selected_retrieval_items",
     "top_k_source_ids",
 ]

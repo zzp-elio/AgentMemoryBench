@@ -233,7 +233,7 @@ def test_config_manifest_marks_pypi_engine_and_source_mode() -> None:
 
     config = MemoryOSPaperConfig()
     manifest = config.to_manifest()
-    assert manifest["adapter_version"] == "conversation-qa-v1"
+    assert manifest["adapter_version"] == "conversation-qa-v2-shared-lifecycle"
     assert manifest["source_mode"] == "memoryos-pypi-wrapper"
     assert manifest["engine"] == "memoryos-pypi"
     for value in manifest.values():
@@ -991,11 +991,11 @@ def test_non_locomo_formatted_memory_keeps_generic_roles(
     assert "Assistant: I will remember that." in result.metadata["answer_context"]
 
 
-def test_retrieved_page_maps_exactly_to_all_duplicate_source_turn_ids(
+def test_retrieved_page_without_native_occurrence_provenance_fails_fast(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """重复 page 文本必须返回全部公开来源 id，不能按 rank 任选一条。"""
+    """手工 MTM page 缺 native occurrence provenance 时不得回落文本 union。"""
 
     _stub_pypi_embedding(monkeypatch)
     conversation = build_small_conversation()
@@ -1027,11 +1027,8 @@ def test_retrieved_page_maps_exactly_to_all_duplicate_source_turn_ids(
         source_question=conversation.questions[0],
     )
 
-    result = system.retrieve(query)
-
-    assert result.items
-    assert result.items[0].source_turn_ids == ("D1:1", "D1:2", "D1:3", "D1:4")
-    assert result.items[0].metadata["provenance_match"] == "exact_page_text"
+    with pytest.raises(ConfigurationError, match="native page has no exact"):
+        system.retrieve(query)
 
 
 def test_resume_rejects_state_without_required_sidecar(tmp_path: Path) -> None:

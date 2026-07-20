@@ -81,3 +81,18 @@
 3. native 目前明确是 **readout-native**，不是 paper-build-native；manifest/报告必须带
    该限制，等待三 method 共用的 build-profile 框架卡。
 4. M2 主提交 `e2fff4b`，registry 测试替身返工 `bfe69f1`；两者均已过主树全量门。
+
+## Shared lifecycle/retrieval R1（2026-07-20）
+
+- 原生 QA page 允许完整 pair、user-only 与 assistant-only；双空仍由框架输入校验拒绝。
+  STM→MTM 迁移保留任一非空侧，并把 framework 的公开
+  `_memory_benchmark_source_turn_ids` 作为 page `meta_data` 原样携带；该字段不进入
+  page content、embedding 或 summary/prompt。
+- provenance 以每个原生 page 的 `meta_data` 为唯一 retrieval 身份。缺失即 fail-fast；
+  sidecar 仅留 speaker/resume 审计，绝不再按相同文本 union turn ids。故相同文本的多次
+  occurrence 保持可区分。
+- 显式缺失 source time 以 `None` 进入产品并保持 missing；省略 timestamp 的普通上游调用
+  仍由产品生成 wall clock。完整 pair 的两个不同 source time fail-fast。
+- structured readout 公开 STM=`always_on`、MTM=`ranked`；共享 Recall helper 只对 ranked
+  条目应用 k，STM 永远参与。profile/knowledge 是完整 product view 的 `non_evidence`
+  条目，不携带伪造 turn ids；stable ranking 仍 pending。

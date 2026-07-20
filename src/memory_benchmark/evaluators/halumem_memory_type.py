@@ -41,6 +41,21 @@ class HalumemMemoryTypeEvaluator:
             for record in read_jsonl(extraction_path)
             if record.get("record_kind") == "memory_integrity"
         ]
+        if extraction_records and all(record.get("status") == "n_a" for record in extraction_records):
+            return {
+                "metric_name": self.metric_name,
+                "score_records": [],
+                "total_questions": 0,
+                "mean_score": None,
+                "correct_count": None,
+                "summary": {
+                    "overall_score": None,
+                    "category_breakdown": [],
+                    "status": "n_a",
+                    "reason_code": "upstream_extraction_n_a",
+                    "official_source": self.official_source,
+                },
+            }
         update_records = [
             record
             for record in read_jsonl(update_path)

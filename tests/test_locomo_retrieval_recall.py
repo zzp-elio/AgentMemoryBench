@@ -24,10 +24,23 @@ import pytest
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.evaluators.locomo_recall import LoCoMoRetrievalRecallEvaluator
 from memory_benchmark.evaluators.retrieval_evidence import parse_retrieval_evidence
+from memory_benchmark.evaluators.retrieval_metrics import top_k_source_ids
 from memory_benchmark.storage import ExperimentPaths, atomic_write_json, atomic_write_jsonl
 
 
 pytestmark = pytest.mark.unit
+
+
+def test_shared_recall_selection_keeps_always_on_stm_outside_ranked_k() -> None:
+    """共享 Recall contract 只能以 k 截 ranked MTM，不得截掉 always-on STM。"""
+
+    items = [
+        {"source_turn_ids": ["stm-1"], "metadata": {"selection_mode": "always_on"}},
+        {"source_turn_ids": ["mtm-1"], "metadata": {"selection_mode": "ranked"}},
+        {"source_turn_ids": ["mtm-2"], "metadata": {"selection_mode": "ranked"}},
+        {"source_turn_ids": [], "metadata": {"selection_mode": "non_evidence"}},
+    ]
+    assert top_k_source_ids(items, 1) == ("stm-1", "mtm-1")
 
 
 def test_strict_evidence_parser_rejects_non_string_object_key_as_configuration_error() -> None:

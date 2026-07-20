@@ -27,6 +27,7 @@ H_PROFILE_UPDATE_THRESHOLD = 5.0
 DEFAULT_ASSISTANT_ID = "default_assistant_profile"
 
 class Memoryos:
+    _TIMESTAMP_UNSET = object()
     def __init__(self, user_id: str, 
                  openai_api_key: str, 
                  data_storage_path: str,
@@ -223,20 +224,21 @@ class Memoryos:
             # print(f"Memoryos: Top session {sid} heat ({current_heat:.2f}) below threshold. No profile update.")
             pass # No action if below threshold
 
-    def add_memory(self, user_input: str, agent_response: str, timestamp: str = None, meta_data: dict = None):
+    def add_memory(self, user_input: str, agent_response: str, timestamp=_TIMESTAMP_UNSET, meta_data: dict = None):
         """
         Adds a new QA pair (memory) to the system.
         meta_data is not used in the current refactoring but kept for future use.
         """
-        if not timestamp:
+        if timestamp is self._TIMESTAMP_UNSET:
             timestamp = get_timestamp()
         
         qa_pair = {
             "user_input": user_input,
             "agent_response": agent_response,
-            "timestamp": timestamp
-            # meta_data can be added here if it needs to be stored with the QA pair
+            "timestamp": timestamp,
         }
+        if meta_data is not None:
+            qa_pair["meta_data"] = dict(meta_data)
         # FIX: Migrate old entries BEFORE adding the new one to prevent
         # silent data loss from deque auto-eviction.
         if self.short_term_memory.is_full():
@@ -393,4 +395,4 @@ class Memoryos:
         return stats
 
     def __repr__(self):
-        return f"<Memoryos user_id='{self.user_id}' assistant_id='{self.assistant_id}' data_path='{self.data_storage_path}'>" 
+        return f"<Memoryos user_id='{self.user_id}' assistant_id='{self.assistant_id}' data_path='{self.data_storage_path}'>"

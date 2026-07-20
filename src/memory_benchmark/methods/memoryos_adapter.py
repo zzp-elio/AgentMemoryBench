@@ -92,7 +92,7 @@ LOGGER = get_logger(__name__)
 
 MEMORYOS_METHOD_DIRECTORY = "MemoryOS-main"
 MEMORYOS_PYPI_SUBDIRECTORY = "memoryos-pypi"
-MEMORYOS_ADAPTER_VERSION = "conversation-qa-v1"
+MEMORYOS_ADAPTER_VERSION = "conversation-qa-v2-shared-lifecycle"
 MEMORYOS_WRAPPER_SOURCE_MODE = "memoryos-pypi-wrapper"
 MEMORYOS_VENDORED_SOURCE_MODE = "vendored-memoryos-pypi"
 MEMORYOS_COMBINED_SOURCE_MODE = "vendored-memoryos-pypi-with-framework-wrapper"
@@ -588,6 +588,11 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                         user_input=page["user_input"],
                         agent_response=page["agent_response"],
                         timestamp=page["timestamp"],
+                        meta_data={
+                            "_memory_benchmark_source_turn_ids": list(
+                                page["source_turn_ids"]
+                            )
+                        },
                     )
                     self._record_page_provenance(
                         conversation.conversation_id,
@@ -699,12 +704,16 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         self._ensure_native_metadata(pair.first, conversation_id)
         backend = self._get_or_create_backend(conversation_id)
         user_input, agent_response = self._pair_to_add_memory_args(pair)
-        timestamp = self._timestamp_from_event(pair.first)
+        timestamp = self._paired_timestamp(
+            self._timestamp_from_event(pair.first),
+            self._timestamp_from_event(pair.second) if pair.second is not None else None,
+        )
         with self._suppress_stdout_if_needed():
             backend.add_memory(
                 user_input=user_input,
                 agent_response=agent_response,
                 timestamp=timestamp,
+                meta_data={"_memory_benchmark_source_turn_ids": [event.turn_id for event in pair.turns]},
             )
         self._record_page_provenance(
             conversation_id,
@@ -734,6 +743,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                     user_input=page["user_input"],
                     agent_response=page["agent_response"],
                     timestamp=page["timestamp"],
+                    meta_data={"_memory_benchmark_source_turn_ids": list(page["source_turn_ids"])},
                 )
                 self._record_page_provenance(
                     conversation_id,
@@ -942,12 +952,18 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 query_text=query.query_text,
                 speaker_map=speaker_map,
             )
-        items = self._retrieved_items(conversation_id, retrieval_results)
+        items = self._retrieved_items(conversation_id, retrieval_results, query.top_k)
         return RetrievalResult(
             formatted_memory=formatted_memory or "(No relevant memories found)",
             prompt_messages=prompt_messages,
             items=items,
-            metadata=dict(retrieval.metadata),
+            metadata={
+                **dict(retrieval.metadata),
+                "requested_ranked_top_k": query.top_k,
+                "actual_ranked_depth": len(
+                    retrieval_results.get("retrieved_pages") or []
+                ),
+            },
             evidence=self._build_retrieval_evidence(),
         )
 
@@ -983,6 +999,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         self,
         conversation_id: str,
         retrieval_results: dict[str, Any],
+        requested_top_k: int,
     ) -> tuple[RetrievedItem, ...]:
         """把 pypi 精确 page 命中转换为带公开 turn provenance 的条目。"""
 
@@ -990,29 +1007,31 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         if sidecar is None:
             sidecar = self._load_required_sidecar(conversation_id)
         items: list[RetrievedItem] = []
+        backend = self._backends[conversation_id]
+        for index, page in enumerate(backend.short_term_memory.get_all()):
+            items.append(self._page_item(page, "stm", "always_on", index))
         for page in retrieval_results.get("retrieved_pages") or []:
             if not isinstance(page, dict):
                 continue
-            key = _memoryos_page_key(page)
-            source_turn_ids = sidecar["pages"].get(key)
-            if not isinstance(source_turn_ids, list) or not source_turn_ids:
-                raise ConfigurationError(
-                    "MemoryOS provenance sidecar has no exact mapping for retrieved page"
-                )
-            content = _memoryos_page_content(page)
-            page_id = str(page.get("page_id") or "").strip()
-            item_id = page_id or f"memoryos-page-{hashlib.sha256(key.encode()).hexdigest()[:16]}"
-            items.append(
-                RetrievedItem(
-                    item_id=item_id,
-                    content=content,
-                    score=None,
-                    timestamp=_metadata_text(page.get("timestamp")),
-                    source_turn_ids=tuple(source_turn_ids),
-                    metadata={"provenance_match": "exact_page_text"},
-                )
-            )
+            items.append(self._page_item(page, "mtm", "ranked", len(items)))
+        profile = backend.user_long_term_memory.get_raw_user_profile(backend.user_id)
+        if profile and str(profile).lower() != "none":
+            items.append(_derived_memoryos_item("profile", str(profile)))
+        for layer, entries in (("user_knowledge", retrieval_results.get("retrieved_user_knowledge") or []), ("assistant_knowledge", retrieval_results.get("retrieved_assistant_knowledge") or [])):
+            for entry in entries:
+                content = entry.get("knowledge", "") if isinstance(entry, dict) else str(entry)
+                if content:
+                    items.append(_derived_memoryos_item(layer, content))
         return tuple(items)
+
+    @staticmethod
+    def _page_item(page: dict[str, Any], memory_layer: str, selection_mode: str, index: int) -> RetrievedItem:
+        """从原生 page meta_data 读取 occurrence-exact turn provenance。"""
+        meta_data = page.get("meta_data")
+        source_turn_ids = meta_data.get("_memory_benchmark_source_turn_ids") if isinstance(meta_data, dict) else None
+        if not isinstance(source_turn_ids, list) or not source_turn_ids or not all(isinstance(turn_id, str) and turn_id.strip() == turn_id and turn_id for turn_id in source_turn_ids):
+            raise ConfigurationError("MemoryOS native page has no exact _memory_benchmark_source_turn_ids provenance")
+        return RetrievedItem(item_id=str(page.get("page_id") or f"memoryos-{memory_layer}-{index}"), content=_memoryos_page_content(page), score=None, timestamp=_metadata_text(page.get("timestamp")), source_turn_ids=tuple(source_turn_ids), metadata={"memory_layer": memory_layer, "selection_mode": selection_mode, "provenance_match": "native_page_meta_data"})
 
     @staticmethod
     def _build_locomo_native_prompt_messages(
@@ -1292,9 +1311,8 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
         pages: list[dict[str, Any]] = []
         for session in conversation.sessions:
-            timestamp = (
-                session.session_time or session.start_time or session.end_time or ""
-            )
+            session_page_start = len(pages)
+            session_timestamp = session.session_time or session.start_time or session.end_time or None
             for turn in session.turns:
                 content = turn_text_with_images(turn)
                 role = _turn_normalized_role(turn)
@@ -1303,20 +1321,21 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                         {
                             "user_input": content,
                             "agent_response": "",
-                            "timestamp": timestamp,
+                            "timestamp": turn.turn_time or session_timestamp,
                             "source_turn_ids": [turn.turn_id],
                         }
                     )
                 elif role == "assistant":
-                    if pages and pages[-1]["agent_response"] == "":
+                    if len(pages) > session_page_start and pages[-1]["agent_response"] == "":
                         pages[-1]["agent_response"] = content
+                        pages[-1]["timestamp"] = MemoryOS._paired_timestamp(pages[-1]["timestamp"], turn.turn_time or session_timestamp)
                         pages[-1]["source_turn_ids"].append(turn.turn_id)
                     else:
                         pages.append(
                             {
                                 "user_input": "",
                                 "agent_response": content,
-                                "timestamp": timestamp,
+                            "timestamp": turn.turn_time or session_timestamp,
                                 "source_turn_ids": [turn.turn_id],
                             }
                         )
@@ -1328,20 +1347,21 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                             {
                                 "user_input": content,
                                 "agent_response": "",
-                                "timestamp": timestamp,
+                            "timestamp": turn.turn_time or session_timestamp,
                                 "source_turn_ids": [turn.turn_id],
                             }
                         )
                     elif turn.speaker == speaker_b:
-                        if pages and pages[-1]["agent_response"] == "":
+                        if len(pages) > session_page_start and pages[-1]["agent_response"] == "":
                             pages[-1]["agent_response"] = content
+                            pages[-1]["timestamp"] = MemoryOS._paired_timestamp(pages[-1]["timestamp"], turn.turn_time or session_timestamp)
                             pages[-1]["source_turn_ids"].append(turn.turn_id)
                         else:
                             pages.append(
                                 {
                                     "user_input": "",
                                     "agent_response": content,
-                                    "timestamp": timestamp,
+                                "timestamp": turn.turn_time or session_timestamp,
                                     "source_turn_ids": [turn.turn_id],
                                 }
                             )
@@ -1406,6 +1426,13 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         return first_content, second_content
 
     @staticmethod
+    def _paired_timestamp(first: str | None, second: str | None) -> str | None:
+        """合并 pair source time；冲突的两个真实时间不能被静默选择。"""
+        if first and second and first != second:
+            raise ConfigurationError("MemoryOS page has conflicting source timestamps")
+        return first or second
+
+    @staticmethod
     def _original_content_from_event(event: TurnEvent) -> str:
         """读取事件前原始 turn 文本，避免图片 caption 重复拼接。"""
 
@@ -1424,15 +1451,15 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         return event.isolation_key
 
     @staticmethod
-    def _timestamp_from_event(event: TurnEvent) -> str:
-        """从 v3 event 读取 timestamp，缺失时回退当前时间。"""
+    def _timestamp_from_event(event: TurnEvent) -> str | None:
+        """从 v3 event 读取 source timestamp，缺失保持 missing。"""
 
         original = event.metadata.get("original_turn_time")
         if isinstance(original, str) and original.strip():
             return original
         if event.timestamp:
             return event.timestamp
-        return _pypi_timestamp_now()
+        return None
 
     def _ensure_native_metadata(
         self,
@@ -1845,6 +1872,19 @@ def _memoryos_page_content(page: dict[str, Any]) -> str:
     return (
         f"User: {page.get('user_input', '')}\n"
         f"Assistant: {page.get('agent_response', '')}"
+    )
+
+
+def _derived_memoryos_item(memory_layer: str, content: str) -> RetrievedItem:
+    """构造完整 product memory view 的派生层条目，不伪造 page turn lineage。"""
+
+    return RetrievedItem(
+        item_id=f"memoryos-{memory_layer}-{hashlib.sha256(content.encode()).hexdigest()[:16]}",
+        content=content,
+        score=None,
+        timestamp=None,
+        source_turn_ids=(),
+        metadata={"memory_layer": memory_layer, "selection_mode": "non_evidence"},
     )
 
 
