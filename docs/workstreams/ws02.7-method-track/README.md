@@ -62,8 +62,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   page metadata 保 occurrence-exact lineage；Recall 取全部 always-on STM + 前 k 个 ranked MTM，
   profile/knowledge 只作 `non_evidence`；HaluMem update 消费完整 product view，extraction 仍
   N/A，故 composite memory_type 清洁传播 N/A。Terra 首轮 `a3025d0` 因错误 N/A gate 与反例
-  不足被驳回，经 R1-R5 后主线为 `6602aab..dcc5fd6`；架构师独立定向 `158 passed`、共享回归
-  `165 passed`、无 API 全量 `1666 passed`。**当前唯一动作：生成并执行 MemoryOS 五格 B11
+  不足被驳回，经 R1-R5 后主线为 `6602aab..dcc5fd6`；Terra 最终核心定向 `158 passed`，
+  架构师独立共享回归 `165 passed`、R5 定向 `80 passed`、无 API 全量 `1666 passed`。
+  **当前唯一动作：生成并执行 MemoryOS 五格 B11
   smoke 命令包；未获用户预算/规模/run_id 确认，禁止 API。**统一入口=
   `branches/method-recertification/memoryos/README.md`。
 - **LightMem lifecycle 现行裁决**：论文第 5/7/8 页与官方脚本复证，paper online soft

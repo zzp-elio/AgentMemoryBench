@@ -57,8 +57,9 @@ benchmark 的 schema、异常、canonical id、private gold group、prompt 与 e
 - 当前已锁：session 边界不跨配、单侧页跨 capacity 不丢、双空拒绝、timestamp
   omitted/explicit-None 分流、STM/MTM occurrence identity、完整 HaluMem update product view、
   extraction N/A → memory_type N/A。
-- 架构师独立门：核心四文件 `158 passed`；共享注册/metric 回归 `165 passed`；main 无 API
-  全量 `1666 passed, 3 deselected, 2 warnings, 29 subtests passed in 145.12s`；compileall exit 0。
+- 验收门：Terra 核心四文件 `158 passed`；架构师独立共享注册/metric 回归 `165 passed`、
+  R5 定向 `80 passed`；main 无 API 全量
+  `1666 passed, 3 deselected, 2 warnings, 29 subtests passed in 145.12s`；compileall exit 0。
 
 ## 第一波五卡拓扑（历史取证入口）
 
