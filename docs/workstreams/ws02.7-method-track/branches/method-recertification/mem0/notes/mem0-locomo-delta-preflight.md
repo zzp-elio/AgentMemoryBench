@@ -340,6 +340,10 @@ caption 处理路径，MemBench 原文本身可能已内嵌 place/time 但未见
 2. 1,226 是全部 caption turn，316 是其中 caption-without-URL 的子集，不是两条独立路径各自
    命中。真实 smoke 是否命中 caption 取决于裁剪位置，不能写“每次都触发”。确定性强反例负责
    证明通用 wrapper；真实 B11 只证明所选样本的实际路径。
+3. 2026-07-20 再核最新版两仓后，首轮“future `author_locomo` 候选”措辞过轻：论文 harness
+   的双 user_id、正反 role 双写、user-only custom instruction、双路检索融合共同改变算法数据流，
+   不是 TOML section 能表达的配置差。若未来复现，须建立显式 implementation variant；主轨仍
+   采用 current `memory-benchmarks` 的单 namespace/V3 双 role 路径。
 
 完整判词与施工边界见同目录 `mem0-joint-ruling.md`。本 note 的局部
 `BLOCKED(caption-raw-concat-no-wrapper)` 已被联合总判词

@@ -18,8 +18,12 @@ evaluation.py:51-52 整体跳过）。
   （session_memory_reports），对每个 gold memory point 调 integrity
   judge，对每条候选记忆调 accuracy judge。
 - **更新探针**：对每个 `is_update=="True"` 且 original_memories 非空
-  的 gold point，以新 memory_content 为 query、top_k=10 检索
-  （eval_memzero.py:210-222），结果落 update_probe_records。
+  的 gold point，以新 memory_content 为 query 检索，结果落 update_probe_records。
+  canonical Mem0 wrapper 请求 `top_k=10`（eval_memzero.py:210-222），但 **10 不是 shared
+  scorer 的硬公式**：Memobase 官方 wrapper 改用 `max_token_size=250`
+  （eval_memobase.py:271-283），`evaluation.py:59-70,154-163` 只检查结果非空并拼接内容，
+  不校验条目数。框架把 10 作为 Mem0-native 请求；其他 method 按其可证明的原生检索窗口
+  运行并声明身份，不能在共享 runner 强截 items 或按行拆 opaque text。
   **路由（evaluation.py:59-70）：检索非空 → update 桶；空 → 归
   integrity、不进 update 分母**（框架同款；曾有双计 bug 已修，
   `skipped_empty_retrieval_count` 诊断）。
@@ -42,6 +46,9 @@ evaluation.py:51-52 整体跳过）。
   区分两口径）。
 - QA category_breakdown 按六 question_type 分报。
 - **retrieval recall = N/A**（evidence 无 turn id；冻结限制）。
+- **update 检索窗口逐 method 声明**：有原生 top-k/limit 的 adapter 可执行 benchmark 请求；
+  只有 token budget 或固定 readout 的保留原生窗口并标 framework-extended；没有可分离 retrieve
+  的 method 仅 update=N/A，不能连带抹掉 extraction/QA 资格。
 
 ## 4. smoke / resume
 

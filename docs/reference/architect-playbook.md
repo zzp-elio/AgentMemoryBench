@@ -874,3 +874,20 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
 - **外部调查是线索，不是判词。**本判例中 OpenCode 找到的 prompt 锚是正确线索，但用户明确
   要求架构师不能无脑照搬。正确做法是先承认锚成立，再指出其逻辑射程，主动寻找官方 singleton
   反例和 core 负空间；既不能因来源是二手就全盘否定，也不能把“事实正确”扩写成“推论必然”。
+
+### 14.7 2026-07-20：单个 wrapper 参数不等于 shared scorer 契约
+
+- **先沿 producer → artifact → scorer 找参数归属。**HaluMem `eval_memzero.py` 的 update
+  检索写了 `top_k=10`，只能证明 Mem0 wrapper 请求 10；共享 `evaluation.py` 只拼接
+  `memories_from_system`，不校验条目数，而 Memobase 官方 wrapper 用 250-token budget。
+  因此 10 不是所有 method 的 evaluator 公式。架构师曾把单 wrapper 参数误升格成共享 runner
+  强截契约，用户质疑后撤销；以后凡称“benchmark 官方参数”，必须横查至少 shared scorer 与
+  一个异构 method wrapper。
+- **能力不齐时逐 metric 判资格，不造统一接口。**原生支持 top-k 的 method 可执行请求；只提供
+  token budget/固定 readout 的保留原生窗口并声明 profile；没有可分离 retrieve 的 method 仅把
+  update 判 N/A，不能为填矩阵拆 opaque text、猜 item 边界，也不能连带抹掉 extraction/QA。
+- **作者复现与产品主轨按数据流分类，不按仓库路径分类。**Mem0 主仓里仍保留的论文 LoCoMo
+  harness 使用双 user_id、正反 role 双写、user-only custom instruction 与双路检索融合；最新
+  独立 benchmark 仓库则是单 namespace、V3 双 role 抽取、singleton add。即使两者都由官方
+  维护，也不能把前者降格成 TOML 参数差；改变写入倍数、namespace 或检索融合就是独立
+  implementation variant。

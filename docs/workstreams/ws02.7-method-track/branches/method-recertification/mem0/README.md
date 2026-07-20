@@ -30,11 +30,12 @@ placeholder；真实缺口拆成两张不写同一文件的卡，可并行施工
 
 | 卡 | 解决什么 | 写集 |
 |---|---|---|
-| [Mem0 五格输入/readout R1](cards/actor-prompt-mem0-input-readout-r1.md) | LoCoMo 显式 speaker_a/b、caption wrapper、role-native 正文去重复前缀、MemBench generic readout、adapter v3 | `mem0_adapter.py` + Mem0/五格 tests + integration note |
-| [HaluMem operation runner R1](cards/actor-prompt-halumem-operation-runner-retry-topk-r1.md) | update scorer top-10、失败状态、clean retry 与 CLI 接线 | `operation_level.py` + `run_prediction.py` + runner tests |
+| [Mem0 五格输入/readout R1](cards/actor-prompt-mem0-input-readout-r1.md) | LoCoMo 显式 speaker_a/b、caption wrapper、role-native 正文去重复前缀、MemBench generic readout、Mem0-native HaluMem update top-k、adapter v3 | `mem0_adapter.py` + Mem0/五格 tests + integration note |
+| [HaluMem operation runner clean retry R1](cards/actor-prompt-halumem-operation-runner-clean-retry-r1.md) | 失败状态、clean retry 与 CLI 接线；不做错误的全 method top-10 截断 | `operation_level.py` + `run_prediction.py` + runner tests |
 
-这次从“一张共享实现卡”改为两张，不是把工作拆碎：第一张只改 method build/readout identity，
-第二张只改 method-neutral operation state machine，写集、失败域和验收门均独立。强塞一张卡会
+这次从“一张共享实现卡”改为两张，不是把工作拆碎：第一张只改 Mem0 method build/readout/
+原生检索请求 identity，第二张只改 method-neutral operation state machine，写集、失败域和验收门
+均独立。强塞一张卡会
 让 adapter 字节语义与 resume 状态机互相遮蔽，也无法安全并行。
 
 ## 合流门

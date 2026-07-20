@@ -197,10 +197,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   role-aware，但 singleton/assistant-first/连续同 role/odd tail 均合法；**MemBench ThirdAgent
   不补 placeholder**，任何非空伪回复都属于数据造假。真正 build 缺口是 LoCoMo 显式
   `speaker_a=user/speaker_b=assistant`（10 个 conversation 仅 4 个由 A 首发）、共享 caption
-  wrapper、role-native content 去重复前缀、MemBench generic readout；另有 method-neutral
-  HaluMem update top-10 scorer 输入与 clean-failed-ingest resume。两张卡写集不重叠，可在隔离
-  worktree 并行；见 `branches/method-recertification/mem0/`。未获用户逐格预算/规模/run id
-  批准前不调用真实 API。
+  wrapper、role-native content 去重复前缀、MemBench generic readout，以及 Mem0 原生执行
+  HaluMem update `top_k=10` 请求；另有 method-neutral clean-failed-ingest resume。旧判曾把
+  Mem0 wrapper 的 10 条窗口误升格成 HaluMem scorer 的全 method 硬契约，现已撤销：官方
+  Memobase wrapper 用 token budget，shared scorer 不校验 top-k，禁止共享 runner 截 items 或
+  拆 formatted text。两张修订卡写集不重叠，可在隔离 worktree 并行；见
+  `branches/method-recertification/mem0/`。未获用户逐格预算/规模/run id 批准前不调用真实 API。
 - **2026-07-20 汇报门**：用户目标是在 2026-07-20 下午前尽量冻结 Mem0、MemoryOS、A-Mem、
   SimpleMem，并填写 `reports/report-progress-2026-07-20.md`。该目标要求复用 LightMem 已锁定的
   benchmark 稳定层，不再做无反证的全量 census；但不得把用户/外部工具对后续 method 接口的
@@ -209,16 +211,19 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   method×benchmark×metric 独立判 valid/N/A/pending。预算估算只能从真实 pilot observation
   推导，不用 add 数猜 LLM 次数。
 
-## 当前断点（2026-07-19）
+## 当前断点（2026-07-20）
 
-- 2026-07-19（**Mem0 六线联合裁决完成；两张 R1 卡需要并行派发**，GPT-5.6 sol 架构师）：
+- 2026-07-20（**Mem0 六线联合裁决 R1 勘误完成；两张修订卡需要并行派发**，GPT-5.6 sol 架构师）：
   六个 actor commit 已逐一检查只改各自 note、线性合入 main。联合复核纠正三处局部审计：
   ① role-aware 不等于 pair-required，MemBench ThirdAgent/BEAM dangling/LoCoMo singleton 均不补
   placeholder；② LoCoMo first-seen 映射在 6/10 conversation 与官方显式 A/B 角色相反；③
   1,226 是全部 caption turn，316 是无 URL 子集，不能写成两组或“每次 smoke 必命中”。当前
-  **需要派发** `mem0-input-readout-r1.md`（修五格输入 bytes）和
-  `halumem-operation-runner-retry-topk-r1.md`（修 top-10 + clean retry），推荐分别 Sonnet 5 max/
-  high；两卡写集不重叠，可并行。回卡前不运行 API、不生成 smoke 命令。联合裁决=
+  ④ 用户提醒后复核两代官方入口：论文双 user_id/正反 role 是绑定 user-only extraction 的
+  独立算法流，不是当前 V3 主轨漏掉的参数；最新版 V3 已双 role 抽取并显式支持 named speaker；
+  ⑤ `top_k=10` 是 Mem0 等 wrapper 的调用窗口，不是 shared update scorer 公式，Memobase 官方
+  路径使用 250-token budget。**需要派发** `mem0-input-readout-r1.md`（修五格输入 bytes +
+  Mem0-native update top-k）和 `halumem-operation-runner-clean-retry-r1.md`（只修 clean retry），
+  推荐分别 Sonnet 5 max/high；两卡写集不重叠，可并行。回卡前不运行 API、不生成 smoke 命令。联合裁决=
   [mem0-joint-ruling.md](branches/method-recertification/mem0/notes/mem0-joint-ruling.md)。
 
 - 2026-07-19（**历史派卡断点，已由上条 superseded：Mem0 六线差量预检卡已就绪**，GPT-5.6 sol 架构师）：

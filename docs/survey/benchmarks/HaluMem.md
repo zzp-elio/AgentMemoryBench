@@ -237,6 +237,10 @@ memory["memories_from_system"] = memories_from_system
 - Updating 不是要求 method 显式返回 old-new pair。
 - 它用 gold new memory 文本作为 query，检索当前 user 的全局 memory state。
 - Judge 会看 retrieved memories 是否包含正确新记忆、是否还保留旧记忆或产生错误更新。
+- 这里的 `top_k=10` 是 **Mem0 wrapper 的检索调用参数**，不是 shared scorer 的通用输入公式。
+  官方 Memobase wrapper 用 `max_token_size=250`；`evaluation.py` 对所有 wrapper 只消费其写入的
+  `memories_from_system`。因此没有 top-k 的 method 不应被伪造接口或按文本行强截，需按原生
+  window 诚实声明；完全没有可分离 retrieve 时只把 Updating 判 N/A。
 
 ### 3.4 Memory Question Answering
 
@@ -433,7 +437,7 @@ HaluMem 的原生运行单位不是单个 QA instance，而是 `uuid -> sessions
 
 喂入 method 的自然粒度是 session dialogue：每个 session 的 `dialogue` 会被压成 `role/content` message list，session `start_time` 会转成 timestamp 写入；turn 级 `timestamp` 可作为更细边界信号，但官方 Mem0 wrapper 实际以 session start time 作为写入时间。证据：`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:174-187`。
 
-完整 HaluMem 需要三种输出/查询边界：add 后立刻记录本 session 新 `extracted_memories`；update eval 用 gold `memory_content` 检索当前 user 全局 state，`top_k=10`；QA eval 用 `qa.question` 检索，wrapper 传入的 `top_k` 默认来自脚本参数，已有说明中 Mem0 QA 默认为 20。证据：`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:204-219`、`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:231-247`。
+完整 HaluMem 需要三种输出/查询边界：add 后立刻记录本 session 新 `extracted_memories`；update eval 用 gold `memory_content` 检索当前 user 全局 state（Mem0 wrapper 请求 `top_k=10`，Memobase wrapper 则用 250-token budget）；QA eval 用 `qa.question` 检索，wrapper 参数也按 method surface 适配，Mem0 QA 默认为 20。证据：`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:204-219`、`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:231-247`、`third_party/benchmarks/HaluMem-main/eval/eval_memobase.py:271-299`。
 
 因此 `add(conversation)` 若只返回成功状态，最多覆盖 QA 子集；要覆盖 operation-level 评测，adapter 需要把 session-specific extracted memories 暴露给 scorer，或提供 `get_dialogue_memory(user_id, session_id)` 等价接口。官方 README 也说明各 wrapper 应遵循相同 artifact contract，Zep 因缺 Get Dialogue Memory API 无法准确评估 extraction。证据：`third_party/benchmarks/HaluMem-main/eval/README.md:81-92`、`third_party/benchmarks/HaluMem-main/eval/README.md:137-141`。
 
@@ -441,7 +445,7 @@ HaluMem 的原生运行单位不是单个 QA instance，而是 `uuid -> sessions
 
 本地最终数据规模为 Medium 20 users / 1,387 sessions / 60,146 dialogue turns / 14,948 memory points / 3,467 QA pairs，Long 20 users / 2,417 sessions / 107,032 dialogue turns / 14,948 memory points / 3,467 QA pairs。证据：本轮验收命令读取 `data/halumem/HaluMem-Medium.jsonl` 与 `data/halumem/HaluMem-Long.jsonl`。
 
-单 session 的 method 成本至少包含一次 add dialogue；若 session 含 update memory points，则每个 update point 触发一次 `top_k=10` retrieval；若 session 含 QA，则每个 question 触发一次 retrieval、一次 answer LLM。证据：`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:189-194`、`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:215-220`、`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:233-252`。
+单 session 的 method 成本至少包含一次 add dialogue；若 session 含 update memory points，则每个 update point 触发一次 retrieval（Mem0 wrapper 为 `top_k=10`，不能把该数值外推为所有 method 的调用次数/窗口）；若 session 含 QA，则每个 question 触发一次 retrieval、一次 answer LLM。证据：`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:189-194`、`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:215-220`、`third_party/benchmarks/HaluMem-main/eval/eval_memzero.py:233-252`。
 
 Scorer 成本另算：evaluation 会为 memory integrity、memory accuracy、memory update、question answering 四类输入分别提交 LLM judge；memory integrity/accuracy 数量与 memory points / extracted memories 相关，QA judge 数量与 question 数相关。证据：`third_party/benchmarks/HaluMem-main/eval/evaluation.py:104-186`。
 

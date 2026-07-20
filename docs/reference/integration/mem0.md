@@ -13,7 +13,8 @@
 - adapter：`src/memory_benchmark/methods/mem0_adapter.py`
 - 算法源：vendored `third_party/methods/mem0-main`（官方 `Memory` 类）
 - native 格：**locomo、longmemeval、beam**（来源=`memory-benchmarks` 当前 eval
-  harness；旧论文配置只用于后续 R0 校准，不替代当前产品路径）
+  harness；旧论文 LoCoMo 的双 user_id/正反 role/双路检索是独立 implementation
+  variant，不是可由 `author_locomo` TOML 单独表达的“配置校准”，不替代当前产品路径）
 
 ## 0. 接口调用面
 
@@ -24,6 +25,10 @@
 | `end_session` | HaluMem 用：返回本 session `add().results` 产出的 `SessionMemoryReport` | 无额外官方调用（复用 add 返回值） |
 | `end_conversation` | —（无钩子；Mem0 add 即建，无缓冲） | — |
 | `retrieve(query)` | `retrieve` 处理公开 Question；`_retrieve_native` 处理 v3 `RetrievalQuery` | `Memory.search(..., filters={"run_id": isolation_key}, top_k=…)` |
+
+HaluMem update 的 `top_k=10` 只对 Mem0 原生接口有直接含义：Mem0 `Memory.search` 支持该参数，
+重认证 R1 将只在 `purpose="memory_update_probe"` 时执行 query 请求；普通 QA/其他 benchmark
+仍用 TOML product profile。该行为不能外推为 HaluMem shared scorer 对所有 method 强制 10 条。
 
 ## B1-B11 当前结论
 
@@ -84,3 +89,6 @@
    frozen note §3-§4 为准。
 3. `ADD_ONLY_MUTATION_PROVEN` 只回答旧 memory 是否被改写/删除；它不替代 semantic
    provenance 审计。任务卡旧标签 `ADD_ONLY_PROVEN` 的过宽语义以现行 ruling 为准。
+4. 论文 LoCoMo 双库不是“更保险的单库”：它把每个 turn 写两次，绑定只抽 user 的 v2 custom
+   instruction，再分别检索并融合两份记忆；迁入当前 V3 会同时改变存储量、抽取调用、namespace、
+   检索融合、成本和 provenance。若未来复现，必须以独立 implementation identity 建模。
