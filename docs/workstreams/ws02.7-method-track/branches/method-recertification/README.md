@@ -47,7 +47,8 @@ LightMem 已关闭的异常样本。只有三类触发器允许重开 benchmark 
    truthful identity、operation clean retry 与五格真实 B11，冻结为 `method-frozen-v2`。
    product-default OpenAI embedding 属效果阶段，若切换须用户批预算并全量重建，不阻塞 smoke。
 4. **MemoryOS 第三家**：PyPI product identity、speaker/provenance sidecar、降级审计、
-   readout-native 与五格 smoke 一次收口；ChromaDB variant 不混入主轨。
+   readout-native 与五格 smoke 一次收口；ChromaDB variant 不混入主轨。五格差量拓扑统一从
+   [`memoryos/README.md`](memoryos/README.md) 进入。
 5. **A-Mem → SimpleMem**：各自补全 product/reproduction identity 后重走 B1-B11。
 6. 现有五家压实后，再接 MemOS、Letta/MemGPT、LangMem、Supermemory；EverOS 最后。
 

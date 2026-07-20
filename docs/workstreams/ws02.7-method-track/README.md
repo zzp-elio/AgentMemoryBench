@@ -54,8 +54,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   deprecation，不能把环境/第三方噪声混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
-  身份裁决与 Track identity M0 已关闭；当前按逐 method 串行顺序排在 LightMem、Mem0 后，
-  到站后进入五格真实 smoke。未获用户预算/规模/run_id 确认，禁止 API。
+  身份裁决与 Track identity M0 已关闭；现已到站，第一波改为五张 benchmark 差量卡并行，统一
+  入口=`branches/method-recertification/memoryos/README.md`。架构师 current-main 抽锚已锁四个
+  必查反例：session 边界回填、MemBench typed turn time、全层 readout 对 blanket
+  `valid/turn`、HaluMem 无 `end_session`。五卡只写独立 note，回卡后合成至多一张共享修复卡；
+  未获用户预算/规模/run_id 确认，禁止 API。
 - **LightMem lifecycle 现行裁决**：论文第 5/7/8 页与官方脚本复证，paper online soft
   是“抽取后直接 LTM insert”，在 vendored 代码中反而由
   `update="offline" → offline_update(memory_entries)` 实现；`online_update()` 空壳只是
