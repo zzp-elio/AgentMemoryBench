@@ -64,6 +64,13 @@ def test_shared_recall_selection_accepts_zero_ranked_depth() -> None:
     assert top_k_source_ids(items, 0) == ("stm-1",)
 
 
+def test_shared_recall_selection_rejects_explicit_non_object_metadata() -> None:
+    """metadata 显式存在但不是 object 时不能被误作 legacy ranked。"""
+
+    with pytest.raises(ConfigurationError, match="metadata must be an object"):
+        top_k_source_ids([{"source_turn_ids": ["t1"], "metadata": []}], 1)
+
+
 def test_strict_evidence_parser_rejects_non_string_object_key_as_configuration_error() -> None:
     """非字符串 object key 必须稳定转成 ConfigurationError，不能泄漏排序 TypeError。"""
 

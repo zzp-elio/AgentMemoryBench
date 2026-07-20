@@ -932,23 +932,94 @@ def test_page_timestamp_rejects_only_conflicting_real_turn_times() -> None:
         MemoryOS._page_timestamp("2024-01-01", "2024-01-02", "session")
 
 
-def test_vendored_capacity_crossing_preserves_single_sided_pages_and_metadata(
+def test_converter_and_native_pair_ingest_prefer_single_real_turn_time(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """真实 vendored STM→MTM 迁移不得丢 user-only/assistant-only page 或 provenance。"""
+    """converter 与实际 TurnPair ingest 都不能把 session fallback 当冲突的第二 turn time。"""
+
+    _stub_pypi_embedding(monkeypatch)
+    conversation = Conversation(
+        conversation_id="time-conv",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="session-time",
+                turns=[
+                    Turn(turn_id="u", speaker="user", content="u", normalized_role="user", turn_time="turn-time"),
+                    Turn(turn_id="a", speaker="assistant", content="a", normalized_role="assistant"),
+                ],
+            )
+        ],
+    )
+    assert MemoryOS.conversation_to_memory_pages(conversation)[0]["timestamp"] == "turn-time"
+    system = _build_system(tmp_path, consume_granularity="pair")
+    _drive_native_ingest(system, conversation, granularity="pair")
+    assert system.get_debug_state("time-conv").short_term_memory.get_all()[0]["timestamp"] == "turn-time"
+
+
+def test_native_pair_ingest_rejects_two_conflicting_real_turn_times(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """实际 adapter TurnPair 路径必须拒绝两个不同的真实 turn time。"""
+
+    _stub_pypi_embedding(monkeypatch)
+    conversation = Conversation(
+        conversation_id="time-conflict",
+        sessions=[
+            Session(
+                session_id="s1",
+                session_time="session-time",
+                turns=[
+                    Turn(turn_id="u", speaker="user", content="u", normalized_role="user", turn_time="one"),
+                    Turn(turn_id="a", speaker="assistant", content="a", normalized_role="assistant", turn_time="two"),
+                ],
+            )
+        ],
+    )
+    system = _build_system(tmp_path, consume_granularity="pair")
+    with pytest.raises(ConfigurationError, match="conflicting source timestamps"):
+        _drive_native_ingest(system, conversation, granularity="pair")
+
+
+@pytest.mark.parametrize(
+    ("user_input", "agent_response", "source_id", "field_name"),
+    [
+        ("user-only", "", "u1", "user_input"),
+        ("", "assistant-only", "a1", "agent_response"),
+    ],
+)
+def test_vendored_capacity_crossing_preserves_single_sided_pages_and_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    user_input: str,
+    agent_response: str,
+    source_id: str,
+    field_name: str,
+) -> None:
+    """真实 vendored STM→MTM 不得丢任一单侧 page 或 native provenance。"""
 
     _stub_pypi_embedding(monkeypatch)
     system = _build_system(tmp_path, config=MemoryOSPaperConfig(short_term_capacity=1))
     backend = system._get_or_create_backend("capacity")
     backend.client.chat_completion = lambda **kwargs: "stubbed"
-    backend.add_memory("user-only", "", timestamp=None, meta_data={"_memory_benchmark_source_turn_ids": ["u1"]})
-    backend.add_memory("", "assistant-only", timestamp=None, meta_data={"_memory_benchmark_source_turn_ids": ["a1"]})
-    migrated = [page for session in backend.mid_term_memory.sessions.values() for page in session["details"]]
-    assert migrated[0]["user_input"] == "user-only"
-    assert migrated[0]["meta_data"]["_memory_benchmark_source_turn_ids"] == ["u1"]
-    assert backend.short_term_memory.get_all()[0]["agent_response"] == "assistant-only"
+    backend.add_memory(
+        user_input,
+        agent_response,
+        timestamp=None,
+        meta_data={"_memory_benchmark_source_turn_ids": [source_id]},
+    )
+    backend.add_memory("trigger", "", timestamp=None, meta_data={"_memory_benchmark_source_turn_ids": ["trigger"]})
+    migrated = [
+        page
+        for session in backend.mid_term_memory.sessions.values()
+        for page in session["details"]
+    ]
+    assert migrated[0][field_name] == (user_input or agent_response)
+    assert migrated[0]["meta_data"]["_memory_benchmark_source_turn_ids"] == [source_id]
     with pytest.raises(ValueError, match="requires user_input or agent_response"):
         backend.add_memory("", "", timestamp=None)
+    with pytest.raises(ValueError, match="requires user_input or agent_response"):
+        backend.add_memory(" ", "\t", timestamp=None)
 
 
 def test_native_page_occurrences_have_distinct_stable_ids() -> None:
@@ -961,11 +1032,43 @@ def test_native_page_occurrences_have_distinct_stable_ids() -> None:
         "meta_data": {"_memory_benchmark_source_turn_ids": ["t1"]},
     }
     second = {**first, "meta_data": {"_memory_benchmark_source_turn_ids": ["t2"]}}
-    first_item = MemoryOS._page_item(first, "stm", "always_on", 0)
-    second_item = MemoryOS._page_item(second, "mtm", "ranked", 1)
+    first_item = MemoryOS._page_item(first, "stm", "always_on")
+    second_item = MemoryOS._page_item(second, "mtm", "ranked")
     assert first_item.source_turn_ids == ("t1",)
     assert second_item.source_turn_ids == ("t2",)
     assert first_item.item_id != second_item.item_id
+    assert first_item.item_id == MemoryOS._page_item(first, "mtm", "ranked").item_id
+
+
+def test_native_retrieve_exports_stm_and_derived_product_view_atoms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """生产 adapter 在 MTM 为空时仍导出 STM 与三个 derived product-view 原子项。"""
+
+    _stub_pypi_embedding(monkeypatch)
+    conversation = build_small_conversation()
+    system = _build_system(tmp_path, consume_granularity="session")
+    _drive_native_ingest(system, conversation, granularity="session")
+    backend = system.get_debug_state(conversation.conversation_id)
+    backend.user_long_term_memory.update_user_profile(backend.user_id, "Profile atom", merge=False)
+    backend.user_long_term_memory.add_user_knowledge("User knowledge atom")
+    backend.assistant_long_term_memory.add_assistant_knowledge("Assistant knowledge atom")
+    query = memoryos_adapter_module.RetrievalQuery(
+        query_text="Alice",
+        isolation_key=default_isolation_key("memoryos-test", conversation.conversation_id),
+        question_time=None,
+        top_k=5,
+        purpose="memory_update_probe",
+        source_question=conversation.questions[0],
+    )
+    result = system.retrieve(query)
+    assert result.items is not None
+    by_layer = {item.metadata["memory_layer"]: item for item in result.items}
+    assert by_layer["stm"].metadata["selection_mode"] == "always_on"
+    assert by_layer["stm"].source_turn_ids
+    for layer in ("profile", "user_knowledge", "assistant_knowledge"):
+        assert by_layer[layer].metadata["selection_mode"] == "non_evidence"
+        assert by_layer[layer].source_turn_ids == ()
 
 
 # ---------------------------------------------------------------------- #

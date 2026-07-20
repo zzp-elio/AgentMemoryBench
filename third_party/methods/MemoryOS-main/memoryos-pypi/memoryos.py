@@ -227,9 +227,9 @@ class Memoryos:
     def add_memory(self, user_input: str, agent_response: str, timestamp=_TIMESTAMP_UNSET, meta_data: dict = None):
         """
         Adds a new QA pair (memory) to the system.
-        meta_data is not used in the current refactoring but kept for future use.
+        meta_data is persisted with the QA page for framework compatibility metadata.
         """
-        if not user_input and not agent_response:
+        if not str(user_input).strip() and not str(agent_response).strip():
             raise ValueError("Memoryos QA page requires user_input or agent_response")
         if timestamp is self._TIMESTAMP_UNSET:
             timestamp = get_timestamp()

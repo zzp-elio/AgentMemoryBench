@@ -47,3 +47,21 @@
 `uv run pytest -x -q tests/test_memoryos_adapter.py tests/test_halumem_evaluators.py tests/test_operation_level_runner.py tests/test_locomo_retrieval_recall.py -m 'not api'`
 
 尾行：`149 passed in 7.62s`
+
+## R2 follow-up（R1 强验收收口）
+
+- occurrence `item_id` 现为只由 canonical `source_turn_ids` 派生的
+  `memoryos-page-<hash>`；STM/MTM 是 metadata layer，不再改变同一页的身份。
+- capacity-crossing 改为分别令 user-only 与 assistant-only 真实迁入 MTM；双空及两侧
+  纯空白均由 vendored `add_memory` 入口拒绝。
+- 增加 adapter producer 测试：仅 STM 的 native retrieve 仍导出 always_on STM，且
+  profile/user knowledge/assistant knowledge 为无 turn lineage 的 non_evidence 原子项；
+  与 operation runner 的 items 消费测试共同形成生产链闭环。
+- native TurnPair 与 converter 均锁定单侧真实 turn time 优先、双真实冲突 fail-fast；
+  selector 对显式非 object metadata fail-fast，缺 metadata 仍是 legacy ranked。
+
+本轮验证：
+
+`uv run pytest -x -q tests/test_memoryos_adapter.py tests/test_halumem_evaluators.py tests/test_operation_level_runner.py tests/test_locomo_retrieval_recall.py -m 'not api'`
+
+尾行：`154 passed in 9.83s`

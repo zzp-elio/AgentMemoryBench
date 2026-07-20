@@ -971,7 +971,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     def _build_retrieval_evidence(self) -> RetrievalEvidence:
         """按显式 benchmark_name 陈述本次检索的逐题 evidence 事实。
 
-        page sidecar 缺失仍在 `_retrieved_items` fail-fast；本方法只按注册显式注入的
+        原生 page provenance 缺失仍在 `_retrieved_items` fail-fast；本方法只按注册显式注入的
         `self.benchmark_name` 判定资格：已注册 benchmark 返回 valid + turn，identity
         缺失/未知返回 pending + none。stable_ranking 因逐 method rank 审计未完成一律
         pending。
@@ -1005,12 +1005,12 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
         items: list[RetrievedItem] = []
         backend = self._backends[conversation_id]
-        for index, page in enumerate(backend.short_term_memory.get_all()):
-            items.append(self._page_item(page, "stm", "always_on", index))
+        for page in backend.short_term_memory.get_all():
+            items.append(self._page_item(page, "stm", "always_on"))
         for page in retrieval_results.get("retrieved_pages") or []:
             if not isinstance(page, dict):
                 continue
-            items.append(self._page_item(page, "mtm", "ranked", len(items)))
+            items.append(self._page_item(page, "mtm", "ranked"))
         profile = backend.user_long_term_memory.get_raw_user_profile(backend.user_id)
         if profile and str(profile).lower() != "none":
             items.append(_derived_memoryos_item("profile", str(profile)))
@@ -1022,18 +1022,19 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         return tuple(items)
 
     @staticmethod
-    def _page_item(page: dict[str, Any], memory_layer: str, selection_mode: str, index: int) -> RetrievedItem:
+    def _page_item(
+        page: dict[str, Any], memory_layer: str, selection_mode: str
+    ) -> RetrievedItem:
         """从原生 page meta_data 读取 occurrence-exact turn provenance。"""
         meta_data = page.get("meta_data")
         source_turn_ids = meta_data.get("_memory_benchmark_source_turn_ids") if isinstance(meta_data, dict) else None
         if not isinstance(source_turn_ids, list) or not source_turn_ids or not all(isinstance(turn_id, str) and turn_id.strip() == turn_id and turn_id for turn_id in source_turn_ids):
             raise ConfigurationError("MemoryOS native page has no exact _memory_benchmark_source_turn_ids provenance")
-        occurrence_key = json.dumps(source_turn_ids, ensure_ascii=False, separators=(",", ":"))
+        occurrence_key = json.dumps(
+            source_turn_ids, ensure_ascii=False, separators=(",", ":")
+        )
         return RetrievedItem(
-            item_id=(
-                f"memoryos-{memory_layer}-"
-                f"{hashlib.sha256(occurrence_key.encode()).hexdigest()[:16]}"
-            ),
+            item_id=f"memoryos-page-{hashlib.sha256(occurrence_key.encode()).hexdigest()[:16]}",
             content=_memoryos_page_content(page),
             score=None,
             timestamp=_metadata_text(page.get("timestamp")),
@@ -1450,13 +1451,6 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         return first_content, second_content
 
     @staticmethod
-    def _paired_timestamp(first: str | None, second: str | None) -> str | None:
-        """合并 pair source time；冲突的两个真实时间不能被静默选择。"""
-        if first and second and first != second:
-            raise ConfigurationError("MemoryOS page has conflicting source timestamps")
-        return first or second
-
-    @staticmethod
     def _page_timestamp(
         first_turn_time: str | None,
         second_turn_time: str | None,
@@ -1485,17 +1479,6 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         if isinstance(conversation_id, str) and conversation_id.strip():
             return conversation_id
         return event.isolation_key
-
-    @staticmethod
-    def _timestamp_from_event(event: TurnEvent) -> str | None:
-        """从 v3 event 读取 source timestamp，缺失保持 missing。"""
-
-        original = event.metadata.get("original_turn_time")
-        if isinstance(original, str) and original.strip():
-            return original
-        if event.timestamp:
-            return event.timestamp
-        return None
 
     @staticmethod
     def _event_turn_timestamp(event: TurnEvent) -> str | None:

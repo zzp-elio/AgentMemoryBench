@@ -104,7 +104,9 @@ def selected_retrieval_items(
     ranked_count = 0
     for item in retrieved_items:
         metadata = item.get("metadata")
-        mode = metadata.get("selection_mode", "ranked") if isinstance(metadata, dict) else "ranked"
+        if metadata is not None and not isinstance(metadata, dict):
+            raise ConfigurationError("retrieved item metadata must be an object")
+        mode = metadata.get("selection_mode", "ranked") if metadata is not None else "ranked"
         if mode not in {"always_on", "ranked", "non_evidence"}:
             raise ConfigurationError(
                 "retrieved item selection_mode must be always_on, ranked, or non_evidence"
