@@ -42,12 +42,16 @@ from memory_benchmark.runners.event_stream import (
     default_isolation_key,
 )
 from memory_benchmark.runners.prediction import (
+    _STATUS_FAILED_INGEST,
+    _STATUS_COMPLETED,
     PredictionRunPolicy,
     PredictionRunSummary,
+    _conversation_state_status,
     _count_answer_context_tokens,
     _elapsed_ms,
     _manifests_match_for_resume,
     _method_manifest_with_protocol,
+    _prepare_clean_failed_ingest_retries,
     _record_framework_answer_llm_call,
 )
 from memory_benchmark.storage import (
@@ -59,6 +63,7 @@ from memory_benchmark.storage import (
     public_question_record,
     read_jsonl,
 )
+from memory_benchmark.utils.run_logger import RunLogger
 
 
 def run_operation_level_predictions(
@@ -79,6 +84,9 @@ def run_operation_level_predictions(
     protocol_version: str = "",
     provenance_granularity: str | None = None,
     retrieval_evidence_contract_version: str | None = None,
+    clean_failed_ingest_conversation: (
+        Callable[[Conversation, dict[str, Any]], None] | None
+    ) = None,
 ) -> PredictionRunSummary:
     """运行 HaluMem operation-level prediction。
 
@@ -97,6 +105,11 @@ def run_operation_level_predictions(
         provenance_granularity: method 注册级 provenance 粒度声明。
         retrieval_evidence_contract_version: method 注册级逐题 retrieval evidence
             契约版本声明；非空时写入 manifest 作为 resume 身份。
+        clean_failed_ingest_conversation: 可选 conversation 级 clean retry hook，
+            与标准 runner 同型；只有内置 method 能证明可安全清理半写入状态时才应
+            传入。任一 session 的 ingest/extraction/update/QA/end_conversation 抛错
+            都会把该 conversation 标记为 `failed_ingest`；显式 retry 且无该 hook 时
+            fail-closed，不直接从 session 1 重放。
 
     输出:
         PredictionRunSummary: 标准 prediction 摘要。
@@ -163,25 +176,61 @@ def run_operation_level_predictions(
             paths.answer_prompts_path,
             recover_torn_tail=policy.resume,
         )
+        logger = RunLogger(paths.logs_dir)
+        _prepare_clean_failed_ingest_retries(
+            conversations=selected_conversations,
+            conversation_status=conversation_status,
+            policy=policy,
+            clean_failed_ingest_conversation=clean_failed_ingest_conversation,
+            paths=paths,
+            logger=logger,
+        )
 
         supports_extraction = type(provider).end_session is not MemoryProvider.end_session
         for conversation in selected_conversations:
             state = conversation_status.get(conversation.conversation_id, {})
-            if policy.resume and state.get("status") == "completed":
+            status = _conversation_state_status(state)
+            if policy.resume and status == _STATUS_COMPLETED:
                 continue
-            conversation_observations = _run_operation_conversation(
-                conversation=conversation,
-                provider=provider,
-                run_id=run_context.run_id,
-                answer_reader=answer_reader,
-                unified_prompt_builder=unified_prompt_builder,
-                supports_extraction=supports_extraction,
-                session_report_records=session_report_records,
-                update_probe_records=update_probe_records,
-                prediction_records=prediction_records,
-                answer_prompt_records=answer_prompt_records,
-                efficiency_collector=efficiency_collector,
-            )
+            if status == _STATUS_FAILED_INGEST:
+                if policy.retry_failed_conversations:
+                    raise ConfigurationError(
+                        f"Cannot retry conversation '{conversation.conversation_id}' "
+                        "after failed ingest without clean retry support"
+                    )
+                continue
+            try:
+                conversation_observations = _run_operation_conversation(
+                    conversation=conversation,
+                    provider=provider,
+                    run_id=run_context.run_id,
+                    answer_reader=answer_reader,
+                    unified_prompt_builder=unified_prompt_builder,
+                    supports_extraction=supports_extraction,
+                    session_report_records=session_report_records,
+                    update_probe_records=update_probe_records,
+                    prediction_records=prediction_records,
+                    answer_prompt_records=answer_prompt_records,
+                    efficiency_collector=efficiency_collector,
+                )
+            except Exception as exc:
+                conversation_status[conversation.conversation_id] = {
+                    "status": _STATUS_FAILED_INGEST,
+                    "stage": "operation_conversation",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "ingested": False,
+                }
+                atomic_write_json(paths.conversation_status_path, conversation_status)
+                logger.log_event(
+                    "conversation_failed",
+                    {
+                        "conversation_id": conversation.conversation_id,
+                        "stage": "operation_conversation",
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                raise
             if efficiency_store is not None:
                 efficiency_store.merge_observations(conversation_observations)
             conversation_status[conversation.conversation_id] = {

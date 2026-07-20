@@ -16,6 +16,7 @@ from memory_benchmark.benchmark_adapters.halumem import (
     build_halumem_unified_answer_prompt,
 )
 from memory_benchmark.core import Conversation, Dataset, GoldAnswerInfo, Question, Session, Turn
+from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.validators import validate_no_private_keys
 from memory_benchmark.core.provider_protocol import (
     EvidenceAssertion,
@@ -572,3 +573,147 @@ def test_operation_level_resume_skips_completed_user(tmp_path: Path) -> None:
     assert second_provider.calls == []
     assert summary.completed_conversations == 1
     assert summary.completed_questions == 2
+
+
+def test_operation_level_resume_treats_legacy_failed_status_as_failed_ingest(
+    tmp_path: Path,
+) -> None:
+    """旧版 `status=\"failed\"+ingested=False` checkpoint 也必须按 failed_ingest 跳过。"""
+
+    first_provider = OperationFakeProvider()
+    run_operation_level_predictions(
+        dataset=_operation_dataset(include_generated_question=False),
+        provider=first_provider,
+        run_context=_context(tmp_path),
+        policy=PredictionRunPolicy(max_workers=1, progress_enabled=False),
+        method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+        benchmark_variant="medium",
+        run_scope=RunScope.SMOKE,
+        answer_reader=_reader(),
+        unified_prompt_builder=build_halumem_unified_answer_prompt,
+        protocol_version="v3",
+        provenance_granularity="turn",
+    )
+
+    context = _context(tmp_path)
+    status_path = ExperimentPaths.create(context.run_dir).conversation_status_path
+    status_path.write_text(
+        json.dumps({"halu-user-1": {"status": "failed", "ingested": False}}) + "\n",
+        encoding="utf-8",
+    )
+
+    second_provider = OperationFakeProvider()
+    summary = run_operation_level_predictions(
+        dataset=_operation_dataset(include_generated_question=False),
+        provider=second_provider,
+        run_context=_context(tmp_path, resume=True),
+        policy=PredictionRunPolicy(max_workers=1, resume=True, progress_enabled=False),
+        method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+        benchmark_variant="medium",
+        run_scope=RunScope.SMOKE,
+        answer_reader=_reader(),
+        unified_prompt_builder=build_halumem_unified_answer_prompt,
+        protocol_version="v3",
+        provenance_granularity="turn",
+    )
+
+    assert second_provider.calls == []
+    assert summary.completed_conversations == 0
+
+
+class FailingOnSecondSessionProvider(OperationFakeProvider):
+    """在第二个 session ingest 时失败，用于验证中途失败的 checkpoint 语义。"""
+
+    def ingest(self, unit: SessionBatch) -> IngestResult:
+        """s2 session 触发受控故障，其余沿用 fake 写入。"""
+
+        if unit.session_id == "s2":
+            raise RuntimeError("planned s2 ingest failure")
+        return super().ingest(unit)
+
+
+def test_operation_level_conversation_failure_marks_failed_ingest_and_withholds_partial_artifacts(
+    tmp_path: Path,
+) -> None:
+    """中途失败必须原子落 failed_ingest，且不得把本 conversation 的 partial 记录落盘。"""
+
+    context = _context(tmp_path)
+    with pytest.raises(RuntimeError, match="planned s2 ingest failure"):
+        run_operation_level_predictions(
+            dataset=_operation_dataset(include_generated_question=False),
+            provider=FailingOnSecondSessionProvider(),
+            run_context=context,
+            policy=PredictionRunPolicy(max_workers=1, progress_enabled=False),
+            method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+            benchmark_variant="medium",
+            run_scope=RunScope.SMOKE,
+            answer_reader=_reader(),
+            unified_prompt_builder=build_halumem_unified_answer_prompt,
+        )
+
+    paths = ExperimentPaths.create(context.run_dir)
+    status = json.loads(paths.conversation_status_path.read_text(encoding="utf-8"))
+    assert status["halu-user-1"] == {
+        "status": "failed_ingest",
+        "stage": "operation_conversation",
+        "error_type": "RuntimeError",
+        "error": "planned s2 ingest failure",
+        "ingested": False,
+    }
+    # 唯一 conversation 中途失败：三类 artifact 都不得留下 partial 记录。
+    assert read_jsonl(paths.session_memory_reports_path) == []
+    assert read_jsonl(paths.artifacts_dir / "update_probe_results.jsonl") == []
+    assert read_jsonl(paths.method_predictions_path) == []
+
+    retry_provider = FailingOnSecondSessionProvider()
+    with pytest.raises(ConfigurationError, match="clean retry support"):
+        run_operation_level_predictions(
+            dataset=_operation_dataset(include_generated_question=False),
+            provider=retry_provider,
+            run_context=_context(tmp_path, resume=True),
+            policy=PredictionRunPolicy(
+                max_workers=1,
+                resume=True,
+                retry_failed_conversations=True,
+                progress_enabled=False,
+            ),
+            method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+            benchmark_variant="medium",
+            run_scope=RunScope.SMOKE,
+            answer_reader=_reader(),
+            unified_prompt_builder=build_halumem_unified_answer_prompt,
+        )
+    assert retry_provider.calls == []
+
+    clean_calls: list[tuple[Conversation, dict]] = []
+
+    def _clean(conversation: Conversation, failed_state: dict) -> None:
+        """记录一次 clean 调用，并校验收到的是不含私有字段的公开 conversation。"""
+
+        clean_calls.append((conversation, dict(failed_state)))
+
+    cleaned_provider = OperationFakeProvider()
+    summary = run_operation_level_predictions(
+        dataset=_operation_dataset(include_generated_question=False),
+        provider=cleaned_provider,
+        run_context=_context(tmp_path, resume=True),
+        policy=PredictionRunPolicy(
+            max_workers=1,
+            resume=True,
+            retry_failed_conversations=True,
+            progress_enabled=False,
+        ),
+        method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+        benchmark_variant="medium",
+        run_scope=RunScope.SMOKE,
+        answer_reader=_reader(),
+        unified_prompt_builder=build_halumem_unified_answer_prompt,
+        clean_failed_ingest_conversation=_clean,
+    )
+
+    assert len(clean_calls) == 1
+    cleaned_conversation, failed_state = clean_calls[0]
+    assert cleaned_conversation.gold_answers == {}
+    assert failed_state["status"] == "failed_ingest"
+    assert cleaned_provider.calls[0] == ("ingest", "s1", None, 1)
+    assert summary.completed_conversations == 1

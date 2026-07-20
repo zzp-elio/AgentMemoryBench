@@ -743,6 +743,7 @@ def run_registered_conversation_qa_prediction(
                     "retrieval_evidence_contract_version",
                     None,
                 ),
+                clean_failed_ingest_conversation=clean_failed_ingest_conversation,
             )
         else:
             summary = run_predictions(

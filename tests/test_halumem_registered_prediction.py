@@ -20,6 +20,7 @@ from memory_benchmark.benchmark_adapters.halumem import (
 )
 from memory_benchmark.benchmark_adapters.registry import get_benchmark_registration
 from memory_benchmark.core import Conversation, Dataset, GoldAnswerInfo, Question, Session, Turn
+from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.validators import validate_no_private_keys
 from memory_benchmark.core.provider_protocol import (
     IngestResult,
@@ -144,6 +145,24 @@ class FailingSecondUserProvider(FakeHalumemProvider):
         if unit.session_id == "s-halu-user-2":
             raise RuntimeError("planned second user failure")
         return super().ingest(unit)
+
+
+class RecordingCleanHook:
+    """记录 clean-failed-ingest hook 调用序列与参数的测试替身。"""
+
+    def __init__(self) -> None:
+        """初始化空调用记录。"""
+
+        self.calls: list[tuple[Conversation, dict[str, object]]] = []
+
+    def __call__(
+        self,
+        conversation: Conversation,
+        failed_state: dict[str, object],
+    ) -> None:
+        """记录一次 clean 调用收到的公开 conversation 与失败状态快照。"""
+
+        self.calls.append((conversation, dict(failed_state)))
 
 
 class FakeHalumemJudgeClient:
@@ -436,10 +455,53 @@ def test_halumem_fake_chain_marks_extraction_na_without_session_report(
     assert qa.total_questions == 1
 
 
-def test_halumem_operation_resume_skips_completed_and_runs_pending_user(
+def test_halumem_operation_conversation_failure_marks_failed_ingest_without_partial_artifacts(
     tmp_path: Path,
 ) -> None:
-    """resume 应跳过已完成 user，并继续处理 pending user。"""
+    """中途失败必须原子落 failed_ingest，且不得把 partial 记录写进公开 artifact。"""
+
+    first_context = _context(tmp_path)
+    with pytest.raises(RuntimeError, match="planned second user failure"):
+        run_operation_level_predictions(
+            dataset=_dataset("halu-user-1", "halu-user-2"),
+            provider=FailingSecondUserProvider(),
+            run_context=first_context,
+            policy=PredictionRunPolicy(max_workers=1, progress_enabled=False),
+            method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+            benchmark_variant="medium",
+            run_scope=RunScope.FULL,
+            answer_reader=_reader(),
+            unified_prompt_builder=build_halumem_unified_answer_prompt,
+        )
+
+    paths = ExperimentPaths.create(first_context.run_dir)
+    status = json.loads(paths.conversation_status_path.read_text(encoding="utf-8"))
+    assert status["halu-user-1"]["status"] == "completed"
+    assert status["halu-user-2"] == {
+        "status": "failed_ingest",
+        "stage": "operation_conversation",
+        "error_type": "RuntimeError",
+        "error": "planned second user failure",
+        "ingested": False,
+    }
+
+    predictions = read_jsonl(paths.method_predictions_path)
+    assert [record["conversation_id"] for record in predictions] == ["halu-user-1"]
+    session_reports = read_jsonl(paths.session_memory_reports_path)
+    assert all(
+        record["session_ref"]["session_id"] != "s-halu-user-2"
+        for record in session_reports
+    )
+    update_probes = read_jsonl(paths.artifacts_dir / "update_probe_results.jsonl")
+    assert all(
+        "halu-user-2" not in record["query_text"] for record in update_probes
+    )
+
+
+def test_halumem_operation_resume_default_skips_failed_ingest_conversation(
+    tmp_path: Path,
+) -> None:
+    """resume 默认必须跳过 failed_ingest conversation，provider 零新调用。"""
 
     first_context = _context(tmp_path)
     with pytest.raises(RuntimeError, match="planned second user failure"):
@@ -468,13 +530,114 @@ def test_halumem_operation_resume_skips_completed_and_runs_pending_user(
         unified_prompt_builder=build_halumem_unified_answer_prompt,
     )
 
-    assert summary.completed_conversations == 2
-    assert ("ingest", "s-halu-user-1") not in second_provider.calls
-    assert ("ingest", "s-halu-user-2") in second_provider.calls
+    assert second_provider.calls == []
+    assert summary.completed_conversations == 1
     assert HALUMEM_RESUME_POLICY.smoke_enabled is False
     assert HALUMEM_RESUME_POLICY.ingest_checkpoint == "conversation"
     assert HALUMEM_RESUME_POLICY.answer_checkpoint == "question"
     assert HALUMEM_RESUME_POLICY.reuse_saved_retrieval is True
+
+
+def test_halumem_operation_retry_with_clean_hook_cleans_once_then_reruns_from_session_one(
+    tmp_path: Path,
+) -> None:
+    """显式 retry + clean hook：先恰清理一次，再从 session 1 完整重建单份 artifact。"""
+
+    first_context = _context(tmp_path)
+    with pytest.raises(RuntimeError, match="planned second user failure"):
+        run_operation_level_predictions(
+            dataset=_dataset("halu-user-1", "halu-user-2"),
+            provider=FailingSecondUserProvider(),
+            run_context=first_context,
+            policy=PredictionRunPolicy(max_workers=1, progress_enabled=False),
+            method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+            benchmark_variant="medium",
+            run_scope=RunScope.FULL,
+            answer_reader=_reader(),
+            unified_prompt_builder=build_halumem_unified_answer_prompt,
+        )
+
+    clean_hook = RecordingCleanHook()
+    retry_provider = FakeHalumemProvider()
+    summary = run_operation_level_predictions(
+        dataset=_dataset("halu-user-1", "halu-user-2"),
+        provider=retry_provider,
+        run_context=_context(tmp_path, resume=True),
+        policy=PredictionRunPolicy(
+            max_workers=1,
+            resume=True,
+            retry_failed_conversations=True,
+            progress_enabled=False,
+        ),
+        method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+        benchmark_variant="medium",
+        run_scope=RunScope.FULL,
+        answer_reader=_reader(),
+        unified_prompt_builder=build_halumem_unified_answer_prompt,
+        clean_failed_ingest_conversation=clean_hook,
+    )
+
+    assert len(clean_hook.calls) == 1
+    cleaned_conversation, failed_state = clean_hook.calls[0]
+    assert cleaned_conversation.conversation_id == "halu-user-2"
+    assert cleaned_conversation.gold_answers == {}
+    for session in cleaned_conversation.sessions:
+        assert session.private_metadata == {}
+    assert failed_state["status"] == "failed_ingest"
+    assert failed_state["ingested"] is False
+
+    # clean 严格早于新一轮 ingest：clean 记录不消费 provider 调用序列，本断言只
+    # 需确认重试后 provider 确实从 session 1 重新开始 ingest。
+    assert retry_provider.calls[0] == ("ingest", "s-halu-user-2")
+
+    assert summary.completed_conversations == 2
+    paths = ExperimentPaths.create(first_context.run_dir)
+    predictions = read_jsonl(paths.method_predictions_path)
+    assert sorted(record["conversation_id"] for record in predictions) == [
+        "halu-user-1",
+        "halu-user-2",
+    ]
+
+
+def test_halumem_operation_retry_without_clean_hook_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """显式 retry 但无 clean hook 必须 fail-closed，不得直接从 session 1 重放。"""
+
+    first_context = _context(tmp_path)
+    with pytest.raises(RuntimeError, match="planned second user failure"):
+        run_operation_level_predictions(
+            dataset=_dataset("halu-user-1", "halu-user-2"),
+            provider=FailingSecondUserProvider(),
+            run_context=first_context,
+            policy=PredictionRunPolicy(max_workers=1, progress_enabled=False),
+            method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+            benchmark_variant="medium",
+            run_scope=RunScope.FULL,
+            answer_reader=_reader(),
+            unified_prompt_builder=build_halumem_unified_answer_prompt,
+        )
+
+    retry_provider = FakeHalumemProvider()
+    with pytest.raises(ConfigurationError, match="clean retry support"):
+        run_operation_level_predictions(
+            dataset=_dataset("halu-user-1", "halu-user-2"),
+            provider=retry_provider,
+            run_context=_context(tmp_path, resume=True),
+            policy=PredictionRunPolicy(
+                max_workers=1,
+                resume=True,
+                retry_failed_conversations=True,
+                progress_enabled=False,
+            ),
+            method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+            benchmark_variant="medium",
+            run_scope=RunScope.FULL,
+            answer_reader=_reader(),
+            unified_prompt_builder=build_halumem_unified_answer_prompt,
+        )
+
+    assert retry_provider.calls == []
 
 
 def test_halumem_operation_level_records_efficiency_observations(

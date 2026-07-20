@@ -37,6 +37,7 @@ from memory_benchmark.core import (
 )
 from memory_benchmark.core.exceptions import ConfigurationError
 from memory_benchmark.core.interfaces import BaseMemoryProvider
+from memory_benchmark.core.provider_protocol import MemoryProvider
 from memory_benchmark.methods.config_track import (
     BuildIdentityDeclaration,
     EmbeddingIdentity,
@@ -697,6 +698,180 @@ def test_registered_prediction_builds_system_from_registry_context(
     assert runner_calls[0]["source_paths"] == (
         tmp_path / "sources/locomo10.json",
     )
+    assert runner_calls[0]["clean_failed_ingest_conversation"] is not None
+
+
+class _FakeOperationLevelProvider(MemoryProvider):
+    """CLI 接线测试用的最小 v3 provider 占位对象，本测试不会真正调用它。"""
+
+    consume_granularity = "session"
+
+    def ingest(self, unit: object) -> None:
+        """本测试通过 monkeypatch 屏蔽了真实 runner，不会执行到这里。"""
+
+        raise AssertionError("must not be called: runner is monkeypatched in this test")
+
+    def retrieve(self, query: object) -> None:
+        """本测试通过 monkeypatch 屏蔽了真实 runner，不会执行到这里。"""
+
+        raise AssertionError("must not be called: runner is monkeypatched in this test")
+
+
+def _unused_operation_level_prompt_builder(question: object, retrieval_result: object) -> None:
+    """operation-level registered 分支要求非空 builder；本测试不会真正调用它。"""
+
+    raise AssertionError("must not be called: runner is monkeypatched in this test")
+
+
+def test_registered_operation_level_prediction_passes_clean_failed_ingest_hook(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """operation-level registered 分支必须把 clean hook 传给 shared operation runner。
+
+    HaluMem operation-level 分支走独立的 `run_operation_level_predictions()` 调用点
+    （`cli/run_prediction.py`），不经过标准 `run_predictions()`。回归 R1 之前该分支
+    完全没有接线 `clean_failed_ingest_conversation`，只有单测覆盖 helper 本身会漏掉
+    这个真实调用点缺口，因此这里必须走 `run_registered_conversation_qa_prediction()`
+    真实入口来断言。
+    """
+
+    config = Mem0Config.smoke()
+    fake_provider = _FakeOperationLevelProvider()
+    expected_summary = SimpleNamespace(run_id="halumem-op-run")
+    runner_calls: list[dict[str, object]] = []
+    path_settings = SimpleNamespace(
+        project_root=tmp_path,
+        outputs_root=tmp_path / "outputs",
+    )
+    prepared_run = _build_prepared_run(
+        dataset_name="halumem",
+        variant="medium",
+        run_scope=RunScope.SMOKE,
+    )
+    benchmark_registration = SimpleNamespace(
+        name="halumem",
+        task_family=TaskFamily.CONVERSATION_QA,
+        required_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.MEMORY_RETRIEVAL,
+            }
+        ),
+        default_variant="medium",
+        variant_names=lambda: ("medium",),
+        prepare=lambda project_root, request: prepared_run,
+        prediction_enabled=True,
+        operation_level=True,
+        unified_prompt_builder=_unused_operation_level_prompt_builder,
+    )
+    method_registration = SimpleNamespace(
+        build_identity_resolver=_pending_fake_build_identity,
+        resolve_consume_granularity=lambda _benchmark_name: "session",
+        name="mem0",
+        display_name="Mem0",
+        task_families=frozenset({TaskFamily.CONVERSATION_QA}),
+        provided_capabilities=frozenset(
+            {
+                MethodCapability.CONVERSATION_ADD,
+                MethodCapability.MEMORY_RETRIEVAL,
+            }
+        ),
+        requires_api=True,
+        resolve_profile_section=lambda profile_name: profile_name,
+        system_factory=lambda context: fake_provider,
+        source_identity_factory=lambda settings: {"source_sha256": "abc"},
+        model_name_getter=lambda selected: selected.reader_model,
+        max_workers_getter=lambda selected: 1,
+        workload_estimator=None,
+        allow_smoke_worker_override=True,
+        efficiency_model_inventory_getter=lambda selected: (),
+        efficiency_instrumentation_identity_getter=(
+            lambda settings, selected, source_identity: {}
+        ),
+        retrieval_observation_contract_getter=lambda selected: RetrievalObservationContract(
+            required_by_profile=False,
+            supported_by_method=True,
+        ),
+        clean_failed_ingest_state=lambda context, conversation, failed_state: None,
+    )
+
+    class FakeOpenAIAnswerClient:
+        """避免测试构造真实 OpenAI SDK client。"""
+
+        model_name = "fake-openai-answer"
+
+        def __init__(
+            self,
+            *,
+            settings: OpenAISettings,
+            answer_settings: AnswerLLMSettings,
+        ) -> None:
+            """CLI 接线测试只需要 answer reader 可被构造。"""
+
+        def complete(self, *, prompt: str) -> str:
+            """本测试不会真正调用。"""
+
+            return "unused"
+
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_benchmark_registration",
+        lambda name: benchmark_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "get_method_registration",
+        lambda name: method_registration,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_method_profile",
+        lambda **kwargs: config,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_path_settings",
+        lambda project_root: path_settings,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "load_openai_settings",
+        lambda project_root: OpenAISettings(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            model="gpt-4o-mini",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "OpenAICompatibleAnswerLLMClient",
+        FakeOpenAIAnswerClient,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        prediction_cli,
+        "run_operation_level_predictions",
+        lambda **kwargs: runner_calls.append(kwargs) or expected_summary,
+    )
+
+    result = run_registered_conversation_qa_prediction(
+        project_root=tmp_path,
+        method_name="mem0",
+        benchmark_name="halumem",
+        profile_name="smoke",
+        run_id="halumem-op-run",
+        confirm_api=True,
+        smoke_conversation_limit=1,
+        smoke_max_workers=None,
+        enable_efficiency_observability=False,
+    )
+
+    assert result.runs[0].summary is expected_summary
+    assert runner_calls[0]["provider"] is fake_provider
+    assert runner_calls[0]["unified_prompt_builder"] is _unused_operation_level_prompt_builder
     assert runner_calls[0]["clean_failed_ingest_conversation"] is not None
 
 
