@@ -33,6 +33,12 @@ evaluator 按 Recall/NDCG 各自要求导出 `valid / n_a / pending`。这样不
    `retrieval-summary-v2`，`total_questions` 计全部 score row、零数值样本的 `mean_score=null`，
    runner 区分 key 缺失与显式 null。架构师用真实 v6 W1/W2 零 API 重评得到 total=1/2、
    mean 均为 null；未重开公式、gold group、LME 419、top-k 或 provider evidence。
+8. **Precision/F1@k M2 已排期、尚未施工**：Gold Evidence Group v1 的有限官方 qrel 足以实现
+   `relevance_scope=annotated_gold_groups` 的通用内核，不再用“未证明全语义穷尽”阻塞代码存在；
+   但 score 解释必须披露 annotation scope。正式启用前还要裁 method-native item 与
+   canonical-source-normalized 两种粒度、multi-child item、dedup、返回不足 k 的分母及 LoCoMo
+   malformed/empty/unmatched evidence。该批只消费已有 ordered retrieved items + private gold +
+   RetrievalEvidence v1；不改 M1 资格顺序，不为旧 artifact 补猜。
 
 ## 权威材料
 

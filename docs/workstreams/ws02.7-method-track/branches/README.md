@@ -12,7 +12,7 @@
 | [`dual-track-identity`](dual-track-identity/README.md) | 旧 config-track/TrackIdentity、通用产品/eval 实现身份与 MemoryOS reproduction variant | M0 R1/R2 已关闭；只解释历史身份，新配置看 TOML/builder 现行政策 |
 | [`method-config-profiles`](method-config-profiles/README.md) | 一个 method TOML、主/作者 section、完整 answer builder 与旧 config-track 兼容迁移 | 已排期、尚未写卡；首个作者校准或真实效果 full run 前关闭 |
 | [`input-role-semantics`](input-role-semantics/README.md) | canonical speaker role、benchmark gold evidence unit、Recall/NDCG 分母 | gold M0 + LightMem hybrid + MemBench split 均已关闭；交棒 retrieval M1 |
-| [`method-recertification`](method-recertification/README.md) | 共享修复完成后按现行 commit 逐 method 重走 B1-B11，不靠历史 frozen 惯性 | LightMem frozen-v3、Mem0 frozen-v2；当前转 MemoryOS，随后 A-Mem、SimpleMem |
+| [`method-recertification`](method-recertification/README.md) | 共享修复完成后按现行 commit 逐 method 重走 B1-B11，不靠历史 frozen 惯性 | LightMem frozen-v3、Mem0 frozen-v2、MemoryOS frozen-v1；当前转 A-Mem，随后 SimpleMem |
 | [`evaluator-observability`](evaluator-observability/README.md) | artifact-level API evaluator 的 judge scope、model inventory 与 token observation 共享断链 | 共享修复与 BEAM/HaluMem 真实 refill 均已关闭；后续 method 直接复用 |
 
 每条支线用自身 README 记录范围、文档索引和稳定依赖顺序，`cards/` 放可整份复制给

@@ -54,6 +54,8 @@ benchmark 的 schema、异常、canonical id、private gold group、prompt 与 e
   [`notes/memoryos-shared-r1-implementation.md`](notes/memoryos-shared-r1-implementation.md)。
 - 用户已批准的五格真实 smoke、8 个固定 run、全部 evaluator 与统一机器验货：
   [`notes/memoryos-v2-five-grid-b11-command-pack.md`](notes/memoryos-v2-five-grid-b11-command-pack.md)。
+- B1-B11 最终对表与声明缺口：
+  [`notes/memoryos-frozen-v1.md`](notes/memoryos-frozen-v1.md)。
 - main 线性提交：`6602aab` → `4300591` → `c5e7541` → `1207083` → `ef3b4f2` →
   `dcc5fd6`。保留首轮被强验收驳回及 R1-R5 修正历史，不以最终绿测抹掉错误路径。
 - 当前已锁：session 边界不跨配、单侧页跨 capacity 不丢、双空拒绝、timestamp
@@ -62,8 +64,10 @@ benchmark 的 schema、异常、canonical id、private gold group、prompt 与 e
 - 验收门：Terra 核心四文件 `158 passed`；架构师独立共享注册/metric 回归 `165 passed`、
   R5 定向 `80 passed`；main 无 API 全量
   `1666 passed, 3 deselected, 2 warnings, 29 subtests passed in 145.12s`；compileall exit 0。
-- 当前只等待用户按命令包串行执行 8 个 run 并回传 HaluMem 调用预览与统一机器门 PASS 尾行；
-  未授权扩大 smoke 或转 full。
+- 用户已完成 8 个真实 run；HaluMem judge preview=`extraction=0 update=7 qa=1`。首轮机器门
+  错把 BEAM abstention 的 `null/n_a` 当失败，R1 按 benchmark-policy 改为明确验 N/A 后复用
+  既有 artifacts 8/8 PASS。current product build 已冻结为 `method-frozen-v1`；未扩大 smoke、
+  未转 full、未为制造数值 Recall 重烧 API。
 
 ## 第一波五卡拓扑（历史取证入口）
 
@@ -91,6 +95,9 @@ benchmark 的 schema、异常、canonical id、private gold group、prompt 与 e
 3. 如需代码，只发一张共享 adapter 修复卡；纯 benchmark 测试可按不重叠文件并行补；
 4. 定向回归、全量门、五格最小真实 smoke、artifact/state/worker 开箱；
 5. B1-B11 对表后才写 frozen note。N/A metric 不阻塞 method 冻结，虚假 valid 会阻塞。
+
+上述五门现均已关闭；本子线进入只读冻结状态。后续仅在 frozen note 的失效触发器命中时局部
+解冻，主线转入 A-Mem。
 
 权威实时 commit/test/派卡状态仍只写父级
 `docs/workstreams/ws02.7-method-track/README.md`；本页只维护本子线结构与稳定依赖。

@@ -1,6 +1,6 @@
 # MemoryOS current-v2 shared-lifecycle 五格 B11 真实 smoke 命令包
 
-> 状态：**已获用户预算、规模与 run-id 授权，待执行**。命令生成基线为
+> 状态：**8 个真实 run 已执行并由架构师开箱验收通过**。命令生成基线为
 > `main@ed945d2`；该基线已完成 shared-lifecycle R1-R5 full-diff 强验收、主树无 API
 > 全量 `1666 passed, 3 deselected, 2 warnings, 29 subtests passed in 145.12s` 与
 > compileall exit 0。本页只授权下列 8 个 run；不授权 full、resume、扩大题数、删除失败
@@ -485,7 +485,9 @@ cases = (
         "benchmark": "beam", "variant": "100k", "questions": 2,
         "workers": 2, "conversations": 2, "consume": "session",
         "summaries": ("beam_recall", "beam_rubric_judge"),
-        "null_summaries": (), "judge_metrics": ("beam_rubric_judge",),
+        "null_summaries": ("beam_recall",),
+        "beam_abstention_questions": 2,
+        "judge_metrics": ("beam_rubric_judge",),
         "logs": ("terminal.predict.log", "terminal.evaluate-offline.log",
                  "terminal.evaluate-judge.log"),
     },
@@ -494,7 +496,9 @@ cases = (
         "benchmark": "beam", "variant": "10m", "questions": 1,
         "workers": 1, "conversations": 1, "consume": "session",
         "summaries": ("beam_recall", "beam_rubric_judge"),
-        "null_summaries": (), "judge_metrics": ("beam_rubric_judge",),
+        "null_summaries": ("beam_recall",),
+        "beam_abstention_questions": 1,
+        "judge_metrics": ("beam_rubric_judge",),
         "logs": ("terminal.predict.log", "terminal.evaluate-offline.log",
                  "terminal.evaluate-judge.log"),
     },
@@ -598,6 +602,15 @@ for case in cases:
             assert summary["mean_score"] is None, (run_dir, metric, summary)
         else:
             assert isinstance(summary["mean_score"], (int, float)), (run_dir, metric)
+        if metric == "beam_recall":
+            abstention_count = case["beam_abstention_questions"]
+            assert summary["status"] == "n/a", (run_dir, metric, summary)
+            assert summary["total_questions"] == abstention_count
+            assert summary["scored_question_count"] == 0
+            assert summary["abstention_question_count"] == abstention_count
+            assert summary["score_status_counts"] == {"n/a": abstention_count}
+            assert summary["unmatched_gold_id_count"] == 0
+            assert summary["ambiguous_gold_id_count"] == 0
 
     prediction_efficiency = read_jsonl(
         run_dir / "artifacts/efficiency_observations.prediction.jsonl"
@@ -713,7 +726,7 @@ print(
 PY
 ```
 
-## 9. 执行后回报
+## 9. 执行后回报（历史执行格式）
 
 只需把以下两段原样发给架构师；其余 terminal log、manifest、artifact、state 与 summary 由
 架构师直接从 run 目录开箱，不需要把整段终端输出粘进聊天：
@@ -723,3 +736,21 @@ PY
 
 任何命令或机器门失败时，保留完整 run 目录与 log，停止后续付费步骤；不要自行删目录、改
 artifact 或为了过门修改校验脚本。
+
+## 10. 2026-07-20 B11 验收与机器门 R1
+
+用户实际回报 `JUDGE_CALL_PREVIEW extraction=0 update=7 qa=1 total=8`。首轮统一机器门在
+BEAM 100K 处误报：它把 `beam_recall` 无条件要求为数值，而两个 BEAM run 的默认首题全部是
+官方 abstention，evaluator-private gold group 为空。此时 provider artifact 仍为
+`valid/turn`，但 benchmark-policy 正确先把 Recall 判为 `null/n_a`；两层事实不矛盾。
+
+R1 只修验货器：BEAM 100K/10M 明确要求 `mean_score=null`、`status=n/a`、scored=0、
+abstention=2/1、无 unmatched/ambiguous gold id。直接复用既有 artifacts 重跑后，8 个 run 全部
+PASS，末行原文为：
+
+```text
+PASS MemoryOS current-v2 shared-lifecycle five-grid B11 machine gate: 8 runs, exact page lineage, worker isolation, all eligible metrics and HaluMem N/A propagation present
+```
+
+每个选中 BEAM conversation 的第 3 题才是首个非 abstention；本轮不扩题、不重烧 API。完整
+冻结判词与已声明覆盖边界见 [`memoryos-frozen-v1.md`](memoryos-frozen-v1.md)。

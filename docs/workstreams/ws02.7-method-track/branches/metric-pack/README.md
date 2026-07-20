@@ -15,8 +15,9 @@
 3. 仍可收敛的是 top-k source-id 投影、纯 Recall@k 结果与重复聚合骨架；LoCoMo/LME/MemBench/
    BEAM 的 gold unit、empty-gold、abstention/no-target 与 tier 差异不得统一掉。
 4. Answer Metric Pack M0 首批只新增 normalized EM 与 directional gold-in-prediction substring EM；
-   两者与通用 token-F1 共用一个版本化 normalizer。BLEU/ROUGE-L 暂不实现，Precision/F1@k 等
-   relevance 穷尽性审计。
+   两者与通用 token-F1 共用一个版本化 normalizer。后续 M1 已排期实现 BLEU-1、ROUGE-L F1、
+   annotation-grounded Precision@k 与 retrieval-F1@k 四个通用内核；“内核存在”不等于所有
+   benchmark 默认注册。
 5. 通用 token-F1 当前 registry 误覆盖 BEAM；M0 只收窄启用面到短答案 QA，不删除公式组件。
 
 ## M0 验收状态
@@ -34,7 +35,19 @@ metric 统一的 normalized artifact identity，没有改变公式或分数。
 LightMem 两条既有 LoCoMo v6 run 已用新 evaluator 离线追加评分，零真实 API、零 method 重跑：
 单 worker 与双 worker 的 normalized EM / substring EM 均为 0；逐题 details 证明是日期表达/顺序
 不满足 lexical exact/contiguous-token 条件，不是 evaluator 接线失败。该补充分数不反向解冻
-LightMem build。BLEU/ROUGE-L 与 Precision/F1@k 继续受任务匹配/穷尽 relevance 判据约束，不能
-因 M0 关闭而自动实现。
+LightMem build。
+
+## M1 / M2 已排期边界（2026-07-20）
+
+- M1 只加纯公式、artifact-only evaluator 与强反例，不改 method、benchmark canonical、answer
+  prompt 或既有 prediction。BLEU-1 必须锁 tokenizer/BP/smoothing/聚合；ROUGE-L 锁 LCS 与
+  P/R/F1；Precision/F1@k 锁 annotated gold-group match、dedup、top-k 分母与 multi-child item。
+- 可枚举的 Gold Evidence Group 足以定义 annotation-grounded precision；没有 exhaustive-qrel
+  声明时，只限制解释为 supplementary，不再阻塞内核实现。但 method-native fact/page/session
+  粒度不同，Precision/F1 不会天然修复公平性，必须同步输出 item/source 粒度诊断。
+- M2 再逐 benchmark 裁 registry 启用面与 LoCoMo 异常 evidence 口径。已有 artifact 同时保留
+  prediction/private gold/ordered retrieved items/v1 evidence 时可零 API 重评；缺契约的旧 run
+  不补猜。
+- 这两批排在当前目标 method 的五格 smoke/freeze 之后，不阻塞主线；任务卡尚未发出。
 
 权威当前动作、commit/test 快照继续只写父级 `../../README.md`。

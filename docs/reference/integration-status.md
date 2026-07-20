@@ -58,7 +58,7 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅caption v6 + MemBench/BEAM pair + HaluMem session | ✅五格真实 state；并行格物理隔离 | ✅v7 五格 readout/时间真实验收 | ✅LoCoMo/MemBench valid；LME/BEAM/HaluMem N/A；ranking pending 如实披露 | ✅online-soft + forced flush R1 | ✅prediction 与 artifact judge observations 实测 | ✅ | ✅当前 MiniLM smoke build | ✅主 TOML；author builder 按政策延后到校准前 | ✅五格 `REAL_SMOKE_PASSED` + 100K current-identity refill | **method-frozen-v3** |
 | [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅五格 role/granularity v3 | ✅混合(W2×4实弹) | ✅time/caption/role 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅五格 prediction+judge 实测 | ✅clean retry + 精确失败 stage | ✅当前 MiniLM smoke build；性能主配置待裁 | ✅current 主配置 truthful；author builder 待迁 | ✅五格 8 run 开箱 + inventory R1 | **method-frozen-v2** |
-| [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅当前 MiniLM smoke build | 🟡旧 readout 身份 truthful；author builder 待迁 | 🟡五格主 smoke | 待 B11 |
+| [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅五格 prediction+judge 实测 | ✅降级审计 | ✅当前 MiniLM smoke build | ✅current 身份 truthful；author builder 待迁 | ✅五格 8 run 开箱 | **method-frozen-v1** |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | MemOS | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -75,7 +75,13 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 > 仍需在首个作者校准或真实效果 full run 前迁为 TOML section + 完整 answer builder。当前
 > 5×10 主 smoke 不等待 product-default embedding 迁移，Mem0/LightMem/MemoryOS 沿用已验收
 > build；性能主配置到站后逐 method 裁定。
-> MemoryOS 已完成 M1 一手取证与 M2 离线施工/全量门，只差排到其顺序后的 B11 真实 smoke；
+> MemoryOS shared-lifecycle R1-R5 与 M0 身份门完成后，用户于 2026-07-20 执行五格 8 个真实
+> run；架构师逐项开箱 manifest、prediction、private-label 边界、summary、efficiency、worker
+> state 与 page lineage。BEAM 默认首题为 abstention，原机器门错误要求数值 Recall；订正为
+> benchmark-policy `null/n_a` 后既有 artifact 8/8 PASS，无需重烧 API。HaluMem extraction=0、
+> update=7、QA=1 与 observation 一致，composite memory type 清洁 N/A。MemoryOS 现冻结为
+> `method-frozen-v1`；低于 STM capacity 的真实 smoke 未触发 updater、BEAM 未取非 abstention
+> 数值 Recall、rank/author builder/full cost/resume 均已在 frozen note 声明，不冒充已覆盖。
 > Mem0 五格 input/readout v3 与 HaluMem operation clean retry 已于 2026-07-20 以
 > `7fb3cd9`/`e1b2c9c`、`1bdfa98`/`5d1f91e` 强验收，随后 8 个真实 run 的 manifest、metric、
 > judge scope、worker state、Qdrant↔sidecar 与 public/private artifact 全部开箱。机器门的

@@ -921,3 +921,17 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   不可达的预声明行，且不改变 message、state、retrieve、answer、score 或调用次数，可用既有
   actual observations + 强回归关闭，并在 frozen note 披露旧 artifact 与 current writer 的差异；
   这比篡改历史 outputs 或无意义重付 API 更可审计。
+
+### 14.9 2026-07-20：provider 可评与当前题有 gold 是两道独立门
+
+- **`valid/turn` 不保证每道题都产生数值 Recall。**MemoryOS × BEAM 真实 smoke 的 provider
+  正确给出 occurrence-exact turn lineage，但默认首题属于官方 abstention，private gold group
+  为空；evaluator 因 benchmark policy 正确写 `null/n_a`。provider capability、逐题 runtime
+  evidence、benchmark gold eligibility、metric score 是四层，不得互相覆盖。
+- **机器门必须按样本选择预先声明 N/A。**验货器若无条件要求每个已注册 summary 为 float，会
+  把合法 abstention/no-target 当回归。应同时验 `status/reason/counts`、scored 与 excluded 数、
+  unmatched/ambiguous 负空间；只有当前题确有 eligible gold 时才要求数值。
+- **不为制造绿色数字重烧 API。**若真实 run 已覆盖 method retrieve/evidence、answer/judge、state
+  与 artifact，而数值 metric 只因确定性的题目类型选择缺席，可由 benchmark census + evaluator
+  强反例承重，并在 frozen note 披露。扩大到下一道有 gold 的题属于新预算/覆盖决策，不是修复
+  原 run 的默认动作。

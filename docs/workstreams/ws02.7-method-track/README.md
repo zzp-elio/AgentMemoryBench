@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem frozen-v3、Mem0 frozen-v2；当前转 MemoryOS 五格重认证）
+status: in-progress（LightMem frozen-v3、Mem0 frozen-v2、MemoryOS frozen-v1；当前转 A-Mem）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -64,11 +64,14 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   N/A，故 composite memory_type 清洁传播 N/A。Terra 首轮 `a3025d0` 因错误 N/A gate 与反例
   不足被驳回，经 R1-R5 后主线为 `6602aab..dcc5fd6`；Terra 最终核心定向 `158 passed`，
   架构师独立共享回归 `165 passed`、R5 定向 `80 passed`、无 API 全量 `1666 passed`。
-  **当前唯一动作：用户按已批准的 8-run
-  [`MemoryOS 五格 B11 命令包`](branches/method-recertification/memoryos/notes/memoryos-v2-five-grid-b11-command-pack.md)
-  串行执行真实 smoke，随后由架构师开箱验货；预算、规模与 run id 已确认，但授权不扩展到
-  full/resume/加题。**统一入口=
-  `branches/method-recertification/memoryos/README.md`。
+  用户已按批准范围完成 8 个真实 run；架构师复用 artifacts 修正 BEAM abstention 的验货器
+  口径后，统一机器门 8/8 PASS：14 个 conversation state、26 个 page、四格 W2 物理隔离、
+  五格逐题 `valid/turn`、全部适用 metric/judge 与 HaluMem extraction→memory-type N/A 传播均
+  完整。`JUDGE_CALL_PREVIEW extraction=0 update=7 qa=1 total=8` 与 observation 对账一致。
+  BEAM 本轮首题均无 gold group，故 Recall 正确为 `null/n_a`；不为制造数字扩题重烧 API。
+  **MemoryOS 正式冻结为 `method-frozen-v1`，当前唯一 method 主线转 A-Mem；**完整判词=
+  [`memoryos-frozen-v1.md`](branches/method-recertification/memoryos/notes/memoryos-frozen-v1.md)，
+  统一入口=`branches/method-recertification/memoryos/README.md`。
 - **LightMem lifecycle 现行裁决**：论文第 5/7/8 页与官方脚本复证，paper online soft
   是“抽取后直接 LTM insert”，在 vendored 代码中反而由
   `update="offline" → offline_update(memory_entries)` 实现；`online_update()` 空壳只是
@@ -113,14 +116,18 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   校准或真实效果 full run 前完成 loader/builder/manifest 迁移。embedding 是普通 TOML 字段，
   最终主表取共同还是产品默认留到效果实验前逐 method 裁定；当前 smoke 保持已验收配置。
 - **指标现行裁决**：LoCoMo canonical answer 仍是 32-token 单一 prediction，各答案指标共用它；
-  Precision/F1@k 在 relevance gold 未证明穷尽时 N/A。artifact-only 新指标走独立 metric-pack，
-  不整体解冻 benchmark core；M1 后先消费 `docs/reference/metric-extension-plan.md` 的
+  artifact-only 新指标走独立 metric-pack，不整体解冻 benchmark core；M1 后先消费
+  `docs/reference/metric-extension-plan.md` 的
   normalized EM + directional substring EM。“通用”现明确为公式内核不读取 benchmark/method，
   不代表所有 task 都启用：现有 Recall 已共享 group 公式与资格门，剩余 top-k/结果骨架收敛；
   F1 对 BEAM 的过宽注册一并在 Metric Pack M0 修正。Opus 4.8 `760f251` + `2f8a1e1` 已由架构师
   full diff、R1 `44 passed`、主树全量 `1524 passed, 3 deselected, 2 warnings, 29 subtests passed`
   强验收，以 `3bc9019` + `54a360e` 合入；两条 LightMem LoCoMo v6 run 已零 API 追加 normalized
-  EM/substring EM，均为 lexical 0 分且逐题原因可审计。Fable 5
+  EM/substring EM，均为 lexical 0 分且逐题原因可审计。**后续 M1/M2 已明确排入 BLEU-1、
+  ROUGE-L F1、annotation-grounded Precision@k 与 retrieval-F1@k 四个通用内核及逐 benchmark
+  启用裁决；Gold Evidence Group 可枚举即可实现 annotated-qrel 口径，非 exhaustive 只限制解释
+  射程，不再阻塞内核存在。变量 item 粒度、LoCoMo 异常 evidence 与 canonical-source 归一化先
+  裁清再进主表；该批不阻塞当前 method 五格主线。**Fable 5
   三家 product-default/variant 审计继续
   作为既有 build identity 的历史证据；MemoryOS ChromaDB 仍是 reproduction variant，不能用
   TOML profile 掩盖算法分叉。
@@ -221,7 +228,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   默认 resume 跳过，显式 retry 必须先 clean。用户已完成 current-v3 五格 8 个真实 run；架构师
   从 manifest、metric、judge scope、worker state、Qdrant↔sidecar 与 public/private artifact
   逐层开箱，B11 全绿。验货器的 HaluMem field-presence 误判已订正；registered inventory 的
-  不可达 legacy reader 也以 `14b6c31` 收紧。Mem0 现冻结为 `method-frozen-v2`，当前转 MemoryOS。
+  不可达 legacy reader 也以 `14b6c31` 收紧。Mem0 冻结为 `method-frozen-v2`，当时转 MemoryOS；
+  该动作现已由上方 MemoryOS frozen-v1 断点 supersede。
 - **2026-07-20 汇报门**：用户目标是在 2026-07-20 下午前尽量冻结 Mem0、MemoryOS、A-Mem、
   SimpleMem，并填写 `reports/report-progress-2026-07-20.md`。该目标要求复用 LightMem 已锁定的
   benchmark 稳定层，不再做无反证的全量 census；但不得把用户/外部工具对后续 method 接口的
@@ -231,6 +239,17 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   推导，不用 add 数猜 LLM 次数。
 
 ## 当前断点（2026-07-20）
+
+- 2026-07-20（**🧊 MemoryOS method-frozen-v1；下一家转 A-Mem**，GPT-5.6 sol 架构师）：用户按
+  current-v2 shared-lifecycle 命令包完成五格 8 个真实 run，HaluMem judge preview=
+  `extraction=0 update=7 qa=1`。架构师逐项核 manifest、checkpoint/operation status、prediction、
+  private gold 负空间、全部 summary/efficiency、14 个 conversation state、26 个 page 与四格 W2
+  物理隔离。首轮机器门错误要求 BEAM Recall 必须为数值；数据复核确认 100K 两题与 10M 一题
+  都是官方 abstention，provider 仍为 `valid/turn`，benchmark-policy 正确输出 `null/n_a`。R1 明确
+  验 status/counts/unmatched 负空间后复用既有 artifacts 8/8 PASS，未扩题、未重烧 API。冻结证据=
+  [`memoryos-frozen-v1.md`](branches/method-recertification/memoryos/notes/memoryos-frozen-v1.md)。
+  **当前唯一 method 动作转 A-Mem 差量重认证；**指标支线 M1/M2 已排 BLEU-1、ROUGE-L F1、
+  annotated Precision@k/F1@k，但不阻塞 method 主线。
 
 - 2026-07-20（**🧊 Mem0 method-frozen-v2；下一家转 MemoryOS**，GPT-5.6 sol 架构师）：用户按
   `mem0-v3-five-grid-b11-command-pack.md` 完成 8 个真实 run。修正 HaluMem operation artifact

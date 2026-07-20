@@ -2,8 +2,8 @@
 
 > 判据模板：`../method-integration-checklist.md` §B；勾选总表：
 > `../integration-status.md`。
-> 状态：**M1 一手取证 + M2 离线施工/强验收 + Track identity M0 均通过；按逐 method
-> 串行顺序等待 B11 五格真实 smoke。**
+> 状态：**M1 一手取证、shared-lifecycle R1-R5、Track identity M0 与五格 B11 真实 smoke
+> 均通过；current product build 已冻结为 `method-frozen-v1`。**
 > 证据底：`ws02.7/notes/m1-memoryos-evidence.md`、
 > `ws02.7/notes/m2-memoryos-adapter.md`。
 
@@ -48,8 +48,9 @@
   stable ranking 在逐 method rank 审计前保持 pending。
 - **B6 flush ✅ no-op**：retrieve 直接覆盖尚在 STM 的内容及已迁移层，无需额外
   conversation flush。
-- **B7 效率插桩 ✅（待 B11 产物复证）**：产品 LLM wrapper 接入框架 collector；
-  answer LLM 属框架 reader。真实三类 observation 是否齐全在每格 smoke 开箱验货。
+- **B7 效率插桩 ✅**：产品 LLM wrapper 接入框架 collector；answer LLM 属框架 reader。
+  五格 prediction/build/embedding/retrieval 与全部适用 artifact judge observation/model inventory
+  已由真实 run 对账；HaluMem extraction N/A 对应 0 次 judge，而非漏记。
 - **B8/B8+ 副作用与韧性 ✅（带声明缺口）**：保留检索 heat/N_visit 更新，禁止的只是
   `get_response` 末尾把 eval 问答写回。三路 future 吞异常的官方降级由 adapter 包装
   实际任务方法审计，metadata 写 `degraded_retrieval*`；合法空命中不误标。LLM 有
@@ -68,9 +69,10 @@
   `judge_source=framework_fallback` 与 answer/judge model source，并由 evaluate/resume 严格消费，
   旧产物身份不改写；首个作者 LoCoMo 校准 run 前改由 `author_locomo` section 选择完整 builder，
   不再只靠 `judge_profile=None` 推断。
-- **B11 smoke+冻结 🟡**：离线代码门已过；还缺五格真实 predict、产物开箱、免费
-  evaluator、付费 judge（如适用）与并行/operation-level 既定门。用户未确认预算、规模、
-  run_id 前不得执行。全部通过后才写 `memoryos-frozen-v1.md`。
+- **B11 smoke+冻结 ✅**：五 benchmark 共 8 个真实 run 已完成 predict、全部适用 evaluator、
+  付费 judge、效率落盘、formatted-memory/state 抽查、四格 W2 物理隔离与 HaluMem operation-level
+  W1。修正 BEAM abstention 的验货器口径后统一机器门 8/8 PASS；冻结记录见
+  [`memoryos-frozen-v1.md`](../../workstreams/ws02.7-method-track/branches/method-recertification/memoryos/notes/memoryos-frozen-v1.md)。
 
 ## 特殊情况与不可回退项
 
@@ -100,3 +102,20 @@
   状态（不是猜 score rows），因此 extraction N/A + update 可评时 composite 仍为清洁 N/A。
   page timestamp 只在双方真实 turn time 均缺失时才回落 session time；双空 page 在产品
   `add_memory` 入口拒绝。
+
+## 五 benchmark current-v2 safety dossier
+
+下表只汇总稳定结论；raw 异常 census 继续引用 benchmark 稳定页，production 探针与完整 stdout
+留在本 method 支线 notes，不为 MemoryOS 重扫同一数据。
+
+| benchmark | 特殊输入与最终 payload | metric / 真实 B11 |
+|---|---|---|
+| LoCoMo | session 内按官方角色扮演映射 `speaker_a→user_input`、`speaker_b→agent_response`；奇数/跨 session 不借真 turn，单侧 page 用空字符串结构占位；speaker map 在 readout 恢复姓名；caption 走共享 wrapper；session source time 进 typed timestamp | RetrievalEvidence `valid/turn`；Recall 与 answer/judge 全部落盘；W1+W2 真实通过 |
+| LongMemEval | canonical role 顺序交给 pair aggregator；assistant-first、same-role、singleton 由单侧 page 保留，每个真实 turn 恰一次且不跨 session；只用本 session source time，不用 question time 回填 history | `valid/turn`；Recall 可算、rank pending；W1+W2 真实通过 |
+| MemBench | FirstAgent 的 user/assistant child 同 page；ThirdAgent user-only page 的 assistant 侧为空；原 content 的 place/time 不删，抽出的 turn time 另送 typed timestamp，noise 缺时保持 None | `valid/turn`；choice/source/Recall 全部落盘；四 source W2 真实通过 |
+| BEAM | 标准数据按 session 内 QA page；10M dangling/错位不猜修，孤立侧仍用空字符串 page 保真；raw id 由 canonical occurrence id 消歧 | provider `valid/turn`；本轮首题均为 abstention，故 Recall 正确 `null/n_a`，rubric judge 正常；100K W2+10M W1 通过 |
+| HaluMem | 每 session 独立 ingest；产品没有“本次 session 新产 memory points”接口，不用 raw echo/累计全库冒充 extraction；update 读取完整 product view，QA 走 framework reader | extraction=N/A、update/QA 可测、memory-type 因上游 extraction N/A；Medium W1 真实通过，judge=0/7/1 |
+
+私有 gold answer/evidence/answer-session id/memory point 只存在 evaluator-private artifacts，未进入
+method payload、formatted memory 或公开 prompt。上述任一 canonical、payload、lifecycle、source
+identity、provenance 或 evaluator 资格变化时，按影响格局部解冻，不机械重跑五格。

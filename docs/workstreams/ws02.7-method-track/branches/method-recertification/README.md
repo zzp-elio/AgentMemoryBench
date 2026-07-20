@@ -46,16 +46,16 @@ LightMem 已关闭的异常样本。只有三类触发器允许重开 benchmark 
 3. **Mem0 第二家（已完成）**：current-v3 已关闭 source-time、caption、role、provenance、
    truthful identity、operation clean retry 与五格真实 B11，冻结为 `method-frozen-v2`。
    product-default OpenAI embedding 属效果阶段，若切换须用户批预算并全量重建，不阻塞 smoke。
-4. **MemoryOS 第三家**：PyPI product identity、speaker/provenance sidecar、降级审计、
-   readout-native 与五格 smoke 一次收口；ChromaDB variant 不混入主轨。五格差量拓扑统一从
-   [`memoryos/README.md`](memoryos/README.md) 进入。
+4. **MemoryOS 第三家（已完成）**：PyPI product identity、speaker/provenance sidecar、降级
+   审计、shared lifecycle 与五格 8-run smoke 已一次收口，冻结为 `method-frozen-v1`；ChromaDB
+   variant 不混入主轨。最终证据从 [`memoryos/README.md`](memoryos/README.md) 进入。
 5. **A-Mem → SimpleMem**：各自补全 product/reproduction identity 后重走 B1-B11。
 6. 现有五家压实后，再接 MemOS、Letta/MemGPT、LangMem、Supermemory；EverOS 最后。
 
 ## 当前状态
 
-LightMem current-v7 已冻结为 `method-frozen-v3`；Mem0 current-v3 的 8 个真实 run、全部适用
-metric/judge、worker state 与 artifact 开箱也已关闭，冻结为 `method-frozen-v2`。**MemoryOS 现为
-唯一 active method**：复用前两家已压实的 benchmark 稳定层，只做其 PyPI product identity、
-forced-pair/session 映射、readout/provenance 与五格 runtime 差量，不再重做 dataset census。
+LightMem current-v7 已冻结为 `method-frozen-v3`；Mem0 current-v3 冻结为 `method-frozen-v2`；
+MemoryOS current product build 的 8 个真实 run、全部适用 metric/judge、worker state、page lineage
+与 artifact 开箱均已关闭，冻结为 `method-frozen-v1`。**A-Mem 现为唯一 active method**：继续复用
+前三家已压实的 benchmark 稳定层，只审 method-specific 接口/算法差量，不重做 dataset census。
 权威实时动作仍看父级 `../../README.md` 恢复胶囊与最新断点。
