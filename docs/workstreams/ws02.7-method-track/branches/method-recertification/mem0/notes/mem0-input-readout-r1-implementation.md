@@ -215,3 +215,32 @@ uv run pytest -q \
    未调用真实 API。
 5. Co-Authored-By：Claude Sonnet 5（本会话系统提示明确标注 `claude-sonnet-5`，未发生
    模型/入口切换，无需标注"未核实"）。
+
+## 10. 架构师 R1 follow-up（2026-07-20）
+
+基线 commit：`1de6ef8`。R1 复核确认首轮
+`test_mem0_adapter_version_bumped_to_v3_with_v2_legacy_mention` 只比较版本字符串，未经过
+真实 resume preflight，因此首轮 §2 将其称为“旧 v2 resume mismatch 强反例”证据不足。
+本节追加更正，不改写首轮历史。
+
+- 保留原版本常量测试，但收紧 docstring，不再声称字符串不等本身证明 resume 拒绝。
+- 新增 `test_mem0_v2_manifest_is_rejected_by_real_resume_preflight`：current manifest 的
+  `method` 直接取 `Mem0Config.smoke().to_manifest()`，锁定真实
+  `adapter_version=conversation-qa-v3`；existing legacy manifest 从 current 深拷贝，只把
+  `method.adapter_version` 改成 `conversation-qa-v2`，schema、source fingerprint 与所有
+  其他字段保持相同。
+- 正向门把同一 v3 manifest 写入真实 `ExperimentPaths.manifest_path`，调用
+  `runners.prediction._validate_run_manifest_state(..., resume=True)` 成功；负向门在同一路径
+  写入仅 adapter version 不同的 v2 manifest，再经过同一 preflight，实测抛出
+  `ConfigurationError: Resume manifest mismatch`。这证明拒绝来自真实 resume 身份门，
+  不是测试手工比较或无条件失败。
+- R1 零生产代码 diff；只修改 `tests/test_mem0_adapter.py` 与本 implementation note。
+
+R1 七文件定向命令使用 shell 内联
+`OPENAI_KEY=sk-test-offline-dummy-key`，未读取 `.env`、未调用真实 API；尾行原文：
+
+```text
+76 passed in 11.33s
+```
+
+R1 无停工点；未使用 subagent，未运行任务卡外测试，未 amend，未 push。

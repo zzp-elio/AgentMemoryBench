@@ -8,6 +8,7 @@ vendored 源码身份、逐 turn 写入、conversation namespace 隔离和回复
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 import importlib
 from pathlib import Path
 import sys
@@ -43,7 +44,11 @@ from memory_benchmark.runners.event_stream import (
     GranularityAggregator,
     build_turn_events,
 )
-from memory_benchmark.runners.prediction import _method_manifest_with_protocol
+from memory_benchmark.runners.prediction import (
+    _method_manifest_with_protocol,
+    _validate_run_manifest_state,
+)
+from memory_benchmark.storage import ExperimentPaths, atomic_write_json
 from tests.equivalence_utils import run_bridge_sequence, run_native_sequence
 from tests.fake_corpus import build_multimodal_consecutive_speaker_conversation
 
@@ -963,15 +968,12 @@ def test_mem0_observation_time_prompt_text_unchanged() -> None:
 
 
 def test_mem0_adapter_version_bumped_to_v3_with_v2_legacy_mention() -> None:
-    """adapter manifest 版本为 v3（manifest 严格比较拒绝旧 v2 run resume）。
+    """adapter manifest 当前版本必须为 v3，并保留旧版本边界断言。
 
     五格输入/readout 保真修复改变了进入 extraction/embedding 的 build bytes
     （LoCoMo 显式 role 映射、role-native 去重复前缀、caption wrapper），因此
-    `MEM0_ADAPTER_VERSION` 必须从 v2 再升一版；不删除旧值——只升当前值。旧 v2
-    memory state 不得被声明兼容：`manifest["adapter_version"] != "conversation-qa-v2"`
-    这一条本身就是"旧 v2 resume 必然 manifest 不等而 fail-fast"的强反例，manifest
-    整体走 `==` 精确比较（见 `runners/prediction.py` resume 语义），任何单键不等都会
-    拒绝 resume。
+    `MEM0_ADAPTER_VERSION` 必须从 v2 再升一版；不删除旧值——只升当前值。真实
+    resume preflight 的拒绝行为由相邻强反例单独覆盖。
     """
 
     from memory_benchmark.methods.mem0_adapter import MEM0_ADAPTER_VERSION
@@ -982,6 +984,39 @@ def test_mem0_adapter_version_bumped_to_v3_with_v2_legacy_mention() -> None:
     # 显式不再声明 v2，防止旧 run 的 manifest 被误判兼容并静默 resume
     assert manifest["adapter_version"] != "conversation-qa-v2"
     assert manifest["adapter_version"] != "conversation-qa-v1"
+
+
+def test_mem0_v2_manifest_is_rejected_by_real_resume_preflight(tmp_path: Path) -> None:
+    """真实 resume preflight 必须接受同一 v3，并拒绝仅版本不同的旧 v2。"""
+
+    current_manifest = {
+        "schema_version": 2,
+        "source_fingerprint_sha256": "same-hermetic-source-fingerprint",
+        "method": Mem0Config.smoke().to_manifest(),
+    }
+    assert current_manifest["method"]["adapter_version"] == "conversation-qa-v3"
+    legacy_manifest = deepcopy(current_manifest)
+    legacy_manifest["method"]["adapter_version"] = "conversation-qa-v2"
+
+    legacy_with_current_version = deepcopy(legacy_manifest)
+    legacy_with_current_version["method"]["adapter_version"] = "conversation-qa-v3"
+    assert legacy_with_current_version == current_manifest
+
+    paths = ExperimentPaths.create(tmp_path / "mem0-resume-version-gate")
+    atomic_write_json(paths.manifest_path, current_manifest)
+    _validate_run_manifest_state(
+        paths=paths,
+        manifest=current_manifest,
+        resume=True,
+    )
+
+    atomic_write_json(paths.manifest_path, legacy_manifest)
+    with pytest.raises(ConfigurationError, match="Resume manifest mismatch"):
+        _validate_run_manifest_state(
+            paths=paths,
+            manifest=current_manifest,
+            resume=True,
+        )
 
 
 def test_native_mem0_locomo_matches_bridge_add_and_search_sequence() -> None:
