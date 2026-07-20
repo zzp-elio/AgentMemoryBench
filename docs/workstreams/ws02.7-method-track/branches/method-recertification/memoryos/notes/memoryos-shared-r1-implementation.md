@@ -69,3 +69,7 @@
 R3：双空判定不再以 `str(None)` 代替缺失；`None`、空串与纯空白两侧均拒绝，单侧真实文本保持合法。
 
 R4：真实 vendored backend 以固定 `get_timestamp` 锁定省略 timestamp 仍走上游 wall-clock，显式 `timestamp=None` 则保持 missing；两页均为完整非空 pair，未触发迁移或 API。
+
+R5：main 无 API 全量门原始尾行：`2 failed, 1663 passed, 3 deselected, 2 warnings, 29 subtests passed in 149.88s`。真实 conv-26 converter 现为 215 页；旧 214 页算法跨 session 将 session_8 末尾 D8:39（Caroline, `No worries, Mel!...`）与 session_9 开头 D9:1（Melanie, `Hey Caroline, hope all's good!...`）错误配成一页。R1 的 `session_page_start` 使二者作为 user-only/assistant-only 两页各一次保留，因此更新两处旧总数断言并新增该边界语义断言；默认 STM capacity=10 下同一正确 workload 公式使 update batches 从 205 变为 206，并锁定 `pages - capacity + 1`；未改生产代码。
+
+R5 定向验证：`uv run pytest -q tests/test_memoryos_locomo_smoke.py tests/test_memoryos_adapter.py -m 'not api'`；尾行：`80 passed in 7.61s`。测试临时只读链接 main 的忽略数据目录，运行后已移除。

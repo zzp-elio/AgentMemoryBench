@@ -16,6 +16,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from memory_benchmark.core.exceptions import ConfigurationError
+from memory_benchmark.benchmark_adapters.locomo import LoCoMoAdapter
+from memory_benchmark.methods.memoryos_adapter import MemoryOS
 from memory_benchmark.runners.memoryos_locomo_smoke import run_memoryos_locomo_smoke
 
 
@@ -41,9 +43,13 @@ class MemoryOSLoCoMoSmokeTests(unittest.TestCase):
 
         self.assertEqual(summary.mode, "estimate")
         self.assertEqual(summary.conversation_id, "conv-26")
-        self.assertEqual(summary.page_count, 214)
+        self.assertEqual(summary.page_count, 215)
         self.assertEqual(summary.question_count, 152)
-        self.assertEqual(summary.update_batch_count, 205)
+        self.assertEqual(summary.update_batch_count, 206)
+        self.assertEqual(
+            summary.update_batch_count,
+            summary.page_count - summary.short_term_capacity + 1,
+        )
         self.assertTrue(summary.will_trigger_updates)
         self.assertFalse(summary.add_executed)
         self.assertFalse(summary.answer_executed)
@@ -86,7 +92,7 @@ class MemoryOSLoCoMoSmokeTests(unittest.TestCase):
             events = [json.loads(line) for line in event_lines]
 
         self.assertEqual(summary.mode, "add-only")
-        self.assertEqual(summary.page_count, 214)
+        self.assertEqual(summary.page_count, 215)
         self.assertGreater(summary.short_term_capacity, summary.page_count)
         self.assertEqual(summary.update_batch_count, 0)
         self.assertFalse(summary.will_trigger_updates)
@@ -97,6 +103,24 @@ class MemoryOSLoCoMoSmokeTests(unittest.TestCase):
         fake_system.add.assert_called_once()
         self.assertIn("smoke_started", [event["event"] for event in events])
         self.assertIn("smoke_finished", [event["event"] for event in events])
+
+    def test_conv_26_cross_session_orphan_pages_are_not_paired(self):
+        """conv-26 的 D8:39/D9:1 跨 session 单侧页必须各保留一次，绝不跨界配对。"""
+
+        conversation = LoCoMoAdapter(PROJECT_ROOT).load(limit=1).conversations[0]
+        pages = MemoryOS._conversation_to_memory_pages_with_sources(conversation)
+        boundary_pages = [
+            page
+            for page in pages
+            if page["source_turn_ids"] in (["D8:39"], ["D9:1"])
+        ]
+        self.assertEqual(len(boundary_pages), 2)
+        first = next(page for page in boundary_pages if page["source_turn_ids"] == ["D8:39"])
+        second = next(page for page in boundary_pages if page["source_turn_ids"] == ["D9:1"])
+        self.assertEqual(first["agent_response"], "")
+        self.assertEqual(second["user_input"], "")
+        self.assertTrue(first["user_input"].startswith("No worries, Mel!"))
+        self.assertTrue(second["agent_response"].startswith("Hey Caroline, hope all's good!"))
 
 
 if __name__ == "__main__":
