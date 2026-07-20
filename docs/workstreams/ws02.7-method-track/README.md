@@ -47,18 +47,25 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `d7c6bda`（100k zero-extraction 哨兵）→ `b0a9af0`（HaluMem current-v7 差量卡）→
   `42c1275`/`298ae0c`（LongMemEval source-locked audit + 架构师 R1 稳定账）→
   `23d785f`（artifact judge 观测边界/卡）→ `174bd46`（artifact-level judge efficiency
-  共享修复）→ `f9cd0f7`（BEAM judge refill 命令门）。准确
+  共享修复）→ `f9cd0f7`（BEAM judge refill 命令门）→ `f053597`（Mem0 frozen-v2）→
+  `323340a`（MemoryOS 五格预检入口）→ `6602aab`/`4300591`/`c5e7541`/`1207083`/
+  `ef3b4f2`（MemoryOS shared lifecycle 主体与 R1-R4 强验收收口）→ `dcc5fd6`
+  （LoCoMo 跨 session page smoke 契约 R5）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1638 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 174.94s`；标准 `src+tests` compileall exit 0。两条 warning 均为既有 vendored
+  hash。本轮主树无 API 全量门=`1666 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 145.12s`；`src+tests+MemoryOS-pypi` compileall exit 0。两条 warning 均为既有 vendored
   deprecation，不能把环境/第三方噪声混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
-  身份裁决与 Track identity M0 已关闭；现已到站，第一波改为五张 benchmark 差量卡并行，统一
-  入口=`branches/method-recertification/memoryos/README.md`。架构师 current-main 抽锚已锁四个
-  必查反例：session 边界回填、MemBench typed turn time、全层 readout 对 blanket
-  `valid/turn`、HaluMem 无 `end_session`。五卡只写独立 note，回卡后合成至多一张共享修复卡；
-  未获用户预算/规模/run_id 确认，禁止 API。
+  身份裁决与 Track identity M0 已关闭。架构师已直接通读论文、PyPI 产品 core 与官方 LoCoMo
+  eval，裁定并合入 shared lifecycle R1：单侧 page 不丢、双空拒绝、source time 不伪造，原生
+  page metadata 保 occurrence-exact lineage；Recall 取全部 always-on STM + 前 k 个 ranked MTM，
+  profile/knowledge 只作 `non_evidence`；HaluMem update 消费完整 product view，extraction 仍
+  N/A，故 composite memory_type 清洁传播 N/A。Terra 首轮 `a3025d0` 因错误 N/A gate 与反例
+  不足被驳回，经 R1-R5 后主线为 `6602aab..dcc5fd6`；架构师独立定向 `158 passed`、共享回归
+  `165 passed`、无 API 全量 `1666 passed`。**当前唯一动作：生成并执行 MemoryOS 五格 B11
+  smoke 命令包；未获用户预算/规模/run_id 确认，禁止 API。**统一入口=
+  `branches/method-recertification/memoryos/README.md`。
 - **LightMem lifecycle 现行裁决**：论文第 5/7/8 页与官方脚本复证，paper online soft
   是“抽取后直接 LTM insert”，在 vendored 代码中反而由
   `update="offline" → offline_update(memory_entries)` 实现；`online_update()` 空壳只是

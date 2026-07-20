@@ -23,9 +23,12 @@ benchmark 的 schema、异常、canonical id、private gold group、prompt 与 e
    place/time 时仍无损保留正文。缺失时间不得拿 question time、相邻 turn 或 wall clock 冒充
    source time。由于一页只有一个 timestamp，各卡必须实证本 benchmark 的一页两侧是否同值，
    不能靠猜测代裁。
-6. **metric 资格逐格判**：`valid / N/A / pending` 都是合法结果。page sidecar 能反查一部分
-   `retrieved_pages`，不自动证明 STM、user knowledge、assistant knowledge 等全部 readout 层都
-   具有 exact lineage，也不自动证明稳定 ranking；禁止为了填 Recall@k/NDCG 表格而过度盖章。
+6. **metric 资格逐格判**：`valid / N/A / pending` 都是合法结果。current shared-lifecycle
+   实现把 exact source ids 随原生 page 从 STM 迁到 MTM；Recall 的可计分 view 是全部
+   `always_on` STM + 前 k 个 `ranked` MTM，gold group 对 page 内一至两个 child turn 作
+   any-of。profile/user knowledge/assistant knowledge 虽进入完整 product readout，但一律标成
+   `non_evidence`，不伪造 turn lineage；stable ranking/NDCG 仍 pending。禁止为了填表格而
+   过度盖章。
 7. **HaluMem 不扭曲 method**：只有产品运行时能诚实给出“刚结束的当前 session 的 method
    memory”才启用 extraction；直接回显 raw input、返回累计全库或把跨 session summary 假装成
    当前 session 都不合格。extraction N/A 不妨碍分别审 update 与 QA。
@@ -45,7 +48,19 @@ benchmark 的 schema、异常、canonical id、private gold group、prompt 与 e
 若 current source 已变化，actor 以一手源码为准并在 note 明确写出漂移；不得为了符合本段而
 伪造结果。
 
-## 第一波五卡并行拓扑
+## Shared lifecycle 实现与验收锚
+
+- 架构师裁决与施工历史：
+  [`notes/memoryos-shared-r1-implementation.md`](notes/memoryos-shared-r1-implementation.md)。
+- main 线性提交：`6602aab` → `4300591` → `c5e7541` → `1207083` → `ef3b4f2` →
+  `dcc5fd6`。保留首轮被强验收驳回及 R1-R5 修正历史，不以最终绿测抹掉错误路径。
+- 当前已锁：session 边界不跨配、单侧页跨 capacity 不丢、双空拒绝、timestamp
+  omitted/explicit-None 分流、STM/MTM occurrence identity、完整 HaluMem update product view、
+  extraction N/A → memory_type N/A。
+- 架构师独立门：核心四文件 `158 passed`；共享注册/metric 回归 `165 passed`；main 无 API
+  全量 `1666 passed, 3 deselected, 2 warnings, 29 subtests passed in 145.12s`；compileall exit 0。
+
+## 第一波五卡拓扑（历史取证入口）
 
 五张卡只新增各自 note，不同时修改 adapter/tests/config，因此可在独立 worktree 并行：
 
@@ -60,6 +75,9 @@ benchmark 的 schema、异常、canonical id、private gold group、prompt 与 e
 每张卡的唯一判词只能是 `READY_FOR_B11`、`READY_FOR_B11_WITH_NA(...)` 或
 `NEEDS_CODE(<最小缺口>)`。第一波不是付费 smoke 授权；五份回卡经架构师 full diff 与抽锚后，
 共性缺口最多收敛成一张联合实现卡，避免五个 actor 争改同一 adapter。
+
+该拓扑现在只保留为 benchmark 差量取证导航；共享缺口已由上节实现关闭。实时状态与下一动作
+仍只看父 workstream README，不要再把五张卡误读成待并行施工队列。
 
 ## 合流门
 
