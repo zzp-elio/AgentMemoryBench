@@ -150,10 +150,11 @@ class FailingSecondUserProvider(FakeHalumemProvider):
 class RecordingCleanHook:
     """记录 clean-failed-ingest hook 调用序列与参数的测试替身。"""
 
-    def __init__(self) -> None:
-        """初始化空调用记录。"""
+    def __init__(self, order_trace: list[str] | None = None) -> None:
+        """初始化调用记录与可选共享顺序轨迹。"""
 
         self.calls: list[tuple[Conversation, dict[str, object]]] = []
+        self.order_trace = order_trace
 
     def __call__(
         self,
@@ -162,7 +163,25 @@ class RecordingCleanHook:
     ) -> None:
         """记录一次 clean 调用收到的公开 conversation 与失败状态快照。"""
 
+        if self.order_trace is not None:
+            self.order_trace.append("clean")
         self.calls.append((conversation, dict(failed_state)))
+
+
+class OrderedRetryHalumemProvider(FakeHalumemProvider):
+    """把 retry ingest 写入与 clean hook 共用的顺序轨迹。"""
+
+    def __init__(self, order_trace: list[str]) -> None:
+        """保存共享顺序轨迹。"""
+
+        super().__init__()
+        self.order_trace = order_trace
+
+    def ingest(self, unit: SessionBatch) -> IngestResult:
+        """先记录 ingest 顺序，再沿用 fake 写入。"""
+
+        self.order_trace.append(f"ingest:{unit.session_id or ''}")
+        return super().ingest(unit)
 
 
 class FakeHalumemJudgeClient:
@@ -479,7 +498,8 @@ def test_halumem_operation_conversation_failure_marks_failed_ingest_without_part
     assert status["halu-user-1"]["status"] == "completed"
     assert status["halu-user-2"] == {
         "status": "failed_ingest",
-        "stage": "operation_conversation",
+        "stage": "session_ingest",
+        "session_id": "s-halu-user-2",
         "error_type": "RuntimeError",
         "error": "planned second user failure",
         "ingested": False,
@@ -557,8 +577,9 @@ def test_halumem_operation_retry_with_clean_hook_cleans_once_then_reruns_from_se
             unified_prompt_builder=build_halumem_unified_answer_prompt,
         )
 
-    clean_hook = RecordingCleanHook()
-    retry_provider = FakeHalumemProvider()
+    order_trace: list[str] = []
+    clean_hook = RecordingCleanHook(order_trace)
+    retry_provider = OrderedRetryHalumemProvider(order_trace)
     summary = run_operation_level_predictions(
         dataset=_dataset("halu-user-1", "halu-user-2"),
         provider=retry_provider,
@@ -586,8 +607,7 @@ def test_halumem_operation_retry_with_clean_hook_cleans_once_then_reruns_from_se
     assert failed_state["status"] == "failed_ingest"
     assert failed_state["ingested"] is False
 
-    # clean 严格早于新一轮 ingest：clean 记录不消费 provider 调用序列，本断言只
-    # 需确认重试后 provider 确实从 session 1 重新开始 ingest。
+    assert order_trace[:2] == ["clean", "ingest:s-halu-user-2"]
     assert retry_provider.calls[0] == ("ingest", "s-halu-user-2")
 
     assert summary.completed_conversations == 2

@@ -632,6 +632,125 @@ class FailingOnSecondSessionProvider(OperationFakeProvider):
         return super().ingest(unit)
 
 
+class PlannedOperationFailure(RuntimeError):
+    """表示 operation 阶段测试主动注入的原始异常。"""
+
+
+class StageFailingOperationProvider(OperationFakeProvider):
+    """在指定 operation 阶段抛出受控异常。"""
+
+    def __init__(self, fail_stage: str) -> None:
+        """保存待失败阶段。"""
+
+        super().__init__()
+        self.fail_stage = fail_stage
+
+    def _fail_if_requested(self, stage: str) -> None:
+        """若命中指定阶段则抛出不经包装的测试异常。"""
+
+        if self.fail_stage == stage:
+            raise PlannedOperationFailure(f"planned {stage} failure")
+
+    def ingest(self, unit: SessionBatch) -> IngestResult:
+        """可在 session ingest 阶段失败。"""
+
+        self._fail_if_requested("session_ingest")
+        return super().ingest(unit)
+
+    def end_session(self, ref: SessionRef) -> SessionMemoryReport:
+        """可在 session extraction 阶段失败。"""
+
+        self._fail_if_requested("session_extraction")
+        return super().end_session(ref)
+
+    def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
+        """按 retrieval purpose 区分 update probe 与 QA 故障。"""
+
+        if query.purpose == "memory_update_probe":
+            self._fail_if_requested("memory_update_probe")
+        elif query.purpose == "qa":
+            self._fail_if_requested("question_answer")
+        return super().retrieve(query)
+
+    def end_conversation(self, ref: UnitRef) -> None:
+        """可在 end conversation 阶段失败。"""
+
+        self._fail_if_requested("end_conversation")
+        super().end_conversation(ref)
+
+    def cleanup(self) -> None:
+        """可在 provider cleanup 阶段失败。"""
+
+        self._fail_if_requested("provider_cleanup")
+        super().cleanup()
+
+
+@pytest.mark.parametrize(
+    ("fail_stage", "expected_locator"),
+    [
+        ("session_ingest", {"session_id": "s1"}),
+        ("session_extraction", {"session_id": "s1"}),
+        ("memory_update_probe", {"session_id": "s1"}),
+        (
+            "question_answer",
+            {"session_id": "s1", "question_id": "halu-user-1:s1:q1"},
+        ),
+        ("end_conversation", {}),
+        ("provider_cleanup", {}),
+    ],
+)
+def test_operation_level_failure_records_precise_stage_without_wrapping_exception(
+    tmp_path: Path,
+    fail_stage: str,
+    expected_locator: dict[str, str],
+) -> None:
+    """五个主阶段及 cleanup 必须精确落盘，并原样抛出异常。"""
+
+    context = _context(tmp_path)
+    message = f"planned {fail_stage} failure"
+    with pytest.raises(PlannedOperationFailure, match=message) as raised:
+        run_operation_level_predictions(
+            dataset=_operation_dataset(include_generated_question=False),
+            provider=StageFailingOperationProvider(fail_stage),
+            run_context=context,
+            policy=PredictionRunPolicy(max_workers=1, progress_enabled=False),
+            method_manifest={"adapter": "fake-v3", "protocol_version": "v3"},
+            benchmark_variant="medium",
+            run_scope=RunScope.SMOKE,
+            answer_reader=_reader(),
+            unified_prompt_builder=build_halumem_unified_answer_prompt,
+        )
+
+    assert type(raised.value) is PlannedOperationFailure
+    assert str(raised.value) == message
+    paths = ExperimentPaths.create(context.run_dir)
+    status = json.loads(paths.conversation_status_path.read_text(encoding="utf-8"))
+    assert status["halu-user-1"] == {
+        "status": "failed_ingest",
+        "stage": fail_stage,
+        **expected_locator,
+        "error_type": "PlannedOperationFailure",
+        "error": message,
+        "ingested": False,
+    }
+    failed_events = [
+        event
+        for event in read_jsonl(paths.logs_dir / "events.jsonl")
+        if event["event"] == "conversation_failed"
+    ]
+    assert failed_events[-1]["payload"] == {
+        "conversation_id": "halu-user-1",
+        "stage": fail_stage,
+        **expected_locator,
+        "error_type": "PlannedOperationFailure",
+        "error": message,
+    }
+    assert read_jsonl(paths.session_memory_reports_path) == []
+    assert read_jsonl(paths.artifacts_dir / "update_probe_results.jsonl") == []
+    assert read_jsonl(paths.method_predictions_path) == []
+    assert read_jsonl(paths.answer_prompts_path) == []
+
+
 def test_operation_level_conversation_failure_marks_failed_ingest_and_withholds_partial_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -655,7 +774,8 @@ def test_operation_level_conversation_failure_marks_failed_ingest_and_withholds_
     status = json.loads(paths.conversation_status_path.read_text(encoding="utf-8"))
     assert status["halu-user-1"] == {
         "status": "failed_ingest",
-        "stage": "operation_conversation",
+        "stage": "session_ingest",
+        "session_id": "s2",
         "error_type": "RuntimeError",
         "error": "planned s2 ingest failure",
         "ingested": False,

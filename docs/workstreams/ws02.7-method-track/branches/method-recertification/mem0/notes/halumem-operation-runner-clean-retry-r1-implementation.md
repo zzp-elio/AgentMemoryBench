@@ -169,3 +169,46 @@ uv run pytest -q \
 - 未改动 `runners/prediction.py`、任何 method adapter、provider protocol、
   evaluator 或 TOML。
 - 未 push；未 amend；单个本地 commit。
+
+## 8. 架构师 R1 follow-up（2026-07-20）
+
+基线 commit：`40ca6da`。R1 复核确认首轮把所有异常的 `stage` 固定写成
+`operation_conversation`，不满足任务卡 §2.2.5 的“可定位 stage”要求。本轮不改首轮
+记录，在其上追加修复：
+
+- `run_operation_level_predictions()` 为当前 conversation 调用链创建仅含公开字段的
+  `failure_context`；`_run_operation_conversation()` 与既有 session helper 在实际调用前
+  就地更新它，不包装异常，外层仍用裸 `raise` 原样抛出。
+- 失败状态和 `conversation_failed` structured log 现在稳定区分
+  `session_ingest`、`session_extraction`、`memory_update_probe`、
+  `question_answer`、`end_conversation`、`provider_cleanup`。session 阶段可附公开
+  `session_id`，QA 可再附公开 `question_id`；未记录 gold、evidence、memory point 或
+  private metadata。
+- `error_type` 与 `error` 在状态和 structured log 中保持原异常类名与消息；测试以自定义
+  `PlannedOperationFailure` 断言调用方收到的仍是同一异常类型和消息。
+- 参数化强反例覆盖卡列出的五个阶段，并额外覆盖 cleanup；每个阶段都断言失败
+  conversation 的 session report、update probe、prediction、answer prompt partial
+  artifacts 均不落盘。首轮 clean retry、状态机、artifact 成功提交时机、效率观测、
+  retrieve query/top_k 均未改。
+- R1 实际改动仅为 `src/memory_benchmark/runners/operation_level.py`、
+  `tests/test_operation_level_runner.py`、
+  `tests/test_halumem_registered_prediction.py` 与本 note；零 CLI、prediction.py、method
+  adapter、协议或 evaluator diff。
+
+R1 首次定向 pytest 尾行（原样）：
+
+```text
+73 passed in 3.78s
+```
+
+首次定向测试通过后，架构师补充指出 registered clean retry 用例原先分别检查
+`clean_hook.calls` 与 `provider.calls`，不能直接证明二者先后。本轮随即让 clean hook 与
+retry provider 写同一条 `order_trace`，并断言其前两项严格为
+`["clean", "ingest:s-halu-user-2"]`；因此必要复跑同一授权测试组一次，尾行（原样）：
+
+```text
+73 passed in 2.68s
+```
+
+R1 无停工点；未使用 subagent，未调用真实 API，未下载模型，未改或写入 outputs，未
+amend，未 push。

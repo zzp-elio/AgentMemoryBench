@@ -200,6 +200,9 @@ def run_operation_level_predictions(
                     )
                 continue
             try:
+                failure_context: dict[str, str] = {
+                    "stage": "operation_conversation",
+                }
                 conversation_observations = _run_operation_conversation(
                     conversation=conversation,
                     provider=provider,
@@ -212,11 +215,12 @@ def run_operation_level_predictions(
                     prediction_records=prediction_records,
                     answer_prompt_records=answer_prompt_records,
                     efficiency_collector=efficiency_collector,
+                    failure_context=failure_context,
                 )
             except Exception as exc:
                 conversation_status[conversation.conversation_id] = {
                     "status": _STATUS_FAILED_INGEST,
-                    "stage": "operation_conversation",
+                    **failure_context,
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                     "ingested": False,
@@ -226,8 +230,9 @@ def run_operation_level_predictions(
                     "conversation_failed",
                     {
                         "conversation_id": conversation.conversation_id,
-                        "stage": "operation_conversation",
+                        **failure_context,
                         "error_type": type(exc).__name__,
+                        "error": str(exc),
                     },
                 )
                 raise
@@ -285,6 +290,7 @@ def _run_operation_conversation(
     prediction_records: dict[str, dict[str, Any]],
     answer_prompt_records: list[dict[str, Any]],
     efficiency_collector: EfficiencyCollector | None = None,
+    failure_context: dict[str, str],
 ) -> list[EfficiencyObservation]:
     """按 spec S4.2 驱动单个 HaluMem user，并采集效率 observation。
 
@@ -316,6 +322,7 @@ def _run_operation_conversation(
                     supports_extraction=supports_extraction,
                     session_report_records=session_report_records,
                     update_probe_records=update_probe_records,
+                    failure_context=failure_context,
                 )
                 efficiency_collector.record_memory_build_total_latency(
                     latency_ms=_elapsed_ms(started_ns)
@@ -331,6 +338,7 @@ def _run_operation_conversation(
                 supports_extraction=supports_extraction,
                 session_report_records=session_report_records,
                 update_probe_records=update_probe_records,
+                failure_context=failure_context,
             )
         if generated:
             continue
@@ -338,6 +346,12 @@ def _run_operation_conversation(
         for source_question in questions_by_session.get(session.session_id, []):
             question = _make_public_question(source_question)
             validate_no_private_keys(question.to_dict())
+            _set_operation_failure_context(
+                failure_context,
+                stage="question_answer",
+                session_id=session.session_id,
+                question_id=question.question_id,
+            )
             if enabled:
                 with efficiency_collector.question_scope(
                     conversation.conversation_id,
@@ -366,6 +380,10 @@ def _run_operation_conversation(
                     answer_prompt_records=answer_prompt_records,
                 )
 
+    _set_operation_failure_context(
+        failure_context,
+        stage="end_conversation",
+    )
     if enabled:
         with efficiency_collector.conversation_scope(
             conversation.conversation_id,
@@ -379,6 +397,10 @@ def _run_operation_conversation(
         observations.extend(end_scope.records)
     else:
         provider.end_conversation(UnitRef(isolation_key=isolation_key))
+    _set_operation_failure_context(
+        failure_context,
+        stage="provider_cleanup",
+    )
     provider.cleanup()
     return observations
 
@@ -393,6 +415,7 @@ def _ingest_and_probe_session(
     supports_extraction: bool,
     session_report_records: list[dict[str, Any]],
     update_probe_records: list[dict[str, Any]],
+    failure_context: dict[str, str],
 ) -> bool:
     """ingest 单个 session + extraction + update probe，返回是否为 generated QA session。
 
@@ -411,13 +434,25 @@ def _ingest_and_probe_session(
             continue
         if isinstance(signal, SessionRef):
             continue
+        _set_operation_failure_context(
+            failure_context,
+            stage="session_ingest",
+            session_id=session.session_id,
+        )
         provider.ingest(signal)
 
     session_ref = SessionRef(
         isolation_key=isolation_key,
         session_id=session.session_id,
     )
-    report = provider.end_session(session_ref) if supports_extraction else None
+    report = None
+    if supports_extraction:
+        _set_operation_failure_context(
+            failure_context,
+            stage="session_extraction",
+            session_id=session.session_id,
+        )
+        report = provider.end_session(session_ref)
     generated = bool(session.private_metadata.get("is_generated_qa_session"))
     if generated:
         return True
@@ -429,6 +464,11 @@ def _ingest_and_probe_session(
         )
     )
     for memory_point in _update_memory_points(session.private_metadata):
+        _set_operation_failure_context(
+            failure_context,
+            stage="memory_update_probe",
+            session_id=session.session_id,
+        )
         started = perf_counter()
         retrieval = provider.retrieve(
             RetrievalQuery(
@@ -448,6 +488,23 @@ def _ingest_and_probe_session(
             )
         )
     return False
+
+
+def _set_operation_failure_context(
+    failure_context: dict[str, str],
+    *,
+    stage: str,
+    session_id: str | None = None,
+    question_id: str | None = None,
+) -> None:
+    """就地更新当前 operation 调用的公开失败定位信息。"""
+
+    failure_context.clear()
+    failure_context["stage"] = stage
+    if session_id is not None:
+        failure_context["session_id"] = session_id
+    if question_id is not None:
+        failure_context["question_id"] = question_id
 
 
 def _answer_operation_question(
