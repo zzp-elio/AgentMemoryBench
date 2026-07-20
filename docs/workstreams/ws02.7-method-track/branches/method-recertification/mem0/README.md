@@ -44,8 +44,10 @@ placeholder；真实缺口拆成两张不写同一文件的卡，可并行施工
 2. ✅ 两张 R1 卡已 full diff、补齐两处 R1 强反例并独立复跑；
 3. ✅ 四个 commit 线性合流；扩大定向 244 passed，主树全量 1637 passed + 29 subtests，
    compileall exit 0；adapter v3 旧 store 经真实 preflight 禁 resume；
-4. **当前动作**：按五格生成最小真实 smoke 命令；未经用户逐格批准预算、规模和
-   run id，不调用 API。
+4. ✅ 五格最小真实 smoke 的规模、run id、全部适用 evaluator 与统一机器门已锁入
+   [`mem0-v3-five-grid-b11-command-pack.md`](notes/mem0-v3-five-grid-b11-command-pack.md)；
+   当前动作是用户按该页串行执行 6 个 run，架构师随后直接开箱验货。命令包之外的 full、
+   resume、扩大题数与模型切换仍未授权。
 
 稳定 benchmark 事实入口：
 

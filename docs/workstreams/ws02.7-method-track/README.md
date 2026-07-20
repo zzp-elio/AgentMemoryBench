@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（Mem0 双 R1 已强验收合流；五格 B11 待真实 smoke）
+status: in-progress（Mem0 双 R1 已强验收合流；五格 B11 命令已锁，待用户执行）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
