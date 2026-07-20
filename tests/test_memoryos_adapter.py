@@ -241,6 +241,17 @@ def test_config_manifest_marks_pypi_engine_and_source_mode() -> None:
             assert math.isfinite(value)
 
 
+def test_memoryos_shared_lifecycle_identity_rejects_legacy_resume_manifest() -> None:
+    """旧 adapter version/source identity 不能无声复用 shared-lifecycle run。"""
+
+    from memory_benchmark.runners.prediction import _manifests_match_for_resume
+
+    current = MemoryOSPaperConfig().to_manifest()
+    legacy = {**current, "adapter_version": "conversation-qa-v1"}
+    assert _manifests_match_for_resume({"method": current}, {"method": dict(current)})
+    assert not _manifests_match_for_resume({"method": legacy}, {"method": current})
+
+
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
@@ -891,6 +902,70 @@ def test_estimate_add_workload_counts_pages_and_update_batches() -> None:
     assert small_capacity_estimate.update_batch_count == 2
     assert small_capacity_estimate.remaining_short_term_pages == 0
     assert small_capacity_estimate.will_trigger_updates
+
+
+@pytest.mark.parametrize(
+    ("first_time", "second_time", "session_time", "expected"),
+    [
+        ("2024-01-01", "2024-01-01", "session", "2024-01-01"),
+        ("2024-01-01", None, "session", "2024-01-01"),
+        (None, "2024-01-02", "session", "2024-01-02"),
+        (None, None, "session", "session"),
+        (None, None, None, None),
+    ],
+)
+def test_page_timestamp_uses_turn_time_before_session_fallback(
+    first_time: str | None,
+    second_time: str | None,
+    session_time: str | None,
+    expected: str | None,
+) -> None:
+    """page time 仅在两个真实 turn time 都缺失时才回落 session time。"""
+
+    assert MemoryOS._page_timestamp(first_time, second_time, session_time) == expected
+
+
+def test_page_timestamp_rejects_only_conflicting_real_turn_times() -> None:
+    """两个不同的真实 turn time 必须 fail-fast，session fallback 不参与冲突判断。"""
+
+    with pytest.raises(ConfigurationError, match="conflicting source timestamps"):
+        MemoryOS._page_timestamp("2024-01-01", "2024-01-02", "session")
+
+
+def test_vendored_capacity_crossing_preserves_single_sided_pages_and_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """真实 vendored STM→MTM 迁移不得丢 user-only/assistant-only page 或 provenance。"""
+
+    _stub_pypi_embedding(monkeypatch)
+    system = _build_system(tmp_path, config=MemoryOSPaperConfig(short_term_capacity=1))
+    backend = system._get_or_create_backend("capacity")
+    backend.client.chat_completion = lambda **kwargs: "stubbed"
+    backend.add_memory("user-only", "", timestamp=None, meta_data={"_memory_benchmark_source_turn_ids": ["u1"]})
+    backend.add_memory("", "assistant-only", timestamp=None, meta_data={"_memory_benchmark_source_turn_ids": ["a1"]})
+    migrated = [page for session in backend.mid_term_memory.sessions.values() for page in session["details"]]
+    assert migrated[0]["user_input"] == "user-only"
+    assert migrated[0]["meta_data"]["_memory_benchmark_source_turn_ids"] == ["u1"]
+    assert backend.short_term_memory.get_all()[0]["agent_response"] == "assistant-only"
+    with pytest.raises(ValueError, match="requires user_input or agent_response"):
+        backend.add_memory("", "", timestamp=None)
+
+
+def test_native_page_occurrences_have_distinct_stable_ids() -> None:
+    """相同文本/时间的两个 occurrence 只能各自导出自己的 native turn ids。"""
+
+    first = {
+        "user_input": "same",
+        "agent_response": "same",
+        "timestamp": "2024-01-01",
+        "meta_data": {"_memory_benchmark_source_turn_ids": ["t1"]},
+    }
+    second = {**first, "meta_data": {"_memory_benchmark_source_turn_ids": ["t2"]}}
+    first_item = MemoryOS._page_item(first, "stm", "always_on", 0)
+    second_item = MemoryOS._page_item(second, "mtm", "ranked", 1)
+    assert first_item.source_turn_ids == ("t1",)
+    assert second_item.source_turn_ids == ("t2",)
+    assert first_item.item_id != second_item.item_id
 
 
 # ---------------------------------------------------------------------- #

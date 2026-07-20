@@ -96,3 +96,7 @@
 - structured readout 公开 STM=`always_on`、MTM=`ranked`；共享 Recall helper 只对 ranked
   条目应用 k，STM 永远参与。profile/knowledge 是完整 product view 的 `non_evidence`
   条目，不携带伪造 turn ids；stable ranking 仍 pending。
+- R1 follow-up：HaluMem `memory_type` 读取上游 extraction summary 的 canonical `n/a`
+  状态（不是猜 score rows），因此 extraction N/A + update 可评时 composite 仍为清洁 N/A。
+  page timestamp 只在双方真实 turn time 均缺失时才回落 session time；双空 page 在产品
+  `add_memory` 入口拒绝。

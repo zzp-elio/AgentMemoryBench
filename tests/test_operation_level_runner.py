@@ -37,12 +37,54 @@ from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
 )
 from memory_benchmark.readers.answer import FakeAnswerLLMClient, FrameworkAnswerReader
-from memory_benchmark.runners.operation_level import run_operation_level_predictions
+from memory_benchmark.runners.operation_level import (
+    _update_probe_record,
+    run_operation_level_predictions,
+)
 from memory_benchmark.runners.prediction import PredictionRunPolicy
 from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 
 pytestmark = pytest.mark.integration
+
+
+def test_update_probe_consumes_full_structured_product_view_not_prompt_lines() -> None:
+    """operation runner 必须保留 STM 与派生 product-memory 原子项，而非拆 formatted text。"""
+
+    retrieval = RetrievalResult(
+        formatted_memory="prompt-only-line\nnot-an-entry",
+        items=(
+            RetrievedItem(
+                item_id="stm-t1",
+                content="STM page",
+                score=None,
+                timestamp=None,
+                source_turn_ids=("t1",),
+                metadata={"memory_layer": "stm", "selection_mode": "always_on"},
+            ),
+            RetrievedItem(
+                item_id="profile", content="Profile atom", score=None, timestamp=None,
+                metadata={"memory_layer": "profile", "selection_mode": "non_evidence"},
+            ),
+            RetrievedItem(
+                item_id="user-knowledge", content="User knowledge atom", score=None, timestamp=None,
+                metadata={"memory_layer": "user_knowledge", "selection_mode": "non_evidence"},
+            ),
+            RetrievedItem(
+                item_id="assistant-knowledge", content="Assistant knowledge atom", score=None, timestamp=None,
+                metadata={"memory_layer": "assistant_knowledge", "selection_mode": "non_evidence"},
+            ),
+        ),
+    )
+    record = _update_probe_record(
+        session_ref=SessionRef(isolation_key="i", session_id="s"),
+        memory_point={"index": 1, "memory_content": "gold"},
+        retrieval=retrieval,
+        duration_ms=1.0,
+    )
+    assert record["memories_from_system"] == [
+        "STM page", "Profile atom", "User knowledge atom", "Assistant knowledge atom"
+    ]
 
 
 class OperationFakeProvider(MemoryProvider):

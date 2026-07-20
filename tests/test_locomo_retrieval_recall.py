@@ -43,6 +43,27 @@ def test_shared_recall_selection_keeps_always_on_stm_outside_ranked_k() -> None:
     assert top_k_source_ids(items, 1) == ("stm-1", "mtm-1")
 
 
+@pytest.mark.parametrize("bad_mode", ["RANKED", "ranked ", "", None, 1])
+def test_shared_recall_selection_rejects_invalid_selection_mode(bad_mode: object) -> None:
+    """未知、空白及非字符串 selection_mode 必须 fail-fast，不能静默漏分。"""
+
+    with pytest.raises(ConfigurationError, match="selection_mode"):
+        top_k_source_ids(
+            [{"source_turn_ids": ["t1"], "metadata": {"selection_mode": bad_mode}}],
+            0,
+        )
+
+
+def test_shared_recall_selection_accepts_zero_ranked_depth() -> None:
+    """k=0 仍保留 always-on，而不取任何 ranked 条目。"""
+
+    items = [
+        {"source_turn_ids": ["stm-1"], "metadata": {"selection_mode": "always_on"}},
+        {"source_turn_ids": ["mtm-1"], "metadata": {"selection_mode": "ranked"}},
+    ]
+    assert top_k_source_ids(items, 0) == ("stm-1",)
+
+
 def test_strict_evidence_parser_rejects_non_string_object_key_as_configuration_error() -> None:
     """非字符串 object key 必须稳定转成 ConfigurationError，不能泄漏排序 TypeError。"""
 

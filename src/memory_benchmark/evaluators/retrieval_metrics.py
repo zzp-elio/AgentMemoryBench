@@ -98,11 +98,17 @@ def selected_retrieval_items(
     条目可进入产品 readout，却不应伪造可计分的 turn provenance。
     """
 
+    if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k < 0:
+        raise ConfigurationError("top_k must be a non-negative integer")
     selected: list[dict[str, Any]] = []
     ranked_count = 0
     for item in retrieved_items:
         metadata = item.get("metadata")
         mode = metadata.get("selection_mode", "ranked") if isinstance(metadata, dict) else "ranked"
+        if mode not in {"always_on", "ranked", "non_evidence"}:
+            raise ConfigurationError(
+                "retrieved item selection_mode must be always_on, ranked, or non_evidence"
+            )
         if mode == "always_on":
             selected.append(item)
         elif mode == "ranked":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from memory_benchmark.core.exceptions import ConfigurationError
@@ -26,9 +27,12 @@ class HalumemMemoryTypeEvaluator:
         """读取两份上游 metric artifact 并按官方共享分母聚合。"""
 
         extraction_path = paths.metric_scores_path("halumem_extraction")
+        extraction_summary_path = paths.metric_summary_path("halumem_extraction")
         update_path = paths.metric_scores_path("halumem_update")
         missing = [
-            path.name for path in (extraction_path, update_path) if not path.is_file()
+            path.name
+            for path in (extraction_path, extraction_summary_path, update_path)
+            if not path.is_file()
         ]
         if missing:
             raise ConfigurationError(
@@ -36,26 +40,14 @@ class HalumemMemoryTypeEvaluator:
                 "halumem-update evaluation artifacts; missing: " + ", ".join(missing)
             )
 
+        extraction_summary = _read_extraction_summary(extraction_summary_path)
+        if extraction_summary.get("status") == "n/a":
+            return _extraction_na_result()
         extraction_records = [
             record
             for record in read_jsonl(extraction_path)
             if record.get("record_kind") == "memory_integrity"
         ]
-        if extraction_records and all(record.get("status") == "n_a" for record in extraction_records):
-            return {
-                "metric_name": self.metric_name,
-                "score_records": [],
-                "total_questions": 0,
-                "mean_score": None,
-                "correct_count": None,
-                "summary": {
-                    "overall_score": None,
-                    "category_breakdown": [],
-                    "status": "n_a",
-                    "reason_code": "upstream_extraction_n_a",
-                    "official_source": self.official_source,
-                },
-            }
         update_records = [
             record
             for record in read_jsonl(update_path)
@@ -133,6 +125,42 @@ def _memory_type_accuracy(
             }
         )
     return result
+
+
+def _read_extraction_summary(path: Any) -> dict[str, Any]:
+    """读取并严格校验上游 extraction summary 的 canonical status。"""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigurationError(f"invalid halumem-extraction summary: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ConfigurationError("halumem-extraction summary must be a JSON object")
+    status = payload.get("status")
+    if status not in {None, "ok", "n/a"}:
+        raise ConfigurationError(
+            "halumem-extraction summary has invalid canonical status: " f"{status!r}"
+        )
+    return payload
+
+
+def _extraction_na_result() -> dict[str, Any]:
+    """构造 extraction 明确不可评时的清洁 composite N/A 结果。"""
+
+    return {
+        "metric_name": HalumemMemoryTypeEvaluator.metric_name,
+        "score_records": [],
+        "total_questions": 0,
+        "mean_score": None,
+        "correct_count": None,
+        "summary": {
+            "overall_score": None,
+            "category_breakdown": [],
+            "status": "n/a",
+            "reason_code": "upstream_extraction_n_a",
+            "official_source": HalumemMemoryTypeEvaluator.official_source,
+        },
+    }
 
 
 def _mean_available(records: list[dict[str, Any]]) -> float:

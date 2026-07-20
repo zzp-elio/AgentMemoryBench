@@ -229,6 +229,8 @@ class Memoryos:
         Adds a new QA pair (memory) to the system.
         meta_data is not used in the current refactoring but kept for future use.
         """
+        if not user_input and not agent_response:
+            raise ValueError("Memoryos QA page requires user_input or agent_response")
         if timestamp is self._TIMESTAMP_UNSET:
             timestamp = get_timestamp()
         

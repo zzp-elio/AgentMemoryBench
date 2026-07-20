@@ -351,6 +351,32 @@ def test_halumem_memory_type_requires_both_upstream_artifacts(tmp_path: Path) ->
         run_artifact_evaluation(run_dir, HalumemMemoryTypeEvaluator(), "halumem")
 
 
+def test_halumem_memory_type_propagates_real_extraction_na_summary(
+    tmp_path: Path,
+) -> None:
+    """extraction 的真实 N/A summary 必须阻止 update-only composite 被误算。"""
+
+    run_dir = _build_halumem_run_dir(tmp_path, extraction_status="n/a")
+    client = FakeHalumemJudgeClient()
+    run_artifact_evaluation(
+        run_dir,
+        HalumemExtractionEvaluator(model="gpt-4o-mini", client=client),
+        "halumem",
+    )
+    run_artifact_evaluation(
+        run_dir,
+        HalumemUpdateEvaluator(model="gpt-4o-mini", client=client),
+        "halumem",
+    )
+
+    summary = run_artifact_evaluation(run_dir, HalumemMemoryTypeEvaluator(), "halumem")
+    payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+    assert payload["status"] == "n/a"
+    assert payload["reason_code"] == "upstream_extraction_n_a"
+    assert payload["mean_score"] is None
+    assert payload["category_breakdown"] == []
+
+
 def test_halumem_qa_breakdown_reports_all_six_official_question_types(
     tmp_path: Path,
 ) -> None:

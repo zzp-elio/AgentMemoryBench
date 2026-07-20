@@ -26,3 +26,24 @@
 尾行：`132 passed in 7.40s`
 
 另执行 `git diff --check`，通过。
+
+## R1 follow-up（首轮 a3025d0 强验收驳回后）
+
+- 首轮错误把 extraction N/A 当作 score JSONL 内的虚构行/`n_a`，而真实 evaluator 会写
+  空 score records 与 summary `status="n/a"`；现改为严格读取
+  `summary.halumem_extraction.json`，N/A 时 clean composite N/A，update-only 不再被误算。
+- page timestamp 现先仅比较两个真实 turn time；任一真实值覆盖 session fallback，两个都
+  缺失才使用 session，仍全缺才为 `None`。native event 路径同样从 metadata 区分 turn 与
+  session time。
+- real vendored capacity-crossing test 证明 user-only / assistant-only 均可迁移，保留
+  原生 meta_data provenance；双空在 `add_memory` 入口拒绝。occurrence id 由 source ids
+  哈希而来，不是 retrieval snapshot index。
+- selection contract 允许的值收紧为 `always_on|ranked|non_evidence`；非法/空白/非字符串
+  fail-fast，k=0 仍保留 always-on。operation-level update probe 测试锁定结构化 STM 与
+  profile/two knowledge atoms，而非 formatted-memory 分行。
+
+本轮验证：
+
+`uv run pytest -x -q tests/test_memoryos_adapter.py tests/test_halumem_evaluators.py tests/test_operation_level_runner.py tests/test_locomo_retrieval_recall.py -m 'not api'`
+
+尾行：`149 passed in 7.62s`
