@@ -26,6 +26,12 @@ except ImportError:
 H_PROFILE_UPDATE_THRESHOLD = 5.0 
 DEFAULT_ASSISTANT_ID = "default_assistant_profile"
 
+
+def _has_non_blank_text(value):
+    """判断 QA side 是否为可保留的非空文本，None 与纯空白都视为缺失。"""
+
+    return isinstance(value, str) and bool(value.strip())
+
 class Memoryos:
     _TIMESTAMP_UNSET = object()
     def __init__(self, user_id: str, 
@@ -229,7 +235,7 @@ class Memoryos:
         Adds a new QA pair (memory) to the system.
         meta_data is persisted with the QA page for framework compatibility metadata.
         """
-        if not str(user_input).strip() and not str(agent_response).strip():
+        if not _has_non_blank_text(user_input) and not _has_non_blank_text(agent_response):
             raise ValueError("Memoryos QA page requires user_input or agent_response")
         if timestamp is self._TIMESTAMP_UNSET:
             timestamp = get_timestamp()

@@ -1022,6 +1022,20 @@ def test_vendored_capacity_crossing_preserves_single_sided_pages_and_metadata(
         backend.add_memory(" ", "\t", timestamp=None)
 
 
+@pytest.mark.parametrize("user_input, agent_response", [(None, None), (None, " "), ("\t", None)])
+def test_vendored_add_memory_rejects_none_and_blank_double_empty_pages(
+    tmp_path: Path,
+    user_input: str | None,
+    agent_response: str | None,
+) -> None:
+    """None、空串和纯空白两侧同样属于双空 page，不能绕过产品入口。"""
+
+    system = _build_system(tmp_path)
+    backend = system._get_or_create_backend("double-empty")
+    with pytest.raises(ValueError, match="requires user_input or agent_response"):
+        backend.add_memory(user_input, agent_response, timestamp=None)
+
+
 def test_native_page_occurrences_have_distinct_stable_ids() -> None:
     """相同文本/时间的两个 occurrence 只能各自导出自己的 native turn ids。"""
 

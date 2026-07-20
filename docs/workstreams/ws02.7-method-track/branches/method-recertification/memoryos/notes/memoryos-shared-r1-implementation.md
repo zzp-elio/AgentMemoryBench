@@ -65,3 +65,5 @@
 `uv run pytest -x -q tests/test_memoryos_adapter.py tests/test_halumem_evaluators.py tests/test_operation_level_runner.py tests/test_locomo_retrieval_recall.py -m 'not api'`
 
 尾行：`154 passed in 9.83s`
+
+R3：双空判定不再以 `str(None)` 代替缺失；`None`、空串与纯空白两侧均拒绝，单侧真实文本保持合法。
