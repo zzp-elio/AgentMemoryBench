@@ -56,7 +56,7 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 | method | 适配器 | B1 来源/接口 | B2 注入粒度 | B3 隔离 | B4 fmt+时间戳 | B5 provenance | B6 flush | B7 api_usage | B8 副作用 | B9 模型口径 | B10 TOML/builder | B11 smoke+冻结 | method-frozen |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅caption v6 + MemBench/BEAM pair + HaluMem session | ✅五格真实 state；并行格物理隔离 | ✅v7 五格 readout/时间真实验收 | ✅LoCoMo/MemBench valid；LME/BEAM/HaluMem N/A；ranking pending 如实披露 | ✅online-soft + forced flush R1 | ✅prediction 与 artifact judge observations 实测 | ✅ | ✅当前 MiniLM smoke build | ✅主 TOML；author builder 按政策延后到校准前 | ✅五格 `REAL_SMOKE_PASSED` + 100K current-identity refill | **method-frozen-v3** |
-| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅ | ✅混合(par2×4实弹) | ✅effective time 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(旧 native 计量=前置声明2) | ✅B8+清单落档(M5,下载点声明4) | 🟡当前 MiniLM；性能主配置待裁 | 🟡truthful 旧身份已落；author builder 待迁 | 🟡13格历史证据保留；五格主复证 | **v1 局部重开** |
+| [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅五格 role/granularity v3 | ✅混合(par2×4实弹) | ✅time/caption/role 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅(旧 native 计量=前置声明2) | ✅clean retry + 精确失败 stage | 🟡当前 MiniLM；性能主配置待裁 | 🟡truthful 旧身份已落；author builder 待迁 | 🟡离线代码门关闭；五格真实复证待跑 | **v1 局部重开；待 B11** |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅ | ✅降级审计 | ✅当前 MiniLM smoke build | 🟡旧 readout 身份 truthful；author builder 待迁 | 🟡五格主 smoke | 待 B11 |
 | [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -75,6 +75,10 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 > 5×10 主 smoke 不等待 product-default embedding 迁移，Mem0/LightMem/MemoryOS 沿用已验收
 > build；性能主配置到站后逐 method 裁定。
 > MemoryOS 已完成 M1 一手取证与 M2 离线施工/全量门，只差排到其顺序后的 B11 真实 smoke；
+> Mem0 五格 input/readout v3 与 HaluMem operation clean retry 已于 2026-07-20 以
+> `7fb3cd9`/`e1b2c9c`、`1bdfa98`/`5d1f91e` 强验收，扩大定向 244 passed、主树全量
+> 1637 passed + 29 subtests、compileall exit 0；当前只剩五格真实 smoke/artifact 开箱，
+> 因此仍是局部重开而不是 frozen。
 > LightMem 因 2026-07-15 发现 LoCoMo post-update 无 semantic source mapping 而重开 B5/B11；
 > RetrievalEvidence M1、MemBench canonical/role、caption v6 与最新 LoCoMo 单/双 worker B11
 > 已全部关闭，2026-07-17 曾恢复为 method-frozen-v2；2026-07-18 v7 readout/embedding

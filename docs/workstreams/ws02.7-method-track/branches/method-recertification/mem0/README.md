@@ -23,15 +23,15 @@ framework 实际交给 `Memory.add()` 的调用序列，不替核心卡裁 Mem0 
 核心卡也不代替五格检查 canonical 映射。六线联合裁决见
 [`mem0-joint-ruling.md`](notes/mem0-joint-ruling.md)。
 
-## 第二波双卡施工拓扑（当前）
+## 第二波双卡施工拓扑（已完成）
 
 联合裁决确认 **Mem0 role-aware 但不要求 pair**，所以任何 benchmark 都不因本轮新增
 placeholder；真实缺口拆成两张不写同一文件的卡，可并行施工：
 
-| 卡 | 解决什么 | 写集 |
+| 卡 | 解决什么 | 强验收结果 |
 |---|---|---|
-| [Mem0 五格输入/readout R1](cards/actor-prompt-mem0-input-readout-r1.md) | LoCoMo 显式 speaker_a/b、caption wrapper、role-native 正文去重复前缀、MemBench generic readout、Mem0-native HaluMem update top-k、adapter v3 | `mem0_adapter.py` + Mem0/五格 tests + integration note |
-| [HaluMem operation runner clean retry R1](cards/actor-prompt-halumem-operation-runner-clean-retry-r1.md) | 失败状态、clean retry 与 CLI 接线；不做错误的全 method top-10 截断 | `operation_level.py` + `run_prediction.py` + runner tests |
+| [Mem0 五格输入/readout R1](cards/actor-prompt-mem0-input-readout-r1.md) | LoCoMo 显式 speaker_a/b、caption wrapper、role-native 正文去重复前缀、MemBench generic readout、Mem0-native HaluMem update top-k、adapter v3 | 主体 `7fb3cd9` + 架构师真实 v2 resume 门 `e1b2c9c`；独立定向 76 passed |
+| [HaluMem operation runner clean retry R1](cards/actor-prompt-halumem-operation-runner-clean-retry-r1.md) | 失败状态、clean retry 与 CLI 接线；不做错误的全 method top-10 截断 | 主体 `1bdfa98` + 架构师精确 stage/order trace `5d1f91e`；独立定向 73 passed |
 
 这次从“一张共享实现卡”改为两张，不是把工作拆碎：第一张只改 Mem0 method build/readout/
 原生检索请求 identity，第二张只改 method-neutral operation state machine，写集、失败域和验收门
@@ -40,10 +40,11 @@ placeholder；真实缺口拆成两张不写同一文件的卡，可并行施工
 
 ## 合流门
 
-1. 六份 note 已由架构师合流并形成联合 gap matrix；
-2. 两张 R1 卡分别回卡，由架构师 full diff、强反例复跑；
-3. 两卡线性合流后跑扩大定向、主树全量 pytest 与 compileall；adapter v3 旧 store 禁 resume；
-4. 再按五格生成最小真实 smoke 命令；未经用户逐格批准预算、规模和
+1. ✅ 六份 note 已由架构师合流并形成联合 gap matrix；
+2. ✅ 两张 R1 卡已 full diff、补齐两处 R1 强反例并独立复跑；
+3. ✅ 四个 commit 线性合流；扩大定向 244 passed，主树全量 1637 passed + 29 subtests，
+   compileall exit 0；adapter v3 旧 store 经真实 preflight 禁 resume；
+4. **当前动作**：按五格生成最小真实 smoke 命令；未经用户逐格批准预算、规模和
    run id，不调用 API。
 
 稳定 benchmark 事实入口：

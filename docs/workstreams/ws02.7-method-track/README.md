@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（Mem0 六线联合裁决完成；两张 R1 卡待并行施工）
+status: in-progress（Mem0 双 R1 已强验收合流；五格 B11 待真实 smoke）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -49,8 +49,8 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   `23d785f`（artifact judge 观测边界/卡）→ `174bd46`（artifact-level judge efficiency
   共享修复）→ `f9cd0f7`（BEAM judge refill 命令门）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树全量门=`1605 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 155.86s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
+  hash。本轮主树全量门=`1637 passed, 3 deselected, 2 warnings, 29 subtests passed
+  in 202.14s`；标准 `src+tests` compileall exit 0。隔离工作树补齐 gitignored benchmark/
   model 资产后才跑该门，不能把缺资产失败混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
@@ -193,7 +193,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 - **用户派工边界**：架构师只写卡；由用户在 Sonnet 5/GLM-5.2/MiniMax/Codex 等池中
   选择。除非用户明确要求，禁止自动启动 Codex subagent。
 - **Mem0 current-main 重认证拓扑**：六份 Sonnet 5 docs-only 审计已线性进入 main
-  `40e82ac..73b4791`，联合判词=`BLOCKED_ON_TWO_CODE_CARDS`。Mem0 默认 V3 extraction
+  `40e82ac..73b4791`；联合裁决的两张代码卡及架构师 R1 已以
+  `7fb3cd9`/`e1b2c9c`、`1bdfa98`/`5d1f91e` 强验收合流，旧
+  `BLOCKED_ON_TWO_CODE_CARDS` 已关闭。Mem0 默认 V3 extraction
   role-aware，但 singleton/assistant-first/连续同 role/odd tail 均合法；**MemBench ThirdAgent
   不补 placeholder**，任何非空伪回复都属于数据造假。真正 build 缺口是 LoCoMo 显式
   `speaker_a=user/speaker_b=assistant`（10 个 conversation 仅 4 个由 A 首发）、共享 caption
@@ -201,8 +203,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   HaluMem update `top_k=10` 请求；另有 method-neutral clean-failed-ingest resume。旧判曾把
   Mem0 wrapper 的 10 条窗口误升格成 HaluMem scorer 的全 method 硬契约，现已撤销：官方
   Memobase wrapper 用 token budget，shared scorer 不校验 top-k，禁止共享 runner 截 items 或
-  拆 formatted text。两张修订卡写集不重叠，可在隔离 worktree 并行；见
-  `branches/method-recertification/mem0/`。未获用户逐格预算/规模/run id 批准前不调用真实 API。
+  拆 formatted text。adapter 已升 `conversation-qa-v3`，旧 v2 resume 由真实 manifest
+  preflight 拒绝；operation runner 失败态精确区分 ingest/extraction/update/QA/end/cleanup，
+  默认 resume 跳过，显式 retry 必须先 clean。离线代码门已关闭，下一步仅是五格真实 B11
+  smoke 与 artifact 开箱；未获用户逐格预算/规模/run id 批准前不调用真实 API。
 - **2026-07-20 汇报门**：用户目标是在 2026-07-20 下午前尽量冻结 Mem0、MemoryOS、A-Mem、
   SimpleMem，并填写 `reports/report-progress-2026-07-20.md`。该目标要求复用 LightMem 已锁定的
   benchmark 稳定层，不再做无反证的全量 census；但不得把用户/外部工具对后续 method 接口的
@@ -213,7 +217,19 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
 
 ## 当前断点（2026-07-20）
 
-- 2026-07-20（**Mem0 六线联合裁决 R1 勘误完成；两张修订卡需要并行派发**，GPT-5.6 sol 架构师）：
+- 2026-07-20（**Mem0 双 R1 + 架构师 R1 强验收完成；转五格真实 B11**，GPT-5.6 sol 架构师）：
+  Sonnet 5 两张回卡分别为 `1de6ef8`（Mem0 五格 input/readout）与 `40ca6da`（HaluMem
+  operation clean retry）。架构师 full diff 没有发现删除断言、fake 绕生产链或通用 top-k
+  截断，但驳回两处过度验收：①旧 v2 只做字符串不等，未穿真实 resume preflight；②所有失败
+  都写 `stage=operation_conversation`，且 clean/ingest 用两份列表不能证明先后。Codex
+  GPT-5.6 sol medium 在原 worktree 线性补 `ea80723` 与 `73c962e`：真实 v2 manifest mismatch
+  门、六阶段精确定位与共享 order trace 全部闭合。架构师独立定向=`76 passed` + `73 passed`，
+  合流扩大门=`244 passed in 17.86s`，主树全量=`1637 passed, 3 deselected, 2 warnings,
+  29 subtests passed in 202.14s`，compileall exit 0。主线 commits=`7fb3cd9`、`e1b2c9c`、
+  `1bdfa98`、`5d1f91e`。**当前不是 frozen**：下一动作按五 benchmark 逐格给出最小真实 smoke
+  命令、用户批准预算/run id 后执行并开箱，最后再做 B11 对表。
+
+- 2026-07-20（**历史派卡断点，已由上条关闭：Mem0 六线联合裁决 R1 勘误完成**，GPT-5.6 sol 架构师）：
   六个 actor commit 已逐一检查只改各自 note、线性合入 main。联合复核纠正三处局部审计：
   ① role-aware 不等于 pair-required，MemBench ThirdAgent/BEAM dangling/LoCoMo singleton 均不补
   placeholder；② LoCoMo first-seen 映射在 6/10 conversation 与官方显式 A/B 角色相反；③

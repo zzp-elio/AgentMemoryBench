@@ -122,6 +122,10 @@
 - retry/resume 路径写 artifact 时想清楚"重放会不会重复追加"
   （session report 曾因 extend 而重复，后改整段替换）。
 - 等价测试比对的是**调用序列全序列**，不是"最终状态差不多"。
+- **要证明 A 严格先于 B，必须让二者写入同一条 order trace。**分别断言
+  `a_calls` 非空、`b_calls[0]` 正确，只能证明两者都发生，不能证明跨对象的先后；2026-07-20
+  HaluMem clean-retry 首轮测试正因两份独立列表被架构师驳回，R1 改为共享 trace 后才真正锁住
+  `clean → first new ingest`。
 - **切换默认值后要搜索所有隐式依赖旧默认的调用点和测试**。不能只跑任务卡枚举的
   新 case；对构造器/profile 字段做一次定点 `rg`，把本来就在测旧语义的 case 改成
   显式旧 profile，不能删测试或放宽断言。2026-07-15 LightMem online-soft 卡中，

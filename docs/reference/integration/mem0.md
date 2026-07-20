@@ -94,7 +94,10 @@ message role/content 与检索请求 top-k，不改 Mem0 V3 extraction/update/de
   injected-token 计量尚未完全跟随官方实际嵌入段，列入 R0 前置包。
 - **B8 ✅ 副作用/韧性**：失败清理为 `delete_all(run_id)` + 批准的 third_party
   `SQLiteManager.delete_messages(session_scope)` 最小 diff + sidecar 清除；两类业务 API
-  点有 timeout/retry。首次模型下载仍需新机器预热预检。
+  点有 timeout/retry。operation-level runner 现与标准 runner 共用 clean-failed-ingest
+  状态机：失败原子写 `failed_ingest` 及精确 stage，默认 resume 跳过，显式 retry 无 hook
+  fail-closed、有 hook 则先清 namespace 恰一次再从 session 1 重建；partial operation
+  artifacts 不落盘。首次模型下载仍需新机器预热预检。
 - **B9 🟡 当前 smoke 配置已声明；性能主配置待裁**：2026-07-09 shared MiniLM 配置/产物与
   2026-07-16 product-default 审计都保留为真实历史。现行政策把 embedding 作为 TOML 普通
   build 字段：5×10 smoke 保持当前 MiniLM，不提前烧 OpenAI embedding；真实效果实验前再裁
@@ -107,12 +110,12 @@ message role/content 与检索请求 top-k，不改 Mem0 V3 extraction/update/de
   `framework_model_override`，不再由裸 `config_track=native` 暗示 full-native。首个作者校准
   run 前须把有证据的 LoCoMo/LongMemEval/BEAM 设置改由 `author_<benchmark>` TOML section
   选择完整 answer builder；旧 judge 路由泛化和论文校准仍属于前置包。
-- **B11 🟡 既有 13 格证据保留；新五格主 smoke 待复证**：13 格 predict、免费/付费指标与既定
-  并行门完成；冻结时基线 1164 passed。既有 BEAM provenance recall 与 LongMemEval
-  turn-level/rank 数字不再作可信指标声明。逐题 RetrievalEvidence contract v1 已由 M0
-  落盘，现待 M1 evaluator 消费；MemBench/BEAM/HaluMem 新输入字节在五格主 smoke
-  中抽查，不另烧一轮 controlled；LoCoMo/LongMemEval 的 session-only 输入及既有 add-only
-  证据继续有效。未来 embedding 迁移会影响 build/retrieve，不能只重跑 readout。
+- **B11 🟡 离线代码门关闭；新五格主 smoke 待复证**：13 格历史 predict、免费/付费指标与既定
+  并行门保留，但旧 build 不能替代 adapter v3。既有 BEAM provenance recall 与 LongMemEval
+  turn-level/rank 数字不再作可信指标声明；RetrievalEvidence M1 已严格消费逐题资格。
+  input/readout v3 与 operation clean retry 经扩大定向 244 passed、主树全量 1637 passed +
+  29 subtests、compileall exit 0 强验收。下一步五格真实 smoke 必须抽查新 message bytes、
+  retrieval evidence、HaluMem extraction/update/QA 与失败恢复身份；完成 artifact 开箱前不恢复 frozen。
 
 ## 特殊情况
 1. Mem0 是当前唯一混合隔离方法，不能把 worker 内逻辑隔离误写成全局纯逻辑隔离。
