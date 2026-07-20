@@ -1291,5 +1291,30 @@ def test_memoryos_missing_benchmark_identity_is_pending(tmp_path: Path) -> None:
         assert evidence.provenance_granularity == "none"
 
 
+def test_vendored_timestamp_omission_keeps_upstream_clock_but_explicit_none_stays_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """真实 backend 省略 timestamp 保留上游 wall-clock，显式 None 则保留 source missing。"""
+
+    import importlib
+
+    _stub_pypi_embedding(monkeypatch)
+    system = _build_system(tmp_path)
+    system.get_debug_package()
+    memoryos_module = importlib.import_module("memoryos_pypi_vendor.memoryos")
+    monkeypatch.setattr(memoryos_module, "get_timestamp", lambda: "fixed-wall-clock")
+    backend = system._get_or_create_backend("timestamp-default")
+    backend.add_memory(user_input="omitted user", agent_response="omitted assistant")
+    backend.add_memory(
+        user_input="missing user",
+        agent_response="missing assistant",
+        timestamp=None,
+    )
+    pages = backend.short_term_memory.get_all()
+    assert pages[0]["timestamp"] == "fixed-wall-clock"
+    assert pages[1]["timestamp"] is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])

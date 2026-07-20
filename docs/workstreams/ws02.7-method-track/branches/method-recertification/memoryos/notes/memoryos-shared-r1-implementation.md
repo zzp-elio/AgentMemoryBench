@@ -67,3 +67,5 @@
 尾行：`154 passed in 9.83s`
 
 R3：双空判定不再以 `str(None)` 代替缺失；`None`、空串与纯空白两侧均拒绝，单侧真实文本保持合法。
+
+R4：真实 vendored backend 以固定 `get_timestamp` 锁定省略 timestamp 仍走上游 wall-clock，显式 `timestamp=None` 则保持 missing；两页均为完整非空 pair，未触发迁移或 API。
