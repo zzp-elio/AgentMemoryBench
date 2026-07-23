@@ -962,3 +962,19 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   manifest/resume 也不保存本机绝对源码根，则纯根目录迁移不改变算法或 run identity；用迁移
   前后 hash、真实 import root 和定向回归关闭即可，不机械重烧 API。反之，路径若进入公开
   manifest 或 checkpoint identity，必须先设计兼容迁移，不能把路径重排伪装成无语义重构。
+
+### 14.12 2026-07-23：里程碑清理先拆“磁盘占用、Git 体积、架构债”三件事
+
+- **工作目录大不等于公开仓库臃肿。**首批 25 格收口时，本机 data/models/third_party/outputs
+  合计二十余 GiB，而 Git 跟踪内容约 77 MiB；若只看 `du` 就删大目录，会误删 source lock、
+  复现仓库和实验资产。盘点必须同时给 working tree、tracked bytes、Git objects 三组读数。
+- **legacy 名字不是删除证据。**`ingest_resume.py`、`LegacyProviderBridge`、
+  `BaseResumableMemorySystem/add_from_turn` 与 `config_track.py` 看似迁移期产物，但仍有生产
+  调用；`BaseMemoryRetriever` 才是零生产引用的确认候选。每次清理必须先做引用扫描并分
+  “活跃 / 兼容活跃 / 确认遗留”，再为最后一类写迁移与回归门。
+- **吸收 scratch 不是把原文搬家。**根目录临时文档往往混有稳定原则、actor 回报和已过时猜测。
+  正确收口是把稳定规则指回 policy/checklist/integration page，把一手施工证据留在 workstream
+  note，把旧推论列为 superseded 后删除 scratch；禁止生成另一份没有权威身份的大杂烩。
+- **大重构要等接口样本齐，不等于清理永远延后。**在 5×10 只完成一半时，立即做事实源收口和
+  legacy inventory；下一家 method 仍走 P0。等十家接口形态齐全或旧层实际阻塞新接入后，再以
+  当前 smoke 矩阵为守恒门实施结构减重，避免过早抽象。
