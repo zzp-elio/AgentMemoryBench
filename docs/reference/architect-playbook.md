@@ -978,3 +978,19 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
 - **大重构要等接口样本齐，不等于清理永远延后。**在 5×10 只完成一半时，立即做事实源收口和
   legacy inventory；下一家 method 仍走 P0。等十家接口形态齐全或旧层实际阻塞新接入后，再以
   当前 smoke 矩阵为守恒门实施结构减重，避免过早抽象。
+
+### 14.13 2026-07-23：结构治理不是删文件，通用公式也不等于抹掉 benchmark policy
+
+- **用户说“整治”时先问重复职责，不只问哪些文件能删。**首批收口后，架构师一度把优化
+  过窄地裁成 scratch 清理 + legacy inventory，漏看 `metrics/` 空壳、四份 recall evaluator
+  重复编排、prompt ownership 分散和 1,798 行热状态 README。用户纠正后改判：先做零语义
+  结构归一 M0，再接下一家 method。
+- **公式、资格、政策、编排是四层。**Recall 数学内核通用，应在 `metrics/` 单源；gold unit、
+  abstention/empty-gold、provenance granularity 和 official tier 属 benchmark policy；artifact
+  读写/资格/N/A/summary 属 evaluator 共壳。正确抽象是 generic engine + thin policy，不是四套
+  engine，也不是一个充满 benchmark 分支的万能文件。
+- **prompt 目录按所有权分，不按“都是字符串”堆一处。**主表 answer/judge prompt 归
+  benchmark；method 专属内容只归 author calibration；产品内部 extraction/update prompt 留在
+  method/upstream。目录迁移必须比较最终 `PromptMessage[]` 和身份，不能只验证模板常量。
+- **凝练文档要保留证据射程。**AGENTS/恢复胶囊/状态 README 是热层，详细反例与改判原因是
+  冷层 casebook。缩短入口靠索引和迁移，不靠删掉让后任避免重犯所必需的细节。

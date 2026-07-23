@@ -1,9 +1,14 @@
 # 首批 25 格里程碑收口与架构减重审计（2026-07-23）
 
+> **后续改判（同日）：**本文完成的事实收口与遗留分类仍有效；“收口后立即
+> MemOS”的顺序已被
+> [结构归一 M0 裁决](2026-07-23-structural-normalization-m0-ruling.md)
+> supersede。现行顺序是：零语义变化的 metric/evaluator/prompt/文档结构归一 M0
+> → MemOS。M0 不扩大到 runner/registry/legacy protocol 重写。
+
 ## 0. 架构师判词
 
-**先做一次有边界的里程碑收口，然后立即回到 P0 主线接入 MemOS；现在不启动
-无边界的全仓重构。**
+**先做一次有边界的里程碑收口；后续顺序以顶部改判链接为准。**
 
 理由：
 
@@ -17,10 +22,11 @@
 下一主线顺序：
 
 1. 本 note、四份根目录临时 Markdown 清理与文档门；
-2. ws02.7 接入 MemOS；
-3. 每冻结一家 method，追加一次“新增兼容债”差量盘点；
-4. 10 家 method 接口样本齐全后，在昂贵 full run 之前集中实施 ws03 的代码减重；
-5. ws05 成本 pilot 与全量预算申请随后推进。
+2. 结构归一 M0（不改评测语义）；
+3. ws02.7 接入 MemOS；
+4. 每冻结一家 method，追加一次“新增兼容债”差量盘点；
+5. 10 家 method 接口样本齐全后，在昂贵 full run 之前继续实施 ws03 的深层减重；
+6. ws05 成本 pilot 与全量预算申请随后推进。
 
 ## 1. 盘点范围与读数
 
@@ -159,7 +165,8 @@ private 或另设私有开发仓，而不是事后删除 Markdown。若只担心
 
 ## 6. 下一次 ws03 实施触发器
 
-本 note 不代表 ws03 开始大施工。以下任一时点才发实现卡：
+本 note 的旧触发条件已由顶部结构归一 M0 改判收窄 supersede；M0 只治理
+metric/evaluator/prompt/文档布局。以下条件继续约束 M0 之外的深层减重：
 
 1. MemOS 接入暴露 legacy API 对新 method 的实际阻碍；
 2. 首批 10 method adapter 全部具备接口样本；
