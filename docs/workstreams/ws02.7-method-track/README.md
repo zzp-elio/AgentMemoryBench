@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（首批 5 method frozen；结构归一 M0 后接 MemOS）
+status: in-progress（首批 5 method frozen；下一家 MemOS）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0
@@ -28,13 +28,13 @@ B1-B11 逐家接入 10 个 method。活跃支线统一从
 冲突，以 Git 和最新 ruling 为准。
 
 - **稳定基线（2026-07-23）**：5 benchmark × 首批 5 method 的真实 smoke 与
-  B1-B11 已关闭。A-Mem 目录归一后无 API 全量门：
-  `1680 passed, 3 deselected, 1 warning, 29 subtests passed in 132.13s`；
+  B1-B11 已关闭；ws03
+  [结构归一 M0](../ws03-architecture-slimming/notes/2026-07-23-structural-normalization-m0-ruling.md)
+  已通过守恒门。无 API 全量：
+  `1685 passed, 3 deselected, 1 warning, 29 subtests passed in 128.11s`；
   compileall exit 0。唯一 warning 是既有 vendored LightMem Pydantic deprecation。
-- **当前动作**：先执行 ws03
-  [结构归一 M0](../ws03-architecture-slimming/notes/2026-07-23-structural-normalization-m0-ruling.md)，
-  只做文档热/冷分层、retrieval evaluator 共壳与 prompt ownership 归位，零评测语义变化；
-  M0 全量门后接入 **MemOS**。
+- **当前动作**：按新结构接入 **MemOS**；复用五个 benchmark 稳定事实和首批 method
+  判例，不重开 raw census，不复制旧 `native` prompt/benchmark recall 壳。
 - **不可顺手重开**：benchmark raw/canonical/gold 调查、已冻结 25 格、旧
   `config_track` 兼容、legacy bridge/resume、BLEU/ROUGE/Precision 新公式。
 - **恢复当前结构任务只读**：上方 M0 ruling；需要追溯某家 method 才读下表对应 frozen note。
@@ -86,11 +86,11 @@ B1-B11 逐家接入 10 个 method。活跃支线统一从
 
 ## 当前动作与关闭门
 
-1. **ws03 M0-A**：本 README 与经验手册热/冷分层；
-2. **ws03 M0-B**：pure metric 归位、retrieval evaluator 共壳；
-3. **ws03 M0-C**：benchmark/author prompt ownership；
-4. 定向测试、文档门、compileall、无 API 全量 pytest；
-5. 回到本 workstream 接入 MemOS。
+1. [x] **ws03 M0-A**：本 README 与经验手册热/冷分层；
+2. [x] **ws03 M0-B**：pure metric 归位、retrieval evaluator 共壳；
+3. [x] **ws03 M0-C**：benchmark/author prompt ownership；
+4. [x] 定向测试、文档门、compileall、无 API 全量 pytest；
+5. [ ] 按新结构接入 MemOS。
 
 M0 红线：零真实 API、零 third-party 算法改动、零 metric/prompt/artifact 语义变化；
 旧 import path 在迁移期保留薄兼容层。
@@ -109,7 +109,7 @@ M0 红线：零真实 API、零 third-party 算法改动、零 metric/prompt/art
 
 - [x] 五个 benchmark frozen-v1
 - [x] 首批 5 method × 5 benchmark 真实 smoke 与 B1-B11
-- [ ] 结构归一 M0
+- [x] 结构归一 M0
 - [ ] MemOS
 - [ ] Letta/MemGPT
 - [ ] LangMem

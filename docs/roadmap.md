@@ -41,9 +41,9 @@ A-Mem → SimpleMem 串行重认证 B1-B11，不靠历史 frozen 惯性，也不
 Supermemory）；效果参数、作者 builder、真实 resume 与 full 成本 pilot 仍待后续。真实 API
 一律继续由用户确认预算、规模与 run_id。首批 25 格完成后已做一次有边界的
 [架构减重审计](workstreams/ws03-architecture-slimming/notes/2026-07-23-first-25-cell-consolidation-audit.md)：
-先清临时事实源、盘点活跃 legacy。用户随后明确“整治不只是删除”，现行顺序改为
+先清临时事实源、盘点活跃 legacy。用户随后明确“整治不只是删除”，
 [结构归一 M0](workstreams/ws03-architecture-slimming/notes/2026-07-23-structural-normalization-m0-ruling.md)
-→ MemOS；M0 只做 evaluator/prompt/文档的零语义迁移，不扩成全仓重写。
+已完成 evaluator/prompt/文档的零语义迁移与全量守恒门；现回到主线接入 MemOS。
 
 ## Workstream 索引
 
@@ -58,7 +58,7 @@ Supermemory）；效果参数、作者 builder、真实 resume 与 full 成本 p
 | [ws02.5](workstreams/ws02.5-method-interface-audit/README.md) | method-interface-audit | done | P0 | 2026-07-09 关闭：5 method 接口审计 + MemoryOS 迁移 + 当时配置归一化；shared embedder 资产保留为 controlled，ws02.7 现审计 product-default 精确身份与迁移/复证面 |
 | [ws02.6](workstreams/ws02.6-first-smoke-hardening/README.md) | first-smoke-hardening | done | P0 | 五 benchmark 全部 frozen-v1 + B6 横向总验收完成（2026-07-12）；method 侧已转 ws02.7 |
 | [ws02.7](workstreams/ws02.7-method-track/README.md) | method-track-m0 | in-progress | P0 | 首批 5 method 全部 frozen；下一家 MemOS，EverOS 仍排最后 |
-| [ws03](workstreams/ws03-architecture-slimming/README.md) | architecture-slimming | open | P1 | 结构归一 M0 先于 MemOS：文档热/冷层、retrieval evaluator 共壳、benchmark/author prompt 归位 |
+| [ws03](workstreams/ws03-architecture-slimming/README.md) | architecture-slimming | open | P1 | 结构归一 M0 已关闭；legacy/LLM runtime 等 M1 后续有边界推进，不阻塞 MemOS |
 | [ws04](workstreams/ws04-terminal-observability/README.md) | terminal-observability | open | P2 | isolated 进度心跳、第三方 stdout/tqdm 治理 |
 | [ws05](workstreams/ws05-experiment-reporting/README.md) | experiment-reporting | open | P1 | 全量实验申请材料：成本估算表 + 结果汇总 + 兜底验证清单（依赖 ws02） |
 | [ws06](workstreams/ws06-tests-restructure/README.md) | tests-restructure | open | P2 | tests 分组重组、大文件拆分、过时断言排查 |
