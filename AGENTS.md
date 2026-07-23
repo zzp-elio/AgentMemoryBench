@@ -50,7 +50,9 @@
   决策、陷阱;**在途状态一律看活跃 ws README 断点区**,该文不双写;原
   handover-to-next-architect.md 已于 2026-07-14 并入并删除），再配
   `docs/reference/architect-playbook.md`
-  （历任踩坑与纪律，供"上任自检"，也是不可用时的备份机制）。
+  （热规则与任务检索入口，供"上任自检"）+
+  `docs/reference/playbooks/architect/`（完整冷层案例）。经验库不得在上任或
+  compaction 后默认全文读取；先由热入口按任务标签检索一到两条相关案例。
 - **执行者（actor）= 跨产品轮换池**（2026-07-07 起）：Codex /
   OpenCode+DeepSeek / WorkBuddy(GLM-5.2) / Claude Sonnet / MiniMax 等，可能随时
   换人、新开会话，**不等于当前 Codex 可启动的 subagent**，一律视为

@@ -605,6 +605,7 @@ uv run python -m unittest tests/test_API.py -v
 - [docs/reference/method-resource-parameter-audit.md](docs/reference/method-resource-parameter-audit.md): method 参数与资源审计。
 - [docs/reference/huggingface-datasets.md](docs/reference/huggingface-datasets.md): Hugging Face dataset 发布流程。
 - [docs/reference/future-ideas.md](docs/reference/future-ideas.md): 实验监控 AI、新 method 接入 skill 等后期想法。
-- [docs/reference/architect-playbook.md](docs/reference/architect-playbook.md): 架构师角色完整交接文档。
+- [docs/reference/architect-playbook.md](docs/reference/architect-playbook.md): 架构师热规则与经验检索入口。
+- [docs/reference/playbooks/architect/README.md](docs/reference/playbooks/architect/README.md): 按任务标签检索完整案例库。
 - [docs/reference/actor-handbook.md](docs/reference/actor-handbook.md): 执行者施工规矩全文。
 - [docs/archive/specs/2026-06-12-project-goals-architecture-design.md](docs/archive/specs/2026-06-12-project-goals-architecture-design.md): 长期项目目标与架构设计。

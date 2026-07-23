@@ -36,3 +36,6 @@
 - 想跑命令、查代码结构：`CLAUDE.md`。
 - 想比较 actor 的真实交付：`reference/actor-performance-ledger.md`（任务级样本，不是
   脱离卡难度的模型神榜）。
+- 想复用架构经验：先读 `reference/architect-playbook.md` 热入口，再按
+  `reference/playbooks/architect/README.md` 的任务标签定点检索案例；禁止默认全文灌入
+  冷层 casebook。
