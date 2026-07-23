@@ -935,3 +935,19 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   与 artifact，而数值 metric 只因确定性的题目类型选择缺席，可由 benchmark census + evaluator
   强反例承重，并在 frozen note 披露。扩大到下一道有 gold 的题属于新预算/覆盖决策，不是修复
   原 run 的默认动作。
+
+### 14.10 2026-07-23：先追实际入口，再裁并行与可复现兼容层
+
+- **配置里有 parallel flag，不等于当前 adapter 真走 parallel path。**SimpleMem 同时有
+  `add_dialogue()` 的逐窗口同步路径和 `add_dialogues_parallel()` 的批窗口路径；后者让同批窗口
+  共享提交前的 `previous_entries`，不等价于前者的 overlap + 上一窗口记忆链。裁决并行语义前
+  必须沿 framework ingest 入口追到产品实际调用，分别记录 build parallelism 与 retrieval
+  parallelism，不能因同名布尔值把两阶段混成一件事。
+- **session extraction 的清理对象要按状态职责拆开。**HaluMem 要求本 session 的新记忆，
+  SimpleMem 因此在 session `finalize()` 后只清下一窗口抽取参考用的 transient
+  `previous_entries`；LanceDB 长期记忆保留给后续 update/QA。清全部库会扭曲算法，不清 transient
+  context 又会把上一 session 的最后窗口带进下一段 extraction；两者都不是“更忠实”。
+- **local-only third-party 修复不能只活在本机。**若整个 upstream repo 按规则不入 Git，直接改
+  vendored 文件会造成“本机 smoke 通过、换机器修复消失”。最小兼容 diff 应固化为 tracked patch，
+  fetch 脚本在固定 commit 后幂等应用，并用 reverse-check + 真实入口强反例证明当前 bytes 可由
+  patch 重建。不能 force-add 两个孤立源码文件形成无法重新 clone 的半个 upstream 仓库。

@@ -1,7 +1,7 @@
 ---
 id: ws02.7
 parent: ws02
-status: in-progress（LightMem frozen-v3、Mem0 frozen-v2、MemoryOS frozen-v1；当前转 A-Mem）
+status: in-progress（首批 5 method 全部 frozen；下一家 MemOS）
 created: 2026-07-12
 ---
 # ws02.7 Method Track M0（method 侧解冻后逐个接入）
@@ -50,11 +50,12 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   共享修复）→ `f9cd0f7`（BEAM judge refill 命令门）→ `f053597`（Mem0 frozen-v2）→
   `323340a`（MemoryOS 五格预检入口）→ `6602aab`/`4300591`/`c5e7541`/`1207083`/
   `ef3b4f2`（MemoryOS shared lifecycle 主体与 R1-R4 强验收收口）→ `dcc5fd6`
-  （LoCoMo 跨 session page smoke 契约 R5）。准确
+  （LoCoMo 跨 session page smoke 契约 R5）→ `b1224d0`（A-Mem/SimpleMem current
+  product 接入）→ `526e978`（A-Mem embedding dimension）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮主树无 API 全量门=`1666 passed, 3 deselected, 2 warnings, 29 subtests passed
-  in 145.12s`；`src+tests+MemoryOS-pypi` compileall exit 0。两条 warning 均为既有 vendored
-  deprecation，不能把环境/第三方噪声混成代码回归。
+  hash。本轮最终主树无 API 全量门=`1680 passed, 3 deselected, 1 warning, 29 subtests passed
+  in 150.75s`；`src+tests+SimpleMem core` compileall exit 0。唯一 warning 是既有 vendored
+  LightMem Pydantic deprecation，不能把第三方噪声混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
   身份裁决与 Track identity M0 已关闭。架构师已直接通读论文、PyPI 产品 core 与官方 LoCoMo
@@ -69,9 +70,20 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   五格逐题 `valid/turn`、全部适用 metric/judge 与 HaluMem extraction→memory-type N/A 传播均
   完整。`JUDGE_CALL_PREVIEW extraction=0 update=7 qa=1 total=8` 与 observation 对账一致。
   BEAM 本轮首题均无 gold group，故 Recall 正确为 `null/n_a`；不为制造数字扩题重烧 API。
-  **MemoryOS 正式冻结为 `method-frozen-v1`，当前唯一 method 主线转 A-Mem；**完整判词=
+  **MemoryOS 正式冻结为 `method-frozen-v1`；**完整判词=
   [`memoryos-frozen-v1.md`](branches/method-recertification/memoryos/notes/memoryos-frozen-v1.md)，
   统一入口=`branches/method-recertification/memoryos/README.md`。
+- **A-Mem / SimpleMem（2026-07-23 收口）**：两家 current product 均已完成五格各
+  11 个正式真实 run、W1/W2、BEAM 100K/10M、HaluMem operation-level 与统一机器门，
+  冻结为 `method-frozen-v1`。A-Mem 检索对象是 evolution 后的当前 memory，sidecar 只证明
+  生成 lineage，Recall/Precision/NDCG=N/A；SimpleMem 检索对象是窗口合成 MemoryEntry，
+  provenance=N/A、stable ranking=pending。SimpleMem build 显式串行以保 overlap/
+  `previous_entries` 顺序依赖，retrieval multi-query 并行保留；HaluMem 每 session
+  finalize 后只清瞬时 extraction context，不删长期 LanceDB。两处 local-only 产品兼容 diff
+  已固化为 fetch-time 可重放 patch。冻结记录：
+  [`amem-frozen-v1.md`](branches/method-recertification/amem/notes/amem-frozen-v1.md)、
+  [`simplemem-frozen-v1.md`](branches/method-recertification/simplemem/notes/simplemem-frozen-v1.md)。
+  **首批 5 method 现全部 frozen；下一 method 主线转 MemOS。**
 - **LightMem lifecycle 现行裁决**：论文第 5/7/8 页与官方脚本复证，paper online soft
   是“抽取后直接 LTM insert”，在 vendored 代码中反而由
   `update="offline" → offline_update(memory_entries)` 实现；`online_update()` 空壳只是

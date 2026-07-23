@@ -59,8 +59,8 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 | [**LightMem**](integration/lightmem.md) | ✅ | ✅ | ✅caption v6 + MemBench/BEAM pair + HaluMem session | ✅五格真实 state；并行格物理隔离 | ✅v7 五格 readout/时间真实验收 | ✅LoCoMo/MemBench valid；LME/BEAM/HaluMem N/A；ranking pending 如实披露 | ✅online-soft + forced flush R1 | ✅prediction 与 artifact judge observations 实测 | ✅ | ✅当前 MiniLM smoke build | ✅主 TOML；author builder 按政策延后到校准前 | ✅五格 `REAL_SMOKE_PASSED` + 100K current-identity refill | **method-frozen-v3** |
 | [Mem0](integration/mem0.md) | ✅ | ✅content-hash锁(声明1) | ✅五格 role/granularity v3 | ✅混合(W2×4实弹) | ✅time/caption/role 单次渲染 | ✅turn/session；BEAM recall=N/A | ✅零flush | ✅五格 prediction+judge 实测 | ✅clean retry + 精确失败 stage | ✅当前 MiniLM smoke build；性能主配置待裁 | ✅current 主配置 truthful；author builder 待迁 | ✅五格 8 run 开箱 + inventory R1 | **method-frozen-v2** |
 | [MemoryOS](integration/memoryos.md) | ✅ | ✅PyPI；Chroma=reproduction variant | ✅pair/session | ✅物理 | ✅全层+时间 | ✅turn + M0 v1 | ✅no-op | ✅五格 prediction+judge 实测 | ✅降级审计 | ✅当前 MiniLM smoke build | ✅current 身份 truthful；author builder 待迁 | ✅五格 8 run 开箱 | **method-frozen-v1** |
-| [A-Mem](integration/amem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| [SimpleMem](integration/simplemem.md) | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| [A-Mem](integration/amem.md) | ✅ | ✅官方 general product | ✅turn | ✅conversation 物理隔离 | ✅speaker/role/time/caption | ✅审计 lineage；evolved memory retrieval metric=N/A | ✅同步 add/evolution | ✅五格 prediction+judge 实测 | ✅fail-fast+clean retry | ✅product MiniLM-384 | ✅主 TOML | ✅五格 11 run 开箱 | **method-frozen-v1** |
+| [SimpleMem](integration/simplemem.md) | ✅ | ✅官方 text product | ✅turn | ✅conversation 物理隔离 | ✅speaker/content/time/caption | ✅合成 memory provenance=N/A；ranking pending | ✅conversation/session finalize | ✅五格 prediction+judge 实测 | ✅兼容 patch+clean retry | ✅controlled MiniLM-384 | ✅主 TOML；build 串行 | ✅五格 11 run 开箱 | **method-frozen-v1** |
 | MemOS | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | Letta/MemGPT | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | LangMem | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -92,8 +92,11 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
 > 已全部关闭，2026-07-17 曾恢复为 method-frozen-v2；2026-07-18 v7 readout/embedding
 > 可观测契约一度重开冻结门，现已由五格 current-v7 artifact、forced-flush 修复与 100K
 > current-identity refill 全部关闭，升级为 method-frozen-v3。
-> A-Mem/SimpleMem 待各自 M 阶段。N/A 是
-> 能力结论，不是强造指标。
+> A-Mem 与 SimpleMem 已于 2026-07-23 完成 current product 五格各 11 个真实 run 和机器门，
+> 均冻结为 `method-frozen-v1`。A-Mem 检索命中 evolution 后当前 memory，SimpleMem 检索
+> 合成 MemoryEntry；二者的 turn-evidence retrieval metric 均为 N/A。SimpleMem build 显式
+> 串行，retrieval multi-query parallelism 保留；HaluMem session delta 与长期记忆保留已实测。
+> N/A 是能力结论，不是强造指标。
 
 **逐项证据与接口调用面**：全部收归各实体的实例文档（表中名字即链接），本文不再
 就地展开（2026-07-13 起，原"LightMem 详情"节已迁入
@@ -110,7 +113,7 @@ ws02.6 于 2026-07-12 将五家全部 frozen-v1；2026-07-15 MemBench 因 100k m
   并进 target；即使合并全部输入 id，也只能证明 transformation inputs，不能证明新文本
   仍承载每个 fact，故该补充轨 provenance-based Recall/NDCG 应 N/A，见
   `ws02.7/branches/lightmem-lifecycle/notes/lightmem-update-lifecycle-ruling.md`。
-  A-Mem/SimpleMem 仍为 `"none"`；
+  A-Mem sidecar 只作 evolved-memory lineage 审计，SimpleMem 为 `"none"`；
   不可评 metric 必须 N/A，不得按 0 分。
 - **clean-retry 钩子覆盖（2026-07-14 M2 后五家全员到齐）**：Mem0 的 hook =
   `delete_all(run_id)` + 批准的第二个 B5+ third_party 最小 diff

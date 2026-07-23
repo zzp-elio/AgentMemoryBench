@@ -2,7 +2,7 @@
 
 > adapter：`src/memory_benchmark/methods/amem_adapter.py`
 >
-> 状态：**B1-B10 已按 current product 重认证；B11 真实五格待执行。**
+> 状态：**B1-B11 已按 current product 重认证，`method-frozen-v1`。**
 
 ## 接口调用面
 
@@ -23,14 +23,20 @@
   scoped retriever；clean retry 物理删除。
 - **B4 ✅**：content/role/speaker/caption 无损；typed time 走
   `turn → session → None`；formatted_memory 回带 time/context/keywords/tags。
-- **B5 ✅**：MemoryNote content/id/source time 不随 evolution 改写；sidecar 给 exact turn
-  provenance，Recall 有资格；Chroma 顺序保留，ranking valid。
+- **B5 ✅（retrieval metric=N/A）**：Chroma 检索对象是 evolution 后的当前
+  `MemoryNote`，其 links/context/tags 已不是原始 dataset turn；即使 content/id/source time
+  字段仍稳定，sidecar 也只能证明该 turn 参与过生成，不能把当前记忆重新解释成原始 evidence。
+  因此 Recall@K/Precision@K/NDCG 不运行、不报告；sidecar 只用于审计、HaluMem delta 与隔离
+  验货。
 - **B6 ✅**：add_note 同步完成 note 写入与 evolution；无待 flush 的 buffer。
 - **B7 ✅**：build LLM、embedding、retrieval 与 framework answer 真实 observation 可落盘。
 - **B8 ✅**：检索只读；官方 swallow-error 两处在 wrapper fail-fast；endpoint/timeout/retry 注入。
 - **B9 ✅**：`gpt-4o-mini` + product-default MiniLM-384/Chroma cosine；revision 诚实 unpinned。
 - **B10 ✅**：主 TOML 跨五 benchmark 固定；作者 LoCoMo builder/复现参数不混入主表。
-- **B11 🟡**：离线全量 `1679 passed`、compileall 0；真实 smoke 与冻结 note 待完成。
+- **B11 ✅**：最终主树全量 `1680 passed`、compileall 0；五 benchmark 共 11 个真实 run
+  覆盖 W1/W2、BEAM 100K/10M、HaluMem extraction/update/QA/type，artifact/state/
+  efficiency 机器门全部通过；冻结记录见
+  [`amem-frozen-v1.md`](../../workstreams/ws02.7-method-track/branches/method-recertification/amem/notes/amem-frozen-v1.md)。
 
 实现与算法证据见
 [`amem-official-product-r1-implementation.md`](../../workstreams/ws02.7-method-track/branches/method-recertification/amem/notes/amem-official-product-r1-implementation.md)。

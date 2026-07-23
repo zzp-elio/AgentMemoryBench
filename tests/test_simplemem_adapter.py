@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -67,6 +69,8 @@ def test_simplemem_config_manifest_and_local_model_validation() -> None:
     assert manifest["semantic_top_k"] == 25
     assert manifest["keyword_top_k"] == 5
     assert manifest["structured_top_k"] == 5
+    assert manifest["enable_parallel_processing"] is False
+    assert manifest["enable_parallel_retrieval"] is True
 
 
 def test_simplemem_config_rejects_invalid_core_parameters() -> None:
@@ -108,6 +112,87 @@ def test_simplemem_source_identity_covers_text_core_and_wrapper() -> None:
     assert "simplemem/core/answer_generator.py" in identity["files"]
     assert len(identity["source_sha256"]) == 64
     assert len(identity["wrapper_sha256"]) == 64
+
+
+def test_simplemem_real_text_product_imports_and_native_fts_works(
+    tmp_path: Path,
+) -> None:
+    """真实 text product 必须可导入，当前 LanceDB native FTS 必须真可查。
+
+    fake ``system_factory`` 测试不会触发官方 ``main.py`` 的顶层 import；
+    该门同时防止缺失 ``dateparser`` 或旧 ``use_tantivy=True`` 直到付费
+    smoke 才暴露。
+    """
+
+    project_root = Path(__file__).resolve().parents[1]
+    product_root = project_root / "third_party" / "methods" / "SimpleMem"
+    product_patch = (
+        project_root / "scripts" / "patches" / "simplemem-product-compat.patch"
+    )
+    patch_check = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(product_root),
+            "apply",
+            "--unidiff-zero",
+            "--reverse",
+            "--check",
+            str(product_patch),
+        ],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert patch_check.returncode == 0, patch_check.stderr
+    script = (
+        "import sys\n"
+        "import numpy as np\n"
+        f"sys.path.insert(0, {str(product_root)!r})\n"
+        "from main import SimpleMemSystem\n"
+        "from simplemem.core.database.vector_store import VectorStore\n"
+        "from simplemem.core.models.memory_entry import MemoryEntry\n"
+        "class FakeEmbedding:\n"
+        "    dimension = 2\n"
+        "    def encode_documents(self, texts):\n"
+        "        return np.array([[1.0, 0.0] for _ in texts], dtype=np.float32)\n"
+        "    def encode_single(self, text, is_query=False):\n"
+        "        return np.array([1.0, 0.0], dtype=np.float32)\n"
+        "assert SimpleMemSystem.__name__ == 'SimpleMemSystem'\n"
+        f"store = VectorStore(db_path={str(tmp_path / 'lancedb')!r}, "
+        "embedding_model=FakeEmbedding(), table_name='memories')\n"
+        "store.add_entries([MemoryEntry("
+        "entry_id='m1', "
+        "lossless_restatement='Caroline attended an LGBTQ support group', "
+        "keywords=['Caroline', 'support'])])\n"
+        "assert store._fts_initialized is True\n"
+        "hits = store.keyword_search(['Caroline', 'support'], top_k=3)\n"
+        "assert [item.entry_id for item in hits] == ['m1']\n"
+        "from contextvars import ContextVar\n"
+        "from simplemem.core.hybrid_retriever import HybridRetriever\n"
+        "probe = ContextVar('simplemem_probe', default='missing')\n"
+        "retriever = object.__new__(HybridRetriever)\n"
+        "retriever.max_retrieval_workers = 2\n"
+        "retriever._semantic_search_worker = "
+        "lambda query, index: [probe.get()]\n"
+        "token = probe.set('question-scope')\n"
+        "try:\n"
+        "    values = retriever._execute_parallel_searches(['q1', 'q2'])\n"
+        "finally:\n"
+        "    probe.reset(token)\n"
+        "assert values == ['question-scope', 'question-scope']\n"
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_simplemem_provider_skeleton_declares_protocol_shape(tmp_path: Path) -> None:

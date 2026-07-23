@@ -18,6 +18,12 @@ reader 完成，不调用产品 `ask/answer_generator`。
 
 ## 当前状态
 
-B1-B10 的实现、强反例、主树全量回归与 compileall 已关闭；B11 等待真实五格 smoke、
-artifact/state/效率开箱与最终冻结。承重记录见
-[`notes/simplemem-text-v2-implementation.md`](notes/simplemem-text-v2-implementation.md)。
+B1-B11 已关闭，current text product build 于 2026-07-23 冻结为
+`method-frozen-v1`。承重记录：
+
+- [`notes/simplemem-text-v2-implementation.md`](notes/simplemem-text-v2-implementation.md)
+- [`notes/simplemem-frozen-v1.md`](notes/simplemem-frozen-v1.md)
+
+构建显式逐窗口串行，保留 overlap 与 `previous_entries` 顺序依赖；检索阶段保留官方
+multi-query parallelism。SimpleMem 合成 memory 无 exact source membership，因此
+Recall/Precision/NDCG=N/A，stable ranking=pending。

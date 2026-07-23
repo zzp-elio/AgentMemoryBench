@@ -18,6 +18,12 @@
 
 ## 当前状态
 
-B1-B10 的实现、强反例、主树全量回归与 compileall 已关闭；B11 等待真实五格 smoke、
-artifact/state/效率开箱与最终冻结。承重记录见
-[`notes/amem-official-product-r1-implementation.md`](notes/amem-official-product-r1-implementation.md)。
+B1-B11 已关闭，current official product build 于 2026-07-23 冻结为
+`method-frozen-v1`。承重记录：
+
+- [`notes/amem-official-product-r1-implementation.md`](notes/amem-official-product-r1-implementation.md)
+- [`notes/amem-frozen-v1.md`](notes/amem-frozen-v1.md)
+
+Phase 1 不运行或报告 A-Mem provenance Recall@K/Precision@K/NDCG：产品检索命中的是
+evolution 后的当前记忆，而不是原始 dataset turn。note id/sidecar 仍存在，但只证明生成
+lineage，不能把当前记忆重新解释成原始 evidence。

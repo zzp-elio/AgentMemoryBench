@@ -1,0 +1,63 @@
+diff --git a/simplemem/core/database/vector_store.py b/simplemem/core/database/vector_store.py
+index f287031..a9c20b0 100644
+--- a/simplemem/core/database/vector_store.py
++++ b/simplemem/core/database/vector_store.py
+@@ -6 +6 @@ Implements three-layer indexing I(m_k):
+-- Lexical Layer: l_k = E_sparse(m_k) - BM25 keyword matching (Tantivy FTS)
++- Lexical Layer: l_k = E_sparse(m_k) - BM25 keyword matching (Lance native FTS)
+@@ -24 +24 @@ class VectorStore:
+-    2. Lexical Layer: Tantivy FTS for exact keyword matching
++    2. Lexical Layer: Lance native FTS for exact keyword matching
+@@ -80,17 +80,10 @@ class VectorStore:
+-            if self._is_cloud_storage:
+-                # Use native FTS for cloud storage (Tantivy only works with local filesystem)
+-                self.table.create_fts_index(
+-                    "lossless_restatement",
+-                    use_tantivy=False,
+-                    replace=True
+-                )
+-                print("FTS index created (native mode for cloud storage)")
+-            else:
+-                # Use Tantivy FTS for local storage (better performance)
+-                self.table.create_fts_index(
+-                    "lossless_restatement",
+-                    use_tantivy=True,
+-                    tokenizer_name="en_stem",
+-                    replace=True
+-                )
+-                print("FTS index created (Tantivy mode)")
++            # LanceDB >=0.34 removed the legacy Python-Tantivy backend and
++            # raises whenever use_tantivy=True. Native FTS is now the common
++            # local/cloud implementation; en_stem remains a supported
++            # compatibility alias for the same English stemming policy.
++            self.table.create_fts_index(
++                "lossless_restatement",
++                tokenizer_name="en_stem",
++                replace=True
++            )
++            print("FTS index created (Lance native mode)")
+diff --git a/simplemem/core/hybrid_retriever.py b/simplemem/core/hybrid_retriever.py
+index a92e51f..f5eb30b 100644
+--- a/simplemem/core/hybrid_retriever.py
++++ b/simplemem/core/hybrid_retriever.py
+@@ -14,0 +15 @@ import re
++from contextvars import copy_context
+@@ -572 +573,7 @@ Return ONLY the JSON, no other text.
+-                    future = executor.submit(self._semantic_search_worker, query, i)
++                    context = copy_context()
++                    future = executor.submit(
++                        context.run,
++                        self._semantic_search_worker,
++                        query,
++                        i
++                    )
+@@ -617 +624,8 @@ Return ONLY the JSON, no other text.
+-                    future = executor.submit(self._additional_search_worker, query, i, round_num)
++                    context = copy_context()
++                    future = executor.submit(
++                        context.run,
++                        self._additional_search_worker,
++                        query,
++                        i,
++                        round_num
++                    )

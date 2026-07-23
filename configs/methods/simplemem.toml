@@ -1,5 +1,7 @@
-# SimpleMem text backend official profile.
-# smoke 只缩小 benchmark 数据规模；method 参数保持官方 text path 默认值。
+# SimpleMem text backend product profile.
+# smoke 只缩小 benchmark 数据规模；build 显式锁为逐窗口串行：
+# framework 走 add_dialogue()，以保留 overlap 与 previous_entries 的顺序依赖；
+# 官方 add_dialogues_parallel() 会让同批窗口共享提交前的旧 context，不用于本项目。
 # ws02.5 config 归一化（方案 B，2026-07-09）：统一 embedder 到 all-MiniLM-L6-v2
 # （dim 1024→384）。provider 已是 sentence-transformers-local（adapter:153 本地，
 # 无需改）。算法参数（window_size/overlap_size/semantic_top_k/keyword_top_k/
@@ -21,7 +23,7 @@ max_workers = 1
 enable_planning = true
 enable_reflection = true
 max_reflection_rounds = 2
-enable_parallel_processing = true
+enable_parallel_processing = false
 enable_parallel_retrieval = true
 
 [official_full]
@@ -39,5 +41,5 @@ max_workers = 10
 enable_planning = true
 enable_reflection = true
 max_reflection_rounds = 2
-enable_parallel_processing = true
+enable_parallel_processing = false
 enable_parallel_retrieval = true

@@ -99,7 +99,7 @@ class SimpleMemConfig:
     enable_planning: bool = True
     enable_reflection: bool = True
     max_reflection_rounds: int = 2
-    enable_parallel_processing: bool = True
+    enable_parallel_processing: bool = False
     enable_parallel_retrieval: bool = True
     profile_name: str = SIMPLEMEM_OFFICIAL_PROFILE_NAME
 
