@@ -15,30 +15,22 @@ provider 侧 n_a/pending 产生独立的逐题 record，与官方 abstention（�
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any
 
 from memory_benchmark.core import ConfigurationError
 from memory_benchmark.evaluators.gold_evidence_groups import (
     parse_evidence_group_sets,
-    require_manifest_gold_evidence_contract_v1,
     select_group_set,
 )
-from memory_benchmark.evaluators.retrieval_evidence import (
-    AGGREGATION_CONTRACT_VERSION,
-    RetrievalEligibilityDecision,
-    decide_retrieval_eligibility,
-    display_status,
-    nullable_mean,
-    parse_retrieval_evidence,
-    require_manifest_retrieval_evidence_contract_v1,
-    score_status_counts,
-    summary_provenance_granularity,
-    summary_status,
-    validated_retrieval_fields,
+from memory_benchmark.evaluators.retrieval_evidence import validated_retrieval_fields
+from memory_benchmark.metrics.retrieval import recall_at_k
+from memory_benchmark.storage import ExperimentPaths
+
+from .common.artifact import load_retrieval_artifacts
+from .common.retrieval import (
+    RetrievalEvaluationState,
+    build_retrieval_decisions,
 )
-from memory_benchmark.evaluators.retrieval_metrics import recall_at_k
-from memory_benchmark.storage import ExperimentPaths, read_jsonl
 
 _ALLOWED_GRANULARITIES = frozenset({"turn"})
 
@@ -62,39 +54,37 @@ class BeamRetrievalRecallEvaluator:
         """从 answer prompt 与私有标签 artifact 计算 recall。"""
 
         del max_workers
-        require_manifest_gold_evidence_contract_v1(manifest)
-        require_manifest_retrieval_evidence_contract_v1(manifest)
-
-        answers = read_jsonl(paths.answer_prompts_path)
-        private = read_jsonl(paths.evaluator_private_labels_path)
-        public = read_jsonl(paths.public_questions_path)
-        _validate_question_ids(answers, private, public)
-        private_by_id = {str(row["question_id"]): row for row in private}
-        category_by_id = {str(row["question_id"]): row.get("category") for row in public}
-
-        decisions_by_id = _decisions_by_question_id(answers)
-
-        score_records: list[dict[str, Any]] = []
-        scored: list[dict[str, Any]] = []
-        top_ks: list[int] = []
+        artifacts = load_retrieval_artifacts(
+            paths=paths,
+            manifest=manifest,
+            mismatch_error=(
+                "BEAM recall artifact question IDs must match exactly across answer "
+                "prompts, private labels and public questions"
+            ),
+        )
+        decisions_by_id = build_retrieval_decisions(
+            artifacts.answer_records,
+            allowed_granularities=_ALLOWED_GRANULARITIES,
+            requires_stable_ranking=False,
+        )
+        state = RetrievalEvaluationState()
         abstention_count = 0
         unmatched_gold_total = 0
         ambiguous_gold_total = 0
-        evidence_status_counts: Counter[str] = Counter()
-        evidence_reason_code_counts: Counter[str] = Counter()
-        scored_decisions: list[RetrievalEligibilityDecision] = []
 
-        for answer in answers:
+        for answer in artifacts.answer_records:
             question_id = str(answer["question_id"])
             groups = select_group_set(
-                parse_evidence_group_sets(private_by_id[question_id], question_id),
+                parse_evidence_group_sets(
+                    artifacts.private_by_id[question_id], question_id
+                ),
                 provenance_granularity="turn",
                 unit_kind="beam_source_message",
                 question_id=question_id,
             ).groups
 
             # 兼容旧 metadata 字段，仅作审计披露，不参与权威 qrel。
-            metadata = private_by_id[question_id].get("metadata")
+            metadata = artifacts.private_by_id[question_id].get("metadata")
             unmatched_count = 0
             ambiguous_count = 0
             if isinstance(metadata, dict):
@@ -109,7 +99,7 @@ class BeamRetrievalRecallEvaluator:
 
             if not groups:
                 abstention_count += 1
-                score_records.append(
+                state.add_benchmark_exclusion(
                     {
                         "question_id": question_id,
                         "conversation_id": answer.get("conversation_id"),
@@ -118,7 +108,7 @@ class BeamRetrievalRecallEvaluator:
                         "status": "n/a",
                         "reason": "BEAM question has no matchable gold evidence",
                         "exclusion_source": "benchmark_policy",
-                        "category": category_by_id[question_id],
+                        "category": artifacts.category_by_id[question_id],
                         "provenance_granularity": "turn",
                         "details": {
                             "unmatched_gold_id_count": unmatched_count,
@@ -129,22 +119,12 @@ class BeamRetrievalRecallEvaluator:
                 continue
 
             decision = decisions_by_id[question_id]
-            evidence_status_counts[decision.status] += 1
             if decision.status != "valid":
-                evidence_reason_code_counts[decision.reason_code] += 1
-                score_records.append(
-                    {
-                        "question_id": question_id,
-                        "conversation_id": answer.get("conversation_id"),
-                        "metric_name": self.metric_name,
-                        "score": None,
-                        "status": display_status(decision.status),
-                        "retrieval_evidence_status": decision.status,
-                        "reason_code": decision.reason_code,
-                        "reason": decision.reason,
-                        "category": category_by_id[question_id],
-                        "provenance_granularity": decision.provenance_granularity,
-                    }
+                state.add_ineligible(
+                    answer_record=answer,
+                    metric_name=self.metric_name,
+                    category=artifacts.category_by_id[question_id],
+                    decision=decision,
                 )
                 continue
 
@@ -159,7 +139,7 @@ class BeamRetrievalRecallEvaluator:
                 "score": score,
                 "status": "ok",
                 "retrieval_evidence_status": "valid",
-                "category": category_by_id[question_id],
+                "category": artifacts.category_by_id[question_id],
                 "requested_top_k": top_k,
                 "provenance_granularity": "turn",
                 "details": {
@@ -177,73 +157,21 @@ class BeamRetrievalRecallEvaluator:
                     "framework_supplementary": True,
                 },
             }
-            score_records.append(record)
-            scored.append(record)
-            scored_decisions.append(decision)
-            top_ks.append(top_k)
+            state.add_scored(record=record, decision=decision, top_k=top_k)
 
-        scores = [float(row["score"]) for row in scored]
-        mean = nullable_mean(scores)
-        pending_count = evidence_status_counts.get("pending", 0)
-        return {
-            "metric_name": self.metric_name,
-            "score_records": score_records,
-            "total_questions": len(score_records),
-            "mean_score": mean,
-            "correct_count": None,
-            "summary": {
-                "status": summary_status(scored_count=len(scored), pending_count=pending_count),
-                "provenance_granularity": summary_provenance_granularity(
-                    scored_decisions
-                ),
-                "scored_question_count": len(scored),
+        payload = state.build_payload(
+            metric_name=self.metric_name,
+            include_by_category=False,
+            summary_fields={
                 "abstention_question_count": abstention_count,
                 "unmatched_gold_id_count": unmatched_gold_total,
                 "ambiguous_gold_id_count": ambiguous_gold_total,
-                "requested_top_k_distribution": dict(Counter(top_ks)),
-                "overall_mean_recall_at_requested_k": mean,
-                "retrieval_evidence_status_counts": dict(evidence_status_counts),
-                "retrieval_evidence_reason_code_counts": dict(evidence_reason_code_counts),
-                "score_status_counts": score_status_counts(score_records),
-                "aggregation_contract_version": AGGREGATION_CONTRACT_VERSION,
-                "metric_tier": "framework_supplementary",
+                "overall_mean_recall_at_requested_k": None,
                 "framework_supplementary": True,
             },
-        }
-
-
-def _decisions_by_question_id(
-    answers: list[dict[str, Any]],
-) -> dict[str, RetrievalEligibilityDecision]:
-    """对全部 answer records 做逐题 retrieval evidence preflight + 资格裁决。
-
-    BEAM 只接受 turn 粒度；非 turn 粒度统一由共享裁决导出
-    `gold_granularity_mismatch` N/A，不再手写专用判断。
-    """
-
-    decisions: dict[str, RetrievalEligibilityDecision] = {}
-    for record in answers:
-        question_id = str(record["question_id"])
-        evidence = parse_retrieval_evidence(record.get("retrieval_evidence"), question_id)
-        decisions[question_id] = decide_retrieval_eligibility(
-            evidence,
-            allowed_granularities=_ALLOWED_GRANULARITIES,
-            requires_stable_ranking=False,
         )
-    return decisions
-
-
-def _validate_question_ids(*groups: list[dict[str, Any]]) -> None:
-    """校验三类 artifact 的 question id 集合严格一致。"""
-
-    ids = [[row.get("question_id") for row in group] for group in groups]
-    if any(len(group) != len(set(group)) for group in ids) or not (
-        set(ids[0]) == set(ids[1]) == set(ids[2])
-    ):
-        raise ConfigurationError(
-            "BEAM recall artifact question IDs must match exactly across answer "
-            "prompts, private labels and public questions"
-        )
+        payload["summary"]["overall_mean_recall_at_requested_k"] = payload["mean_score"]
+        return payload
 
 
 def _non_negative_int(metadata: dict[str, Any], key: str, question_id: str) -> int:

@@ -405,7 +405,7 @@ def validated_retrieval_fields(
         raise ConfigurationError(
             f"question {question_id}: retrieved_items must be a list of objects"
         )
-    from memory_benchmark.evaluators.retrieval_metrics import selected_retrieval_items
+    from memory_benchmark.metrics.retrieval import selected_retrieval_items
     for item in selected_retrieval_items(items, top_k):
         source_ids = item.get("source_turn_ids")
         if not isinstance(source_ids, list) or not source_ids:

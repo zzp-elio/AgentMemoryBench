@@ -18,31 +18,11 @@ from __future__ import annotations
 
 from memory_benchmark.core import AnswerResult, GoldAnswerInfo, MetricResult, Question
 
-from .answer_text import ANSWER_TEXT_PACK_VERSION, normalize_answer
-
-
-def _is_contiguous_token_subsequence(
-    needle: list[str], haystack: list[str]
-) -> bool:
-    """判断 `needle` 是否为 `haystack` 的连续 token 子序列。
-
-    输入:
-        needle: 待匹配的归一化 token 序列（gold）。
-        haystack: 被搜索的归一化 token 序列（prediction）。
-
-    输出:
-        bool: `needle` 非空且作为一段连续 token 出现在 `haystack` 中返回 True；
-        `needle` 为空返回 False（空 gold 的满分由调用方另行拒绝）。
-    """
-
-    needle_length = len(needle)
-    haystack_length = len(haystack)
-    if needle_length == 0 or needle_length > haystack_length:
-        return False
-    for start in range(haystack_length - needle_length + 1):
-        if haystack[start : start + needle_length] == needle:
-            return True
-    return False
+from memory_benchmark.metrics.text import (
+    ANSWER_TEXT_PACK_VERSION,
+    is_contiguous_token_subsequence,
+    normalize_answer,
+)
 
 
 class NormalizedExactMatchEvaluator:
@@ -115,7 +95,7 @@ class SubstringExactMatchEvaluator:
         if empty_normalized_gold:
             score = 0.0
         else:
-            matched = _is_contiguous_token_subsequence(gold_tokens, prediction_tokens)
+            matched = is_contiguous_token_subsequence(gold_tokens, prediction_tokens)
             score = 1.0 if matched else 0.0
 
         return MetricResult(

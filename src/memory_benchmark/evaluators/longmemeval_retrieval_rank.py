@@ -18,33 +18,28 @@ items 或缺失名次当作官方 k=30/50 结果。
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
-from math import log2
+from collections import defaultdict
 from typing import Any
 
 from memory_benchmark.core import ConfigurationError
 from memory_benchmark.core.entities import GoldEvidenceGroup
-from memory_benchmark.storage import ExperimentPaths, read_jsonl
+from memory_benchmark.metrics.ranking import (
+    discounted_cumulative_gain,
+    group_rank_metrics_at_k,
+    ranked_source_ids,
+)
+from memory_benchmark.storage import ExperimentPaths
 
+from .common.artifact import load_retrieval_artifacts
+from .common.retrieval import (
+    RetrievalEvaluationState,
+    build_retrieval_decisions,
+)
 from .gold_evidence_groups import (
-    group_first_hit_rank,
     parse_evidence_group_sets,
-    require_manifest_gold_evidence_contract_v1,
     select_group_set,
 )
-from .retrieval_evidence import (
-    AGGREGATION_CONTRACT_VERSION,
-    RetrievalEligibilityDecision,
-    decide_retrieval_eligibility,
-    display_status,
-    nullable_mean,
-    parse_retrieval_evidence,
-    require_manifest_retrieval_evidence_contract_v1,
-    score_status_counts,
-    summary_provenance_granularity,
-    summary_status,
-    validated_retrieval_fields,
-)
+from .retrieval_evidence import validated_retrieval_fields
 
 
 OFFICIAL_K = (1, 3, 5, 10, 30, 50)
@@ -67,37 +62,33 @@ class LongMemEvalRetrievalRankEvaluator:
         """读取 answer prompt 与 evaluator-private gold 并聚合排名指标。"""
 
         del max_workers
-        require_manifest_gold_evidence_contract_v1(manifest)
-        require_manifest_retrieval_evidence_contract_v1(manifest)
-
-        answers = read_jsonl(paths.answer_prompts_path)
-        private = read_jsonl(paths.evaluator_private_labels_path)
-        public = read_jsonl(paths.public_questions_path)
-        _validate_question_ids(answers, private, public)
-        private_by_id = {record["question_id"]: record for record in private}
-        category_by_id = {
-            record["question_id"]: record.get("category") for record in public
-        }
-
-        decisions_by_id = _decisions_by_question_id(answers)
-
-        records: list[dict[str, Any]] = []
+        artifacts = load_retrieval_artifacts(
+            paths=paths,
+            manifest=manifest,
+            mismatch_error=(
+                "LongMemEval retrieval-rank artifact question IDs must match exactly "
+                "across answer prompts, private labels and public questions"
+            ),
+        )
+        decisions_by_id = build_retrieval_decisions(
+            artifacts.answer_records,
+            allowed_granularities=_ALLOWED_GRANULARITIES,
+            requires_stable_ranking=True,
+        )
+        state = RetrievalEvaluationState()
         participating: dict[int, list[dict[str, float]]] = defaultdict(list)
         skipped_k: set[int] = set()
         skipped_k_count = 0
         abstention_count = 0
         no_target_count = 0
-        evidence_status_counts: Counter[str] = Counter()
-        evidence_reason_code_counts: Counter[str] = Counter()
-        scored_decisions: list[RetrievalEligibilityDecision] = []
 
-        for answer in answers:
+        for answer in artifacts.answer_records:
             question_id = str(answer["question_id"])
             if "_abs" in question_id:
                 # abstention 是官方 benchmark policy 剔除，与 evidence 内容/
                 # stable ranking 无关；不计入 retrieval evidence status 统计。
                 abstention_count += 1
-                records.append(
+                state.add_benchmark_exclusion(
                     {
                         "question_id": question_id,
                         "conversation_id": answer.get("conversation_id"),
@@ -106,13 +97,13 @@ class LongMemEvalRetrievalRankEvaluator:
                         "status": "n/a",
                         "exclusion_source": "benchmark_policy",
                         "abstention": True,
-                        "category": category_by_id.get(question_id),
+                        "category": artifacts.category_by_id.get(question_id),
                     }
                 )
                 continue
 
             group_sets = parse_evidence_group_sets(
-                private_by_id[question_id], question_id
+                artifacts.private_by_id[question_id], question_id
             )
             canonical_turn_groups = select_group_set(
                 group_sets,
@@ -122,7 +113,7 @@ class LongMemEvalRetrievalRankEvaluator:
             ).groups
             if not canonical_turn_groups:
                 no_target_count += 1
-                records.append(
+                state.add_benchmark_exclusion(
                     {
                         "question_id": question_id,
                         "conversation_id": answer.get("conversation_id"),
@@ -132,29 +123,21 @@ class LongMemEvalRetrievalRankEvaluator:
                         "reason": "official_no_target",
                         "exclusion_source": "benchmark_policy",
                         "abstention": False,
-                        "category": category_by_id.get(question_id),
+                        "category": artifacts.category_by_id.get(question_id),
                     }
                 )
                 continue
 
             decision = decisions_by_id[question_id]
-            evidence_status_counts[decision.status] += 1
 
             if decision.status != "valid":
-                evidence_reason_code_counts[decision.reason_code] += 1
-                records.append(
-                    {
-                        "question_id": question_id,
-                        "conversation_id": answer.get("conversation_id"),
-                        "metric_name": self.metric_name,
-                        "score": None,
-                        "status": display_status(decision.status),
-                        "retrieval_evidence_status": decision.status,
-                        "reason_code": decision.reason_code,
-                        "reason": decision.reason,
-                        "abstention": False,
-                        "category": category_by_id.get(question_id),
-                    }
+                state.add_ineligible(
+                    answer_record=answer,
+                    metric_name=self.metric_name,
+                    category=artifacts.category_by_id.get(question_id),
+                    decision=decision,
+                    extra_fields={"abstention": False},
+                    include_provenance_granularity=False,
                 )
                 continue
 
@@ -185,8 +168,7 @@ class LongMemEvalRetrievalRankEvaluator:
                 values = _evaluate_groups_at_k(ranked_ids, groups, k)
                 metrics.update(values)
                 participating[k].append(values)
-            records.append(
-                {
+            record = {
                     "question_id": question_id,
                     "conversation_id": answer.get("conversation_id"),
                     "metric_name": self.metric_name,
@@ -194,33 +176,23 @@ class LongMemEvalRetrievalRankEvaluator:
                     "status": "ok",
                     "retrieval_evidence_status": "valid",
                     "abstention": False,
-                    "category": category_by_id.get(question_id),
+                    "category": artifacts.category_by_id.get(question_id),
                     "retrieval_query_top_k": top_k,
                     "provenance_granularity": granularity,
                     "metrics": metrics,
                 }
-            )
-            scored_decisions.append(decision)
+            state.add_scored(record=record, decision=decision, top_k=top_k)
 
         means = {
             metric: sum(row[metric] for row in rows) / len(rows)
             for k, rows in sorted(participating.items())
             for metric in (f"recall_any@{k}", f"recall_all@{k}", f"ndcg_any@{k}")
         }
-        scored = [record for record in records if record["score"] is not None]
-        pending_count = evidence_status_counts.get("pending", 0)
-        return {
-            "metric_name": self.metric_name,
-            "score_records": records,
-            "total_questions": len(records),
-            "mean_score": nullable_mean([float(record["score"]) for record in scored]),
-            "correct_count": None,
-            "summary": {
-                "status": summary_status(scored_count=len(scored), pending_count=pending_count),
-                "provenance_granularity": summary_provenance_granularity(
-                    scored_decisions
-                ),
-                "scored_question_count": len(scored),
+        return state.build_payload(
+            metric_name=self.metric_name,
+            include_by_category=False,
+            include_top_k_distribution=False,
+            summary_fields={
                 "overall_metrics": means,
                 "participating_question_count_by_k": {
                     str(k): len(rows) for k, rows in sorted(participating.items())
@@ -236,11 +208,6 @@ class LongMemEvalRetrievalRankEvaluator:
                     "same-group multi-child or repeated child only counts once; "
                     "unmatched groups stay in ideal gold count but never hit"
                 ),
-                "retrieval_evidence_status_counts": dict(evidence_status_counts),
-                "retrieval_evidence_reason_code_counts": dict(evidence_reason_code_counts),
-                "score_status_counts": score_status_counts(records),
-                "aggregation_contract_version": AGGREGATION_CONTRACT_VERSION,
-                "metric_tier": "framework_supplementary",
                 "formula_parity_at_available_k": True,
                 "official_sources": {
                     "formula": "src/retrieval/eval_utils.py:4-29",
@@ -248,28 +215,7 @@ class LongMemEvalRetrievalRankEvaluator:
                     "abstention": "src/retrieval/run_retrieval.py:389-408",
                 },
             },
-        }
-
-
-def _decisions_by_question_id(
-    answers: list[dict[str, Any]],
-) -> dict[str, RetrievalEligibilityDecision]:
-    """对全部 answer records 做逐题 retrieval evidence preflight + 资格裁决。
-
-    rank 在 recall 语义之上还要求 `stable_ranking=valid`；在进入 `_abs`/
-    no-target 等 benchmark-specific 排除或计分循环前对**全部**记录解析。
-    """
-
-    decisions: dict[str, RetrievalEligibilityDecision] = {}
-    for record in answers:
-        question_id = str(record["question_id"])
-        evidence = parse_retrieval_evidence(record.get("retrieval_evidence"), question_id)
-        decisions[question_id] = decide_retrieval_eligibility(
-            evidence,
-            allowed_granularities=_ALLOWED_GRANULARITIES,
-            requires_stable_ranking=True,
         )
-    return decisions
 
 
 def _evaluate_groups_at_k(
@@ -284,48 +230,13 @@ def _evaluate_groups_at_k(
     数中但永远不命中，对任何 k 都贡献 recall 0 + NDCG 0。
     """
 
-    window_ids = set(ranked_ids[:k])
-    # recall_any：至少一个 group 命中；recall_all：全部 mapped group 命中
-    # （unmatched 不算命中，但它已永久扣在分母中）
-    any_hit = any(
-        group.mapping_status == "mapped"
-        and any(child_id in window_ids for child_id in group.child_ids)
-        for group in groups
-    )
-    all_hit = all(
-        group.mapping_status == "mapped"
-        and any(child_id in window_ids for child_id in group.child_ids)
-        for group in groups
-    )
-
-    # NDCG：每个 group 的二值相关性由其最优（最小）命中 rank 折损
-    actual_hits: list[float] = [0.0] * k
-    for group in groups:
-        rank = group_first_hit_rank(group, ranked_ids[:k])
-        if rank is not None:
-            actual_hits[rank] = 1.0
-    actual_dcg = _dcg(actual_hits)
-    # ideal：每个官方 gold unit 都占理想分母；unmatched 只是永远无法进入 actual，
-    # 不能从 ideal gold 数中删除，否则会把映射失败悄悄洗成满分。
-    ideal_dcg = _dcg([1.0] * min(len(groups), k))
-    ndcg = actual_dcg / ideal_dcg if ideal_dcg else 0.0
-
-    return {
-        f"recall_any@{k}": float(any_hit),
-        f"recall_all@{k}": float(all_hit),
-        f"ndcg_any@{k}": ndcg,
-    }
+    return group_rank_metrics_at_k(ranked_ids, groups, k)
 
 
 def _dcg(relevances: list[float]) -> float:
     """复刻官方 eval_utils.py:4-9 的 DCG 折损。"""
 
-    if not relevances:
-        return 0.0
-    return relevances[0] + sum(
-        relevance / log2(index)
-        for index, relevance in enumerate(relevances[1:], start=2)
-    )
+    return discounted_cumulative_gain(relevances)
 
 
 def _ranked_source_ids(
@@ -333,17 +244,11 @@ def _ranked_source_ids(
 ) -> list[str]:
     """按 retrieved item/source 顺序展开公开 id，并保留首次出现位置。"""
 
-    ranked: list[str] = []
-    seen: set[str] = set()
-    for item in items[:top_k]:
-        for raw_id in item["source_turn_ids"]:
-            source_id = str(raw_id)
-            if granularity == "session":
-                source_id = _public_session_id(source_id)
-            if source_id not in seen:
-                seen.add(source_id)
-                ranked.append(source_id)
-    return ranked
+    projector = _public_session_id if granularity == "session" else str
+    return ranked_source_ids(
+        items[:top_k],
+        source_id_projector=projector,
+    )
 
 
 def _public_session_id(source_id: str) -> str:
@@ -351,26 +256,6 @@ def _public_session_id(source_id: str) -> str:
 
     prefix, separator, suffix = source_id.rpartition(":t")
     return prefix if separator and suffix.isdigit() else source_id
-
-
-def _validate_question_ids(
-    answers: list[dict[str, Any]],
-    private: list[dict[str, Any]],
-    public: list[dict[str, Any]],
-) -> None:
-    """校验三类 artifact question id 唯一且集合完全一致。"""
-
-    id_lists = [
-        [record.get("question_id") for record in records]
-        for records in (answers, private, public)
-    ]
-    if any(len(ids) != len(set(ids)) for ids in id_lists) or not (
-        set(id_lists[0]) == set(id_lists[1]) == set(id_lists[2])
-    ):
-        raise ConfigurationError(
-            "LongMemEval retrieval-rank artifact question IDs must match exactly "
-            "across answer prompts, private labels and public questions"
-        )
 
 
 __all__ = ["LongMemEvalRetrievalRankEvaluator"]

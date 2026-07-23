@@ -23,6 +23,8 @@ from memory_benchmark.core import (
     GoldEvidenceGroupSet,
 )
 from memory_benchmark.core.exceptions import ConfigurationError
+from memory_benchmark.metrics.ranking import group_first_hit_rank
+from memory_benchmark.metrics.retrieval import group_is_hit, group_recall_score
 
 
 def require_manifest_gold_evidence_contract_v1(manifest: dict[str, Any]) -> None:
@@ -171,64 +173,6 @@ def select_group_set(
         f"question {question_id}: private label is missing required gold "
         f"evidence view ({provenance_granularity!r}, {unit_kind!r})"
     )
-
-
-def group_is_hit(group: GoldEvidenceGroup, source_ids: set[str]) -> bool:
-    """判断单个 group 是否命中：mapped 且任一 child 出现在 source ids 中。"""
-
-    if group.mapping_status != "mapped":
-        return False
-    return any(child_id in source_ids for child_id in group.child_ids)
-
-
-def group_recall_score(
-    groups: tuple[GoldEvidenceGroup, ...],
-    source_ids: set[str],
-) -> float:
-    """按 group any-of 语义计算 recall：命中 group 数 / group 总数。
-
-    输入:
-        groups: 非空 group 集合（空 groups 的政策由各 benchmark evaluator 自行
-            显式处理，不进入本函数）。
-        source_ids: top-k retrieved items 的公开 source id 并集（session 指标
-            由调用方先投影到 session id 空间）。
-
-    输出:
-        float: 分母为官方 unit 数（unmatched 永远 miss 但保留在分母中）。
-    """
-
-    if not groups:
-        raise ConfigurationError(
-            "group_recall_score requires non-empty groups; empty views must be "
-            "handled by the benchmark-specific policy branch"
-        )
-    hits = sum(1 for group in groups if group_is_hit(group, source_ids))
-    return hits / len(groups)
-
-
-def group_first_hit_rank(
-    group: GoldEvidenceGroup,
-    ranked_ids: list[str],
-) -> int | None:
-    """返回 group 的最优命中名次（0 基），未命中或 unmatched 返回 None。
-
-    输入:
-        group: 单个 gold evidence group。
-        ranked_ids: 保留首次出现顺序的公开 source id 排名列表。
-
-    输出:
-        int | None: group 内任一 child 首次出现的最小下标；同 group 多 child
-        与同 child 重复命中都只计一次（由调用方对每个 group 取唯一 rank 保证）。
-    """
-
-    if group.mapping_status != "mapped":
-        return None
-    best_rank: int | None = None
-    for rank, source_id in enumerate(ranked_ids):
-        if source_id in group.child_ids:
-            best_rank = rank
-            break
-    return best_rank
 
 
 __all__ = [

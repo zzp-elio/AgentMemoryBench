@@ -1,6 +1,6 @@
 """跨 benchmark 的标准 answer-level token F1 evaluator。
 
-归一化复用 `answer_text.py::normalize_answer`（answer-text-v1 唯一实现）；
+归一化复用 `metrics.text::normalize_answer`（answer-text-v1 唯一实现）；
 本模块继续 re-export `normalize_answer` 以兼容旧 import 路径。F1 的计分数字
 不因收敛归一化器而改变，score details 额外携带 metric pack 稳定身份。
 """
@@ -11,7 +11,7 @@ from collections import Counter
 
 from memory_benchmark.core import AnswerResult, GoldAnswerInfo, MetricResult, Question
 
-from .answer_text import ANSWER_TEXT_PACK_VERSION, normalize_answer
+from memory_benchmark.metrics.text import ANSWER_TEXT_PACK_VERSION, normalize_answer
 
 
 class F1Evaluator:
