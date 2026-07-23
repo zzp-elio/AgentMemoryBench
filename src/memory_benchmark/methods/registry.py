@@ -396,6 +396,7 @@ def _amem_efficiency_model_inventory(config: Any) -> tuple[ModelDescriptor, ...]
             model_role="embedding",
             execution_mode="local",
             revision_or_path=config.embedding_model,
+            embedding_dimension=384,
             tokenizer_name=config.embedding_model,
         ),
     )

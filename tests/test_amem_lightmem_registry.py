@@ -35,7 +35,7 @@ def test_amem_is_registered_for_conversation_qa() -> None:
 
 
 def test_amem_registration_exposes_efficiency_contract() -> None:
-    """A-Mem 启用效率观测时应声明 retrieval 可拆分。"""
+    """A-Mem 应声明 retrieval 可拆分与完整 MiniLM 模型身份。"""
 
     registration = get_method_registration("amem")
     config = AMemConfig(
@@ -51,6 +51,10 @@ def test_amem_registration_exposes_efficiency_contract() -> None:
 
     assert contract.required_by_profile is True
     assert contract.supported_by_method is True
+    assert registration.efficiency_model_inventory_getter is not None
+    inventory = registration.efficiency_model_inventory_getter(config)
+    embedding = next(item for item in inventory if item.model_id == "amem-embedding")
+    assert embedding.embedding_dimension == 384
 
 
 def test_lightmem_is_registered_for_conversation_qa() -> None:
