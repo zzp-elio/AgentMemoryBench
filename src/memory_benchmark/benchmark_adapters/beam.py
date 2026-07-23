@@ -18,19 +18,22 @@ from pathlib import Path
 from typing import Any
 
 from memory_benchmark.core import (
-    AnswerPromptResult,
     Conversation,
     Dataset,
     GoldAnswerInfo,
     GoldEvidenceGroup,
     GoldEvidenceGroupSet,
-    PromptMessage,
     Question,
     Session,
     Turn,
 )
 from memory_benchmark.core.exceptions import ConfigurationError, DatasetValidationError
-from memory_benchmark.core.provider_protocol import RetrievalResult
+from memory_benchmark.prompts.benchmarks.beam import (
+    BEAM_ANSWER_PROMPT_OFFICIAL_SOURCE,
+    BEAM_ANSWER_PROMPT_PROFILE,
+    BEAM_ANSWER_PROMPT_TEMPLATE,
+    build_beam_unified_answer_prompt,
+)
 
 from .base import BenchmarkAdapter, reached_limit
 from .contracts import (
@@ -104,39 +107,6 @@ BEAM_ABILITY_KEYS: tuple[str, ...] = (
     "preference_following",
     "summarization",
     "temporal_reasoning",
-)
-
-# --- unified answer prompt --------------------------------------------------
-# 官方 answer_generation_for_rag（src/prompts.py:11683-11701），由 RAG/记忆
-# 分支在 long_term_memory_methods.py:598-643 实际调用。long-context 分支
-# (:534-596) 直接发送 raw history messages，属于另一 baseline，不适合框架
-# formatted_memory。官方 typo/首尾换行/行尾空格均按字节保留。
-
-BEAM_ANSWER_PROMPT_PROFILE = "beam_rag_v1"
-BEAM_ANSWER_PROMPT_OFFICIAL_SOURCE = (
-    "third_party/benchmarks/BEAM/src/prompts.py:11683-11701"
-)
-
-BEAM_ANSWER_PROMPT_TEMPLATE = (
-    "\n"
-    "You are an assistant that MUST answer questions using ONLY the information "
-    "provided in the context below. \n"
-    "\n"
-    "STRICT INSTRUCTIONS:\n"
-    "1. Answer ONLY based on the provided context\n"
-    "2. Do NOT use your internal knowledge\n"
-    "\n"
-    "CONTEXT:\n"
-    "<context>\n"
-    "\n"
-    "QUESTION:\n"
-    "<question>\n"
-    "\n"
-    "ANSWER REQUIREMENTS:\n"
-    "- Be direct and concise\n"
-    "- Only output the answer to the question without any explanation \n"
-    "\n"
-    "RESPONSE:\n"
 )
 
 # --- content 尾标记裁剪 -----------------------------------------------------
@@ -297,28 +267,6 @@ def prepare_beam_run(
             metadata=metadata,
         ),
         source_relative_paths=variant_spec.source_relative_paths,
-    )
-
-
-def build_beam_unified_answer_prompt(
-    question: Question,
-    retrieval_result: RetrievalResult,
-) -> AnswerPromptResult:
-    """按 BEAM 官方 answer_generation_for_rag 构造 framework reader prompt。"""
-
-    answer_prompt = BEAM_ANSWER_PROMPT_TEMPLATE.replace(
-        "<context>", retrieval_result.formatted_memory
-    ).replace("<question>", question.text)
-    return AnswerPromptResult(
-        question_id=question.question_id,
-        conversation_id=question.conversation_id,
-        answer_prompt=answer_prompt,
-        prompt_messages=[PromptMessage(role="user", content=answer_prompt)],
-        metadata={
-            "prompt_track": "unified",
-            "answer_prompt_profile": BEAM_ANSWER_PROMPT_PROFILE,
-            "official_source": BEAM_ANSWER_PROMPT_OFFICIAL_SOURCE,
-        },
     )
 
 

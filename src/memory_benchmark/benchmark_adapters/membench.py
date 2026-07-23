@@ -16,20 +16,22 @@ import re
 from typing import Any
 
 from memory_benchmark.core import (
-    AnswerPromptResult,
     AnswerResult,
     Conversation,
     Dataset,
     GoldAnswerInfo,
     GoldEvidenceGroup,
     GoldEvidenceGroupSet,
-    PromptMessage,
     Question,
     Session,
     Turn,
 )
 from memory_benchmark.core.exceptions import ConfigurationError, DatasetValidationError
-from memory_benchmark.core.provider_protocol import RetrievalResult
+from memory_benchmark.prompts.benchmarks.membench import (
+    MEMBENCH_INSTRUCTION_FIRST,
+    MEMBENCH_INSTRUCTION_FIRST_PROFILE,
+    build_membench_unified_answer_prompt,
+)
 
 from .base import BenchmarkAdapter, reached_limit
 from .contracts import (
@@ -66,27 +68,6 @@ MEMBENCH_VARIANT_SPECS = (
     ),
 )
 MEMBENCH_VARIANT_BY_NAME = {spec.name: spec for spec in MEMBENCH_VARIANT_SPECS}
-MEMBENCH_INSTRUCTION_FIRST_PROFILE = "membench_instruction_first_v1"
-# 官方来源：third_party/benchmarks/Membench-main/benchmark/MembenchAgent.py:21-31。
-# 官方有 INSTRUCTION_THIRD（:9-19，描述为 "the user's messages"）和
-# INSTRUCTION_FIRST（:21-31，描述为 "your'conversation with the user"）
-# 两套模板，均含 {memory} 槽位，框架始终有 formatted_memory，两套均可填充。
-# 官方 response() 方法（:89-92）统一使用 INSTRUCTION_FIRST 不区分子/第三人称，
-# 故框架也统一使用 INSTRUCTION_FIRST。
-# 官方文本 "your'conversation" 含 typo（your 与 ' 间无空格），parity 优先，
-# 原样保留。
-MEMBENCH_INSTRUCTION_FIRST = """Please answer the following question based on past memories of your'conversation with the user.
-Past memory: {memory}
-Question: (current time is {time}) {question}
-Choices:
-A. {choice_A}
-B. {choice_B}
-C. {choice_C}
-D. {choice_D}
-Please output the correct option for the question, only one corresponding letter, without any other messages.
-Example: D
-"""
-
 _MEMBENCH_CHOICE_PATTERN_UPPER = re.compile(r"(?<![A-Za-z])([ABCD])(?![A-Za-z])")
 _MEMBENCH_CHOICE_PATTERN_LOWER = re.compile(r"(?<![A-Za-z])([abcd])(?![A-Za-z])")
 
@@ -419,51 +400,6 @@ def prepare_membench_run_with_policy_metadata(
             metadata=metadata,
         ),
         source_relative_paths=prepared.source_relative_paths,
-    )
-
-
-def build_membench_unified_answer_prompt(
-    question: Question,
-    retrieval_result: RetrievalResult,
-) -> AnswerPromptResult:
-    """按 MemBench 官方 INSTRUCTION_FIRST 构造 framework reader prompt。"""
-
-    choices = question.options or {}
-    missing_choices = [
-        choice for choice in ("A", "B", "C", "D") if choice not in choices
-    ]
-    if missing_choices:
-        raise DatasetValidationError(
-            f"MemBench question choices missing {missing_choices}: {question.question_id}"
-        )
-
-    answer_prompt = MEMBENCH_INSTRUCTION_FIRST.format(
-        memory=retrieval_result.formatted_memory,
-        question=question.text,
-        time=question.question_time or "",
-        choice_A=choices["A"],
-        choice_B=choices["B"],
-        choice_C=choices["C"],
-        choice_D=choices["D"],
-    )
-    metadata = dict(retrieval_result.metadata)
-    metadata.update(
-        {
-            "answer_prompt_profile": MEMBENCH_INSTRUCTION_FIRST_PROFILE,
-            "prompt_track": "unified",
-            "answer_context": retrieval_result.formatted_memory,
-            "official_source": (
-                "third_party/benchmarks/Membench-main/benchmark/"
-                "MembenchAgent.py:21-31,89-92,93-112"
-            ),
-        }
-    )
-    return AnswerPromptResult(
-        question_id=question.question_id,
-        conversation_id=question.conversation_id,
-        answer_prompt=answer_prompt,
-        prompt_messages=[PromptMessage(role="user", content=answer_prompt)],
-        metadata=metadata,
     )
 
 

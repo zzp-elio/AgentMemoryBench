@@ -1,7 +1,9 @@
 """framework-owned answer LLM caller。
 
-本模块把 method 构造好的完整 `prompt_messages` 交给可替换 LLM client
-生成最终 answer。Prompt messages 构造属于 method adapter 的职责。
+本模块只把已选 builder 构造好的完整 `prompt_messages` 交给可替换 LLM client。
+主配置 builder 归 `prompts.benchmarks`，显式作者校准 builder 归
+`prompts.author`；method adapter 只负责返回 `formatted_memory` 与公开 readout
+变量，不拥有主表 answer prompt。
 """
 
 from __future__ import annotations

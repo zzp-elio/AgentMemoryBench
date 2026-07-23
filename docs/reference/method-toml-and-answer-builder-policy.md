@@ -105,6 +105,22 @@ evaluator/judge LLM、prompt 与计分语义；不能因选了 method 官方 ans
 则由 adapter 在 retrieve 阶段提前构造 `prompt_messages`，后层 builder 只做验证/透传。后者
 验收时必须沿调用链检查“变量产生 → 格式化 → 最终 messages”，不能只审最后一个函数。
 
+### 3.3 Prompt 资产的代码所有权
+
+prompt 目录按“谁定义实验口径”分层，而不是按“当前由哪个 adapter/evaluator 调用”分层：
+
+- `src/memory_benchmark/prompts/benchmarks/`：五家主表 answer builder、
+  benchmark judge prompt 与官方来源；不得 import `methods/` 或 `prompts/author/`；
+- `src/memory_benchmark/prompts/author/`：LightMem、Mem0、MemoryOS 等作者校准
+  builder/prompt；只服务显式 author profile；
+- method 产品内部的 extraction/update/build prompt 仍归 method/vendored 实现，
+  不复制进 framework prompt 包。
+
+旧 `benchmark_adapters/*_prompt.py`、`evaluators/halumem_prompts.py` 与
+`methods/*_native_prompts.py` 在迁移期仅保留薄 re-export shim，保证旧扩展和历史测试
+可导入；新代码必须引用 canonical prompt package。是否删除 shim 与旧 `config_track`
+退出一并裁定，不能让兼容层继续承载新内容。
+
 ## 4. TOML 的边界
 
 TOML 负责**保存数值与选择实现**；代码只负责两类不可避免的工作：

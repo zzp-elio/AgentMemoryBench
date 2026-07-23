@@ -15,7 +15,9 @@ from .halumem_common import (
     read_required_jsonl,
     safe_div,
 )
-from .halumem_prompts import EVALUATION_PROMPT_FOR_QUESTION as _QUESTION_PROMPT
+from memory_benchmark.prompts.benchmarks.halumem_judge import (
+    EVALUATION_PROMPT_FOR_QUESTION as _QUESTION_PROMPT,
+)
 
 
 class HalumemQAEvaluator(HalumemJudgeEvaluatorBase):

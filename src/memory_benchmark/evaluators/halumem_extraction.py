@@ -19,7 +19,7 @@ from .halumem_common import (
     safe_div,
     session_key_from_ref,
 )
-from .halumem_prompts import (
+from memory_benchmark.prompts.benchmarks.halumem_judge import (
     EVALUATION_PROMPT_FOR_MEMORY_ACCURACY as _ACCURACY_PROMPT,
     EVALUATION_PROMPT_FOR_MEMORY_INTEGRITY as _INTEGRITY_PROMPT,
 )

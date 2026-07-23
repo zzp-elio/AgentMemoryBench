@@ -72,7 +72,9 @@ user-role turn 建入 corpus，并跳过 30 个 abstention + 51 个 non-abs no-u
 
 【B2 C3 起已统一，上一段"method reader 分两类"的描述作废】现行契约：
 LongMemEval 默认 `prompt_track="unified"`，所有 method 走同一 benchmark-owned
-prompt（官方非-CoT 模板逐字，`benchmark_adapters/longmemeval_prompt.py`，来源
+prompt（官方非-CoT 模板逐字，canonical owner =
+`prompts/benchmarks/longmemeval.py`，旧
+`benchmark_adapters/longmemeval_prompt.py` 仅作 re-export；来源
 `run_generation.py:57`）；`formatted_memory` 原样代入 History Chats 槽位（框架
 不重排、不截断、不拼 `### Session` 头）；`Current Date` = 公开 `question_date`。
 answer LLM 跨 method 固定 `gpt-4o-mini`、role=user、temperature=0、

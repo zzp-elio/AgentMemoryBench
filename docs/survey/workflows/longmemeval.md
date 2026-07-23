@@ -28,7 +28,8 @@ ingest：per instance（=conversation）按 session 顺序注入公开 turn
   （粒度拆分由 GranularityAggregator 按 method 声明做；异常 role 打
    orphan/dangling 标记不丢弃）
 retrieve：该 instance 唯一 question 一次 RetrievalQuery
-answer：unified prompt（官方非-CoT 模板逐字，longmemeval_prompt.py）
+answer：unified prompt（官方非-CoT 模板逐字，
+  canonical owner=`prompts/benchmarks/longmemeval.py`）
   History Chats 槽位 = formatted_memory 原样（不重排/不截断/不拼 Session 头）
   Current Date = 公开 question_date；answer LLM 跨 method 固定
   gpt-4o-mini / role=user / temperature=0 / max_tokens=500

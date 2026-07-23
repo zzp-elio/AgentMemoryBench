@@ -1056,7 +1056,7 @@ class MemoryOS(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
     ) -> tuple[PromptMessage, ...]:
         """从 MemoryOS 四层原始结构构造官方 LoCoMo native messages。"""
 
-        from memory_benchmark.methods.memoryos_native_prompts import (
+        from memory_benchmark.prompts.author.memoryos import (
             build_memoryos_locomo_native_answer_prompt,
         )
 

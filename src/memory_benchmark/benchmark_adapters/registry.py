@@ -29,6 +29,21 @@ from memory_benchmark.core.exceptions import (
     UnknownBenchmarkError,
 )
 from memory_benchmark.core.provider_protocol import RetrievalResult
+from memory_benchmark.prompts.benchmarks.beam import (
+    build_beam_unified_answer_prompt,
+)
+from memory_benchmark.prompts.benchmarks.halumem import (
+    build_halumem_unified_answer_prompt,
+)
+from memory_benchmark.prompts.benchmarks.locomo import (
+    build_locomo_unified_answer_prompt,
+)
+from memory_benchmark.prompts.benchmarks.longmemeval import (
+    build_longmemeval_unified_answer_prompt,
+)
+from memory_benchmark.prompts.benchmarks.membench import (
+    build_membench_unified_answer_prompt,
+)
 from memory_benchmark.utils import get_logger
 
 from .base import BenchmarkAdapter
@@ -46,25 +61,20 @@ from .beam import (
     BEAM_RESUME_POLICY,
     BEAM_SMOKE_POLICY,
     BEAM_VARIANT_SPECS,
-    build_beam_unified_answer_prompt,
     prepare_beam_run,
 )
 from .halumem import (
     HALUMEM_RESUME_POLICY,
     HALUMEM_SMOKE_POLICY,
     HALUMEM_VARIANT_SPECS,
-    build_halumem_unified_answer_prompt,
     prepare_halumem_run,
 )
 from .locomo import LOCOMO_VARIANT_SPECS, prepare_locomo_run
-from .locomo_prompt import build_locomo_unified_answer_prompt
 from .longmemeval import LONGMEMEVAL_VARIANT_SPECS, LongMemEvalAdapter
-from .longmemeval_prompt import build_longmemeval_unified_answer_prompt
 from .membench import (
     MEMBENCH_RESUME_POLICY,
     MEMBENCH_SMOKE_POLICY,
     MEMBENCH_VARIANT_SPECS,
-    build_membench_unified_answer_prompt,
     normalize_membench_choice_prediction,
     prepare_membench_run_with_policy_metadata,
     resolve_membench_source_paths,

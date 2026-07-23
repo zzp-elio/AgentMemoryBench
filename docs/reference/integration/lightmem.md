@@ -677,8 +677,10 @@ distinct raw timestamps 仍保持，repeated raw timestamps 才形成 method-der
    （text-embedding-3-small），非 paper headline，也改变实现语义，不能伪装成普通
    `author_locomo` TOML 参数；旧判例保留在 `dual-track-config-policy.md` §10。
 2. 现行配置政策是 `method-toml-and-answer-builder-policy.md`；既有作者 prompt 资产
-   `methods/lightmem_native_prompts.py` 仍解释历史 readout（longmemeval builder 透传
-   prompt_messages，2-message 守卫）。track-aware 路径层已生效（M0-1c，2026-07-13）：
+   已归位到 `prompts/author/lightmem.py`，仍解释历史 readout（longmemeval builder
+   透传 prompt_messages，2-message 守卫）；旧
+   `methods/lightmem_native_prompts.py` 仅作 re-export 兼容。track-aware 路径层已生效
+   （M0-1c，2026-07-13）：
    旧 run 落 `…/{mode}/{track}/{run_id}`，旧布局仅可 evaluate 不可 resume；新配置迁移前
    不改写这些历史身份。
 3. **日志已知限制**：LightMem 内部诊断走 `self.logger`（`Created N`=INFO :372、

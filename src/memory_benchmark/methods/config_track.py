@@ -11,17 +11,17 @@ from typing import Any, Literal, Mapping, TypeAlias, cast, get_args
 
 from memory_benchmark.config.settings import AnswerLLMSettings, DEFAULT_OPENAI_MODEL
 from memory_benchmark.core import ConfigurationError
-from memory_benchmark.methods.lightmem_native_prompts import (
+from memory_benchmark.prompts.author.lightmem import (
     LIGHTMEM_NATIVE_ANSWER_PROFILES,
     LIGHTMEM_NATIVE_JUDGE_PROFILES,
     LightMemNativeJudgeProfile,
 )
-from memory_benchmark.methods.mem0_native_prompts import (
+from memory_benchmark.prompts.author.mem0 import (
     MEM0_NATIVE_ANSWER_PROFILES,
     MEM0_NATIVE_JUDGE_PROFILES,
     Mem0NativeJudgeProfile,
 )
-from memory_benchmark.methods.memoryos_native_prompts import (
+from memory_benchmark.prompts.author.memoryos import (
     MEMORYOS_NATIVE_ANSWER_PROFILES,
 )
 

@@ -18,7 +18,9 @@ from .halumem_common import (
     safe_div,
     session_key_from_ref,
 )
-from .halumem_prompts import EVALUATION_PROMPT_FOR_UPDATE_MEMORY as _UPDATE_PROMPT
+from memory_benchmark.prompts.benchmarks.halumem_judge import (
+    EVALUATION_PROMPT_FOR_UPDATE_MEMORY as _UPDATE_PROMPT,
+)
 
 
 class HalumemUpdateEvaluator(HalumemJudgeEvaluatorBase):
