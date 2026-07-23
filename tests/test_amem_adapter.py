@@ -1001,7 +1001,7 @@ def test_amem_can_import_official_product_layer_without_calling_api() -> None:
     assert classes["AgenticMemorySystem"].__name__ == "AgenticMemorySystem"
     assert classes["ChromaRetriever"].__name__ == "ChromaRetriever"
     assert classes["PersistentChromaRetriever"].__name__ == "PersistentChromaRetriever"
-    assert "third_party/A-mem/agentic_memory" in str(
+    assert "third_party/methods/A-mem-product/agentic_memory" in str(
         Path(classes["memory_system_module"].__file__).resolve()
     )
 

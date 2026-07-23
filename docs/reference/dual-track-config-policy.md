@@ -202,19 +202,24 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
   且同一实现要铺五 benchmark。benchmark harness 只作配置/prompt/调用序列证据；若它复用
   产品 core，可以抽取 native 配置；若它是 fork，则另建 `reproduction_variant` 身份，不能
   替换 unified 的底座。
-- **A-Mem 双仓现状**（目录身份已一手核实，算法等价性尚未裁）：
+- **A-Mem 双仓历史快照**（本段记录 2026-07-16 当时状态，已被 current-product 重认证
+  supersede）：
   - `third_party/methods/A-mem` = **复现版**（README: "specifically designed to
     reproduce the results presented in our paper"，含 `memory_layer_robust.py` +
-    `run_all_experiments.sh` + 论文 PDF）。**adapter 当前接这份**（`amem_adapter.py:3`、
+    `run_all_experiments.sh` + 论文 PDF）。**当时 adapter 接这份**（`amem_adapter.py:3`、
     `AMEM_METHOD_DIRECTORY="A-mem"`、import `memory_layer_robust`）；这是待 M 阶段审计的现状，
     不能在通用版/复现版算法身份未核前预判为“接对了”。
   - `third_party/A-mem`（顶层，2026-07-09 新加，untracked）= **通用库版**（README 指
-    引你去别处复现，含 `agentic_memory/` 包）。**adapter 未用**，对本项目冗余。
+    引你去别处复现，含 `agentic_memory/` 包）。**当时 adapter 未用**。
   - A-Mem 整治（M 阶段）待办：① 确认复现版 `memory_layer_robust.py` 与通用版
     `agentic_memory/` 是否同一核心算法（若分叉，通用版是 Phase 1 产品 identity，复现版
     另列 variant；现有 adapter 的迁移成本须先审计，不在文档里假装已完成）；
     ② A-Mem 只有 **locomo 双轨**，其余 benchmark 单轨；③ 顶层 `third_party/A-mem`
     是否保留为参考 or 移除，由用户定（架构师不擅自删非自建文件）。
+  - **现行收口（2026-07-23）**：adapter 已迁到 current official product；产品现位于
+    `third_party/methods/A-mem-product/`，论文复现参照仍独立位于
+    `third_party/methods/A-mem/`。现行判词只看
+    [`integration/amem.md`](integration/amem.md) 与 A-Mem frozen note。
 
 ## 8. 与现有机制的关系
 
@@ -247,8 +252,10 @@ method 侧的三方发散是 **paper 声明 / repo 复现目录 / repo 默认** 
   prompt 开关）；paper headline locomo 数字是 summary OFF；证据
   `experiments/locomo/readme.md:49-97`（LightMem 模式为 reported）、`:183-196`
   （StructMem 是独立小 ablation，换 text-embedding-3-small）。
-- **A-Mem 双仓库**：复现版在 `third_party/methods/A-mem`（adapter 接的这份），
-  通用版在 `third_party/A-mem`；README note 是区分二者的判据。
+- **A-Mem 双仓库（历史入口，现已收口）**：复现版在
+  `third_party/methods/A-mem`；通用产品已迁到
+  `third_party/methods/A-mem-product` 并成为 adapter 主接口。README note 是区分二者的
+  判据；现行身份见 `integration/amem.md`。
 - **MemoryOS eval≠paper**：作者 GitHub 回应推荐论文超参 → native 用论文超参。
 - **MemoryOS pypi≠chromadb**：调用链审计已确认 ChromaDB 同时改变检索、合并、heat/LTM、
   持久化与异常语义；Phase 1 canonical 继续 `memoryos-pypi`，ChromaDB 明确列

@@ -7,7 +7,7 @@
 
 旧 adapter 调用 `third_party/methods/A-mem/memory_layer_robust.py`，该仓库 README
 明确是 LoCoMo 论文复现面。Phase 1 要比较各 method 的通用产品接口，因此改接官方通用
-仓库 `third_party/A-mem/agentic_memory`。源码按上游 commit
+仓库 `third_party/methods/A-mem-product/agentic_memory`。源码按上游 commit
 `ceffb860f0712bbae97b184d440df62bc910ca8d` 原样 vendoring；嵌套 `.git` 不进入主仓，
 避免形成没有 `.gitmodules` 的不可克隆 gitlink。
 

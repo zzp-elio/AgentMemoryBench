@@ -288,7 +288,13 @@ README:300-304 / :397-400 是用户配置示例（含 LoCoMo 调参），非 rep
 
 ---
 
-## A-Mem
+## A-Mem（历史 ws02.5 快照；current product 已 superseded）
+
+> **现行入口（2026-07-23）：**下文保留 2026-07-09 对论文复现包的历史审计，不再描述当前
+> adapter。A-Mem 已重认证到官方通用产品
+> `third_party/methods/A-mem-product/agentic_memory`；输入、检索、provenance 与冻结判词
+> 以 [`integration/amem.md`](integration/amem.md) 为准。论文实验仓库
+> `third_party/methods/A-mem/` 只作作者复现参照。
 
 ### 1. 通用产品接口与版本裁定
 

@@ -53,9 +53,10 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   （LoCoMo 跨 session page smoke 契约 R5）→ `b1224d0`（A-Mem/SimpleMem current
   product 接入）→ `526e978`（A-Mem embedding dimension）。准确
   commit/upstream 状态始终以紧邻执行的 `git status`/`git log` 为准，胶囊不自指自己的
-  hash。本轮最终主树无 API 全量门=`1680 passed, 3 deselected, 1 warning, 29 subtests passed
-  in 150.75s`；`src+tests+SimpleMem core` compileall exit 0。唯一 warning 是既有 vendored
-  LightMem Pydantic deprecation，不能把第三方噪声混成代码回归。
+  hash。A-Mem 目录归一后的最终主树无 API 全量门=
+  `1680 passed, 3 deselected, 1 warning, 29 subtests passed in 132.13s`；
+  `src+tests+A-Mem product core` compileall exit 0。唯一 warning 是既有 vendored LightMem
+  Pydantic deprecation，不能把第三方噪声混成代码回归。
 - **MemoryOS**：M2 已正式强验收通过；主树定向 `6 passed in 2.71s`，全量
   `1176 passed, 3 deselected, 2 warnings, 4 subtests passed in 142.46s`。PyPI/ChromaDB/eval
   身份裁决与 Track identity M0 已关闭。架构师已直接通读论文、PyPI 产品 core 与官方 LoCoMo
@@ -84,6 +85,9 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   [`amem-frozen-v1.md`](branches/method-recertification/amem/notes/amem-frozen-v1.md)、
   [`simplemem-frozen-v1.md`](branches/method-recertification/simplemem/notes/simplemem-frozen-v1.md)。
   **首批 5 method 现全部 frozen；下一 method 主线转 MemOS。**
+  A-Mem 通用产品源码已从旧顶层目录归一到
+  `third_party/methods/A-mem-product/`，论文复现仓库作为独立 upstream 继续位于
+  `third_party/methods/A-mem/`；迁移前后 source hash 完全一致，不重烧 API。
 - **LightMem lifecycle 现行裁决**：论文第 5/7/8 页与官方脚本复证，paper online soft
   是“抽取后直接 LTM insert”，在 vendored 代码中反而由
   `update="offline" → offline_update(memory_entries)` 实现；`online_update()` 空壳只是
@@ -1733,9 +1737,11 @@ method 侧解冻。本 workstream 按 `docs/reference/method-integration-checkli
   [`docs/reference/dual-track-config-policy.md`](../../reference/dual-track-config-policy.md)
   （7 轴 build/readout 二分、native 配置来源决策树、reproduce-vs-paper 一致性检查、
   single-track collapse、算法代码单一化）；checklist B10 与本 plan §3 已引用。
-  ③ **改正记忆复用口径**：非无条件，仅两轨 build 轴全同才复用。④ **A-Mem 双仓库一手核**：
-  `third_party/methods/A-mem`=复现版（adapter 接的这份，对）、`third_party/A-mem`=通用库版
-  （adapter 未用），M 阶段再定通用版去留（policy §7）。⑤ GitHub 用户名 buctzzp→zzp-elio，
+  ③ **改正记忆复用口径**：非无条件，仅两轨 build 轴全同才复用。④ **A-Mem 双仓库一手核
+  （当时状态）**：
+  `third_party/methods/A-mem`=复现版（当时 adapter 接这份）、`third_party/A-mem`=通用库版
+  （当时 adapter 未用），M 阶段再定通用版去留（policy §7；2026-07-23 已迁产品并冻结，
+  现路径 `third_party/methods/A-mem-product`）。⑤ GitHub 用户名 buctzzp→zzp-elio，
   active 文件已改（README/scripts），archive 保留历史。⑥ 运行时 config-track 机制拆成
   **M0-1b**（架构师设计后派，不丢欠规格机制给 actor）。
 - 2026-07-12（Codex / GPT-5.6，M0-1 Task 1 停工）：LightMem LoCoMo 的

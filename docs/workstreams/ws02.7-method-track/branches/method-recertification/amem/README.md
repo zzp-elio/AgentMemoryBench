@@ -2,7 +2,7 @@
 
 ## 范围
 
-本支线只认证官方通用产品仓库 `third_party/A-mem/` 的
+本支线只认证官方通用产品仓库 `third_party/methods/A-mem-product/` 的
 `AgenticMemorySystem.add_note/search_agentic`。论文 LoCoMo 复现仓库
 `third_party/methods/A-mem/` 保留为作者实验参照，不再充当 Phase 1 主产品接口。
 

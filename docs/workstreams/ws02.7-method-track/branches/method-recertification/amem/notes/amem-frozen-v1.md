@@ -14,7 +14,7 @@
 
 ## 1. 冻结对象
 
-主轨使用官方通用产品仓库 `third_party/A-mem/` 的
+主轨使用官方通用产品仓库 `third_party/methods/A-mem-product/` 的
 `AgenticMemorySystem.add_note/search_agentic`，上游 commit
 `ceffb860f0712bbae97b184d440df62bc910ca8d`。论文 LoCoMo 复现仓库
 `third_party/methods/A-mem/` 仅保留为作者实验参照，不代表本冻结 build。
@@ -118,6 +118,21 @@ PASS A-Mem B11: 11 formal runs, state/lineage/384d identity valid,
    长程 100-evolution consolidation。
 4. 本地 embedding revision 未 pin；正式效果阶段若切模型、revision、参数或 product source，
    必须重建 state 并局部重开 B8+/B11。
+
+## 7. 冻结后目录整理（2026-07-23）
+
+通用产品从旧的顶层 `third_party/A-mem/` 迁到
+`third_party/methods/A-mem-product/`；论文实验仓库继续独立位于
+`third_party/methods/A-mem/`。两者是不同 upstream，必须作为同级目录管理，不能把一个
+仓库嵌进另一个仓库内部。
+
+本次只移动产品根目录并改由统一的
+`PathSettings.resolve_third_party_method_path()` 解析；产品根内参与哈希的相对路径和文件
+字节均未变化，method source identity 仍为
+`6ca55fc8780e4d2dff0c2a8cb11643e48c804831a010e9d8e3cc1805f855c024`。
+状态 manifest 不保存本地绝对源码路径，因此既有 frozen run/state 的身份语义不变，无需
+重烧真实 API smoke。完整迁移证据见
+[`amem-vendor-layout-relocation.md`](amem-vendor-layout-relocation.md)。
 5. 作者 LoCoMo answer builder/复现参数、full cost pilot 与真实 resume 属正式实验阶段。
 
 ## 7. 失效触发器与最终裁决

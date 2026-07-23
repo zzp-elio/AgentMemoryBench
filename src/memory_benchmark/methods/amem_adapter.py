@@ -1,6 +1,7 @@
 """A-Mem 官方通用产品接口的 provider v3 适配器。
 
-本模块包装 ``third_party/A-mem/agentic_memory`` 的 ``AgenticMemorySystem``。
+本模块包装 ``third_party/methods/A-mem-product/agentic_memory`` 的
+``AgenticMemorySystem``。
 Adapter 只负责 benchmark 输入映射、conversation 隔离、持久化、观测与公开
 provenance sidecar；note 构建、链接、evolution 与检索顺序仍由产品实现决定。
 """
@@ -62,7 +63,7 @@ from memory_benchmark.observability.efficiency import (
 from memory_benchmark.storage import atomic_write_json
 
 
-AMEM_PRODUCT_DIRECTORY = "A-mem"
+AMEM_PRODUCT_DIRECTORY = "A-mem-product"
 AMEM_ADAPTER_VERSION = "conversation-qa-v2-product"
 AMEM_READER_PROMPT_VERSION = "amem-reader-v1"
 AMEM_LONGMEMEVAL_READER_PROMPT_VERSION = "lightmem_longmemeval_reader_v1"
@@ -173,7 +174,7 @@ def build_amem_source_identity(
     """
 
     settings = path_settings or load_path_settings()
-    amem_root = (settings.third_party_root / AMEM_PRODUCT_DIRECTORY).resolve()
+    amem_root = settings.resolve_third_party_method_path(AMEM_PRODUCT_DIRECTORY)
     if not amem_root.is_dir():
         raise ConfigurationError(f"A-Mem product source directory missing: {amem_root}")
     required_files = [
@@ -227,7 +228,7 @@ def import_amem_product_classes(
     """
 
     settings = path_settings or load_path_settings()
-    amem_root = (settings.third_party_root / AMEM_PRODUCT_DIRECTORY).resolve()
+    amem_root = settings.resolve_third_party_method_path(AMEM_PRODUCT_DIRECTORY)
     if not (amem_root / "agentic_memory" / "memory_system.py").is_file():
         raise ConfigurationError(f"A-Mem product layer missing: {amem_root}")
 

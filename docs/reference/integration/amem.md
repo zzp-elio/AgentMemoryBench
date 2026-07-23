@@ -16,7 +16,7 @@
 
 ## B1-B11
 
-- **B1 ✅**：官方通用仓库 `third_party/A-mem`，upstream
+- **B1 ✅**：官方通用仓库 `third_party/methods/A-mem-product`，upstream
   `ceffb860f0712bbae97b184d440df62bc910ca8d`，MIT；不用 LoCoMo 复现 engine。
 - **B2 ✅**：五格均 turn ingest；LoCoMo speaker name，其余 canonical role；无 pair 约束。
 - **B3 ✅**：每 conversation 独占 persistent Chroma；100-evolution consolidation 仍落回同一

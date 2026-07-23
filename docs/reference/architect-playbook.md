@@ -951,3 +951,14 @@ within-trajectory 裁剪、CLI 旗标是无差别扁平套用、A派/B派 隔离
   vendored 文件会造成“本机 smoke 通过、换机器修复消失”。最小兼容 diff 应固化为 tracked patch，
   fetch 脚本在固定 commit 后幂等应用，并用 reverse-check + 真实入口强反例证明当前 bytes 可由
   patch 重建。不能 force-add 两个孤立源码文件形成无法重新 clone 的半个 upstream 仓库。
+
+### 14.11 2026-07-23：同一 method 的独立 upstream 必须并列，不得互相嵌套
+
+- **method 家族相同，不等于仓库所有权相同。**A-Mem 的通用产品与论文复现面来自两个独立
+  upstream。把实验仓库塞进产品仓库子目录会制造虚假的父子关系，并混淆升级、license、
+  source identity 与 Git 边界。正确布局是放在同一 `third_party/methods/` namespace 下的
+  显式同级目录，例如 `A-mem-product/` 与 `A-mem/`。
+- **目录迁移先判断路径是否进入运行身份。**若 source digest 只包含产品根内相对路径与字节，
+  manifest/resume 也不保存本机绝对源码根，则纯根目录迁移不改变算法或 run identity；用迁移
+  前后 hash、真实 import root 和定向回归关闭即可，不机械重烧 API。反之，路径若进入公开
+  manifest 或 checkpoint identity，必须先设计兼容迁移，不能把路径重排伪装成无语义重构。

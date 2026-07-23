@@ -2,7 +2,8 @@
 
 | 目录名 | upstream URL | 版本锚点 | 管理方式 |
 | --- | --- | --- | --- |
-| A-mem | https://github.com/agiresearch/A-mem | 以本仓库提交历史为准 | git-tracked（随本仓库提交） |
+| A-mem-product | https://github.com/agiresearch/A-mem | ceffb860f0712bbae97b184d440df62bc910ca8d | git-tracked；Phase 1 通用产品 |
+| A-mem | https://github.com/WujiangXu/AgenticMemory | 上游 revision 未留存；本仓库 97e9d44 导入 | git-tracked；论文实验/复现参照 |
 | LightMem | https://github.com/zjunlp/LightMem | 以本仓库提交历史为准 | git-tracked（随本仓库提交） |
 | MemoryOS-main | https://github.com/BAI-LAB/MemoryOS | 以本仓库提交历史为准 | git-tracked（随本仓库提交） |
 | mem0-main | https://github.com/mem0ai/mem0 | 以本仓库提交历史为准 | git-tracked（随本仓库提交） |

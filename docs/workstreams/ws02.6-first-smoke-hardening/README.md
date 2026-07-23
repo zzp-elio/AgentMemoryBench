@@ -446,7 +446,8 @@ token）；③ 每次 LLM 调用一条 `LLMCallObservation`（次数可聚合）
 - [ ] sentinel 泄漏改中性占位
 
 **Phase C — 面向 full 的健壮性（不阻塞 smoke）**
-- [ ] A-Mem 迁移到通用版 `third_party/A-mem`（正式迁移，像 MemoryOS）
+- [x] A-Mem 迁移到通用产品（ws02.7 完成并冻结；现位于
+  `third_party/methods/A-mem-product`）
 - [ ] resume 两模式落文档 + turn-level resume 标 deprecated（ws03 移除）
 - [ ] Mem0 `clean_failed_ingest_state`、框架级 ingest/retrieve 重试（逐条先核）
 
