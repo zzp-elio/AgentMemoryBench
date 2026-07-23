@@ -1,7 +1,8 @@
-"""A-Mem 的 conversation-QA 适配器。
+"""A-Mem 官方通用产品接口的 provider v3 适配器。
 
-本模块包装 `third_party/methods/A-mem/` 中的官方 robust memory layer。Adapter 负责
-配置校验、源码身份、conversation 隔离和统一接口；不重写 A-Mem 的记忆算法。
+本模块包装 ``third_party/A-mem/agentic_memory`` 的 ``AgenticMemorySystem``。
+Adapter 只负责 benchmark 输入映射、conversation 隔离、持久化、观测与公开
+provenance sidecar；note 构建、链接、evolution 与检索顺序仍由产品实现决定。
 """
 
 from __future__ import annotations
@@ -17,7 +18,9 @@ import pickle
 import shutil
 from pathlib import Path
 import sys
+from threading import Lock
 from time import perf_counter_ns
+from types import MethodType
 from typing import Any
 
 from memory_benchmark.config.settings import PathSettings, load_path_settings
@@ -28,31 +31,39 @@ from memory_benchmark.core import (
     Conversation,
     Question,
     AnswerPromptResult,
+    ImageRef,
     PromptMessage,
     Turn,
 )
 from memory_benchmark.core.interfaces import BaseMemoryProvider, BaseMemorySystem
 from memory_benchmark.core.provider_protocol import (
     ConsumeGranularity,
+    EvidenceAssertion,
     IngestResult,
     IngestUnit,
     MemoryProvider,
     RetrievalQuery,
+    RetrievalEvidence,
     RetrievalResult,
+    RetrievedItem,
+    SessionMemoryReport,
+    SessionRef,
     TurnEvent,
     UnitRef,
 )
+from memory_benchmark.methods.image_text import turn_text_with_images
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
     EfficiencyStage,
+    MeasurementSource,
     extract_api_token_usage,
     resolve_token_usage,
 )
 from memory_benchmark.storage import atomic_write_json
 
 
-AMEM_METHOD_DIRECTORY = "A-mem"
-AMEM_ADAPTER_VERSION = "conversation-qa-v1"
+AMEM_PRODUCT_DIRECTORY = "A-mem"
+AMEM_ADAPTER_VERSION = "conversation-qa-v2-product"
 AMEM_READER_PROMPT_VERSION = "amem-reader-v1"
 AMEM_LONGMEMEVAL_READER_PROMPT_VERSION = "lightmem_longmemeval_reader_v1"
 AMEM_QUERY_KEYWORD_PROMPT_VERSION = "amem-query-keywords-v1"
@@ -69,11 +80,13 @@ LONGMEMEVAL_QUESTION_TYPES = frozenset(
         "multi-session",
     }
 )
-AMEM_STATE_SCHEMA_VERSION = 1
+AMEM_STATE_SCHEMA_VERSION = 2
 AMEM_MEMORIES_FILENAME = "memories.pkl"
-AMEM_RETRIEVER_FILENAME = "retriever.pkl"
-AMEM_RETRIEVER_EMBEDDINGS_FILENAME = "retriever_embeddings.npy"
+AMEM_LINEAGE_FILENAME = "note_lineage.json"
 AMEM_STATE_MANIFEST_FILENAME = "state_manifest.json"
+AMEM_SOURCE_MODE = "official-general-product-plus-wrapper"
+AMEM_EMBEDDING_MODEL_ID = "amem-embedding"
+_AMEM_RUNTIME_CONSTRUCTION_LOCK = Lock()
 # A-Mem paper Table 8 的 GPT-4o-mini per-category 最优检索深度（cat1/2/5=40、
 # cat3/4=50）。ws02.5 config 归一化（方案 B，2026-07-09）后**不再使用**——
 # 统一用 profile `retrieve_k`（repo 默认 10，test_advanced_robust.py:348
@@ -100,7 +113,7 @@ class AMemConfig:
         api_timeout_seconds: OpenAI-compatible 请求超时秒数。
         api_max_retries: OpenAI-compatible 请求最大重试次数。
         max_workers: runner 可读取的建议 conversation 并发数；初期保持 1。
-        use_robust_layer: 是否使用官方 robust layer；当前必须为 true。
+        use_product_layer: 是否使用官方通用产品 layer；当前必须为 true。
         suppress_official_stdout: 是否压制第三方源码中的 stdout。
         profile_name: 可审计 profile 名称。
     """
@@ -111,7 +124,7 @@ class AMemConfig:
     max_workers: int
     api_timeout_seconds: float = 60.0
     api_max_retries: int = 8
-    use_robust_layer: bool = True
+    use_product_layer: bool = True
     suppress_official_stdout: bool = True
     profile_name: str = "custom"
 
@@ -130,9 +143,9 @@ class AMemConfig:
             raise ConfigurationError("A-Mem api_max_retries cannot be negative")
         if self.max_workers < 1:
             raise ConfigurationError("A-Mem max_workers must be positive")
-        if not self.use_robust_layer:
+        if not self.use_product_layer:
             raise ConfigurationError(
-                "A-Mem adapter currently requires use_robust_layer=true"
+                "A-Mem adapter requires use_product_layer=true"
             )
 
     def to_manifest(self) -> dict[str, Any]:
@@ -150,7 +163,7 @@ class AMemConfig:
 def build_amem_source_identity(
     path_settings: PathSettings | None = None,
 ) -> dict[str, Any]:
-    """计算 vendored A-Mem 关键源码的确定性身份。
+    """计算官方 A-Mem 通用产品源码的确定性身份。
 
     输入:
         path_settings: 项目路径配置；为空时从当前项目根加载。
@@ -160,14 +173,16 @@ def build_amem_source_identity(
     """
 
     settings = path_settings or load_path_settings()
-    amem_root = settings.resolve_third_party_method_path(AMEM_METHOD_DIRECTORY)
+    amem_root = (settings.third_party_root / AMEM_PRODUCT_DIRECTORY).resolve()
+    if not amem_root.is_dir():
+        raise ConfigurationError(f"A-Mem product source directory missing: {amem_root}")
     required_files = [
         "README.md",
-        "memory_layer_robust.py",
-        "llm_text_parsers.py",
-        "test_advanced_robust.py",
-        "run_k_sweep.sh",
-        "requirements.txt",
+        "pyproject.toml",
+        "agentic_memory/__init__.py",
+        "agentic_memory/memory_system.py",
+        "agentic_memory/retrievers.py",
+        "agentic_memory/llm_controller.py",
     ]
     source_files = [amem_root / relative_path for relative_path in required_files]
     missing = [path for path in source_files if not path.is_file()]
@@ -191,19 +206,20 @@ def build_amem_source_identity(
         "source_sha256": digest.hexdigest(),
         "file_count": len(relative_paths),
         "files": relative_paths,
+        "source_mode": AMEM_SOURCE_MODE,
     }
 
 
-def import_amem_robust_classes(
+def import_amem_product_classes(
     path_settings: PathSettings | None = None,
 ) -> dict[str, Any]:
-    """从 vendored A-Mem 源码导入 robust 类。
+    """从官方通用 A-Mem 源码导入产品类。
 
     输入:
         path_settings: 项目路径配置；为空时自动加载。
 
     输出:
-        dict: 官方 `RobustAgenticMemorySystem` 和 `RobustLLMController` 类。
+        dict: 官方 ``AgenticMemorySystem`` 和 ``ChromaRetriever`` 类。
 
     说明:
         导入过程临时把 A-Mem 根目录放入 `sys.path`，避免把第三方源码安装成一等
@@ -211,9 +227,9 @@ def import_amem_robust_classes(
     """
 
     settings = path_settings or load_path_settings()
-    amem_root = settings.resolve_third_party_method_path(AMEM_METHOD_DIRECTORY)
-    if not (amem_root / "memory_layer_robust.py").is_file():
-        raise ConfigurationError(f"A-Mem robust layer missing: {amem_root}")
+    amem_root = (settings.third_party_root / AMEM_PRODUCT_DIRECTORY).resolve()
+    if not (amem_root / "agentic_memory" / "memory_system.py").is_file():
+        raise ConfigurationError(f"A-Mem product layer missing: {amem_root}")
 
     root_text = str(amem_root)
     inserted = False
@@ -221,10 +237,21 @@ def import_amem_robust_classes(
         sys.path.insert(0, root_text)
         inserted = True
     try:
-        module = importlib.import_module("memory_layer_robust")
+        module = importlib.import_module("agentic_memory.memory_system")
+        retriever_module = importlib.import_module("agentic_memory.retrievers")
+        expected_package_root = (amem_root / "agentic_memory").resolve()
+        for imported_module in (module, retriever_module):
+            module_file = Path(str(getattr(imported_module, "__file__", ""))).resolve()
+            if expected_package_root not in module_file.parents:
+                raise ConfigurationError(
+                    "A-Mem import resolved outside the official general product "
+                    f"repository: {module_file}"
+                )
         return {
-            "RobustAgenticMemorySystem": module.RobustAgenticMemorySystem,
-            "RobustLLMController": module.RobustLLMController,
+            "AgenticMemorySystem": module.AgenticMemorySystem,
+            "ChromaRetriever": retriever_module.ChromaRetriever,
+            "PersistentChromaRetriever": retriever_module.PersistentChromaRetriever,
+            "memory_system_module": module,
         }
     finally:
         if inserted:
@@ -233,10 +260,10 @@ def import_amem_robust_classes(
 
 
 class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
-    """使用官方 A-Mem robust memory layer 的统一 memory system。"""
+    """使用官方 A-Mem 通用产品 layer 的统一 memory system。"""
 
     consume_granularity: ConsumeGranularity = "turn"
-    provenance_granularity = "none"
+    provenance_granularity = "turn"
 
     def __init__(
         self,
@@ -248,6 +275,8 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         storage_root: str | Path | None = None,
         path_settings: PathSettings | None = None,
         efficiency_collector: EfficiencyCollector | None = None,
+        session_memory_report: bool = False,
+        benchmark_name: str | None = None,
     ):
         """初始化 A-Mem adapter。
 
@@ -272,10 +301,14 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             self.path_settings.outputs_root / "amem" / "unscoped-method-state"
         )
         self._efficiency_collector = efficiency_collector
+        self.session_memory_report = session_memory_report
+        self.benchmark_name = benchmark_name
         self._runtimes: dict[str, Any] = {}
         self._native_isolation_to_conversation_id: dict[str, str] = {}
         self._native_turn_counts: dict[str, int] = {}
         self._native_conversations: dict[str, Conversation] = {}
+        self._note_source_turn_ids: dict[str, dict[str, str]] = {}
+        self._session_note_ids: dict[tuple[str, str | None], list[str]] = {}
 
     def add(self, conversations: Conversation | list[Conversation]) -> AddResult:
         """写入一个或多个 conversation。"""
@@ -286,9 +319,15 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         for conversation in conversations:
             runtime = self._get_or_create_runtime(conversation.conversation_id)
             turn_count = 0
+            lineage = self._note_source_turn_ids.setdefault(
+                conversation.conversation_id, {}
+            )
             for session in conversation.sessions:
                 for turn in session.turns:
-                    self._call_runtime_add(runtime, turn, session.session_time)
+                    note_id = self._call_runtime_add(
+                        runtime, turn, session.session_time
+                    )
+                    lineage[note_id] = turn.turn_id
                     turn_count += 1
             self._save_conversation_state(
                 conversation=conversation,
@@ -323,16 +362,18 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         memories_path = state_dir / AMEM_MEMORIES_FILENAME
         with memories_path.open("rb") as memories_file:
             runtime.memories = pickle.load(memories_file)
-        retriever = getattr(runtime, "retriever", None)
-        if retriever is None or not hasattr(retriever, "load"):
-            raise ConfigurationError(
-                f"A-Mem retriever cannot load persisted state: {conversation_id}"
-            )
-        self._suppress_stdout_if_needed(
-            retriever.load,
-            str(state_dir / AMEM_RETRIEVER_FILENAME),
-            str(state_dir / AMEM_RETRIEVER_EMBEDDINGS_FILENAME),
+        lineage = json.loads(
+            (state_dir / AMEM_LINEAGE_FILENAME).read_text(encoding="utf-8")
         )
+        if not isinstance(lineage, dict) or not all(
+            isinstance(note_id, str) and isinstance(turn_id, str)
+            for note_id, turn_id in lineage.items()
+        ):
+            raise ConfigurationError(
+                f"A-Mem note lineage is invalid: {conversation_id}"
+            )
+        self._note_source_turn_ids[conversation_id] = dict(lineage)
+        self._rebuild_product_retriever(runtime, conversation_id)
         self._runtimes[conversation_id] = runtime
         current_turn_count = sum(
             len(session.turns) for session in conversation.sessions
@@ -350,11 +391,15 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         conversation_id = self._conversation_id_from_event(unit)
         self._native_isolation_to_conversation_id[unit.isolation_key] = conversation_id
         runtime = self._get_or_create_runtime(conversation_id)
-        self._call_runtime_add(
+        note_id = self._call_runtime_add(
             runtime,
             self._turn_from_event(unit),
             self._session_time_from_event(unit),
         )
+        self._note_source_turn_ids.setdefault(conversation_id, {})[note_id] = unit.turn_id
+        self._session_note_ids.setdefault(
+            (unit.isolation_key, unit.session_id), []
+        ).append(note_id)
         self._native_turn_counts[conversation_id] = (
             self._native_turn_counts.get(conversation_id, 0) + 1
         )
@@ -364,6 +409,32 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             metadata=self._native_public_metadata(unit),
         )
         return IngestResult(unit_ref=UnitRef(unit.isolation_key))
+
+    def end_session(self, ref: SessionRef) -> SessionMemoryReport | None:
+        """在 HaluMem session 边界报告该 session 新建的官方 MemoryNote。"""
+
+        if not self.session_memory_report:
+            return None
+        conversation_id = self._native_isolation_to_conversation_id.get(
+            ref.isolation_key,
+            ref.isolation_key,
+        )
+        runtime = self._runtimes.get(conversation_id)
+        if runtime is None:
+            return SessionMemoryReport(session_ref=ref, memories=[])
+        note_ids = self._session_note_ids.pop(
+            (ref.isolation_key, ref.session_id), []
+        )
+        memories = [
+            _format_amem_memory_note(runtime.memories[note_id])
+            for note_id in note_ids
+            if note_id in runtime.memories
+        ]
+        return SessionMemoryReport(
+            session_ref=ref,
+            memories=memories,
+            metadata={"memory_unit": "official_product_note", "note_count": len(memories)},
+        )
 
     def end_conversation(self, ref: UnitRef) -> None:
         """在 conversation 边界持久化 A-Mem runtime 状态。"""
@@ -395,6 +466,7 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             content=AMem._original_content_from_event(event),
             normalized_role=event.role if event.role in {"user", "assistant"} else None,
             turn_time=AMem._optional_event_text(event, "original_turn_time"),
+            images=AMem._images_from_event(event),
             metadata=dict(event.metadata.get("turn_metadata") or {}),
         )
 
@@ -436,6 +508,27 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
         value = event.metadata.get(field_name)
         return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _images_from_event(event: TurnEvent) -> list[ImageRef]:
+        """从 v3 event metadata 恢复公开图片引用。"""
+
+        raw_images = event.metadata.get("turn_images")
+        if not isinstance(raw_images, list):
+            return []
+        images: list[ImageRef] = []
+        for raw_image in raw_images:
+            if not isinstance(raw_image, dict):
+                continue
+            images.append(
+                ImageRef(
+                    image_id=raw_image.get("image_id"),
+                    path=raw_image.get("path"),
+                    caption=raw_image.get("caption"),
+                    metadata=dict(raw_image.get("metadata") or {}),
+                )
+            )
+        return images
 
     def retrieve(self, question: Question | RetrievalQuery) -> AnswerPromptResult | RetrievalResult:
         """执行 A-Mem 官方 query keyword generation 和 memory retrieval。"""
@@ -511,36 +604,72 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         )
 
     def _retrieve_native(self, query: RetrievalQuery) -> RetrievalResult:
-        """执行 v3 检索并返回不生成最终答案的 RetrievalResult。"""
+        """直接调用通用产品 ``search_agentic`` 并保留真实名次。"""
 
-        source_question = query.source_question or Question(
-            question_id=query.isolation_key,
-            conversation_id=query.isolation_key,
-            text=query.query_text,
-            question_time=query.question_time,
-        )
         conversation_id = self._native_isolation_to_conversation_id.get(
             query.isolation_key,
-            source_question.conversation_id,
+            query.isolation_key,
         )
-        native_question = Question(
-            question_id=source_question.question_id,
-            conversation_id=conversation_id,
-            text=query.query_text,
-            question_time=query.question_time or source_question.question_time,
-            category=source_question.category,
-            metadata=dict(source_question.metadata),
+        runtime = self._runtimes.get(conversation_id)
+        if runtime is None:
+            raise ConfigurationError(
+                f"A-Mem conversation has not been added: {conversation_id}"
+            )
+        top_k = min(query.top_k, self.config.retrieve_k)
+        collector = self._efficiency_collector
+        started_ns = perf_counter_ns()
+        if collector is not None and collector.enabled:
+            with collector.operation_stage(EfficiencyStage.RETRIEVAL):
+                raw_results = self._suppress_stdout_if_needed(
+                    runtime.search_agentic,
+                    query.query_text,
+                    k=top_k,
+                )
+        else:
+            raw_results = self._suppress_stdout_if_needed(
+                runtime.search_agentic,
+                query.query_text,
+                k=top_k,
+            )
+        if not isinstance(raw_results, list):
+            raise ConfigurationError("A-Mem search_agentic must return a list")
+        if getattr(runtime, "memories", None) and not raw_results:
+            # 产品 search_agentic() 会把任何 Chroma 异常吞成 []。对非空
+            # collection，向量检索 k>0 必然至少命中一条；因此这里的空列表不是
+            # 合法 zero-hit，而是必须阻断的产品检索失败。
+            raise ConfigurationError(
+                "A-Mem search_agentic returned no results for a non-empty memory store"
+            )
+        lineage = self._note_source_turn_ids.get(conversation_id, {})
+        items = tuple(
+            _amem_retrieved_item(raw, lineage=lineage, index=index)
+            for index, raw in enumerate(raw_results, 1)
         )
-        retrieval = self.retrieve(native_question)
-        formatted_memory = (
-            retrieval.metadata.get("answer_context")
-            if isinstance(retrieval.metadata.get("answer_context"), str)
-            else ""
+        formatted_memory = _format_amem_search_results(raw_results)
+        if collector is not None and collector.enabled:
+            collector.record_retrieval_result_if_question_scope(
+                latency_ms=_elapsed_ms(started_ns),
+                injected_memory_context_tokens=_count_openai_tokens(
+                    formatted_memory,
+                    self.config.llm_model,
+                ),
+            )
+        evidence = RetrievalEvidence(
+            semantic_provenance=EvidenceAssertion(status="valid"),
+            provenance_granularity="turn",
+            stable_ranking=EvidenceAssertion(status="valid"),
         )
         return RetrievalResult(
-            formatted_memory=formatted_memory or "(No relevant memories found)",
-            prompt_messages=tuple(retrieval.prompt_messages),
-            metadata=dict(retrieval.metadata),
+            formatted_memory=formatted_memory,
+            items=items,
+            metadata={
+                "method": "amem",
+                "retrieval_path": "AgenticMemorySystem.search_agentic",
+                "retrieve_k": top_k,
+                "prompt_track": "unified",
+                "provenance_granularity": "turn",
+            },
+            evidence=evidence,
         )
 
     def get_answer(self, question: Question) -> AnswerResult:
@@ -610,15 +739,9 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         state_dir.mkdir(parents=True, exist_ok=True)
         memories_path = state_dir / AMEM_MEMORIES_FILENAME
         _atomic_pickle_dump(memories_path, getattr(runtime, "memories", {}))
-        retriever = getattr(runtime, "retriever", None)
-        if retriever is None or not hasattr(retriever, "save"):
-            raise ConfigurationError(
-                "A-Mem retriever cannot persist state because it does not expose save()"
-            )
-        self._suppress_stdout_if_needed(
-            retriever.save,
-            str(state_dir / AMEM_RETRIEVER_FILENAME),
-            str(state_dir / AMEM_RETRIEVER_EMBEDDINGS_FILENAME),
+        atomic_write_json(
+            state_dir / AMEM_LINEAGE_FILENAME,
+            self._note_source_turn_ids.get(conversation.conversation_id, {}),
         )
         manifest = self._build_state_manifest(
             conversation=conversation,
@@ -637,10 +760,7 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
         files = {
             AMEM_MEMORIES_FILENAME: _sha256_file(state_dir / AMEM_MEMORIES_FILENAME),
-            AMEM_RETRIEVER_FILENAME: _sha256_file(state_dir / AMEM_RETRIEVER_FILENAME),
-            AMEM_RETRIEVER_EMBEDDINGS_FILENAME: _sha256_file(
-                state_dir / AMEM_RETRIEVER_EMBEDDINGS_FILENAME
-            ),
+            AMEM_LINEAGE_FILENAME: _sha256_file(state_dir / AMEM_LINEAGE_FILENAME),
         }
         source_identity = build_amem_source_identity(self.path_settings)
         return {
@@ -694,8 +814,7 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             )
         for filename in (
             AMEM_MEMORIES_FILENAME,
-            AMEM_RETRIEVER_FILENAME,
-            AMEM_RETRIEVER_EMBEDDINGS_FILENAME,
+            AMEM_LINEAGE_FILENAME,
         ):
             file_path = state_dir / filename
             if not file_path.is_file():
@@ -712,53 +831,163 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
         return self.storage_root / _safe_path_name(conversation_id)
 
+    def _rebuild_product_retriever(self, runtime: Any, conversation_id: str) -> None:
+        """从已验证 MemoryNote 重建产品 Chroma 索引，不重跑 LLM。"""
+
+        retriever = getattr(runtime, "retriever", None)
+        add_document = getattr(retriever, "add_document", None)
+        if not callable(add_document):
+            raise ConfigurationError(
+                f"A-Mem product retriever cannot rebuild state: {conversation_id}"
+            )
+        for note_id, note in getattr(runtime, "memories", {}).items():
+            self._suppress_stdout_if_needed(
+                add_document,
+                str(note.content),
+                _amem_memory_metadata(note),
+                str(note_id),
+            )
+
     def _create_official_runtime(self, conversation_id: str) -> Any:
-        """构造官方 A-Mem robust runtime。
+        """构造官方 A-Mem 通用产品 runtime。
 
         输入:
             conversation_id: 当前 conversation id，只用于错误信息和后续扩展。
 
         输出:
-            Any: 官方 `RobustAgenticMemorySystem` 实例。
+            Any: 官方 ``AgenticMemorySystem`` 实例。
         """
 
         if not self._openai_api_key:
             raise ConfigurationError(
                 f"A-Mem production runtime requires OpenAI API key for {conversation_id}"
             )
-        classes = import_amem_robust_classes(self.path_settings)
-        runtime_cls = classes["RobustAgenticMemorySystem"]
-        runtime = runtime_cls(
-            model_name=self.config.embedding_model,
-            llm_backend="openai",
-            llm_model=self.config.llm_model,
-            api_key=self._openai_api_key,
-            api_base=self._openai_base_url,
-            check_connection=False,
+        classes = import_amem_product_classes(self.path_settings)
+        runtime_cls = classes["AgenticMemorySystem"]
+        persistent_retriever_cls = classes["PersistentChromaRetriever"]
+        runtime_module = classes["memory_system_module"]
+        chroma_directory = self._conversation_state_dir(conversation_id) / "chromadb"
+
+        class _ConversationPersistentRetriever(persistent_retriever_cls):
+            """把官方 Chroma retriever 限定到当前 conversation 目录。"""
+
+            def __init__(
+                self,
+                collection_name: str = "memories",
+                model_name: str = "all-MiniLM-L6-v2",
+            ) -> None:
+                """保留官方签名，仅改为独立 persistent client。"""
+
+                import chromadb
+                from chromadb.config import Settings as ChromaSettings
+                from chromadb.utils.embedding_functions import (
+                    SentenceTransformerEmbeddingFunction,
+                )
+
+                chroma_directory.mkdir(parents=True, exist_ok=True)
+                self.client = chromadb.PersistentClient(
+                    path=str(chroma_directory),
+                    settings=ChromaSettings(allow_reset=True),
+                )
+                self.embedding_function = SentenceTransformerEmbeddingFunction(
+                    model_name=model_name
+                )
+                existing_names = {
+                    collection.name for collection in self.client.list_collections()
+                }
+                if collection_name in existing_names:
+                    self.collection = self.client.get_collection(
+                        name=collection_name,
+                        embedding_function=self.embedding_function,
+                    )
+                else:
+                    self.collection = self.client.get_or_create_collection(
+                        name=collection_name,
+                        embedding_function=self.embedding_function,
+                    )
+                self.collection_name = collection_name
+
+        # 官方构造器把 ChromaRetriever 作为 module global 调用两次，
+        # 其中第一次 client.reset() 会清空 client 内全部 collection。
+        # 在锁内临时换成 conversation 专属的官方 persistent 子类，
+        # 使 reset 只作用于当前目录，不破坏 sibling conversation。
+        with _AMEM_RUNTIME_CONSTRUCTION_LOCK:
+            original_retriever_cls = runtime_module.ChromaRetriever
+            runtime_module.ChromaRetriever = _ConversationPersistentRetriever
+            try:
+                runtime = runtime_cls(
+                    model_name=self.config.embedding_model,
+                    llm_backend="openai",
+                    llm_model=self.config.llm_model,
+                    api_key=self._openai_api_key,
+                )
+            finally:
+                runtime_module.ChromaRetriever = original_retriever_cls
+        self._bind_conversation_scoped_consolidation(
+            runtime=runtime,
+            conversation_id=conversation_id,
+            retriever_cls=_ConversationPersistentRetriever,
         )
-        self._ensure_openai_base_url(runtime=runtime, conversation_id=conversation_id)
+        self._configure_openai_transport(
+            runtime=runtime,
+            conversation_id=conversation_id,
+        )
         self._install_openai_usage_observer(
             runtime=runtime,
             conversation_id=conversation_id,
         )
+        self._install_embedding_usage_observer(runtime)
         return runtime
 
-    def _ensure_openai_base_url(self, runtime: Any, conversation_id: str) -> None:
-        """把 OpenAI-compatible base URL 注入官方 OpenAI controller。
+    def _bind_conversation_scoped_consolidation(
+        self,
+        *,
+        runtime: Any,
+        conversation_id: str,
+        retriever_cls: type[Any],
+    ) -> None:
+        """把官方索引重建限定到当前 conversation 的持久化目录。
 
-        A-Mem robust runtime 接收 `api_base`，但当前 vendored `RobustOpenAIController`
-        实际只调用 `OpenAI(api_key=...)`。本方法只替换传输层 client，不改变 A-Mem
+        官方 ``consolidate_memories()`` 会重新实例化模块全局
+        ``ChromaRetriever("memories")``，从而越过构造期的 conversation 隔离。
+        本绑定不改变 evolution 触发时机、MemoryNote 集合或重建顺序，只把同一批
+        文档写回当前 runtime 已经使用的独立 Chroma client。
+        """
+
+        def consolidate_scoped(runtime_self: Any) -> None:
+            """清空当前 conversation 的索引并按官方顺序完整重建。"""
+
+            current_retriever = getattr(runtime_self, "retriever", None)
+            current_client = getattr(current_retriever, "client", None)
+            if current_client is None or not hasattr(current_client, "reset"):
+                raise ConfigurationError(
+                    "A-Mem product consolidation requires a resettable "
+                    f"conversation retriever: {conversation_id}"
+                )
+            current_client.reset()
+            runtime_self.retriever = retriever_cls(
+                collection_name="memories",
+                model_name=runtime_self.model_name,
+            )
+            self._install_embedding_usage_observer(runtime_self)
+            self._rebuild_product_retriever(runtime_self, conversation_id)
+
+        runtime.consolidate_memories = MethodType(consolidate_scoped, runtime)
+
+    def _configure_openai_transport(self, runtime: Any, conversation_id: str) -> None:
+        """把 endpoint、timeout 与 retry 注入官方 OpenAI controller。
+
+        A-Mem 通用产品 controller 只调用 ``OpenAI(api_key=...)``。本方法只替换
+        传输层 client，不改变 A-Mem
         的记忆算法、prompt 或调用顺序。
         """
 
-        if not self._openai_base_url:
-            return
         llm_controller = getattr(runtime, "llm_controller", None)
         llm = getattr(llm_controller, "llm", None)
         if llm is None or not hasattr(llm, "client"):
             raise ConfigurationError(
-                "A-Mem OpenAI-compatible base URL is configured, but the official "
-                f"runtime does not expose a patchable OpenAI client for {conversation_id}"
+                "A-Mem official runtime does not expose a patchable OpenAI "
+                f"client for {conversation_id}"
             )
         llm.client = _create_openai_compatible_client(
             api_key=self._openai_api_key,
@@ -792,6 +1021,48 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
         if getattr(client, "_memory_benchmark_usage_wrapped", False):
             return
         llm.client = _UsageTrackingOpenAIClient(client, llm)
+
+    def _install_embedding_usage_observer(self, runtime: Any) -> None:
+        """包装官方 Chroma embedding function，只记录真实调用。"""
+
+        collector = self._efficiency_collector
+        retriever = getattr(runtime, "retriever", None)
+        embedding_function = getattr(retriever, "embedding_function", None)
+        model = getattr(embedding_function, "_model", None)
+        if (
+            collector is None
+            or not collector.enabled
+            or embedding_function is None
+            or model is None
+            or not hasattr(model, "encode")
+            or getattr(model, "_memory_benchmark_embedding_wrapped", False)
+        ):
+            return
+
+        original_encode = model.encode
+
+        def wrapped_encode(input: Any, *args: Any, **kwargs: Any) -> Any:
+            """原样返回 embedding 结果，成功后记录 token 与耗时。"""
+
+            started_ns = perf_counter_ns()
+            result = original_encode(input, *args, **kwargs)
+            if collector.active_scope_type() is None:
+                return result
+            texts = [str(item) for item in input] if isinstance(input, list) else [str(input)]
+            collector.record_embedding_call(
+                model_id=AMEM_EMBEDDING_MODEL_ID,
+                input_tokens=sum(
+                    _count_sentence_transformer_tokens(model, text)
+                    for text in texts
+                ),
+                latency_ms=_elapsed_ms(started_ns),
+                token_measurement_source=MeasurementSource.TOKENIZER_ESTIMATE,
+                latency_measurement_source=MeasurementSource.FRAMEWORK_TIMER,
+            )
+            return result
+
+        model.encode = wrapped_encode
+        model._memory_benchmark_embedding_wrapped = True
 
     def _install_memory_build_usage_observer(
         self,
@@ -827,7 +1098,7 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
                 elif "prompt" in kwargs:
                     prompt_text = str(kwargs["prompt"])
                 self._record_llm_call(
-                    model_id="amem-memory-build-llm",
+                    model_id="amem-memory-llm",
                     prompt_text=prompt_text,
                     output_text=str(response),
                     llm=llm,
@@ -839,12 +1110,59 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
 
     def _call_runtime_add(
         self, runtime: Any, turn: Turn, session_time: str | None = None,
-    ) -> None:
-        """把一个公开 turn 写入 A-Mem runtime。"""
+    ) -> str:
+        """把一个公开 turn 写入 A-Mem 产品 note，返回稳定 note id。"""
 
-        content = f"Speaker {turn.speaker} says: {turn.content}"
+        rendered_text = turn_text_with_images(turn)
+        if not rendered_text:
+            raise ConfigurationError(f"A-Mem turn has no text content: {turn.turn_id}")
+        normalized_role = (turn.normalized_role or "").strip().lower()
+        speaker = normalized_role if normalized_role in {"user", "assistant"} else turn.speaker
+        content = f"{speaker}: {rendered_text}"
         timestamp = turn.turn_time or session_time
-        self._suppress_stdout_if_needed(runtime.add_note, content, time=timestamp)
+        add_kwargs: dict[str, Any] = {}
+        analyze_content = getattr(runtime, "analyze_content", None)
+        if callable(analyze_content):
+            analysis = self._suppress_stdout_if_needed(analyze_content, content)
+            if not isinstance(analysis, dict):
+                raise ConfigurationError("A-Mem analyze_content must return a dict")
+            if (
+                analysis.get("keywords") == []
+                and analysis.get("context") == "General"
+                and analysis.get("tags") == []
+            ):
+                # 官方 analyze_content() 对 API/JSON 任意异常返回这组固定 sentinel。
+                # 若继续写 note，smoke 会在构建失败后假绿，因此必须在 adapter 边界阻断。
+                raise ConfigurationError(
+                    f"A-Mem content analysis failed for turn: {turn.turn_id}"
+                )
+            add_kwargs = {
+                key: analysis[key]
+                for key in ("keywords", "context", "tags")
+                if key in analysis
+            }
+        note_id = self._suppress_stdout_if_needed(
+            runtime.add_note,
+            content,
+            time=timestamp,
+            **add_kwargs,
+        )
+        if not isinstance(note_id, str) or not note_id.strip():
+            raise ConfigurationError("A-Mem add_note must return a non-empty note id")
+        if timestamp is None:
+            # 产品 MemoryNote 对 None 会默认填入墙钟。benchmark 缺失时间不能被
+            # 运行时刻污染；立即经官方 update() 写回 None，不改 content/向量。
+            update = getattr(runtime, "update", None)
+            if callable(update):
+                if update(note_id, timestamp=None) is not True:
+                    raise ConfigurationError(
+                        f"A-Mem failed to preserve missing timestamp: {turn.turn_id}"
+                    )
+            else:
+                note = getattr(runtime, "memories", {}).get(note_id)
+                if note is not None:
+                    note.timestamp = None
+        return note_id
 
     def _build_answer_prompt(self, question: Question, memory_context: str) -> str:
         """构造不含 gold answer 的固定 reader prompt。"""
@@ -1020,6 +1338,133 @@ class AMem(BaseMemoryProvider, BaseMemorySystem, MemoryProvider):
             return func(*args, **kwargs)
         with contextlib.redirect_stdout(io.StringIO()):
             return func(*args, **kwargs)
+
+
+def _amem_memory_metadata(note: Any) -> dict[str, Any]:
+    """按产品 ``add_note`` 的字段集合构造 Chroma metadata。"""
+
+    return {
+        "id": str(getattr(note, "id", "")),
+        "content": str(getattr(note, "content", "")),
+        "keywords": list(getattr(note, "keywords", []) or []),
+        "links": list(getattr(note, "links", []) or []),
+        "retrieval_count": int(getattr(note, "retrieval_count", 0) or 0),
+        "timestamp": getattr(note, "timestamp", None),
+        "last_accessed": getattr(note, "last_accessed", None),
+        "context": str(getattr(note, "context", "") or ""),
+        "evolution_history": list(getattr(note, "evolution_history", []) or []),
+        "category": str(getattr(note, "category", "Uncategorized") or "Uncategorized"),
+        "tags": list(getattr(note, "tags", []) or []),
+    }
+
+
+def _format_amem_memory_note(note: Any) -> str:
+    """把一条产品 MemoryNote 无损渲染为公开 memory 文本。"""
+
+    return _format_amem_result_fields(
+        content=getattr(note, "content", ""),
+        timestamp=getattr(note, "timestamp", None),
+        context=getattr(note, "context", None),
+        keywords=getattr(note, "keywords", None),
+        tags=getattr(note, "tags", None),
+    )
+
+
+def _format_amem_result_fields(
+    *,
+    content: Any,
+    timestamp: Any,
+    context: Any,
+    keywords: Any,
+    tags: Any,
+) -> str:
+    """用稳定标签渲染 A-Mem 产品返回的全部 answer-visible 字段。"""
+
+    parts = [f"Memory content: {str(content)}"]
+    if timestamp is not None and str(timestamp).strip():
+        parts.append(f"Time: {str(timestamp)}")
+    if context is not None and str(context).strip():
+        parts.append(f"Context: {str(context)}")
+    keyword_values = [str(item) for item in keywords or [] if str(item).strip()]
+    if keyword_values:
+        parts.append(f"Keywords: {', '.join(keyword_values)}")
+    tag_values = [str(item) for item in tags or [] if str(item).strip()]
+    if tag_values:
+        parts.append(f"Tags: {', '.join(tag_values)}")
+    return "\n".join(parts)
+
+
+def _format_amem_search_results(results: list[Any]) -> str:
+    """依产品检索名次渲染 formatted_memory，零命中显式返回 sentinel。"""
+
+    formatted: list[str] = []
+    for index, raw in enumerate(results, 1):
+        if not isinstance(raw, dict):
+            raise ConfigurationError("A-Mem search_agentic result must be a dict")
+        if not str(raw.get("content") or "").strip():
+            raise ConfigurationError("A-Mem retrieved memory is missing content")
+        body = _format_amem_result_fields(
+            content=raw.get("content"),
+            timestamp=raw.get("timestamp"),
+            context=raw.get("context"),
+            keywords=raw.get("keywords"),
+            tags=raw.get("tags"),
+        )
+        formatted.append(f"[Memory {index}]\n{body}")
+    return "\n\n".join(formatted) if formatted else "No relevant memories found"
+
+
+def _amem_retrieved_item(
+    raw: Any,
+    *,
+    lineage: dict[str, str],
+    index: int,
+) -> RetrievedItem:
+    """把产品 ``search_agentic`` 命中映射为带精确 turn sidecar 的 item。"""
+
+    if not isinstance(raw, dict):
+        raise ConfigurationError("A-Mem search_agentic result must be a dict")
+    item_id = str(raw.get("id") or "").strip()
+    content = str(raw.get("content") or "").strip()
+    if not item_id or not content:
+        raise ConfigurationError(f"A-Mem retrieved item {index} lacks id/content")
+    source_turn_id = lineage.get(item_id)
+    if not isinstance(source_turn_id, str) or not source_turn_id.strip():
+        raise ConfigurationError(
+            f"A-Mem retrieved note lacks source-turn sidecar: {item_id}"
+        )
+    raw_score = raw.get("score")
+    score = float(raw_score) if isinstance(raw_score, (int, float)) else None
+    raw_timestamp = raw.get("timestamp")
+    return RetrievedItem(
+        item_id=item_id,
+        content=content,
+        score=score,
+        timestamp=(
+            str(raw_timestamp)
+            if raw_timestamp is not None and str(raw_timestamp).strip()
+            else None
+        ),
+        source_turn_ids=(source_turn_id,),
+        metadata={
+            "context": str(raw.get("context") or ""),
+            "keywords": [str(item) for item in raw.get("keywords") or []],
+            "tags": [str(item) for item in raw.get("tags") or []],
+            "is_neighbor": bool(raw.get("is_neighbor", False)),
+        },
+    )
+
+
+def _count_sentence_transformer_tokens(model: Any, text: str) -> int:
+    """用 A-Mem 实际 SentenceTransformer tokenizer 按真实截断上限计数。"""
+
+    tokenizer = getattr(model, "tokenizer", None)
+    if tokenizer is None or not hasattr(tokenizer, "encode"):
+        raise ConfigurationError("A-Mem embedding tokenizer is unavailable")
+    max_length = getattr(model, "max_seq_length", None)
+    if isinstance(max_length, int) and max_length > 0:
+        return len(tokenizer.encode(text, truncation=True, max_length=max_length))
+    return len(tokenizer.encode(text))
 
 
 class _TiktokenCounter:

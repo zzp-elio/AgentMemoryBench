@@ -27,6 +27,7 @@ from memory_benchmark.core import (
     Dataset,
     GoldAnswerInfo,
     MethodCapability,
+    PromptMessage,
     Question,
     AnswerPromptResult,
     Session,
@@ -36,59 +37,79 @@ from memory_benchmark.core import (
 from memory_benchmark.methods import registry as method_registry_module
 from memory_benchmark.methods.amem_adapter import AMemConfig
 from memory_benchmark.methods.registry import MethodBuildContext
-from memory_benchmark.core.interfaces import BaseMemoryProvider
+from memory_benchmark.core.provider_protocol import (
+    EvidenceAssertion,
+    IngestResult,
+    IngestUnit,
+    MemoryProvider,
+    RetrievalEvidence,
+    RetrievalQuery,
+    RetrievalResult,
+    RetrievedItem,
+    TurnEvent,
+    UnitRef,
+)
 from memory_benchmark.storage import read_jsonl
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-class FakeAMemForRegisteredPrediction(BaseMemoryProvider):
+class FakeAMemForRegisteredPrediction(MemoryProvider):
     """替代真实 A-Mem adapter，避免模型加载和 API 调用。"""
 
     instances: list["FakeAMemForRegisteredPrediction"] = []
+    consume_granularity = "turn"
+    provenance_granularity = "turn"
+    session_memory_report = False
 
     def __init__(self, **kwargs) -> None:
         """记录 registry factory 传入的构造参数。"""
 
         self.kwargs = kwargs
-        self.added_conversations: list[list[Conversation]] = []
-        self.answered_questions: list[Question] = []
-        self.retrieved_questions: list[Question] = []
+        self.ingested_turns: list[TurnEvent] = []
+        self.finalized: list[str] = []
+        self.retrievals: list[RetrievalQuery] = []
         self.loaded_conversations: list[Conversation] = []
         self.instances.append(self)
 
-    def add(self, conversations: Conversation | list[Conversation]) -> AddResult:
-        """记录公开 conversation 写入请求。"""
+    def ingest(self, unit: IngestUnit) -> IngestResult:
+        """记录原生 v3 turn 写入。"""
 
-        if isinstance(conversations, Conversation):
-            conversations = [conversations]
-        self.added_conversations.append(conversations)
-        return AddResult(
-            conversation_ids=[
-                conversation.conversation_id for conversation in conversations
-            ]
-        )
+        assert isinstance(unit, TurnEvent)
+        self.ingested_turns.append(unit)
+        return IngestResult(unit_ref=UnitRef(unit.isolation_key))
 
-    def get_answer(self, question: Question) -> AnswerResult:
-        """返回固定答案，用于验证通用 runner artifacts。"""
+    def end_conversation(self, ref: UnitRef) -> None:
+        """记录 conversation 持久化边界。"""
 
-        self.answered_questions.append(question)
-        return AnswerResult(
-            question_id=question.question_id,
-            conversation_id=question.conversation_id,
-            answer=f"fake answer for {question.question_id}",
-        )
+        self.finalized.append(ref.isolation_key)
 
-    def retrieve(self, question: Question) -> AnswerPromptResult:
-        """返回固定检索上下文，用于验证 retrieve-first runner artifacts。"""
+    def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
+        """返回带精确 turn sidecar 的产品检索 fake。"""
 
-        self.retrieved_questions.append(question)
-        return AnswerPromptResult(
-            question_id=question.question_id,
-            conversation_id=question.conversation_id,
-            answer_prompt=f"fake memory context for {question.question_id}",
-            metadata={"method": "amem"},
+        self.retrievals.append(query)
+        source_turn_id = self.ingested_turns[0].turn_id
+        return RetrievalResult(
+            formatted_memory="[Memory 1]\nMemory content: Alice likes tea.",
+            prompt_messages=(
+                PromptMessage(role="user", content=query.query_text),
+            ),
+            items=(
+                RetrievedItem(
+                    item_id="note-1",
+                    content="Alice likes tea.",
+                    score=1.0,
+                    timestamp="2026-01-01",
+                    source_turn_ids=(source_turn_id,),
+                ),
+            ),
+            metadata={"method": "amem", "provenance_granularity": "turn"},
+            evidence=RetrievalEvidence(
+                semantic_provenance=EvidenceAssertion(status="valid"),
+                provenance_granularity="turn",
+                stable_ranking=EvidenceAssertion(status="valid"),
+            ),
         )
 
     def load_existing_conversation_state(self, conversation: Conversation) -> None:
@@ -258,17 +279,10 @@ def test_amem_registered_prediction_runs_generic_runner_offline(
         raising=False,
     )
     monkeypatch.setattr(method_registry_module, "AMem", FakeAMemForRegisteredPrediction)
-    # FakeAMemForRegisteredPrediction 仍是旧协议 BaseMemoryProvider 形态（经桥接
-    # 运行），协议声明必须与 fake 实际形态一致，否则运行时交叉校验 fail-fast；
-    # fake 升级为原生 v3 形态归入 ws06 tests-restructure。
-    legacy_registration = replace(
-        method_registry_module.get_method_registration("amem"),
-        protocol_version="v2-bridged",
-    )
     monkeypatch.setattr(
         run_prediction_module,
         "get_method_registration",
-        lambda method_name: legacy_registration,
+        lambda method_name: method_registry_module.get_method_registration(method_name),
     )
 
     result = run_prediction_module.run_registered_conversation_qa_prediction(
@@ -291,11 +305,13 @@ def test_amem_registered_prediction_runs_generic_runner_offline(
     assert fake_method.kwargs["openai_api_key"] == "sk-test"
     assert fake_method.kwargs["openai_base_url"] == "https://example.invalid/v1"
     assert fake_method.kwargs["config"].profile_name == "smoke"
-    assert len(fake_method.added_conversations) == 1
-    assert fake_method.added_conversations[0][0].conversation_id == "conv-amem-1"
-    assert fake_method.answered_questions == []
-    assert [question.question_id for question in fake_method.retrieved_questions] == [
-        "q-1"
+    assert [turn.turn_id for turn in fake_method.ingested_turns] == [
+        "turn-1",
+        "turn-2",
+    ]
+    assert len(fake_method.finalized) == 1
+    assert [query.query_text for query in fake_method.retrievals] == [
+        "What does Alice like?"
     ]
 
     run_dir = tmp_path / "outputs" / "amem-offline-smoke"
@@ -305,6 +321,9 @@ def test_amem_registered_prediction_runs_generic_runner_offline(
 
     assert manifest["method_name"] == "A-Mem"
     assert manifest["method"]["config"]["profile_name"] == "smoke"
+    assert manifest["method"]["protocol_version"] == "v3"
+    assert manifest["method"]["provenance_granularity"] == "turn"
+    assert manifest["method"]["retrieval_evidence_contract_version"] == "v1"
     assert predictions[0]["answer"] == "framework fake answer"
     assert public_questions[0]["question_id"] == "q-1"
     assert "gold_answers" not in public_questions[0]
@@ -343,4 +362,4 @@ def test_amem_factory_loads_completed_conversations_for_resume(
     assert [item.conversation_id for item in system.loaded_conversations] == [
         "conv-amem-1"
     ]
-    assert system.added_conversations == []
+    assert system.ingested_turns == []

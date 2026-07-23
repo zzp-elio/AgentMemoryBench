@@ -267,6 +267,8 @@ def _build_simplemem_system(context: MethodBuildContext) -> BaseMemorySystem:
         storage_root=context.storage_root,
         openai_settings=context.openai_settings,
         efficiency_collector=context.efficiency_collector,
+        session_memory_report=context.benchmark_name == "halumem",
+        benchmark_name=context.benchmark_name,
     )
 
 
@@ -349,6 +351,8 @@ def _build_amem_system(context: MethodBuildContext) -> BaseMemorySystem:
         storage_root=context.storage_root,
         path_settings=context.path_settings,
         efficiency_collector=context.efficiency_collector,
+        session_memory_report=context.benchmark_name == "halumem",
+        benchmark_name=context.benchmark_name,
     )
     for conversation in context.completed_conversations:
         system.load_existing_conversation_state(conversation)
@@ -383,13 +387,6 @@ def _amem_efficiency_model_inventory(config: Any) -> tuple[ModelDescriptor, ...]
             model_id="amem-memory-llm",
             model_name=config.llm_model,
             model_role="memory_llm",
-            execution_mode="api",
-            tokenizer_name=config.llm_model,
-        ),
-        ModelDescriptor(
-            model_id="amem-answer-llm",
-            model_name=config.llm_model,
-            model_role="answer_llm",
             execution_mode="api",
             tokenizer_name=config.llm_model,
         ),
@@ -956,22 +953,67 @@ def _memoryos_build_identity(config_manifest: dict[str, Any]) -> BuildIdentityDe
 
 
 def _amem_build_identity(config_manifest: dict[str, Any]) -> BuildIdentityDeclaration:
-    """保留 A-Mem 已知 provider/model，未审计维度和语义继续 pending。"""
+    """解析 A-Mem 产品默认 MiniLM + Chroma cosine build。"""
 
+    provider = _manifest_text(config_manifest, "embedding_provider")
+    model = _manifest_text(config_manifest, "embedding_model")
+    model_key = "" if model is None else model.strip().split("/")[-1].lower()
+    if provider == "sentence-transformers" and model_key == "all-minilm-l6-v2":
+        return BuildIdentityDeclaration(
+            implementation_variant="product",
+            embedding_profile="product_default_v1",
+            historical_controlled_build_equivalent_to_current_main=True,
+            embedding=EmbeddingIdentity(
+                provider=provider,
+                model=model,
+                dimension=384,
+                revision=None,
+                revision_status="local_unpinned",
+                normalization="none",
+                instruction=None,
+                distance="chroma-cosine",
+                identity_status="declared",
+            ),
+        )
     return _pending_build_identity(
-        provider=_manifest_text(config_manifest, "embedding_provider"),
-        model=_manifest_text(config_manifest, "embedding_model"),
+        provider=provider,
+        model=model,
         dimension=None,
     )
 
 
 def _simplemem_build_identity(config_manifest: dict[str, Any]) -> BuildIdentityDeclaration:
-    """保留 SimpleMem 已知 provider/model/dimension，语义审计前继续 pending。"""
+    """解析 SimpleMem controlled MiniLM + LanceDB L2 build。"""
 
+    provider = _manifest_text(config_manifest, "embedding_provider")
+    model = _manifest_text(config_manifest, "embedding_model_path")
+    dimension = _manifest_dimension(config_manifest, "embedding_dimension")
+    model_key = "" if model is None else model.strip().split("/")[-1].lower()
+    if (
+        provider == "sentence-transformers-local"
+        and model_key == "all-minilm-l6-v2"
+        and dimension == 384
+    ):
+        return BuildIdentityDeclaration(
+            implementation_variant="product",
+            embedding_profile="controlled_embedding_v1",
+            historical_controlled_build_equivalent_to_current_main=True,
+            embedding=EmbeddingIdentity(
+                provider=provider,
+                model=model,
+                dimension=dimension,
+                revision=None,
+                revision_status="local_unpinned",
+                normalization="internal_l2",
+                instruction=None,
+                distance="lancedb-l2",
+                identity_status="declared",
+            ),
+        )
     return _pending_build_identity(
-        provider=_manifest_text(config_manifest, "embedding_provider"),
-        model=_manifest_text(config_manifest, "embedding_model_path"),
-        dimension=_manifest_dimension(config_manifest, "embedding_dimension"),
+        provider=provider,
+        model=model,
+        dimension=dimension,
     )
 
 
@@ -999,6 +1041,8 @@ _REGISTRATIONS = {
         display_name="A-Mem",
         protocol_version="v3",
         consume_granularity_resolver=_turn_consume_granularity,
+        provenance_granularity="turn",
+        retrieval_evidence_contract_version="v1",
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_amem_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(
@@ -1135,6 +1179,8 @@ _REGISTRATIONS = {
         display_name="SimpleMem",
         protocol_version="v3",
         consume_granularity_resolver=_turn_consume_granularity,
+        provenance_granularity="none",
+        retrieval_evidence_contract_version="v1",
         allow_smoke_worker_override=True,
         efficiency_model_inventory_getter=_simplemem_efficiency_model_inventory,
         efficiency_instrumentation_identity_getter=(

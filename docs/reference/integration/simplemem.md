@@ -1,56 +1,37 @@
-# SimpleMem 接入实例（B1-B11 逐项）
+# SimpleMem 接入实例（B1-B11）
 
-> 判据模板：`../method-integration-checklist.md` §B；勾选总表：`../integration-status.md`。
-> 状态：**adapter 已落地（协议 v3 原生，五家中最新），B1-B11 未正式过**——"已知事实"
-> 为 2026-07-13 架构师代码取证预填，非验收结论。
+> adapter：`src/memory_benchmark/methods/simplemem_adapter.py`
+>
+> 状态：**B1-B10 已按 current text product 重认证；B11 真实五格待执行。**
 
-- adapter：`src/memory_benchmark/methods/simplemem_adapter.py`（772 行，唯一直写
-  v3 `MemoryProvider` 的 adapter，无 Legacy 桥）
-- 算法源：vendored `third_party/methods/SimpleMem`（text backend）
-- native 格：**locomo、longmemeval、membench**（`simplemem/evolver` 等目录，逐格
-  M 阶段核）
+## 接口调用面
 
-## 0. 接口调用面（黑盒拆解，预填）
-
-| 框架钩子 | adapter 行为 | 落到 SimpleMem 官方接口 |
+| framework | SimpleMem 产品调用 | 裁决 |
 |---|---|---|
-| `ingest(TurnEvent)` | consume_granularity="turn"（adapter:161）；per-isolation_key system 惰性创建（:184-186 dict） | `system.add_dialogue(speaker, content, timestamp)`（adapter:198-203） |
-| `end_conversation` | 幂等守卫后 finalize（adapter:211-222，`_finalized_isolation_keys`） | `system.finalize()` **处理残余窗口**（B6 关键，已接） |
-| `retrieve(query)` | **绕开 `ask()`** 直连检索器（adapter:227 起） | `system.hybrid_retriever.retrieve(query_text)`；retrieval_path 记录进 metadata（:250） |
-| clean-retry | `clean_simplemem_conversation_state`（adapter:446）+ registry `_clean_simplemem_failed_ingest_state`（registry.py:858） | 删 per-isolation state dir |
+| `ingest(TurnEvent)` | `add_dialogue(speaker, content, timestamp)` | turn；不配 pair、不造 placeholder |
+| `end_session` | HaluMem 下 `finalize()` + 新 entry delta | extraction 可测；长期记忆不清空 |
+| `end_conversation` | `finalize()` | 处理未满窗口的尾部 |
+| `retrieve` | `hybrid_retriever.retrieve(query)` | framework 自己回答，不走 `ask()` |
+| clean retry | 删除 conversation 独占 state dir | 物理隔离 |
 
-## B1-B11 逐项（全部 ⬜ 待 M 阶段，下面只记已知事实/风险）
+## B1-B11
 
-- **B1**：⬜。绕开 ask() 只用 add_dialogue+hybrid_retriever（公平性设计已落地）；
-  repo/commit/license 锁待做。**文档滞后**：模块 docstring 仍自述"T1 骨架、后续补齐"
-  （adapter:1-5），实际 ingest/retrieve 已是真实调用——M 阶段顺手修正 docstring。
-- **B2**：⬜。turn 单一粒度（且 ingest 显式拒收非 TurnEvent，:191-193 fail-fast）；
-  HaluMem memory_point 预计 gap。
-- **B3**：⬜ **物理隔离**：per-isolation_key `SimpleMemSystem` + 独立 state dir
-  （`_systems_by_isolation_key` / `_state_dirs_by_isolation_key`，:184-186）。
-- **B4**：⬜。timestamp 经 `parse_simplemem_timestamp` 规整后入 add_dialogue（:197）；
-  检索侧 `_format_simplemem_contexts/_format_simplemem_memory` 双格式化（:228-229），
-  时间戳回带待核。
-- **B5**：`provenance_granularity="none"`（adapter:163）→ recall/ndcg 预计 N/A。
-  注意 native 格含 membench/locomo（recall 类 conditional evaluator 存在的 benchmark），
-  确认 none 后这些格 recall=N/A 要在报告显式标。**B5+ 初判（2026-07-13 MemoryData
-  判例）：可无损改造**——dialogue content 保存原文，同 A-Mem 走策略①或 id 映射。
-  见 `ws02.7/notes/memorydata-recall-retrofit-survey.md`。
-- **B6**：⬜ 初判**已接对**：滑窗设计下 finalize() 处理残余窗口，end_conversation
-  已挂且幂等。M 阶段锚官方 finalize 实现确认语义。
-- **B7**：⬜。配置强校验含 api_timeout/retries（:123-125）；usage 观测路径待审。
-- **B8**：⬜。hybrid_retriever.retrieve 预期只读，待锚。clean-retry 钩子已挂。
-- **B9**：⬜。llm_model/embedding_model_path 均强制显式（:103-105 fail-fast），
-  embedding 是本地路径模型。现行政策把它作为 TOML 普通 build 字段；5×10 smoke 保持当前
-  all-MiniLM 配置，真实效果实验前再结合 SimpleMem 自身一手证据裁主配置，不外推三家 Fable
-  审计结论；同一主 section 跨 benchmark 固定，不按结果临时调参。
-- **B10**：⬜。Track identity M0 只保留当前 config 的 provider/model/dimension 并盖
-  `unclassified_pending`，未替 SimpleMem 裁最终 TOML 参数。旧 native 三格
-  （locomo/longmemeval/membench）作为作者配置候选，只有一手参数与完整 answer builder
-  取证闭合后才增加对应 `author_<benchmark>` section。
-- **B11**：⬜。
+- **B1 ✅**：官方 repo 快照 `third_party/methods/SimpleMem`，upstream
+  `60a48e83a7fef10d386e1f438589047d3a4257bc`，MIT；使用 text product。
+- **B2 ✅**：五格均 turn ingest；原生 speaker/content/timestamp 覆盖具名 speaker 与 role。
+- **B3 ✅**：每 conversation 独占 product system、LanceDB 与 state dir。
+- **B4 ✅**：五种 source-time 格式与 None 强校验；MemBench 尾注原文保留；readout 回带产品
+  timestamp/location/persons/entities/topic。
+- **B5 ✅（N/A/pending 是通过）**：语义融合没有 exact source membership，provenance none，
+  Recall/NDCG=N/A；多查询并行合并无全局 score/rerank，stable ranking=pending。
+- **B6 ✅**：conversation 尾部 finalize；HaluMem 每 session finalize 后只清 extraction context，
+  不删长期 memory。
+- **B7 ✅**：memory LLM、embedding、retrieval 与 framework answer 真实 observation 可落盘。
+- **B8 ✅**：hybrid retrieval 不写 memory；endpoint/timeout/product retry 映射已锁强反例。
+- **B9 ✅（controlled）**：当前主 build 为 MiniLM-384/internal-L2 + LanceDB L2；不是官方
+  Qwen3 product-default，manifest 不冒充。
+- **B10 ✅**：主 TOML 跨五 benchmark 固定；作者 builder/效果参数后续稀疏 section 处理。
+- **B11 🟡**：离线全量 `1679 passed`、compileall 0；真实 smoke 与冻结 note 待完成。
 
-## 特殊情况
-1. 唯一 v3 原生 adapter，可作后续新 method（MemOS/Letta/EverOS…）的参考实现形态。
-2. answer_generator.py 的官方 answer 通路被有意绕开（常量引用 adapter:67 留档）——
-   M 阶段 B1 里把"为什么不用 ask()/answer_generator"的官方行号锚补全。
+实现与算法证据见
+[`simplemem-text-v2-implementation.md`](../../workstreams/ws02.7-method-track/branches/method-recertification/simplemem/notes/simplemem-text-v2-implementation.md)。

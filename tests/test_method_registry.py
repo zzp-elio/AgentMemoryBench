@@ -114,6 +114,8 @@ def test_simplemem_registration_declares_text_backend_contract() -> None:
     assert registration.requires_api is True
     assert registration.allow_smoke_worker_override is True
     assert registration.supports_shared_instance_parallelism is False
+    assert registration.provenance_granularity == "none"
+    assert registration.retrieval_evidence_contract_version == "v1"
     assert registration.efficiency_model_inventory_getter is not None
     inventory = registration.efficiency_model_inventory_getter(
         SimpleMemConfig(

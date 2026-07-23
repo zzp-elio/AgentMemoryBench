@@ -1,7 +1,7 @@
 """SimpleMem text backend 的协议 v3 adapter。
 
-T1 先落地配置、资源校验、source identity 和 registry 骨架；后续 task 会把
-`SimpleMem` 类补齐为真实 ingest/retrieve provider。
+adapter 保留产品级 turn speaker/content/time 输入，直接读取 hybrid
+retriever 的产品返回顺序，并在 HaluMem session 边界上报官方合成后的新记忆。
 """
 
 from __future__ import annotations
@@ -14,27 +14,34 @@ from pathlib import Path
 import re
 import shutil
 import sys
+from time import perf_counter_ns
 from typing import Any
 
 from memory_benchmark.config import OpenAISettings, PathSettings, load_path_settings
-from memory_benchmark.core import ConfigurationError, PromptMessage
+from memory_benchmark.core import ConfigurationError, ImageRef, PromptMessage, Turn
 from memory_benchmark.observability.efficiency import (
     EfficiencyCollector,
+    MeasurementSource,
     resolve_token_usage,
 )
 from memory_benchmark.core.provider_protocol import (
+    EvidenceAssertion,
     IngestResult,
     IngestUnit,
     MemoryProvider,
     RetrievalQuery,
+    RetrievalEvidence,
     RetrievalResult,
     RetrievedItem,
+    SessionMemoryReport,
+    SessionRef,
     TurnEvent,
     UnitRef,
 )
+from memory_benchmark.methods.image_text import turn_text_with_images
 
 
-SIMPLEMEM_ADAPTER_VERSION = "simplemem-text-v1"
+SIMPLEMEM_ADAPTER_VERSION = "simplemem-text-v2"
 SIMPLEMEM_METHOD_DIRECTORY = "SimpleMem"
 SIMPLEMEM_OFFICIAL_PROFILE_NAME = "official-text-v1"
 SIMPLEMEM_WRAPPER_LOGICAL_PATH = "src/memory_benchmark/methods/simplemem_adapter.py"
@@ -171,6 +178,8 @@ class SimpleMem(MemoryProvider):
         system_factory: SimpleMemSystemFactory | None = None,
         openai_settings: OpenAISettings | None = None,
         efficiency_collector: EfficiencyCollector | None = None,
+        session_memory_report: bool = False,
+        benchmark_name: str | None = None,
     ) -> None:
         """保存构造依赖并延迟初始化每个 isolation 的 SimpleMemSystem。"""
 
@@ -181,9 +190,12 @@ class SimpleMem(MemoryProvider):
         self._system_factory = system_factory
         self._openai_settings = openai_settings
         self._efficiency_collector = efficiency_collector
+        self.session_memory_report = session_memory_report
+        self.benchmark_name = benchmark_name
         self._systems_by_isolation_key: dict[str, Any] = {}
         self._state_dirs_by_isolation_key: dict[str, Path] = {}
         self._finalized_isolation_keys: set[str] = set()
+        self._reported_entry_ids: dict[str, set[str]] = {}
 
     def ingest(self, unit: IngestUnit) -> IngestResult | None:
         """把 turn 事件写入 SimpleMem 的 `add_dialogue()` 入口。"""
@@ -193,10 +205,31 @@ class SimpleMem(MemoryProvider):
         system = self._system_for_isolation_key(unit.isolation_key)
         self._write_conversation_marker(unit)
         timestamp = parse_simplemem_timestamp(unit.timestamp)
+        if (
+            isinstance(unit.timestamp, str)
+            and unit.timestamp.strip()
+            and timestamp is None
+        ):
+            raise ConfigurationError(
+                f"SimpleMem cannot normalize timestamp {unit.timestamp!r}: {unit.turn_id}"
+            )
         speaker = unit.speaker_name or unit.role
+        turn = Turn(
+            turn_id=unit.turn_id,
+            speaker=speaker,
+            normalized_role=unit.role if unit.role in {"user", "assistant"} else None,
+            content=self._original_content_from_event(unit),
+            turn_time=unit.timestamp,
+            images=self._images_from_event(unit),
+        )
+        content = turn_text_with_images(turn)
+        if not content:
+            raise ConfigurationError(
+                f"SimpleMem turn has no text content: {unit.turn_id}"
+            )
         system.add_dialogue(
             speaker=speaker,
-            content=unit.content,
+            content=content,
             timestamp=timestamp,
         )
         return IngestResult(
@@ -205,6 +238,40 @@ class SimpleMem(MemoryProvider):
                 "method": "simplemem",
                 "turn_id": unit.turn_id,
                 "timestamp": timestamp,
+            },
+        )
+
+    def end_session(self, ref: SessionRef) -> SessionMemoryReport | None:
+        """在 HaluMem 真实 session 边界完成 intra-session synthesis 并报告 delta。"""
+
+        if not self.session_memory_report:
+            return None
+        system = self._systems_by_isolation_key.get(ref.isolation_key)
+        if system is None:
+            return SessionMemoryReport(session_ref=ref, memories=[])
+        system.finalize()
+        entries = list(system.get_all_memories())
+        reported = self._reported_entry_ids.setdefault(ref.isolation_key, set())
+        new_entries = [
+            entry
+            for entry in entries
+            if _required_context_text(entry, "entry_id") not in reported
+        ]
+        reported.update(
+            _required_context_text(entry, "entry_id") for entry in new_entries
+        )
+        memory_builder = getattr(system, "memory_builder", None)
+        if memory_builder is not None and hasattr(memory_builder, "previous_entries"):
+            # SimpleMem 论文把 synthesis 定义为 intra-session；官方 text
+            # 入口没有 session API，因此在框架的真实边界清掉仅作
+            # 下一窗口提取参考的 previous_entries。已持久化记忆不删除。
+            memory_builder.previous_entries = []
+        return SessionMemoryReport(
+            session_ref=ref,
+            memories=[_format_simplemem_extraction_memory(entry) for entry in new_entries],
+            metadata={
+                "memory_unit": "synthesized_memory_entry",
+                "entry_count": len(new_entries),
             },
         )
 
@@ -224,7 +291,9 @@ class SimpleMem(MemoryProvider):
         """绕开 `ask()`，直接调用 SimpleMem hybrid retriever。"""
 
         system = self._system_for_isolation_key(query.isolation_key)
-        contexts = list(system.hybrid_retriever.retrieve(query.query_text))
+        contexts = list(system.hybrid_retriever.retrieve(query.query_text))[
+            : query.top_k
+        ]
         context_str = _format_simplemem_contexts(contexts)
         formatted_memory = _format_simplemem_memory(contexts)
         return RetrievalResult(
@@ -248,7 +317,29 @@ class SimpleMem(MemoryProvider):
                 "prompt_track": "native",
                 "prompt_source": SIMPLEMEM_ANSWER_PROMPT_SOURCE,
                 "retrieval_path": "hybrid_retriever.retrieve",
+                "provenance_granularity": "none",
             },
+            evidence=RetrievalEvidence(
+                semantic_provenance=EvidenceAssertion(
+                    status="n_a",
+                    reason_code="simplemem_synthesized_memory_not_turn_exact",
+                    reason=(
+                        "SimpleMem compresses and synthesizes a dialogue window into a "
+                        "new set of memory entries without retaining exact source-turn "
+                        "membership for each generated fact."
+                    ),
+                ),
+                provenance_granularity="none",
+                stable_ranking=EvidenceAssertion(
+                    status="pending",
+                    reason_code="simplemem_parallel_merge_has_no_stable_global_rank",
+                    reason=(
+                        "SimpleMem merges several semantic searches in completion "
+                        "order, then appends lexical and symbolic hits without a "
+                        "single global score or deterministic reranking step."
+                    ),
+                ),
+            ),
         )
 
     def _system_for_isolation_key(self, isolation_key: str) -> Any:
@@ -264,9 +355,35 @@ class SimpleMem(MemoryProvider):
         else:
             system = self._create_official_system(isolation_key, state_dir)
         self._install_llm_usage_observation(system)
+        self._install_embedding_usage_observation(system)
         self._systems_by_isolation_key[isolation_key] = system
         self._state_dirs_by_isolation_key[isolation_key] = state_dir
         return system
+
+    @staticmethod
+    def _original_content_from_event(event: TurnEvent) -> str:
+        """读取 caption 渲染前的原始 turn 文本。"""
+
+        original = event.metadata.get("original_content")
+        return original if isinstance(original, str) else event.content
+
+    @staticmethod
+    def _images_from_event(event: TurnEvent) -> list[ImageRef]:
+        """从 v3 event metadata 恢复公开图片引用。"""
+
+        raw_images = event.metadata.get("turn_images")
+        if not isinstance(raw_images, list):
+            return []
+        return [
+            ImageRef(
+                image_id=raw.get("image_id"),
+                path=raw.get("path"),
+                caption=raw.get("caption"),
+                metadata=dict(raw.get("metadata") or {}),
+            )
+            for raw in raw_images
+            if isinstance(raw, dict)
+        ]
 
     def _create_official_system(self, isolation_key: str, state_dir: Path) -> Any:
         """按 approved text backend 口径构造官方 SimpleMemSystem。"""
@@ -314,7 +431,7 @@ class SimpleMem(MemoryProvider):
         simplemem_settings.STRUCTURED_TOP_K = self.config.structured_top_k
         simplemem_settings.WINDOW_SIZE = self.config.window_size
         simplemem_settings.OVERLAP_SIZE = self.config.overlap_size
-        return SimpleMemSystem(
+        system = SimpleMemSystem(
             api_key=self._openai_settings.api_key,
             model=self.config.llm_model,
             base_url=self._openai_settings.base_url,
@@ -329,6 +446,57 @@ class SimpleMem(MemoryProvider):
             enable_parallel_retrieval=self.config.enable_parallel_retrieval,
             max_retrieval_workers=self.config.max_workers,
         )
+        self._configure_official_llm_transport(
+            system=system,
+            isolation_key=isolation_key,
+        )
+        return system
+
+    def _configure_official_llm_transport(
+        self,
+        *,
+        system: Any,
+        isolation_key: str,
+    ) -> None:
+        """让 SimpleMem 产品 retry loop 精确消费 TOML timeout/retry。
+
+        官方 ``LLMClient`` 自带显式指数退避循环，但构造的 OpenAI client 没有
+        timeout，且上层调用不传 ``max_retries``，会固定使用 3。这里关闭 SDK
+        内层 retry、配置单次请求 timeout，并给产品循环注入当前 profile 的次数；
+        prompt、temperature、调用顺序与退避算法均保持官方实现。
+        """
+
+        llm_client = getattr(system, "llm_client", None)
+        if llm_client is None or not hasattr(llm_client, "chat_completion"):
+            raise ConfigurationError(
+                "SimpleMem official system does not expose LLMClient for "
+                f"{isolation_key}"
+            )
+        if self._openai_settings is None:
+            raise ConfigurationError(
+                f"SimpleMem OpenAI settings missing for {isolation_key}"
+            )
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise ConfigurationError("openai package is required for SimpleMem") from exc
+        llm_client.client = OpenAI(
+            api_key=self._openai_settings.api_key,
+            base_url=self._openai_settings.base_url,
+            timeout=self.config.api_timeout_seconds,
+            max_retries=0,
+        )
+        original_chat_completion = llm_client.chat_completion
+
+        def configured_chat_completion(*args: Any, **kwargs: Any) -> Any:
+            """未显式覆盖时使用 profile 声明的产品层 retry 次数。"""
+
+            # 官方参数名虽叫 max_retries，实际实现是 range(max_retries)，
+            # 表示总尝试次数；框架字段表示首次调用后的重试次数。
+            kwargs.setdefault("max_retries", self.config.api_max_retries + 1)
+            return original_chat_completion(*args, **kwargs)
+
+        llm_client.chat_completion = configured_chat_completion
 
     def _write_conversation_marker(self, unit: TurnEvent) -> None:
         """在状态目录写入公开 conversation id，供 failed_ingest clean retry 定位。"""
@@ -386,6 +554,55 @@ class SimpleMem(MemoryProvider):
         llm_client.chat_completion = _wrapped_chat_completion
         llm_client._memory_benchmark_efficiency_wrapped = True
 
+    def _install_embedding_usage_observation(self, system: Any) -> None:
+        """包装 SimpleMem 实际 EmbeddingModel.encode，记录真实调用。"""
+
+        collector = self._efficiency_collector
+        embedding_model = getattr(system, "embedding_model", None)
+        if (
+            collector is None
+            or not collector.enabled
+            or embedding_model is None
+            or not hasattr(embedding_model, "encode")
+            or getattr(
+                embedding_model,
+                "_memory_benchmark_efficiency_wrapped",
+                False,
+            )
+        ):
+            return
+        original_encode = embedding_model.encode
+
+        def _wrapped_encode(texts: Any, *args: Any, **kwargs: Any) -> Any:
+            """原样返回 embedding，成功后按当前 scope 记录用量。"""
+
+            started_ns = perf_counter_ns()
+            result = original_encode(texts, *args, **kwargs)
+            if collector.active_scope_type() is None:
+                return result
+            normalized_texts = (
+                [str(item) for item in texts]
+                if isinstance(texts, (list, tuple))
+                else [str(texts)]
+            )
+            collector.record_embedding_call(
+                model_id="simplemem-embedding",
+                input_tokens=sum(
+                    _count_simplemem_embedding_tokens(embedding_model, text)
+                    for text in normalized_texts
+                ),
+                latency_ms=max(
+                    0.0,
+                    (perf_counter_ns() - started_ns) / 1_000_000,
+                ),
+                token_measurement_source=MeasurementSource.TOKENIZER_ESTIMATE,
+                latency_measurement_source=MeasurementSource.FRAMEWORK_TIMER,
+            )
+            return result
+
+        embedding_model.encode = _wrapped_encode
+        embedding_model._memory_benchmark_efficiency_wrapped = True
+
 
 def parse_simplemem_timestamp(raw_timestamp: str | None) -> str | None:
     """把 benchmark 原始时间转成 SimpleMem 可接受的 ISO 字符串。"""
@@ -398,6 +615,16 @@ def parse_simplemem_timestamp(raw_timestamp: str | None) -> str | None:
     iso_value = _parse_iso_timestamp(value)
     if iso_value is not None:
         return iso_value
+    for timestamp_format in (
+        "%Y/%m/%d (%a) %H:%M",
+        "%B-%d-%Y",
+    ):
+        try:
+            return datetime.strptime(value, timestamp_format).isoformat(
+                timespec="seconds"
+            )
+        except ValueError:
+            continue
     match = _LOCOMO_TIMESTAMP_PATTERN.match(value)
     if match is None:
         return None
@@ -479,6 +706,12 @@ def _format_simplemem_memory(contexts: list[Any]) -> str:
     """
 
     return _format_simplemem_contexts(contexts)
+
+
+def _format_simplemem_extraction_memory(entry: Any) -> str:
+    """把 HaluMem session 新增 MemoryEntry 渲染为公开记忆文本。"""
+
+    return _format_simplemem_contexts([entry])
 
 
 def _format_simplemem_contexts(contexts: list[Any]) -> str:
@@ -620,6 +853,19 @@ def _messages_to_text(messages: Any) -> str:
                 parts.append(str(message))
         return "\n\n".join(parts)
     return str(messages)
+
+
+def _count_simplemem_embedding_tokens(embedding_model: Any, text: str) -> int:
+    """用 SimpleMem 实际 SentenceTransformer tokenizer 计数。"""
+
+    model = getattr(embedding_model, "model", None)
+    tokenizer = getattr(model, "tokenizer", None)
+    if tokenizer is None or not hasattr(tokenizer, "encode"):
+        raise ConfigurationError("SimpleMem embedding tokenizer is unavailable")
+    max_length = getattr(model, "max_seq_length", None)
+    if isinstance(max_length, int) and max_length > 0:
+        return len(tokenizer.encode(text, truncation=True, max_length=max_length))
+    return len(tokenizer.encode(text))
 
 
 class _TiktokenCounter:

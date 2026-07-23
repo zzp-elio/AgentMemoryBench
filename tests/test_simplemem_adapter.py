@@ -6,10 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from memory_benchmark.config import load_path_settings
+from memory_benchmark.config import OpenAISettings, load_path_settings
 from memory_benchmark.core import ConfigurationError
 from memory_benchmark.core.provider_protocol import (
     RetrievalQuery,
+    SessionRef,
     TurnEvent,
     UnitRef,
 )
@@ -204,6 +205,98 @@ def test_simplemem_timestamp_parser_returns_none_for_unparseable() -> None:
     assert parse_simplemem_timestamp("next spring after lunch") is None
 
 
+@pytest.mark.parametrize(
+    ("raw_timestamp", "expected"),
+    [
+        ("2023/05/20 (Sat) 02:21", "2023-05-20T02:21:00"),
+        ("March-15-2024", "2024-03-15T00:00:00"),
+        ("2024-10-01 08:00", "2024-10-01T08:00:00"),
+    ],
+)
+def test_simplemem_timestamp_parser_covers_all_benchmark_source_formats(
+    raw_timestamp: str,
+    expected: str,
+) -> None:
+    """五家 benchmark 的非 LoCoMo 时间格式也必须确定性解析。"""
+
+    assert parse_simplemem_timestamp(raw_timestamp) == expected
+
+
+def test_simplemem_ingest_rejects_nonempty_unknown_timestamp(tmp_path: Path) -> None:
+    """非空时间不能静默降级为 None。"""
+
+    provider = SimpleMem(
+        config=_config(),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path,
+        system_factory=lambda isolation_key, state_dir: FakeSimpleMemSystem(
+            isolation_key=isolation_key,
+            state_dir=state_dir,
+        ),
+    )
+
+    with pytest.raises(ConfigurationError, match="cannot normalize timestamp"):
+        provider.ingest(
+            TurnEvent(
+                role="user",
+                speaker_name="user",
+                content="Unknown-time message.",
+                timestamp="sometime after lunch",
+                isolation_key="conv-1",
+                session_id="s1",
+                turn_id="t1",
+            )
+        )
+
+
+def test_simplemem_ingest_preserves_speaker_content_caption_and_typed_time(
+    tmp_path: Path,
+) -> None:
+    """写入应保留 speaker，不重写 MemBench 尾部，图片用共享语义。"""
+
+    system = FakeSimpleMemSystem(isolation_key="conv-1", state_dir=tmp_path)
+    provider = SimpleMem(
+        config=_config(),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path,
+        system_factory=lambda _isolation_key, _state_dir: system,
+    )
+    source = (
+        "I visited Boston. "
+        "(place: Boston, MA; time: '2024-10-01 08:00' Tuesday)"
+    )
+
+    provider.ingest(
+        TurnEvent(
+            role="assistant",
+            speaker_name="assistant",
+            content="legacy rendered text",
+            timestamp="2024-10-01 08:00",
+            isolation_key="conv-1",
+            session_id="s1",
+            turn_id="t1",
+            metadata={
+                "original_content": source,
+                "turn_images": [
+                    {
+                        "image_id": "img-1",
+                        "path": None,
+                        "caption": "a red bicycle",
+                        "metadata": {},
+                    }
+                ],
+            },
+        )
+    )
+
+    payload = system.calls[0][1]
+    assert payload == {
+        "speaker": "assistant",
+        "content": f"{source} [Sharing image that shows: a red bicycle]",
+        "timestamp": "2024-10-01T08:00:00",
+    }
+
+
 def test_simplemem_retrieve_uses_hybrid_retriever_and_builds_native_prompt(
     tmp_path: Path,
 ) -> None:
@@ -260,6 +353,17 @@ def test_simplemem_retrieve_uses_hybrid_retriever_and_builds_native_prompt(
     assert result.items is not None
     assert [item.item_id for item in result.items] == ["m1", "m2"]
     assert result.items[0].source_turn_ids == ()
+    assert result.evidence is not None
+    assert result.evidence.semantic_provenance.status == "n_a"
+    assert result.evidence.semantic_provenance.reason_code == (
+        "simplemem_synthesized_memory_not_turn_exact"
+    )
+    assert result.evidence.provenance_granularity == "none"
+    assert result.evidence.stable_ranking.status == "pending"
+    assert (
+        result.evidence.stable_ranking.reason_code
+        == "simplemem_parallel_merge_has_no_stable_global_rank"
+    )
     assert result.prompt_messages is not None
     assert [message.role for message in result.prompt_messages] == ["system", "user"]
     assert result.prompt_messages[0].content == (
@@ -276,6 +380,89 @@ def test_simplemem_retrieve_uses_hybrid_retriever_and_builds_native_prompt(
     assert result.metadata["prompt_source"] == (
         "third_party/methods/SimpleMem/simplemem/core/answer_generator.py:43-52,117-153"
     )
+
+
+def test_simplemem_halumem_session_report_returns_only_new_synthesized_entries(
+    tmp_path: Path,
+) -> None:
+    """HaluMem 边界只上报当次 finalize 新生成的产品记忆。"""
+
+    class FakeBuilder:
+        """模拟官方窗口的 previous_entries 状态。"""
+
+        def __init__(self) -> None:
+            """预置上一窗口参考。"""
+
+            self.previous_entries = ["old-window-entry"]
+
+    class FakeSessionSystem(FakeSimpleMemSystem):
+        """每次 finalize 向全库增加一条记忆的 fake。"""
+
+        def __init__(self) -> None:
+            """初始化累计记忆与窗口状态。"""
+
+            super().__init__(isolation_key="conv-1", state_dir=tmp_path)
+            self.memory_builder = FakeBuilder()
+            self.entries: list[FakeMemoryEntry] = []
+
+        def finalize(self) -> None:
+            """模拟完成当前 session 的合成。"""
+
+            super().finalize()
+            index = len(self.entries) + 1
+            self.entries.append(
+                FakeMemoryEntry(
+                    entry_id=f"m{index}",
+                    lossless_restatement=f"session memory {index}",
+                    timestamp=f"2024-01-0{index}T00:00:00",
+                )
+            )
+
+        def get_all_memories(self) -> list[FakeMemoryEntry]:
+            """返回截至当前的全部记忆。"""
+
+            return list(self.entries)
+
+    system = FakeSessionSystem()
+    provider = SimpleMem(
+        config=_config(),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path,
+        system_factory=lambda _isolation_key, _state_dir: system,
+        session_memory_report=True,
+        benchmark_name="halumem",
+    )
+    provider.ingest(
+        TurnEvent(
+            role="user",
+            speaker_name="user",
+            content="first session",
+            timestamp=None,
+            isolation_key="conv-1",
+            session_id="s1",
+            turn_id="t1",
+        )
+    )
+    first = provider.end_session(SessionRef("conv-1", "s1"))
+    provider.ingest(
+        TurnEvent(
+            role="assistant",
+            speaker_name="assistant",
+            content="second session",
+            timestamp=None,
+            isolation_key="conv-1",
+            session_id="s2",
+            turn_id="t2",
+        )
+    )
+    second = provider.end_session(SessionRef("conv-1", "s2"))
+
+    assert first is not None and second is not None
+    assert len(first.memories) == 1
+    assert "session memory 1" in first.memories[0]
+    assert len(second.memories) == 1
+    assert "session memory 2" in second.memories[0]
+    assert system.memory_builder.previous_entries == []
 
 
 def test_simplemem_formatted_memory_covers_all_symbolic_fields() -> None:
@@ -434,6 +621,147 @@ def test_simplemem_llm_client_wrapper_records_usage_in_active_scope(
     assert llm_records[0].token_measurement_source.value == "tokenizer_estimate"
     assert llm_records[0].input_tokens > 0
     assert llm_records[0].output_tokens > 0
+
+
+def test_simplemem_embedding_wrapper_records_actual_calls_in_active_scope(
+    tmp_path: Path,
+) -> None:
+    """SimpleMem 本地 embedding 只在实际 encode 成功后记录。"""
+
+    class FakeTokenizer:
+        """按空格切分的可确定 token 计数器。"""
+
+        def encode(self, text: str, **_kwargs: object) -> list[str]:
+            """返回伪 token 序列。"""
+
+            return text.split()
+
+    class FakeSentenceTransformer:
+        """暴露 SimpleMem observer 依赖的 tokenizer 字段。"""
+
+        tokenizer = FakeTokenizer()
+        max_seq_length = 128
+
+    class FakeEmbeddingModel:
+        """模拟产品 EmbeddingModel.encode。"""
+
+        def __init__(self) -> None:
+            """保存底层 SentenceTransformer fake。"""
+
+            self.model = FakeSentenceTransformer()
+
+        def encode(self, texts: list[str], **_kwargs: object) -> list[list[float]]:
+            """返回与输入数量一致的伪向量。"""
+
+            return [[1.0] for _ in texts]
+
+    system = FakeObservedSimpleMemSystem()
+    system.embedding_model = FakeEmbeddingModel()
+    collector = EfficiencyCollector(run_id="simplemem-embedding", enabled=True)
+    provider = SimpleMem(
+        config=_config(),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path,
+        system_factory=lambda _isolation_key, _state_dir: system,
+        efficiency_collector=collector,
+    )
+    provider.ingest(
+        TurnEvent(
+            role="user",
+            speaker_name="user",
+            content="install observers",
+            timestamp=None,
+            isolation_key="conv-1",
+            session_id="s1",
+            turn_id="t1",
+        )
+    )
+
+    with collector.conversation_scope("conv-1") as scope:
+        assert system.embedding_model.encode(["two tokens", "three token input"]) == [
+            [1.0],
+            [1.0],
+        ]
+        collector.record_memory_build_total_latency(latency_ms=1.0)
+
+    records = [
+        record
+        for record in scope.records
+        if getattr(record, "model_id", None) == "simplemem-embedding"
+    ]
+    assert len(records) == 1
+    assert records[0].input_tokens == 5
+    assert records[0].stage.value == "memory_build"
+
+
+def test_simplemem_transport_uses_profile_timeout_and_product_retry_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SimpleMem transport 不得忽略 TOML timeout/retry 或形成双层重试。"""
+
+    created_clients: list[dict[str, object]] = []
+    completion_kwargs: list[dict[str, object]] = []
+
+    class FakeLLMClient:
+        """模拟官方带 max_retries 参数的 LLMClient。"""
+
+        client: object | None = None
+
+        def chat_completion(
+            self,
+            messages: list[dict[str, str]],
+            **kwargs: object,
+        ) -> str:
+            """记录 adapter 注入的产品层 retry 次数。"""
+
+            del messages
+            completion_kwargs.append(dict(kwargs))
+            return "ok"
+
+    class FakeSystem:
+        """只暴露 transport 配置需要的官方字段。"""
+
+        def __init__(self) -> None:
+            """创建 fake LLM client。"""
+
+            self.llm_client = FakeLLMClient()
+
+    import openai
+
+    monkeypatch.setattr(
+        openai,
+        "OpenAI",
+        lambda **kwargs: created_clients.append(dict(kwargs)) or object(),
+    )
+    provider = SimpleMem(
+        config=_config(api_timeout_seconds=17.0, api_max_retries=6),
+        path_settings=load_path_settings(),
+        storage_root=tmp_path,
+        openai_settings=OpenAISettings(
+            api_key="sk-offline-test",
+            base_url="https://example.invalid/v1",
+        ),
+    )
+    system = FakeSystem()
+
+    provider._configure_official_llm_transport(
+        system=system,
+        isolation_key="conv-1",
+    )
+    assert system.llm_client.chat_completion(
+        [{"role": "user", "content": "probe"}]
+    ) == "ok"
+
+    assert created_clients == [
+        {
+            "api_key": "sk-offline-test",
+            "base_url": "https://example.invalid/v1",
+            "timeout": 17.0,
+            "max_retries": 0,
+        }
+    ]
+    assert completion_kwargs == [{"max_retries": 7}]
 
 
 class FakeSimpleMemSystem:

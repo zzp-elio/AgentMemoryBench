@@ -259,8 +259,8 @@ def test_lightmem_and_mem0_profiles_reflect_current_config() -> None:
     assert mem0.historical_controlled_build_equivalent_to_current_main is False
 
 
-def test_amem_and_simplemem_pending_preserve_known_config_fields() -> None:
-    """未审计 method 继续 pending，但不能丢掉 config 已知 provider/model/dimension。"""
+def test_amem_and_simplemem_build_identities_match_current_products() -> None:
+    """A-Mem 产品默认与 SimpleMem controlled MiniLM 必须如实盖章。"""
 
     amem = resolve_registered_build_identity(
         "amem",
@@ -277,17 +277,21 @@ def test_amem_and_simplemem_pending_preserve_known_config_fields() -> None:
             "embedding_dimension": 384,
         },
     )
-    assert amem.embedding_profile == "unclassified_pending"
+    assert amem.embedding_profile == "product_default_v1"
     assert amem.embedding.provider == "sentence-transformers"
     assert amem.embedding.model == "all-MiniLM-L6-v2"
-    assert amem.embedding.dimension is None
-    assert amem.embedding.distance is None
-    assert amem.embedding.revision_status == "pending"
-    assert simplemem.embedding_profile == "unclassified_pending"
+    assert amem.embedding.dimension == 384
+    assert amem.embedding.normalization == "none"
+    assert amem.embedding.distance == "chroma-cosine"
+    assert amem.embedding.revision_status == "local_unpinned"
+    assert amem.embedding.identity_status == "declared"
+    assert simplemem.embedding_profile == "controlled_embedding_v1"
     assert simplemem.embedding.provider == "sentence-transformers-local"
     assert simplemem.embedding.model == "models/all-MiniLM-L6-v2"
     assert simplemem.embedding.dimension == 384
-    assert simplemem.embedding.distance is None
+    assert simplemem.embedding.normalization == "internal_l2"
+    assert simplemem.embedding.distance == "lancedb-l2"
+    assert simplemem.embedding.identity_status == "declared"
 
 
 def test_lightmem_native_locomo_judge_uses_exact_prompt_and_category_skip() -> None:
@@ -388,7 +392,7 @@ def test_embedding_rejects_pending_declared_cross_combinations() -> None:
         "amem",
         {
             "embedding_provider": "sentence-transformers",
-            "embedding_model": "all-MiniLM-L6-v2",
+            "embedding_model": "unreviewed-embedding-model",
         },
     ).embedding
     with pytest.raises(ConfigurationError, match="revision_status='pending'"):

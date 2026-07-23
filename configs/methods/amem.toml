@@ -1,5 +1,5 @@
-# A-Mem 官方 LoCoMo robust 入口的 method profile。
-# smoke 只缩小 benchmark 数据规模；method 参数保持官方默认 retrieve_k=10。
+# A-Mem 官方通用产品 AgenticMemorySystem profile。
+# smoke 只缩小 benchmark 数据规模；method 检索深度保持产品建议 k=10。
 
 [smoke]
 llm_model = "gpt-4o-mini"
@@ -8,7 +8,7 @@ retrieve_k = 10
 api_timeout_seconds = 60.0
 api_max_retries = 8
 max_workers = 1
-use_robust_layer = true
+use_product_layer = true
 suppress_official_stdout = true
 
 [official_full]
@@ -18,5 +18,5 @@ retrieve_k = 10
 api_timeout_seconds = 60.0
 api_max_retries = 8
 max_workers = 10
-use_robust_layer = true
+use_product_layer = true
 suppress_official_stdout = true

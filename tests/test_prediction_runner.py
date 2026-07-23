@@ -1365,14 +1365,14 @@ def test_runner_persists_per_question_retrieval_evidence(tmp_path: Path) -> None
 
 
 def test_registered_methods_stamp_retrieval_evidence_contract_version_v1() -> None:
-    """Mem0/LightMem/MemoryOS 注册项写 v1，A-Mem/SimpleMem 不写；盖章走 factory 身份。"""
+    """当前五家注册项均写 v1，且盖章只走 factory 身份。"""
 
     from memory_benchmark.methods.registry import (
         get_method_registration,
         resolve_registered_factory_retrieval_evidence_contract_version,
     )
 
-    for name in ("mem0", "lightmem", "memoryos"):
+    for name in ("mem0", "lightmem", "memoryos", "amem", "simplemem"):
         registration = get_method_registration(name)
         assert registration.retrieval_evidence_contract_version == "v1"
         assert (
@@ -1380,15 +1380,6 @@ def test_registered_methods_stamp_retrieval_evidence_contract_version_v1() -> No
                 registration.system_factory
             )
             == "v1"
-        )
-    for name in ("amem", "simplemem"):
-        registration = get_method_registration(name)
-        assert registration.retrieval_evidence_contract_version is None
-        assert (
-            resolve_registered_factory_retrieval_evidence_contract_version(
-                registration.system_factory
-            )
-            is None
         )
 
     # isolated worker 根对象无需真实 method 实例即可按 factory 身份盖章。

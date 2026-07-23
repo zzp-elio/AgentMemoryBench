@@ -28,10 +28,12 @@ from memory_benchmark.core import (
     Turn,
 )
 from memory_benchmark.core.provider_protocol import (
+    EvidenceAssertion,
     IngestResult,
     IngestUnit,
     MemoryProvider,
     RetrievalQuery,
+    RetrievalEvidence,
     RetrievalResult,
     RetrievedItem,
     TurnEvent,
@@ -99,7 +101,24 @@ class FakeSimpleMemForRegisteredPrediction(MemoryProvider):
                     timestamp="2026-01-01T00:00:00",
                 ),
             ),
-            metadata={"method": "simplemem", "prompt_track": "native"},
+            metadata={
+                "method": "simplemem",
+                "prompt_track": "native",
+                "provenance_granularity": "none",
+            },
+            evidence=RetrievalEvidence(
+                semantic_provenance=EvidenceAssertion(
+                    status="n_a",
+                    reason_code="simplemem_synthesized_memory_not_turn_exact",
+                    reason="Fake mirrors the SimpleMem synthesized-memory contract.",
+                ),
+                provenance_granularity="none",
+                stable_ranking=EvidenceAssertion(
+                    status="pending",
+                    reason_code="simplemem_parallel_merge_has_no_stable_global_rank",
+                    reason="Fake mirrors the SimpleMem product-order contract.",
+                ),
+            ),
         )
 
 
@@ -181,6 +200,8 @@ def test_simplemem_registered_prediction_runs_locomo_and_longmemeval_fake_smoke(
 
         assert manifest["method_name"] == "SimpleMem"
         assert manifest["method"]["protocol_version"] == "v3"
+        assert manifest["method"]["provenance_granularity"] == "none"
+        assert manifest["method"]["retrieval_evidence_contract_version"] == "v1"
         assert manifest["method"]["prompt_track"] == "native"
         assert manifest["method"]["config"]["profile_name"] == "smoke"
         assert predictions[0]["answer"] == "framework fake answer"

@@ -1,0 +1,2 @@
+# 上游 A-Mem 快照含既有行尾空格；保留其字节身份，不把 vendor 格式漂移冒充算法改动。
+third_party/A-mem/** -whitespace

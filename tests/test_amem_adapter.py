@@ -23,13 +23,18 @@ from memory_benchmark.core import (
     Session,
     Turn,
 )
-from memory_benchmark.core.provider_protocol import MemoryProvider
+from memory_benchmark.core.provider_protocol import (
+    MemoryProvider,
+    RetrievalQuery,
+    SessionRef,
+    TurnEvent,
+)
 from memory_benchmark.methods.amem_adapter import (
     AMem,
     AMemConfig,
     build_amem_source_identity,
     clean_amem_conversation_state,
-    import_amem_robust_classes,
+    import_amem_product_classes,
 )
 import memory_benchmark.methods.amem_adapter as amem_adapter_module
 from memory_benchmark.methods.registry import MethodBuildContext, _build_amem_system
@@ -47,7 +52,7 @@ def test_amem_config_rejects_invalid_retrieve_k() -> None:
             embedding_model="all-MiniLM-L6-v2",
             retrieve_k=0,
             max_workers=1,
-            use_robust_layer=True,
+            use_product_layer=True,
             profile_name="bad",
         )
 
@@ -59,11 +64,11 @@ def test_amem_source_identity_covers_official_core_files() -> None:
 
     assert identity["source_sha256"]
     assert identity["file_count"] >= 3
-    assert "memory_layer_robust.py" in identity["files"]
-    assert "llm_text_parsers.py" in identity["files"]
+    assert identity["source_mode"] == "official-general-product-plus-wrapper"
+    assert "agentic_memory/memory_system.py" in identity["files"]
+    assert "agentic_memory/retrievers.py" in identity["files"]
     assert "README.md" in identity["files"]
-    assert "test_advanced_robust.py" in identity["files"]
-    assert "run_k_sweep.sh" in identity["files"]
+    assert "agentic_memory/llm_controller.py" in identity["files"]
 
 
 def test_clean_amem_conversation_state_only_removes_target_directory(
@@ -99,12 +104,26 @@ class FakeAMemRuntime:
 
         self.added_notes: list[dict[str, object]] = []
         self.queries: list[dict[str, object]] = []
-        self.memories: dict[str, dict[str, object]] = {}
+        self.memories: dict[str, SimpleNamespace] = {}
         self.retriever = FakeAMemRetriever()
         if build_llm is not None:
             self.llm_controller = SimpleNamespace(llm=build_llm)
 
-    def add_note(self, content: str, time: str | None = None) -> str:
+    def analyze_content(self, content: str) -> dict[str, object]:
+        """模拟通用产品显式内容分析入口。"""
+
+        return {
+            "keywords": ["memory"],
+            "context": "fake context",
+            "tags": ["fake"],
+        }
+
+    def add_note(
+        self,
+        content: str,
+        time: str | None = None,
+        **kwargs: object,
+    ) -> str:
         """记录写入内容并返回 fake note id。"""
 
         if hasattr(self, "llm_controller"):
@@ -112,15 +131,51 @@ class FakeAMemRuntime:
                 f"Analyze memory content: {content}",
                 temperature=0.3,
             )
-        self.added_notes.append({"content": content, "time": time})
+        self.added_notes.append({"content": content, "time": time, **kwargs})
         note_id = f"note-{len(self.added_notes)}"
-        self.memories[note_id] = {
-            "id": note_id,
-            "content": content,
-            "time": time,
-        }
+        self.memories[note_id] = SimpleNamespace(
+            id=note_id,
+            content=content,
+            timestamp=time,
+            keywords=list(kwargs.get("keywords") or []),
+            context=str(kwargs.get("context") or ""),
+            tags=list(kwargs.get("tags") or []),
+            links=[],
+            retrieval_count=0,
+            last_accessed=None,
+            evolution_history=[],
+            category="Uncategorized",
+        )
         self.retriever.saved_documents.append(content)
         return note_id
+
+    def update(self, note_id: str, **kwargs: object) -> bool:
+        """模拟产品 update，用于保留缺失时间。"""
+
+        note = self.memories.get(note_id)
+        if note is None:
+            return False
+        for key, value in kwargs.items():
+            setattr(note, key, value)
+        return True
+
+    def search_agentic(self, query: str, k: int = 5) -> list[dict[str, object]]:
+        """模拟通用产品有序检索入口。"""
+
+        self.queries.append({"query": query, "k": k})
+        return [
+            {
+                "id": note.id,
+                "content": note.content,
+                "timestamp": note.timestamp,
+                "context": note.context,
+                "keywords": note.keywords,
+                "tags": note.tags,
+                "score": 1.0 / index,
+                "is_neighbor": False,
+            }
+            for index, note in enumerate(list(self.memories.values())[:k], 1)
+        ]
 
     def find_related_memories_raw(self, query: str, k: int = 5) -> str:
         """记录检索请求并返回 fake memory context。"""
@@ -137,6 +192,17 @@ class FakeAMemRetriever:
 
         self.saved_documents: list[str] = []
         self.loaded_from: tuple[str, str] | None = None
+
+    def add_document(
+        self,
+        document: str,
+        metadata: dict[str, object],
+        doc_id: str,
+    ) -> None:
+        """模拟恢复时的产品索引重建。"""
+
+        del metadata, doc_id
+        self.saved_documents.append(document)
 
     def save(self, retriever_cache_file: str, retriever_cache_embeddings_file: str) -> None:
         """用文本文件模拟官方 retriever cache 和 embeddings 文件。"""
@@ -451,8 +517,224 @@ def test_amem_longmemeval_retrieve_uses_lightmem_style_reader_prompt(tmp_path) -
     assert retrieval.metadata["retrieve_k"] == 3
 
 
+def test_amem_v3_preserves_roles_speakers_caption_time_and_exact_lineage(
+    tmp_path: Path,
+) -> None:
+    """产品 v3 链路应无损写入五格输入并保留 turn sidecar。"""
+
+    runtime = FakeAMemRuntime()
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=10,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda _conversation_id: runtime,
+        storage_root=tmp_path,
+    )
+    method.ingest(
+        TurnEvent(
+            role="Caroline",
+            speaker_name="Caroline",
+            content="legacy caption rendering",
+            timestamp="1:56 pm on 8 May, 2023",
+            isolation_key="run_conv-1",
+            session_id="s1",
+            turn_id="D1:1",
+            metadata={
+                "conversation_id": "conv-1",
+                "original_content": "I adopted a cat.",
+                "original_session_time": "1:56 pm on 8 May, 2023",
+                "original_turn_time": None,
+                "turn_images": [
+                    {
+                        "image_id": "img-1",
+                        "path": None,
+                        "caption": "a gray kitten",
+                        "metadata": {},
+                    }
+                ],
+            },
+        )
+    )
+    method.ingest(
+        TurnEvent(
+            role="assistant",
+            speaker_name="assistant",
+            content="Thanks for sharing.",
+            timestamp="2024-10-01 08:00",
+            isolation_key="run_conv-1",
+            session_id="s1",
+            turn_id="D1:2",
+            metadata={
+                "conversation_id": "conv-1",
+                "original_content": "Thanks for sharing.",
+                "original_turn_time": "2024-10-01 08:00",
+            },
+        )
+    )
+
+    assert runtime.added_notes[0]["content"] == (
+        "Caroline: I adopted a cat. "
+        "[Sharing image that shows: a gray kitten]"
+    )
+    assert runtime.added_notes[0]["time"] == "1:56 pm on 8 May, 2023"
+    assert runtime.added_notes[1]["content"] == "assistant: Thanks for sharing."
+    assert runtime.added_notes[1]["time"] == "2024-10-01 08:00"
+
+    result = method.retrieve(
+        RetrievalQuery(
+            query_text="What pet did Caroline adopt?",
+            isolation_key="run_conv-1",
+            question_time=None,
+            top_k=10,
+            purpose="qa",
+        )
+    )
+
+    assert result.items is not None
+    assert [item.source_turn_ids for item in result.items] == [
+        ("D1:1",),
+        ("D1:2",),
+    ]
+    assert result.items[0].timestamp == "1:56 pm on 8 May, 2023"
+    assert "Time: 1:56 pm on 8 May, 2023" in result.formatted_memory
+    assert result.evidence is not None
+    assert result.evidence.semantic_provenance.status == "valid"
+    assert result.evidence.provenance_granularity == "turn"
+    assert result.evidence.stable_ranking.status == "valid"
+    assert runtime.queries[-1] == {
+        "query": "What pet did Caroline adopt?",
+        "k": 10,
+    }
+
+
+def test_amem_v3_preserves_missing_timestamp_and_reports_halumem_delta(
+    tmp_path: Path,
+) -> None:
+    """缺失时间不得被墙钟污染，HaluMem 只上报当前 session 新 note。"""
+
+    runtime = FakeAMemRuntime()
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=10,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda _conversation_id: runtime,
+        storage_root=tmp_path,
+        session_memory_report=True,
+        benchmark_name="halumem",
+    )
+    method.ingest(
+        TurnEvent(
+            role="user",
+            speaker_name="user",
+            content="A timeless noise message.",
+            timestamp=None,
+            isolation_key="run_conv-1",
+            session_id="s1",
+            turn_id="t1",
+            metadata={"conversation_id": "conv-1"},
+        )
+    )
+    first = method.end_session(SessionRef("run_conv-1", "s1"))
+    second = method.end_session(SessionRef("run_conv-1", "s1"))
+
+    assert runtime.memories["note-1"].timestamp is None
+    assert first is not None and second is not None
+    assert len(first.memories) == 1
+    assert "Memory content: user: A timeless noise message." in first.memories[0]
+    assert second.memories == []
+
+
+def test_amem_v3_rejects_product_analysis_failure_sentinel(tmp_path: Path) -> None:
+    """官方吞掉 API/JSON 异常后的固定空分析不得形成假绿 note。"""
+
+    runtime = FakeAMemRuntime()
+    runtime.analyze_content = lambda _content: {
+        "keywords": [],
+        "context": "General",
+        "tags": [],
+    }
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=10,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda _conversation_id: runtime,
+        storage_root=tmp_path,
+    )
+
+    with pytest.raises(ConfigurationError, match="content analysis failed"):
+        method.ingest(
+            TurnEvent(
+                role="user",
+                speaker_name="user",
+                content="important fact",
+                timestamp=None,
+                isolation_key="run_conv-1",
+                session_id="s1",
+                turn_id="t1",
+                metadata={"conversation_id": "conv-1"},
+            )
+        )
+
+    assert runtime.added_notes == []
+
+
+def test_amem_v3_rejects_false_zero_hit_from_nonempty_product_store(
+    tmp_path: Path,
+) -> None:
+    """search_agentic 吞错后返回的 [] 不得冒充合法 zero-hit。"""
+
+    runtime = FakeAMemRuntime()
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=10,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda _conversation_id: runtime,
+        storage_root=tmp_path,
+    )
+    method.ingest(
+        TurnEvent(
+            role="user",
+            speaker_name="user",
+            content="important fact",
+            timestamp=None,
+            isolation_key="run_conv-1",
+            session_id="s1",
+            turn_id="t1",
+            metadata={"conversation_id": "conv-1"},
+        )
+    )
+    runtime.search_agentic = lambda _query, k=5: []
+
+    with pytest.raises(ConfigurationError, match="non-empty memory store"):
+        method.retrieve(
+            RetrievalQuery(
+                query_text="important",
+                isolation_key="run_conv-1",
+                question_time=None,
+                top_k=10,
+                purpose="qa",
+            )
+        )
+
+
 def test_amem_add_persists_conversation_state(tmp_path) -> None:
-    """A-Mem 写完 conversation 后应保存 memories、retriever 和 manifest。"""
+    """A-Mem 写完 conversation 后应保存 memories、lineage 和 manifest。"""
 
     runtime = FakeAMemRuntime()
     method = AMem(
@@ -473,23 +755,21 @@ def test_amem_add_persists_conversation_state(tmp_path) -> None:
     state_dir = tmp_path / "conv-1"
     manifest = json.loads((state_dir / "state_manifest.json").read_text("utf-8"))
     assert (state_dir / "memories.pkl").is_file()
-    assert (state_dir / "retriever.pkl").is_file()
-    assert (state_dir / "retriever_embeddings.npy").is_file()
+    assert (state_dir / "note_lineage.json").is_file()
     assert manifest["conversation_id"] == "conv-1"
     assert manifest["adapter_version"]
     assert manifest["turn_count"] == 2
     assert manifest["profile"]["profile_name"] == "smoke"
     assert set(manifest["files"]) == {
         "memories.pkl",
-        "retriever.pkl",
-        "retriever_embeddings.npy",
+        "note_lineage.json",
     }
 
 
-def test_native_amem_matches_bridge_add_retrieve_and_state_sequence(
+def test_native_amem_preserves_add_state_but_uses_product_retrieval(
     tmp_path: Path,
 ) -> None:
-    """A-Mem 原生 turn 路径应等价复现 add_note、retrieve 与持久化状态。"""
+    """v3 保持写入/状态，检索则必须改用通用产品入口。"""
 
     conversation = _conversation_with_private_gold()
     question = conversation.questions[0]
@@ -528,7 +808,10 @@ def test_native_amem_matches_bridge_add_retrieve_and_state_sequence(
     )
 
     assert isinstance(native, MemoryProvider)
-    assert bridge_result.calls == native_result.calls
+    assert bridge_result.calls[:2] == native_result.calls[:2]
+    assert bridge_result.calls[-1] == native_result.calls[-1]
+    assert bridge_result.calls[2]["query"] == "generated keywords"
+    assert native_result.calls[2]["query"] == "What does Alice like?"
     assert (tmp_path / "native" / "conv-1" / "state_manifest.json").is_file()
 
 
@@ -599,10 +882,10 @@ def test_amem_load_existing_conversation_state_restores_runtime(tmp_path) -> Non
     assert answer.answer == "fake answer"
     assert restored_runtime.added_notes == []
     assert restored_runtime.memories == first_runtime.memories
-    assert restored_runtime.retriever.loaded_from == (
-        str(tmp_path / "conv-1" / "retriever.pkl"),
-        str(tmp_path / "conv-1" / "retriever_embeddings.npy"),
-    )
+    assert restored_runtime.retriever.loaded_from is None
+    assert restored_runtime.retriever.saved_documents == [
+        note.content for note in first_runtime.memories.values()
+    ]
     assert restored_runtime.queries == [{"query": "generated keywords", "k": 2}]
 
 
@@ -710,12 +993,106 @@ def test_amem_rejects_adversarial_category_without_gold_answer(tmp_path) -> None
         method.get_answer(question)
 
 
-def test_amem_can_import_official_robust_layer_without_calling_api() -> None:
-    """adapter 应能从 vendored A-Mem 源码导入官方 robust runtime 类。"""
+def test_amem_can_import_official_product_layer_without_calling_api() -> None:
+    """adapter 应能从 A-Mem 通用仓库导入官方产品 runtime。"""
 
-    classes = import_amem_robust_classes(load_path_settings())
+    classes = import_amem_product_classes(load_path_settings())
 
-    assert classes["RobustAgenticMemorySystem"].__name__ == "RobustAgenticMemorySystem"
+    assert classes["AgenticMemorySystem"].__name__ == "AgenticMemorySystem"
+    assert classes["ChromaRetriever"].__name__ == "ChromaRetriever"
+    assert classes["PersistentChromaRetriever"].__name__ == "PersistentChromaRetriever"
+    assert "third_party/A-mem/agentic_memory" in str(
+        Path(classes["memory_system_module"].__file__).resolve()
+    )
+
+
+def test_amem_scoped_consolidation_rebuilds_only_target_conversation(
+    tmp_path: Path,
+) -> None:
+    """产品触发 consolidation 时不得 reset sibling conversation 的索引。"""
+
+    class FakeClient:
+        """记录单个 conversation client 的 reset 次数。"""
+
+        def __init__(self) -> None:
+            """初始化 reset 计数。"""
+
+            self.reset_calls = 0
+
+        def reset(self) -> None:
+            """记录产品要求的索引清空动作。"""
+
+            self.reset_calls += 1
+
+    class FakeScopedRetriever:
+        """模拟 consolidation 后的 conversation-scoped retriever。"""
+
+        instances: list["FakeScopedRetriever"] = []
+
+        def __init__(self, collection_name: str, model_name: str) -> None:
+            """保留官方构造参数并记录新索引。"""
+
+            self.collection_name = collection_name
+            self.model_name = model_name
+            self.client = FakeClient()
+            self.documents: list[tuple[str, str]] = []
+            self.instances.append(self)
+
+        def add_document(
+            self,
+            document: str,
+            metadata: dict[str, object],
+            doc_id: str,
+        ) -> None:
+            """记录按官方 MemoryNote 集合重建的文档。"""
+
+            assert metadata["id"] == doc_id
+            self.documents.append((doc_id, document))
+
+    target_client = FakeClient()
+    sibling_client = FakeClient()
+    note = SimpleNamespace(
+        id="note-1",
+        content="target memory",
+        keywords=["target"],
+        links=[],
+        retrieval_count=0,
+        timestamp=None,
+        last_accessed=None,
+        context="test",
+        evolution_history=[],
+        category="Uncategorized",
+        tags=["test"],
+    )
+    runtime = SimpleNamespace(
+        model_name="all-MiniLM-L6-v2",
+        retriever=SimpleNamespace(client=target_client),
+        memories={"note-1": note},
+    )
+    method = AMem(
+        config=AMemConfig(
+            llm_model="gpt-4o-mini",
+            embedding_model="all-MiniLM-L6-v2",
+            retrieve_k=2,
+            max_workers=1,
+            profile_name="smoke",
+        ),
+        runtime_factory=lambda _conversation_id: runtime,
+        storage_root=tmp_path,
+    )
+
+    method._bind_conversation_scoped_consolidation(
+        runtime=runtime,
+        conversation_id="target",
+        retriever_cls=FakeScopedRetriever,
+    )
+    runtime.consolidate_memories()
+
+    assert target_client.reset_calls == 1
+    assert sibling_client.reset_calls == 0
+    assert runtime.retriever.documents == [("note-1", "target memory")]
+    assert runtime.retriever.collection_name == "memories"
+    assert runtime.retriever.model_name == "all-MiniLM-L6-v2"
 
 
 def test_amem_production_runtime_receives_openai_compatible_settings(
@@ -727,7 +1104,7 @@ def test_amem_production_runtime_receives_openai_compatible_settings(
     created_kwargs: dict[str, object] = {}
 
     class FakeOfficialRuntime:
-        """替代官方 RobustAgenticMemorySystem，避免加载真实 embedding 模型。"""
+        """替代官方 AgenticMemorySystem，避免加载真实 embedding 模型。"""
 
         def __init__(self, **kwargs) -> None:
             """记录 wrapper 传入官方 runtime 的构造参数。"""
@@ -752,10 +1129,12 @@ def test_amem_production_runtime_receives_openai_compatible_settings(
 
     monkeypatch.setattr(
         amem_adapter_module,
-        "import_amem_robust_classes",
+        "import_amem_product_classes",
         lambda path_settings=None: {
-            "RobustAgenticMemorySystem": FakeOfficialRuntime,
-            "RobustLLMController": object,
+            "AgenticMemorySystem": FakeOfficialRuntime,
+            "ChromaRetriever": object,
+            "PersistentChromaRetriever": object,
+            "memory_system_module": SimpleNamespace(ChromaRetriever=object),
         },
     )
     method = AMem(
@@ -777,15 +1156,15 @@ def test_amem_production_runtime_receives_openai_compatible_settings(
     assert created_kwargs["llm_backend"] == "openai"
     assert created_kwargs["llm_model"] == "gpt-4o-mini"
     assert created_kwargs["api_key"] == "test-key"
-    assert created_kwargs["api_base"] == "https://api.example.test/v1"
-    assert created_kwargs["check_connection"] is False
+    assert "api_base" not in created_kwargs
+    assert "check_connection" not in created_kwargs
 
 
-def test_amem_replaces_official_openai_client_when_base_url_is_configured(
+def test_amem_configures_official_openai_client_transport(
     monkeypatch,
     tmp_path,
 ) -> None:
-    """官方 OpenAI controller 忽略 api_base 时，adapter 应在 wrapper 层注入 base URL。"""
+    """adapter 应给官方 client 注入 endpoint、timeout 与 retry。"""
 
     created_clients: list[dict[str, str | None]] = []
     runtime_instances: list[object] = []
@@ -817,10 +1196,12 @@ def test_amem_replaces_official_openai_client_when_base_url_is_configured(
 
     monkeypatch.setattr(
         amem_adapter_module,
-        "import_amem_robust_classes",
+        "import_amem_product_classes",
         lambda path_settings=None: {
-            "RobustAgenticMemorySystem": FakeOfficialRuntime,
-            "RobustLLMController": object,
+            "AgenticMemorySystem": FakeOfficialRuntime,
+            "ChromaRetriever": object,
+            "PersistentChromaRetriever": object,
+            "memory_system_module": SimpleNamespace(ChromaRetriever=object),
         },
     )
     monkeypatch.setattr(
@@ -975,7 +1356,7 @@ def test_amem_records_memory_build_llm_api_usage(tmp_path) -> None:
     assert len(llm_records) == 2
     assert {record["stage"] for record in llm_records} == {"memory_build"}
     assert {record["model_id"] for record in llm_records} == {
-        "amem-memory-build-llm"
+        "amem-memory-llm"
     }
     assert all(
         record["token_measurement_source"] == "api_usage"
