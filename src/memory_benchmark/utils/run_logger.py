@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ class RunLogger:
         self.run_log_path = self.log_dir / "run.log"
         self.events_path = self.log_dir / "events.jsonl"
         self.console = Console()
+        self._lock = threading.Lock()
 
     def info(self, message: str) -> None:
         """输出一条人类可读日志到终端和 run.log。
@@ -53,15 +55,16 @@ class RunLogger:
         """
 
         timestamp = self._current_timestamp()
-        try:
-            plain_message = Text.from_markup(message).plain
-            self.console.print(message)
-        except MarkupError:
-            # Rich markup 写错时降级为普通文本，避免长实验因为日志格式中断。
-            plain_message = message
-            self.console.print(message, markup=False)
-        with self.run_log_path.open("a", encoding="utf-8") as log_file:
-            log_file.write(f"[{timestamp}] {plain_message}\n")
+        with self._lock:
+            try:
+                plain_message = Text.from_markup(message).plain
+                self.console.print(message)
+            except MarkupError:
+                # Rich markup 写错时降级为普通文本，避免长实验因为日志格式中断。
+                plain_message = message
+                self.console.print(message, markup=False)
+            with self.run_log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(f"[{timestamp}] {plain_message}\n")
 
     def log_event(self, event: str, payload: dict[str, Any]) -> None:
         """追加一条结构化 JSONL 事件。
@@ -79,8 +82,9 @@ class RunLogger:
             "event": event,
             "payload": payload,
         }
-        with self.events_path.open("a", encoding="utf-8") as events_file:
-            events_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        with self._lock:
+            with self.events_path.open("a", encoding="utf-8") as events_file:
+                events_file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _current_timestamp(self) -> str:
         """返回 UTC ISO-8601 时间戳字符串。

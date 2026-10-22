@@ -1,67 +1,40 @@
-"""LoCoMo conversation-QA v2 adapter。
+"""LoCoMo conversation-QA adapter。
 
-本模块只负责把 `data/locomo/locomo10.json` 转换为统一的
+本模块负责把 `data/locomo/locomo10.json` 转换为统一的
 `Dataset -> Conversation -> Session -> Turn -> Question` 结构。标准答案和
 evidence 只写入 `GoldAnswerInfo`，不能进入 method 可见的 `Question`。
 """
 
 from __future__ import annotations
 
-import copy
-import hashlib
 import json
 import re
-from pathlib import Path
 from typing import Any
 
 from memory_benchmark.core import (
     Conversation,
     Dataset,
     GoldAnswerInfo,
-    GoldEvidenceGroup,
-    GoldEvidenceGroupSet,
     ImageRef,
     Question,
     Session,
     Turn,
+    map_native_task_to_capability,
 )
-from memory_benchmark.core.exceptions import ConfigurationError, DatasetValidationError
+from memory_benchmark.core.exceptions import DatasetValidationError
 
 from .base import BenchmarkAdapter, reached_limit
-from .contracts import (
-    BenchmarkLoadRequest,
-    BenchmarkVariantSpec,
-    PreparedBenchmarkRun,
-    RunScope,
-)
 
 
 LOCOMO_SOURCE_PATH = "data/locomo/locomo10.json"
-LOCOMO_VARIANT_SPECS = (
-    BenchmarkVariantSpec(
-        name="locomo10",
-        source_relative_paths=(Path(LOCOMO_SOURCE_PATH),),
-    ),
-)
-DEFAULT_SMOKE_TURN_LIMIT = 20
 ADVERSARIAL_CATEGORY = "5"
 SESSION_KEY_PATTERN = re.compile(r"^session_(\d+)$")
-
-# 官方来源身份锁定值：见
-# docs/workstreams/ws02.6-first-smoke-hardening/notes/locomo-source-lock.json。
-# commit 是外部事实，无法从本地数据文件计算，因此保持常量；数据集哈希改为
-# load_dataset() 中对实际读取字节现算，不在此处硬编码。
-LOCOMO_OFFICIAL_SOURCE_COMMIT = "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376"
-# LoCoMo 论文另外定义 event summarization 与 multimodal dialogue generation，
-# 本 adapter 只冻结 QA 这一个 task。
 LOCOMO_TASK = "question_answering"
-# Phase 1 政策：排除 category 5（adversarial/unanswerable），与
-# ADVERSARIAL_CATEGORY 保持单一事实源。
 LOCOMO_EXCLUDED_QUESTION_CATEGORIES = (int(ADVERSARIAL_CATEGORY),)
 
 
 class LoCoMoAdapter(BenchmarkAdapter):
-    """LoCoMo benchmark 的 conversation-QA v2 数据 adapter。
+    """LoCoMo benchmark 数据 adapter。
 
     输入数据:
         项目根目录下的 `data/locomo/locomo10.json`。
@@ -74,15 +47,7 @@ class LoCoMoAdapter(BenchmarkAdapter):
     name = "locomo"
 
     def load_dataset(self, limit: int | None = None) -> Dataset:
-        """读取 LoCoMo 原始数据并转换为统一 Dataset。
-
-        输入:
-            limit: 最多读取多少个 conversation；None 表示读取全部样本。
-
-        输出:
-            Dataset: dataset_name 固定为 `locomo`，metadata 记录来源和 split。
-        """
-
+        """读取 LoCoMo 原始数据并转换为统一 Dataset。"""
         if limit is not None and limit <= 0:
             raise DatasetValidationError("locomo limit must be a positive integer")
 
@@ -95,18 +60,13 @@ class LoCoMoAdapter(BenchmarkAdapter):
             if reached_limit(len(conversations), limit):
                 break
 
-        # official_question_count/phase1_question_count 只统计本次实际加载
-        # （尊重 limit）的 sample，不是对全量文件的固定断言。
         processed_sample_items = sample_items[: len(conversations)]
         official_question_count = sum(
             len(sample.get("qa", [])) for _, sample in processed_sample_items
         )
-        phase1_question_count = sum(
+        loaded_question_count = sum(
             len(conversation.questions) for conversation in conversations
         )
-        source_sha256 = hashlib.sha256(
-            self.require_path("data", "locomo", "locomo10.json").read_bytes()
-        ).hexdigest()
 
         return Dataset(
             dataset_name=self.name,
@@ -117,10 +77,8 @@ class LoCoMoAdapter(BenchmarkAdapter):
                 "source_format": "locomo",
                 "total_raw_samples": len(sample_items),
                 "task": LOCOMO_TASK,
-                "official_source_commit": LOCOMO_OFFICIAL_SOURCE_COMMIT,
-                "source_sha256": source_sha256,
                 "official_question_count": official_question_count,
-                "phase1_question_count": phase1_question_count,
+                "loaded_question_count": loaded_question_count,
                 "excluded_question_categories": list(LOCOMO_EXCLUDED_QUESTION_CATEGORIES),
             },
         )
@@ -130,33 +88,16 @@ class LoCoMoAdapter(BenchmarkAdapter):
         sample: dict[str, Any],
         raw_index: str,
     ) -> Conversation:
-        """把一个 LoCoMo sample 转成 Conversation。
-
-        输入:
-            sample: 原始 top-level sample。
-            raw_index: sample_id 缺失时用于错误定位的原始序号。
-
-        输出:
-            Conversation: 包含 sessions、公开 questions 和私有 gold_answers。
-        """
-
+        """把一个 LoCoMo sample 转成 Conversation。"""
         conversation_id = _required_text(sample, "sample_id", f"sample {raw_index}")
         conversation_raw = _required_dict(sample, "conversation", conversation_id)
         sessions = [
             self._session_from_raw(conversation_raw, session_key)
             for session_key in _session_keys(conversation_raw)
         ]
-        canonical_turn_ids = {
-            turn.turn_id for session in sessions for turn in session.turns
-        }
-        canonical_session_prefixes = {
-            _evidence_session_prefix(turn_id) for turn_id in canonical_turn_ids
-        }
         questions, gold_answers, skipped_adversarial_count = self._questions_from_raw(
             sample.get("qa", []),
             conversation_id,
-            canonical_turn_ids=canonical_turn_ids,
-            canonical_session_prefixes=canonical_session_prefixes,
         )
 
         return Conversation(
@@ -178,16 +119,7 @@ class LoCoMoAdapter(BenchmarkAdapter):
         conversation_raw: dict[str, Any],
         session_key: str,
     ) -> Session:
-        """把一个 `session_<n>` 字段转成 Session。
-
-        输入:
-            conversation_raw: 原始 `conversation` 字段。
-            session_key: 形如 `session_1` 的 session 字段名。
-
-        输出:
-            Session: session_id 沿用原始 key，session_time 来自相邻时间字段。
-        """
-
+        """把一个 `session_<n>` 字段转成 Session。"""
         turns_raw = conversation_raw.get(session_key)
         if not isinstance(turns_raw, list):
             raise DatasetValidationError(f"{session_key}: session must be a list")
@@ -210,22 +142,8 @@ class LoCoMoAdapter(BenchmarkAdapter):
         self,
         qa_raw: object,
         conversation_id: str,
-        *,
-        canonical_turn_ids: set[str],
-        canonical_session_prefixes: set[str],
     ) -> tuple[list[Question], dict[str, GoldAnswerInfo], int]:
-        """把 LoCoMo QA 标注拆成公开 Question 和私有 GoldAnswerInfo。
-
-        输入:
-            qa_raw: 原始 sample["qa"]，应为 list[dict]。
-            conversation_id: 当前 conversation 的 id。
-            canonical_turn_ids: 当前 conversation 的全部公开 turn id。
-            canonical_session_prefixes: 公开 turn id 的 `D<n>` session 前缀集合。
-
-        输出:
-            tuple: `(questions, gold_answers, skipped_adversarial_count)`。
-        """
-
+        """把 LoCoMo QA 标注拆成公开 Question 和私有 GoldAnswerInfo。"""
         if not isinstance(qa_raw, list):
             raise DatasetValidationError(f"{conversation_id}: qa must be a list")
 
@@ -247,210 +165,35 @@ class LoCoMoAdapter(BenchmarkAdapter):
             if "answer" not in qa_item:
                 raise DatasetValidationError(f"{question_id}: answer is required")
 
+            capability = map_native_task_to_capability("locomo", category)
             questions.append(
                 Question(
                     question_id=question_id,
                     conversation_id=conversation_id,
                     text=question_text,
                     category=category,
+                    capability=capability,
                     metadata={"source_index": index},
                 )
             )
-            evidence = _evidence_to_list(qa_item.get("evidence"))
             gold_answers[question_id] = GoldAnswerInfo(
                 question_id=question_id,
                 answer=_answer_to_text(qa_item.get("answer")),
-                evidence=evidence,
                 metadata={
                     "category": category,
                     "source_index": index,
                 },
-                gold_evidence_contract_version="v1",
-                evidence_group_sets=_locomo_evidence_group_sets(
-                    evidence,
-                    canonical_turn_ids=canonical_turn_ids,
-                    canonical_session_prefixes=canonical_session_prefixes,
-                ),
             )
 
         return questions, gold_answers, skipped_adversarial_count
 
 
-def prepare_locomo_run(
-    project_root: Path,
-    request: BenchmarkLoadRequest,
-) -> PreparedBenchmarkRun:
-    """为 LoCoMo concrete variant 构造一次完整或 smoke 运行。"""
-
-    adapter = LoCoMoAdapter(project_root)
-    if request.run_scope is RunScope.FULL:
-        dataset = adapter.load()
-    elif request.run_scope is RunScope.PILOT:
-        dataset = adapter.load(limit=request.smoke_conversation_limit)
-    elif request.run_scope is RunScope.SMOKE:
-        source_dataset = adapter.load(limit=request.smoke_conversation_limit)
-        dataset = build_locomo_smoke_dataset(
-            source_dataset,
-            turn_limit=request.smoke_turn_limit,
-            conversation_limit=request.smoke_conversation_limit,
-        )
-    else:  # pragma: no cover - RunScope 是封闭枚举
-        raise ConfigurationError(f"unsupported LoCoMo run scope: {request.run_scope}")
-
-    metadata = copy.deepcopy(dataset.metadata)
-    metadata["variant"] = request.variant
-    metadata["run_scope"] = request.run_scope.value
-    return PreparedBenchmarkRun(
-        variant=request.variant,
-        run_scope=request.run_scope,
-        dataset=Dataset(
-            dataset_name=dataset.dataset_name,
-            conversations=list(dataset.conversations),
-            metadata=metadata,
-        ),
-        source_relative_paths=LOCOMO_VARIANT_SPECS[0].source_relative_paths,
-    )
-
-
-def build_locomo_smoke_dataset(
-    dataset: Dataset,
-    turn_limit: int = DEFAULT_SMOKE_TURN_LIMIT,
-    conversation_limit: int = 1,
-) -> Dataset:
-    """从前若干个 LoCoMo conversation 构造低成本的 flow-through smoke 数据。
-
-    输入:
-        dataset: 至少包含一个完整 LoCoMo conversation 的统一数据集。
-        turn_limit: 按原始 session/turn 顺序最多保留的 turn 数（LoCoMo 的
-            1 round 由调用方换算为 2 个连续 turn 后传入此参数；本函数只按
-            turn 数裁剪，不感知 round 概念）。
-        conversation_limit: 选择的 conversation 数。
-
-    输出:
-        Dataset: 每个 conversation 都只保留截断历史和确定性选出的首个
-        Phase-1 public question。
-
-    说明:
-        smoke 只验证四步链路是否跑通，不要求问题在截断历史内可回答；question
-        选择和 method 可见 metadata 都不读取 evidence；
-        `smoke_context_truncated` 只表示公开 history 是否被裁短。
-    """
-
-    if turn_limit < 1:
-        raise ConfigurationError("LoCoMo smoke turn_limit must be at least 1")
-    if conversation_limit < 1:
-        raise ConfigurationError("LoCoMo smoke conversation_limit must be at least 1")
-    if not dataset.conversations:
-        raise ConfigurationError("LoCoMo smoke requires at least one conversation")
-    selected_conversation_limit = min(conversation_limit, len(dataset.conversations))
-
-    smoke_conversations = [
-        _build_locomo_smoke_conversation(source, turn_limit)
-        for source in dataset.conversations[:selected_conversation_limit]
-    ]
-    return Dataset(
-        dataset_name=dataset.dataset_name,
-        conversations=smoke_conversations,
-        metadata={
-            **copy.deepcopy(dataset.metadata),
-            "run_scope": "smoke",
-            "smoke_turn_limit": turn_limit,
-            "smoke_conversation_limit": conversation_limit,
-            "smoke_selected_conversation_count": selected_conversation_limit,
-            "smoke_history_axis": "rounds",
-            "smoke_round_limit": turn_limit // 2,
-        },
-    )
-
-
-def _build_locomo_smoke_conversation(
-    source: Conversation,
-    turn_limit: int,
-) -> Conversation:
-    """裁剪一个 LoCoMo conversation，并确定性选择首个 Phase-1 public question。
-
-    输入:
-        source: 待裁剪的完整 LoCoMo conversation。
-        turn_limit: 按 session/turn 顺序最多保留的 turn 数。
-
-    输出:
-        Conversation: 裁剪后的历史、`source.questions` 中的第一个问题及其对应
-        私有标准答案。question 选择和公开 metadata 永远不读取 evidence。
-    """
-
-    retained_sessions: list[Session] = []
-    remaining = turn_limit
-    for session in source.sessions:
-        if remaining <= 0:
-            break
-        retained_turns = copy.deepcopy(session.turns[:remaining])
-        if not retained_turns:
-            continue
-        retained_sessions.append(
-            Session(
-                session_id=session.session_id,
-                turns=retained_turns,
-                session_time=session.session_time,
-                start_time=session.start_time,
-                end_time=session.end_time,
-                metadata=copy.deepcopy(session.metadata),
-            )
-        )
-        remaining -= len(retained_turns)
-
-    if not source.questions:
-        raise ConfigurationError(
-            f"LoCoMo smoke source conversation has no questions: "
-            f"{source.conversation_id}"
-        )
-    selected_question = copy.deepcopy(source.questions[0])
-    gold = source.gold_answers[selected_question.question_id]
-    source_turn_count = sum(len(session.turns) for session in source.sessions)
-    retained_turn_count = sum(len(session.turns) for session in retained_sessions)
-    context_truncated = retained_turn_count < source_turn_count
-    selected_gold_answers = {selected_question.question_id: copy.deepcopy(gold)}
-
-    return Conversation(
-        conversation_id=source.conversation_id,
-        sessions=retained_sessions,
-        questions=[selected_question],
-        gold_answers=selected_gold_answers,
-        metadata={
-            **copy.deepcopy(source.metadata),
-            "smoke_turn_limit": turn_limit,
-            "smoke_context_truncated": context_truncated,
-            "smoke_selected_question_id": selected_question.question_id,
-            "smoke_selected_question_ids": [selected_question.question_id],
-            "smoke_selected_question_count": 1,
-            "smoke_question_selection_strategy": "first_phase1_question",
-        },
-    )
-
-
 def _session_keys(conversation_raw: dict[str, object]) -> list[str]:
-    """返回按数字顺序排列的真实 session key。
-
-    输入:
-        conversation_raw: LoCoMo 原始 `conversation` 字段。
-
-    输出:
-        list[str]: 所有 `session_<n>` 字段，不包含日期字段。值类型由后续转换校验。
-    """
-
     keys = [key for key in conversation_raw if SESSION_KEY_PATTERN.fullmatch(key)]
     return sorted(keys, key=_session_number)
 
 
 def _session_number(session_key: str) -> int:
-    """从 `session_<n>` 中解析数字 n。
-
-    输入:
-        session_key: 原始 session 字段名。
-
-    输出:
-        int: session 的数字序号。
-    """
-
     match = SESSION_KEY_PATTERN.fullmatch(session_key)
     if match is None:
         raise DatasetValidationError(f"{session_key}: invalid session key")
@@ -458,15 +201,6 @@ def _session_number(session_key: str) -> int:
 
 
 def _qa_category(raw: dict[str, object]) -> str | None:
-    """读取 QA category 并转成公开字符串。
-
-    输入:
-        raw: 单条 LoCoMo QA dict。
-
-    输出:
-        str | None: category 缺失或为空时返回 None，否则返回字符串。
-    """
-
     category = raw.get("category")
     if category is None:
         return None
@@ -475,15 +209,6 @@ def _qa_category(raw: dict[str, object]) -> str | None:
 
 
 def _sample_items(raw_samples: object) -> list[tuple[str, dict[str, Any]]]:
-    """把顶层 JSON 统一成 `(raw_index, sample)` 列表。
-
-    输入:
-        raw_samples: `json.load()` 读取出的顶层对象。
-
-    输出:
-        list[tuple[str, dict]]: 按原始顺序排列的 sample。
-    """
-
     if isinstance(raw_samples, list):
         items = [(str(index), sample) for index, sample in enumerate(raw_samples)]
     elif isinstance(raw_samples, dict):
@@ -498,23 +223,15 @@ def _sample_items(raw_samples: object) -> list[tuple[str, dict[str, Any]]]:
 
 
 def _turn_from_raw(raw_turn: object, session_number: int, turn_index: int) -> Turn:
-    """把原始 LoCoMo turn 转成统一 Turn。
-
-    输入:
-        raw_turn: 原始 turn dict。
-        session_number: 所属 session 数字序号，用于生成后备 turn_id。
-        turn_index: 当前 session 内从 1 开始的 turn 序号。
-
-    输出:
-        Turn: speaker/content 沿用原始字段，图片信息保存在 ImageRef/metadata。
-    """
-
     if not isinstance(raw_turn, dict):
         raise DatasetValidationError(f"D{session_number}:{turn_index}: turn must be a dict")
 
     turn_id = _optional_text(raw_turn.get("dia_id")) or f"D{session_number}:{turn_index}"
     speaker = _required_text(raw_turn, "speaker", turn_id)
     content = _optional_text(raw_turn.get("text")) or ""
+    caption = _optional_text(raw_turn.get("blip_caption"))
+    if caption:
+        content = f"{content} (image description: {caption})".strip()
     images = _image_refs_from_turn(raw_turn, turn_id)
 
     metadata: dict[str, Any] = {}
@@ -535,16 +252,6 @@ def _turn_from_raw(raw_turn: object, session_number: int, turn_index: int) -> Tu
 
 
 def _image_refs_from_turn(raw_turn: dict[str, Any], turn_id: str) -> list[ImageRef]:
-    """从 LoCoMo turn 中提取可选图片引用。
-
-    输入:
-        raw_turn: 原始 turn dict。
-        turn_id: 当前 turn id，用于生成稳定 image_id。
-
-    输出:
-        list[ImageRef]: 每个 URL 一个 ImageRef；只有 caption 时也保留一个引用。
-    """
-
     caption = _optional_text(raw_turn.get("blip_caption"))
     query = _optional_text(raw_turn.get("query"))
     image_urls = _image_url_list(raw_turn.get("img_url"))
@@ -572,15 +279,6 @@ def _image_refs_from_turn(raw_turn: dict[str, Any], turn_id: str) -> list[ImageR
 
 
 def _image_url_list(value: object) -> list[str]:
-    """把 `img_url` 字段转成 URL 字符串列表。
-
-    输入:
-        value: 原始 `img_url`，通常是 list[str]，也兼容单个字符串。
-
-    输出:
-        list[str]: 去掉空值后的 URL 列表。
-    """
-
     if value is None:
         return []
     if isinstance(value, list):
@@ -590,16 +288,6 @@ def _image_url_list(value: object) -> list[str]:
 
 
 def _image_metadata(url: str | None, query: str | None) -> dict[str, Any]:
-    """构造 ImageRef 的公开 metadata。
-
-    输入:
-        url: 原始图片 URL。
-        query: 原始图片搜索 query。
-
-    输出:
-        dict[str, Any]: 不包含 answer/evidence 的图片公开元信息。
-    """
-
     metadata: dict[str, Any] = {}
     if url is not None:
         metadata["url"] = url
@@ -610,17 +298,6 @@ def _image_metadata(url: str | None, query: str | None) -> dict[str, Any]:
 
 
 def _required_dict(raw: dict[str, Any], key: str, context: str) -> dict[str, Any]:
-    """读取必填 dict 字段。
-
-    输入:
-        raw: 原始父 dict。
-        key: 必填字段名。
-        context: 错误消息中的定位信息。
-
-    输出:
-        dict[str, Any]: 对应字段值。
-    """
-
     value = raw.get(key)
     if not isinstance(value, dict):
         raise DatasetValidationError(f"{context}: {key} must be a dict")
@@ -628,17 +305,6 @@ def _required_dict(raw: dict[str, Any], key: str, context: str) -> dict[str, Any
 
 
 def _required_text(raw: dict[str, Any], key: str, context: str) -> str:
-    """读取必填文本字段。
-
-    输入:
-        raw: 原始父 dict。
-        key: 必填字段名。
-        context: 错误消息中的定位信息。
-
-    输出:
-        str: 去掉首尾空白后的文本。
-    """
-
     value = _optional_text(raw.get(key))
     if value is None:
         raise DatasetValidationError(f"{context}: {key} is required")
@@ -646,15 +312,6 @@ def _required_text(raw: dict[str, Any], key: str, context: str) -> str:
 
 
 def _optional_text(value: object) -> str | None:
-    """把可选字段转成非空字符串。
-
-    输入:
-        value: 任意原始值。
-
-    输出:
-        str | None: None 或空白字符串返回 None，其余值返回字符串。
-    """
-
     if value is None:
         return None
     text = str(value).strip()
@@ -662,15 +319,6 @@ def _optional_text(value: object) -> str | None:
 
 
 def _answer_to_text(value: object) -> str:
-    """把标准答案安全转成字符串。
-
-    输入:
-        value: 原始 answer，可能是 str、int、list 或 dict。
-
-    输出:
-        str: 用于 evaluator 的答案文本。
-    """
-
     if value is None:
         return ""
     if isinstance(value, str):
@@ -681,98 +329,9 @@ def _answer_to_text(value: object) -> str:
 
 
 def _evidence_to_list(value: object) -> list[str]:
-    """把原始 evidence 转成字符串列表。
-
-    输入:
-        value: 原始 evidence，通常是 list[str]。
-
-    输出:
-        list[str]: evaluator-only evidence ids。
-    """
-
     if value is None:
         return []
     if isinstance(value, list):
         return [str(item) for item in value if str(item).strip()]
     text = str(value).strip()
     return [text] if text else []
-
-
-def _evidence_session_prefix(dia_id: str) -> str:
-    """把 `D<n>:<turn>` 形式的 dia_id 向上聚合为 `D<n>` session 前缀。
-
-    与 `evaluators/locomo_recall.py` 的官方 session 上卷语义保持一字节不差：
-    无冒号的 token 原样返回（畸形 token 永不命中，但保留在分母中）。
-    """
-
-    prefix, _, rest = dia_id.partition(":")
-    return prefix if rest else dia_id
-
-
-def _locomo_evidence_group_sets(
-    evidence: list[str],
-    *,
-    canonical_turn_ids: set[str],
-    canonical_session_prefixes: set[str],
-) -> tuple[GoldEvidenceGroupSet, ...]:
-    """把官方 evidence dia_id 展开为 evaluator-private gold evidence group views。
-
-    输入:
-        evidence: 官方 QA evidence dia_id 列表（未去重）。
-        canonical_turn_ids: 当前 conversation 全部公开 turn id。
-        canonical_session_prefixes: 公开 turn id 的 `D<n>` session 前缀集合。
-
-    输出:
-        tuple[GoldEvidenceGroupSet, ...]: turn view（`locomo_utterance`，同名
-        canonical turn 为 child）与 session view
-        （`locomo_utterance_session_projection`，每个官方 dia_id 仍是一个 unit，
-        child 是其 `D<n>` 前缀）。官方 dia_id 稳定去重；无法映射为 unmatched；
-        空 evidence 保留空 groups。
-    """
-
-    deduped_dia_ids = list(dict.fromkeys(evidence))
-    turn_groups = tuple(
-        GoldEvidenceGroup(
-            unit_id=dia_id,
-            child_ids=(dia_id,),
-            mapping_status="mapped",
-        )
-        if dia_id in canonical_turn_ids
-        else GoldEvidenceGroup(
-            unit_id=dia_id,
-            child_ids=(),
-            mapping_status="unmatched",
-        )
-        for dia_id in deduped_dia_ids
-    )
-    session_groups: list[GoldEvidenceGroup] = []
-    for dia_id in deduped_dia_ids:
-        session_prefix = _evidence_session_prefix(dia_id)
-        if session_prefix in canonical_session_prefixes:
-            session_groups.append(
-                GoldEvidenceGroup(
-                    unit_id=dia_id,
-                    child_ids=(session_prefix,),
-                    mapping_status="mapped",
-                )
-            )
-        else:
-            session_groups.append(
-                GoldEvidenceGroup(
-                    unit_id=dia_id,
-                    child_ids=(),
-                    mapping_status="unmatched",
-                )
-            )
-    return (
-        GoldEvidenceGroupSet(
-            provenance_granularity="turn",
-            unit_kind="locomo_utterance",
-            groups=turn_groups,
-        ),
-        GoldEvidenceGroupSet(
-            provenance_granularity="session",
-            unit_kind="locomo_utterance_session_projection",
-            groups=tuple(session_groups),
-        ),
-    )

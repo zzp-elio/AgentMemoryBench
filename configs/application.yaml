@@ -1,0 +1,267 @@
+# ============================================================================
+# AgentMemoryBench 统一应用配置文件 (仿 Spring Boot application.yaml + Profile 覆盖机制)
+# ============================================================================
+# 1. 顶层 [llm] 与 [prompts] 定义全局默认基线 (Base Defaults)；
+# 2. [benchmarks.<name>] 定义各评测基准及其细分题型的差异化覆盖 (Profile Overrides)；
+# 3. 运行时由 AppConfig 深度合并后，通过构造器依赖注入 (DI) 传给 Reader 与 Evaluator。
+
+llm:
+  answer:
+    api_key: "${API_KEY:}"
+    base_url: "${BASE_URL:https://api.openai.com/v1}"
+    model: "${MODEL_NAME:gpt-4o-mini}"
+    temperature: 0.0
+    max_tokens: 512
+    timeout_seconds: 60.0
+    max_retries: 2
+
+  judge:
+    api_key: "${API_KEY:}"
+    base_url: "${BASE_URL:https://api.openai.com/v1}"
+    model: "${MODEL_NAME:gpt-4o-mini}"
+    temperature: 0.0
+    max_tokens: 4096
+    timeout_seconds: 60.0
+    max_retries: 2
+
+prompts:
+  answer_system: |
+    You are an accurate question-answering assistant.
+    Answer the question concisely and strictly based on the provided memory context.
+    If the memory context does not contain enough information, answer "I don't know".
+  answer_user: |
+    [Retrieved Memory Context]
+    {memory_context}
+
+    [Question Time]: {question_time}
+    [Question]: {question}
+
+    Answer:
+  judge_system: |
+    You are an impartial evaluation judge comparing a [Predicted Answer] against a [Gold Answer].
+    Rules:
+    1. Semantic Equivalence: Focus on factual equivalence rather than exact lexical overlap.
+    2. Temporal Reference: Use [Question Time] to verify relative time expressions (e.g., "3 years" vs "since 2020").
+    3. Anti-Hedging: Penalize hedging or extra fabricated claims that contradict the gold answer.
+    4. Selective Abstention (UNDECIDABLE): If [Question Time] or context is missing and you cannot objectively verify whether the predicted answer is equivalent to the gold answer, do NOT guess—output verdict "UNDECIDABLE" so a human reviewer can adjudicate.
+
+    Return ONLY a valid JSON object strictly matching the schema:
+    {"reason": "detailed step-by-step reasoning comparing prediction against gold answer", "verdict": "CORRECT" | "WRONG" | "UNDECIDABLE"}
+  judge_user: |
+    [Question]: {question}
+    [Question Time]: {question_time}
+    [Gold Answer]: {gold_answer}
+    [Predicted Answer]: {predicted_answer}
+
+# ============================================================================
+# 各 Benchmark 差异化配置覆盖 (含原生题型针对性 Prompt 矩阵)
+# ============================================================================
+benchmarks:
+  locomo:
+    llm:
+      answer:
+        temperature: 0.0
+        max_tokens: 256
+      judge:
+        temperature: 0.0
+        max_tokens: 4096
+    prompts:
+      answer_system: |
+        You are an intelligent memory assistant tasked with retrieving accurate information from conversation memories.
+
+        # CONTEXT:
+        You have access to memories from two speakers in a conversation. These memories contain 
+        timestamped information that may be relevant to answering the question.
+
+        # INSTRUCTIONS:
+        1. Carefully analyze all provided memories from both speakers
+        2. Pay special attention to the timestamps to determine the answer
+        3. If the question asks about a specific event or fact, look for direct evidence in the memories
+        4. If the memories contain contradictory information, prioritize the most recent memory
+        5. If there is a question about time references (like "last year", "two months ago", etc.), 
+           calculate the actual date based on the memory timestamp. For example, if a memory from 
+           4 May 2022 mentions "went to India last year," then the trip occurred in 2021.
+        6. Always convert relative time references to specific dates, months, or years. For example, 
+           convert "last year" to "2022" or "two months ago" to "March 2023" based on the memory 
+           timestamp. Ignore the reference while answering the question.
+        7. Focus only on the content of the memories from both speakers. Do not confuse character 
+           names mentioned in memories with the actual users who created those memories.
+        8. The answer should be less than 5-6 words.
+
+        # APPROACH (Think step by step):
+        1. First, examine all memories that contain information related to the question
+        2. Examine the timestamps and content of these memories carefully
+        3. Look for explicit mentions of dates, times, locations, or events that answer the question
+        4. If the answer requires calculation (e.g., converting relative time references), show your work
+        5. Formulate a precise, concise answer based solely on the evidence in the memories
+        6. Double-check that your answer directly addresses the question asked
+        7. Ensure your final answer is specific and avoids vague time references
+      answer_user: |
+        {memory_context}
+
+        Question: {question}
+
+        Answer:
+      judge_system: |
+        Your task is to label an answer to a question as 'CORRECT' or 'WRONG'. You will be given the following data:
+            (1) a question (posed by one user to another user), 
+            (2) a 'gold' (ground truth) answer, 
+            (3) a generated answer
+        which you will score as CORRECT/WRONG.
+
+        The point of the question is to ask about something one user should know about the other user based on their prior conversations.
+        The gold answer will usually be a concise and short answer that includes the referenced topic, for example:
+        Question: Do you remember what I got the last time I went to Hawaii?
+        Gold answer: A shell necklace
+        The generated answer might be much longer, but you should be generous with your grading - as long as it touches on the same topic as the gold answer, it should be counted as CORRECT. 
+
+        For time related questions, the gold answer will be a specific date, month, year, etc. The generated answer might be much longer or use relative time references (like "last Tuesday" or "next month"), but you should be generous with your grading - as long as it refers to the same date or time period as the gold answer, it should be counted as CORRECT. Even if the format differs (e.g., "May 7th" vs "7 May"), consider it CORRECT if it's the same date.
+
+        First, provide a short (one sentence) explanation of your reasoning, then finish with CORRECT or WRONG. 
+        Do NOT include both CORRECT and WRONG in your response, or it will break the evaluation script.
+
+        Just return the label CORRECT or WRONG in a json format with the key as "verdict" (or "label").
+      judge_user: |
+        Question: {question}
+        Gold answer: {gold_answer}
+        Generated answer: {predicted_answer}
+
+  longmemeval:
+    llm:
+      answer:
+        temperature: 0.0
+        max_tokens: 512
+      judge:
+        temperature: 0.0
+        max_tokens: 4096
+    prompts:
+      answer_user: |
+        History Chats:
+
+        {memory_context}
+
+        Current Date: {question_time}
+        Question: {question}
+        Answer:
+      judge_system: |
+        You are an impartial judge evaluating long-term memory QA on LongMemEval.
+        - Answer CORRECT if the response contains the correct answer or intermediate steps.
+        - If the response only contains a subset of information required by the answer or is factually incorrect, answer WRONG.
+        - If temporal anchor information is insufficient to verify equivalence objectively, output UNDECIDABLE.
+
+        Return ONLY valid JSON matching the schema:
+        {"reason": "detailed step-by-step reasoning", "verdict": "CORRECT" | "WRONG" | "UNDECIDABLE"}
+      task_judge_prompts:
+        temporal-reasoning: |
+          You are an impartial judge evaluating temporal reasoning QA on LongMemEval.
+          Rules:
+          - Answer CORRECT if the response contains the correct answer or all intermediate steps.
+          - In addition, do NOT penalize off-by-one errors for the number of days (e.g., predicting 19 days when the answer is 18 is CORRECT).
+          - If temporal reference anchor is missing to judge objectively, output UNDECIDABLE.
+
+          Return ONLY valid JSON matching the schema:
+          {"reason": "step-by-step temporal and off-by-one tolerance analysis", "verdict": "CORRECT" | "WRONG" | "UNDECIDABLE"}
+        knowledge-update: |
+          You are an impartial judge evaluating dynamic knowledge update QA on LongMemEval.
+          Rules:
+          - If the response contains previous information along with an updated answer, consider it CORRECT as long as the updated answer is present.
+          - If the response only remembers outdated facts or wrong values, answer WRONG.
+          - If context is missing to verify, output UNDECIDABLE.
+
+          Return ONLY valid JSON matching the schema:
+          {"reason": "step-by-step update analysis", "verdict": "CORRECT" | "WRONG" | "UNDECIDABLE"}
+        single-session-preference: |
+          You are an impartial judge evaluating personalized recommendation QA on LongMemEval.
+          Rules:
+          - The model does not need to reflect all points in the rubric. The response is CORRECT as long as it recalls and utilizes the user's personal information correctly.
+          - Otherwise answer WRONG.
+
+          Return ONLY valid JSON matching the schema:
+          {"reason": "step-by-step personalized preference analysis", "verdict": "CORRECT" | "WRONG" | "UNDECIDABLE"}
+        abstention: |
+          You are an impartial judge evaluating unanswerable question abstention on LongMemEval.
+          Rules:
+          - Answer CORRECT if the model correctly identifies the question as unanswerable (e.g., incomplete or unmentioned in chat history).
+          - Answer WRONG if the model hallucinates an answer.
+
+          Return ONLY valid JSON matching the schema:
+          {"reason": "step-by-step abstention analysis", "verdict": "CORRECT" | "WRONG" | "UNDECIDABLE"}
+
+  beam:
+    llm:
+      answer:
+        max_tokens: 1024
+        temperature: 0.0
+      judge:
+        temperature: 0.0
+        max_tokens: 4096
+    prompts:
+      answer_user: |
+        Context information is below:
+        ---------------------
+        {memory_context}
+        ---------------------
+        Given the context information and not prior knowledge, answer the query.
+        Query: {question}
+        Instructions:
+        - Keep your answer grounded in the context provided
+        - Only output the answer to the question without any explanation
+
+        Answer:
+      judge_system: |
+        You are an expert evaluator judging compliance with a 3-tier rubric on BEAM.
+        Rules:
+        - Verdict CORRECT (1.0): Complete compliance. Required positive elements present and accurate; prohibited negative constraints absent.
+        - Verdict PARTIAL (0.5): Partial compliance. Captures primary key facts/entities, but misses secondary items or local details.
+        - Verdict WRONG (0.0): No compliance. Required element missing, incorrect, or contradictory.
+        - Verdict UNDECIDABLE (0.0): Context is missing to judge objectively; route to human review.
+
+        Return ONLY valid JSON matching the schema:
+        {"reason": "detailed rubric-based scoring reasoning", "verdict": "CORRECT" | "PARTIAL" | "WRONG" | "UNDECIDABLE"}
+      task_judge_prompts:
+        event_ordering: |
+          You are evaluating an event-ordering answer on BEAM. Judge BOTH semantic event coverage and relative ordering.
+          - Verdict CORRECT (1.0): All required events are present and their relative order is fully correct.
+          - Verdict PARTIAL (0.5): Meaningful partial correctness, but omits an event or contains local ordering errors.
+          - Verdict WRONG (0.0): Fundamentally incorrect or provides no meaningful ordered reconstruction.
+          - Verdict UNDECIDABLE (0.0): Critical reference context missing.
+
+          Return ONLY valid JSON matching the schema:
+          {"reason": "detailed ordering and coverage analysis", "verdict": "CORRECT" | "PARTIAL" | "WRONG" | "UNDECIDABLE"}
+
+  membench:
+    llm:
+      answer:
+        temperature: 0.0
+        max_tokens: 16
+    prompts:
+      answer_system: |
+        Please answer the question based on past memories of your conversation with the user. Select only the option letter (A, B, C, or D).
+      answer_user: |
+        Past memory: {memory_context}
+        Question: (current time is {question_time}) {question}
+        Choices:
+        {options_text}
+        Please output the correct option for the question, only one corresponding letter, without any other messages.
+        Example: D
+
+        Selected Option Letter (A/B/C/D):
+
+  halumem:
+    llm:
+      answer:
+        temperature: 0.0
+        max_tokens: 512
+      judge:
+        temperature: 0.0
+        max_tokens: 4096
+    prompts:
+      judge_system: |
+        You are an evaluation expert for AI memory system question answering on HaluMem.
+        Evaluate accuracy and classify into:
+        - Verdict CORRECT (1.0): Semantically equivalent to reference answer, introduces no unsupported or contradictory details.
+        - Verdict WRONG (0.0): Factual contradiction/hallucination, or omission of necessary elements (Omission).
+        - Verdict UNDECIDABLE (0.0): Insufficient reference anchor to verify objectively; route to human review.
+
+        Return ONLY valid JSON matching the schema:
+        {"reason": "factual verification and hallucination analysis", "verdict": "CORRECT" | "WRONG" | "UNDECIDABLE"}

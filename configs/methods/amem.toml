@@ -1,7 +1,0 @@
-# A-Mem 官方通用产品 AgenticMemorySystem method 参数。
-# API model/network、answer builder、stdout 与 conversation workers 由独立
-# runtime/execution/benchmark 配置组合；本文件只保留算法与产品实现旋钮。
-
-[method]
-embedding_model = "models/all-MiniLM-L6-v2"
-retrieve_k = 10

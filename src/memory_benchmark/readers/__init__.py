@@ -1,21 +1,17 @@
-"""framework reader 公开导出。"""
+"""回答生成模块 (`readers`) 统一导出入口。"""
 
 from .answer import (
     AnswerLLMClient,
     AnswerLLMResponse,
-    AnswerPromptTemplate,
     FakeAnswerLLMClient,
     FrameworkAnswerReader,
     OpenAICompatibleAnswerLLMClient,
-    load_answer_prompt_template,
 )
 
 __all__ = [
     "AnswerLLMClient",
     "AnswerLLMResponse",
-    "AnswerPromptTemplate",
     "FakeAnswerLLMClient",
     "FrameworkAnswerReader",
     "OpenAICompatibleAnswerLLMClient",
-    "load_answer_prompt_template",
 ]

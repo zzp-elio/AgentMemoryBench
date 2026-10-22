@@ -1,6 +1,6 @@
-"""HaluMem operation-level benchmark adapter。
+"""HaluMem conversation-QA benchmark adapter。
 
-本模块只负责把 `data/halumem/HaluMem-*.jsonl` 的 user/session/turn/question
+本模块负责把 `data/halumem/HaluMem-*.jsonl` 的 user/session/turn/question
 层级转换为统一 Dataset。`memory_points`、reference answer、evidence、
 difficulty、question_type 和 persona_info 只进入私有结构，不能出现在 method
 可见公开 payload 中。
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -22,57 +21,21 @@ from memory_benchmark.core import (
     Question,
     Session,
     Turn,
+    map_native_task_to_capability,
 )
 from memory_benchmark.core.exceptions import ConfigurationError, DatasetValidationError
-from memory_benchmark.prompts.benchmarks.halumem import (
-    HALUMEM_MEMZERO_OFFICIAL_SOURCE,
-    HALUMEM_MEMZERO_PROMPT,
-    HALUMEM_MEMZERO_PROMPT_PROFILE,
-    build_halumem_unified_answer_prompt,
-)
 
 from .base import BenchmarkAdapter, reached_limit
-from .contracts import (
-    BenchmarkLoadRequest,
-    BenchmarkResumePolicy,
-    BenchmarkSmokePolicy,
-    BenchmarkVariantSpec,
-    PreparedBenchmarkRun,
-    RunScope,
-)
 
 
 HALUMEM_MEDIUM_SOURCE_PATH = Path("data/halumem/HaluMem-Medium.jsonl")
 HALUMEM_LONG_SOURCE_PATH = Path("data/halumem/HaluMem-Long.jsonl")
-HALUMEM_VARIANT_SPECS = (
-    BenchmarkVariantSpec(
-        name="medium",
-        source_relative_paths=(HALUMEM_MEDIUM_SOURCE_PATH,),
-    ),
-    BenchmarkVariantSpec(
-        name="long",
-        source_relative_paths=(HALUMEM_LONG_SOURCE_PATH,),
-    ),
-)
-HALUMEM_VARIANT_BY_NAME = {spec.name: spec for spec in HALUMEM_VARIANT_SPECS}
-HALUMEM_OFFICIAL_REPO_URL = "https://github.com/MemTensor/HaluMem"
-HALUMEM_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2511.03506"
-HALUMEM_OFFICIAL_DATASET_URL = "https://huggingface.co/datasets/IAAR-Shanghai/HaluMem"
-HALUMEM_LICENSE = "CC-BY-NC-ND-4.0"
-HALUMEM_SMOKE_POLICY = BenchmarkSmokePolicy(
-    history_axis="sessions",
-    default_history_limit=4,
-    default_isolation_limit=1,
-    default_question_limit=1,
-    shape_mode="fixed",
-)
-HALUMEM_RESUME_POLICY = BenchmarkResumePolicy(
-    smoke_enabled=False,
-    ingest_checkpoint="conversation",
-    answer_checkpoint="question",
-    reuse_saved_retrieval=True,
-    evaluation_artifact_only=True,
-)
+HALUMEM_VARIANT_PATHS: dict[str, Path] = {
+    "medium": HALUMEM_MEDIUM_SOURCE_PATH,
+    "long": HALUMEM_LONG_SOURCE_PATH,
+}
+
+
 class HaluMemAdapter(BenchmarkAdapter):
     """HaluMem user 级连续会话数据 adapter。"""
 
@@ -84,21 +47,17 @@ class HaluMemAdapter(BenchmarkAdapter):
         variant: str = "medium",
         source_relative_path: Path | None = None,
     ):
-        """初始化 HaluMem adapter 并锁定 concrete variant。"""
-
         super().__init__(project_root)
         normalized_variant = variant.strip() if isinstance(variant, str) else ""
         if not normalized_variant:
             raise ConfigurationError("halumem variant is required")
         if source_relative_path is None:
-            try:
-                variant_spec = HALUMEM_VARIANT_BY_NAME[normalized_variant]
-            except KeyError as exc:
-                allowed = ", ".join(spec.name for spec in HALUMEM_VARIANT_SPECS)
+            if normalized_variant not in HALUMEM_VARIANT_PATHS:
+                allowed = ", ".join(HALUMEM_VARIANT_PATHS)
                 raise ConfigurationError(
                     f"Unknown halumem variant '{variant}'. Allowed: {allowed}"
-                ) from exc
-            selected_source_path = variant_spec.source_relative_paths[0]
+                )
+            selected_source_path = HALUMEM_VARIANT_PATHS[normalized_variant]
         else:
             selected_source_path = Path(source_relative_path)
 
@@ -107,7 +66,6 @@ class HaluMemAdapter(BenchmarkAdapter):
 
     def load_dataset(self, limit: int | None = None) -> Dataset:
         """读取 HaluMem JSONL 并转换为统一 Dataset。"""
-
         if limit is not None and limit <= 0:
             raise DatasetValidationError("halumem limit must be a positive integer")
 
@@ -141,13 +99,6 @@ class HaluMemAdapter(BenchmarkAdapter):
                     source_fully_scanned = False
                     break
 
-        source_digest = hashlib.sha256()
-        source_size_bytes = 0
-        with source_path.open("rb") as source_file:
-            while chunk := source_file.read(1024 * 1024):
-                source_digest.update(chunk)
-                source_size_bytes += len(chunk)
-
         loaded_session_count = sum(
             len(conversation.sessions) for conversation in conversations
         )
@@ -166,12 +117,6 @@ class HaluMemAdapter(BenchmarkAdapter):
                 "source_paths": [self.source_relative_path.as_posix()],
                 "variant": self.variant,
                 "source_format": "halumem_jsonl",
-                "official_repo_url": HALUMEM_OFFICIAL_REPO_URL,
-                "official_paper_url": HALUMEM_OFFICIAL_PAPER_URL,
-                "official_dataset_url": HALUMEM_OFFICIAL_DATASET_URL,
-                "license": HALUMEM_LICENSE,
-                "source_sha256": source_digest.hexdigest(),
-                "source_size_bytes": source_size_bytes,
                 "total_raw_users": total_raw_users,
                 "source_fully_scanned": source_fully_scanned,
                 "loaded_conversation_count": len(conversations),
@@ -184,7 +129,6 @@ class HaluMemAdapter(BenchmarkAdapter):
 
 def parse_halumem_timestamp(value: object) -> str | None:
     """把 HaluMem 官方时间字符串转成 UTC ISO；无法解析时返回 None。"""
-
     if not isinstance(value, str) or not value.strip():
         return None
     try:
@@ -194,63 +138,12 @@ def parse_halumem_timestamp(value: object) -> str | None:
     return parsed.replace(tzinfo=timezone.utc).isoformat()
 
 
-def prepare_halumem_run(
-    project_root: Path,
-    request: BenchmarkLoadRequest,
-) -> PreparedBenchmarkRun:
-    """为 HaluMem concrete variant 构造 full 或 smoke 运行。"""
-
-    variant_spec = HALUMEM_VARIANT_BY_NAME.get(request.variant)
-    if variant_spec is None:
-        allowed = ", ".join(spec.name for spec in HALUMEM_VARIANT_SPECS)
-        raise ConfigurationError(
-            f"Unknown halumem variant '{request.variant}'. Allowed: {allowed}"
-        )
-
-    adapter = HaluMemAdapter(project_root, variant=request.variant)
-    if request.run_scope is RunScope.FULL:
-        dataset = adapter.load()
-    elif request.run_scope is RunScope.PILOT:
-        dataset = adapter.load(limit=request.smoke_conversation_limit)
-    elif request.run_scope is RunScope.SMOKE:
-        if (
-            request.smoke_turn_limit != HALUMEM_SMOKE_POLICY.default_history_limit
-            or request.smoke_conversation_limit
-            != HALUMEM_SMOKE_POLICY.default_isolation_limit
-            or request.smoke_session_limit is not None
-        ):
-            raise ConfigurationError(
-                "halumem smoke has a fixed shape and does not accept cropping parameters"
-            )
-        dataset = _build_halumem_smoke_dataset(adapter.load(limit=1))
-    else:  # pragma: no cover - RunScope 是封闭枚举
-        raise ConfigurationError(f"unsupported HaluMem run scope: {request.run_scope}")
-
-    metadata = copy.deepcopy(dataset.metadata)
-    metadata["variant"] = request.variant
-    metadata["run_scope"] = request.run_scope.value
-    metadata["smoke_policy"] = HALUMEM_SMOKE_POLICY.to_dict()
-    metadata["resume_policy"] = HALUMEM_RESUME_POLICY.to_dict()
-    return PreparedBenchmarkRun(
-        variant=request.variant,
-        run_scope=request.run_scope,
-        dataset=Dataset(
-            dataset_name=dataset.dataset_name,
-            conversations=list(dataset.conversations),
-            metadata=metadata,
-        ),
-        source_relative_paths=variant_spec.source_relative_paths,
-    )
-
-
 def _conversation_from_user(
     raw_user: dict[str, Any],
     *,
     source_relative_path: Path,
     source_line_number: int,
 ) -> Conversation:
-    """把一个 HaluMem JSONL user row 转成 Conversation。"""
-
     source_context = f"{source_relative_path.as_posix()}:{source_line_number}"
     uuid = _required_text(raw_user, "uuid", source_context)
     sessions_raw = _required_list(raw_user, "sessions", uuid)
@@ -290,8 +183,6 @@ def _session_from_raw(
     session_index: int,
     persona_info: str | None,
 ) -> tuple[Session, list[Question], dict[str, GoldAnswerInfo]]:
-    """把 HaluMem session 拆成公开 Session 与私有 gold 标注。"""
-
     session_id = _optional_text(session_raw.get("session_id")) or f"s{session_index}"
     start_time = parse_halumem_timestamp(session_raw.get("start_time"))
     end_time = parse_halumem_timestamp(session_raw.get("end_time"))
@@ -355,8 +246,6 @@ def _turn_from_raw(
     session_id: str,
     turn_index: int,
 ) -> Turn:
-    """把 HaluMem dialogue turn 转成公开 Turn。"""
-
     if not isinstance(turn_raw, dict):
         raise DatasetValidationError(
             f"{conversation_id}/{session_id}: dialogue[{turn_index - 1}] must be a dict"
@@ -386,8 +275,6 @@ def _questions_from_raw(
     memory_points: list[Any],
     persona_info: str | None,
 ) -> tuple[list[Question], dict[str, GoldAnswerInfo]]:
-    """把 session questions 拆成公开 Question 和私有 GoldAnswerInfo。"""
-
     questions: list[Question] = []
     gold_answers: dict[str, GoldAnswerInfo] = {}
     for question_index, question_raw in enumerate(questions_raw, start=1):
@@ -400,19 +287,22 @@ def _questions_from_raw(
         answer_text = _required_text(question_raw, "answer", question_id)
         raw_evidence = _optional_list(question_raw.get("evidence"), "evidence")
         evidence_memory_contents = _evidence_memory_contents(raw_evidence)
+        question_type = _optional_text(question_raw.get("question_type"))
+        capability = map_native_task_to_capability("halumem", question_type)
 
         questions.append(
             Question(
                 question_id=question_id,
                 conversation_id=conversation_id,
                 text=question_text,
+                category=question_type,
+                capability=capability,
                 metadata={},
             )
         )
         gold_answers[question_id] = GoldAnswerInfo(
             question_id=question_id,
             answer=answer_text,
-            evidence=evidence_memory_contents,
             metadata={
                 "answer": answer_text,
                 "raw_evidence": copy.deepcopy(raw_evidence),
@@ -424,18 +314,12 @@ def _questions_from_raw(
                 "session_memory_points": copy.deepcopy(memory_points),
                 "persona_info": persona_info,
             },
-            # HaluMem 的 gold 是 memory-point fact，官方数据没有任何 turn 回指；
-            # 声明 v1 但保持零 qrel view，禁止从答案/evidence 文本反推合成 qrel。
-            gold_evidence_contract_version="v1",
-            evidence_group_sets=(),
         )
 
     return questions, gold_answers
 
 
 def _evidence_memory_contents(raw_evidence: list[Any]) -> list[str]:
-    """从 question evidence 中提取 judge 需要的 memory_content 文本。"""
-
     memory_contents: list[str] = []
     for evidence in raw_evidence:
         if not isinstance(evidence, dict):
@@ -446,195 +330,7 @@ def _evidence_memory_contents(raw_evidence: list[Any]) -> list[str]:
     return memory_contents
 
 
-def _build_halumem_smoke_dataset(
-    dataset: Dataset,
-) -> Dataset:
-    """按三操作首现前缀、每 session 两 turn、全局一题构造固定 smoke。"""
-
-    cropped_conversations: list[Conversation] = []
-    total_original_session_count = 0
-    total_retained_session_count = 0
-    total_original_turn_count = 0
-    total_retained_turn_count = 0
-    total_original_question_count = 0
-    total_retained_question_count = 0
-    for conversation in dataset.conversations:
-        prefix_length, first_seen = _halumem_smoke_prefix(conversation.sessions)
-        retained_sessions = copy.deepcopy(conversation.sessions[:prefix_length])
-        turn_shapes: list[dict[str, object]] = []
-        round_anomaly = False
-        for source_session, retained_session in zip(
-            conversation.sessions[:prefix_length], retained_sessions, strict=True
-        ):
-            original_turn_count = len(source_session.turns)
-            retained_session.turns = retained_session.turns[:2]
-            session_anomaly = (
-                original_turn_count < 2
-                or not source_session.turns
-                or source_session.turns[0].normalized_role != "user"
-            )
-            round_anomaly = round_anomaly or session_anomaly
-            turn_shapes.append(
-                {
-                    "session_id": source_session.session_id,
-                    "original_turn_count": original_turn_count,
-                    "retained_turn_count": len(retained_session.turns),
-                    "smoke_round_anomaly": session_anomaly,
-                }
-            )
-        retained_session_ids = {session.session_id for session in retained_sessions}
-        eligible_questions = [
-            copy.deepcopy(question)
-            for question in conversation.questions
-            if _question_session_id(question.question_id) in retained_session_ids
-        ]
-        retained_questions = eligible_questions[:1]
-        retained_gold_answers = {
-            question.question_id: copy.deepcopy(
-                conversation.gold_answers[question.question_id]
-            )
-            for question in retained_questions
-        }
-        total_original_session_count += len(conversation.sessions)
-        total_retained_session_count += len(retained_sessions)
-        total_original_turn_count += sum(
-            len(session.turns) for session in conversation.sessions
-        )
-        total_retained_turn_count += sum(
-            len(session.turns) for session in retained_sessions
-        )
-        total_original_question_count += len(conversation.questions)
-        total_retained_question_count += len(retained_questions)
-        metadata = copy.deepcopy(conversation.metadata)
-        metadata.update(
-            {
-                "smoke_prefix_rule": {
-                    "extraction_first_session": first_seen["extraction"],
-                    "update_first_session": first_seen["update"],
-                    "qa_first_session": first_seen["qa"],
-                    "final_prefix_length": prefix_length,
-                },
-                "smoke_prefix_incomplete": any(
-                    value is None for value in first_seen.values()
-                ),
-                "smoke_original_session_count": len(conversation.sessions),
-                "smoke_retained_session_count": len(retained_sessions),
-                "smoke_session_turn_shapes": turn_shapes,
-                "smoke_round_anomaly": round_anomaly,
-                "smoke_original_question_count": len(conversation.questions),
-                "smoke_retained_question_count": len(retained_questions),
-                "smoke_removed_question_count": (
-                    len(conversation.questions) - len(retained_questions)
-                ),
-            }
-        )
-        cropped_conversations.append(
-            Conversation(
-                conversation_id=conversation.conversation_id,
-                sessions=retained_sessions,
-                questions=retained_questions,
-                gold_answers=retained_gold_answers,
-                metadata=metadata,
-            )
-        )
-
-    metadata = copy.deepcopy(dataset.metadata)
-    metadata.update(
-        {
-            "smoke_fixed_shape": True,
-            "smoke_original_session_count": total_original_session_count,
-            "smoke_retained_session_count": total_retained_session_count,
-            "smoke_original_turn_count": total_original_turn_count,
-            "smoke_retained_turn_count": total_retained_turn_count,
-            "smoke_original_question_count": total_original_question_count,
-            "smoke_retained_question_count": total_retained_question_count,
-            "smoke_removed_question_count": (
-                total_original_question_count - total_retained_question_count
-            ),
-            "smoke_conversation_shapes": [
-                {
-                    "conversation_id": conversation.conversation_id,
-                    "smoke_prefix_rule": copy.deepcopy(
-                        conversation.metadata["smoke_prefix_rule"]
-                    ),
-                    "smoke_prefix_incomplete": conversation.metadata[
-                        "smoke_prefix_incomplete"
-                    ],
-                    "smoke_session_turn_shapes": copy.deepcopy(
-                        conversation.metadata["smoke_session_turn_shapes"]
-                    ),
-                    "smoke_round_anomaly": conversation.metadata[
-                        "smoke_round_anomaly"
-                    ],
-                    "smoke_original_question_count": conversation.metadata[
-                        "smoke_original_question_count"
-                    ],
-                    "smoke_retained_question_count": conversation.metadata[
-                        "smoke_retained_question_count"
-                    ],
-                    "smoke_removed_question_count": conversation.metadata[
-                        "smoke_removed_question_count"
-                    ],
-                }
-                for conversation in cropped_conversations
-            ],
-        }
-    )
-    return Dataset(
-        dataset_name=dataset.dataset_name,
-        conversations=cropped_conversations,
-        metadata=metadata,
-    )
-
-
-def _halumem_smoke_prefix(
-    sessions: list[Session],
-) -> tuple[int, dict[str, int | None]]:
-    """返回提取、更新、QA 三操作均首现时的最短 session 前缀。"""
-
-    first_seen: dict[str, int | None] = {
-        "extraction": None,
-        "update": None,
-        "qa": None,
-    }
-    for session_index, session in enumerate(sessions, start=1):
-        memory_points = session.private_metadata.get("memory_points")
-        if not isinstance(memory_points, list):
-            memory_points = []
-        if first_seen["extraction"] is None and memory_points:
-            first_seen["extraction"] = session_index
-        if first_seen["update"] is None and any(
-            isinstance(point, dict)
-            and point.get("is_update") == "True"
-            and bool(point.get("original_memories"))
-            for point in memory_points
-        ):
-            first_seen["update"] = session_index
-        if (
-            first_seen["qa"] is None
-            and session.private_metadata.get("source_question_count", 0) > 0
-        ):
-            first_seen["qa"] = session_index
-    if all(value is not None for value in first_seen.values()):
-        prefix_length = max(
-            value for value in first_seen.values() if value is not None
-        )
-        return prefix_length, first_seen
-    return len(sessions), first_seen
-
-
-def _question_session_id(question_id: str) -> str | None:
-    """从 HaluMem question_id 中解析 session_id。"""
-
-    parts = question_id.split(":")
-    if len(parts) < 3:
-        return None
-    return parts[-2]
-
-
 def _required_text(payload: dict[str, Any], key: str, context: str) -> str:
-    """读取必需字符串字段并标准化空白。"""
-
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
         raise DatasetValidationError(f"{context}: {key} is required")
@@ -642,16 +338,12 @@ def _required_text(payload: dict[str, Any], key: str, context: str) -> str:
 
 
 def _optional_text(value: object) -> str | None:
-    """把可选字符串字段标准化为空或文本。"""
-
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
 
 
 def _required_list(payload: dict[str, Any], key: str, context: str) -> list[Any]:
-    """读取必需 list 字段。"""
-
     value = payload.get(key)
     if not isinstance(value, list):
         raise DatasetValidationError(f"{context}: {key} must be a list")
@@ -659,8 +351,6 @@ def _required_list(payload: dict[str, Any], key: str, context: str) -> list[Any]
 
 
 def _optional_list(value: object, key: str) -> list[Any]:
-    """读取可选 list 字段，缺失时返回空列表。"""
-
     if value is None:
         return []
     if not isinstance(value, list):

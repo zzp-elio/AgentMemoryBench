@@ -1,6 +1,6 @@
-"""MemBench conversation-QA v2 adapter。
+"""MemBench conversation-QA adapter。
 
-本模块只负责把 `data/membench/Membenchdata/data2test` 下的 MemBench
+本模块负责把 `data/membench/Membenchdata/data2test` 下的 MemBench
 trajectory 转换为统一 `Dataset -> Conversation -> Session -> Turn -> Question`
 结构。`ground_truth`、`answer` 和 `target_step_id` 只进入 `GoldAnswerInfo`，
 不能出现在 method 可见的公开 payload 中。
@@ -8,8 +8,6 @@ trajectory 转换为统一 `Dataset -> Conversation -> Session -> Turn -> Questi
 
 from __future__ import annotations
 
-import copy
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -20,28 +18,14 @@ from memory_benchmark.core import (
     Conversation,
     Dataset,
     GoldAnswerInfo,
-    GoldEvidenceGroup,
-    GoldEvidenceGroupSet,
     Question,
     Session,
     Turn,
+    map_native_task_to_capability,
 )
 from memory_benchmark.core.exceptions import ConfigurationError, DatasetValidationError
-from memory_benchmark.prompts.benchmarks.membench import (
-    MEMBENCH_INSTRUCTION_FIRST,
-    MEMBENCH_INSTRUCTION_FIRST_PROFILE,
-    build_membench_unified_answer_prompt,
-)
 
 from .base import BenchmarkAdapter, reached_limit
-from .contracts import (
-    BenchmarkLoadRequest,
-    BenchmarkResumePolicy,
-    BenchmarkSmokePolicy,
-    BenchmarkVariantSpec,
-    PreparedBenchmarkRun,
-    RunScope,
-)
 
 
 MEMBENCH_DATA2TEST_ROOT = Path("data/membench/Membenchdata/data2test")
@@ -57,137 +41,16 @@ MEMBENCH_100K_SOURCE_PATHS = (
     MEMBENCH_DATA2TEST_ROOT / "100k/ThirdAgentDataHighLevel_multiple_100.json",
     MEMBENCH_DATA2TEST_ROOT / "100k/ThirdAgentDataLowLevel_multiple_100.json",
 )
-MEMBENCH_VARIANT_SPECS = (
-    BenchmarkVariantSpec(
-        name="0_10k",
-        source_relative_paths=MEMBENCH_0_10K_SOURCE_PATHS,
-    ),
-    BenchmarkVariantSpec(
-        name="100k",
-        source_relative_paths=MEMBENCH_100K_SOURCE_PATHS,
-    ),
-)
-MEMBENCH_VARIANT_BY_NAME = {spec.name: spec for spec in MEMBENCH_VARIANT_SPECS}
+MEMBENCH_VARIANT_PATHS: dict[str, tuple[Path, ...]] = {
+    "0_10k": MEMBENCH_0_10K_SOURCE_PATHS,
+    "100k": MEMBENCH_100K_SOURCE_PATHS,
+}
 _MEMBENCH_CHOICE_PATTERN_UPPER = re.compile(r"(?<![A-Za-z])([ABCD])(?![A-Za-z])")
 _MEMBENCH_CHOICE_PATTERN_LOWER = re.compile(r"(?<![A-Za-z])([abcd])(?![A-Za-z])")
 
-# 官方来源身份锁定值：见 docs/workstreams/ws02.6-first-smoke-hardening/
-# notes/membench-source-lock.json。repo URL 一手来源是 bundled 论文 PDF 内嵌
-# 文本（本地 README 无 repo 自引用）；MIT license 来自 README badge 声明，
-# 仓库内无 LICENSE 文件。
-MEMBENCH_OFFICIAL_REPO_URL = "https://github.com/import-myself/Membench"
-MEMBENCH_OFFICIAL_PAPER_URL = "https://arxiv.org/abs/2506.21605"
-MEMBENCH_LICENSE = "MIT"
-
-# MemBench 的 smoke 历史裁剪轴。history_axis 声明为 "rounds"（按人称）：第一人称
-# 1 round = 1 个 {user, agent} dict；第三人称按 2 turns 预算截断（约等于 1 轮
-# 观察信息）。默认 limit=1（1 个 round 值的内容），per-source isolation=1（每源
-# 文件 1 条 trajectory，共 4 条），question=1。
-# 见 docs/workstreams/ws02.6-first-smoke-hardening/plan-b3-membench.md §2.5。
-MEMBENCH_SMOKE_POLICY = BenchmarkSmokePolicy(
-    history_axis="rounds",
-    default_history_limit=1,
-    default_isolation_limit=1,
-    default_question_limit=1,
-)
-MEMBENCH_RESUME_POLICY = BenchmarkResumePolicy(
-    smoke_enabled=False,
-    ingest_checkpoint="conversation",
-    answer_checkpoint="question",
-    reuse_saved_retrieval=True,
-    evaluation_artifact_only=True,
-)
-
-# --membench-sources 调试旋钮的源名称到实际文件名的映射（值域由 CLI
-# _validate_membench_sources 确保）。默认认证口径为全部 4 源。
-_MEMBENCH_SOURCE_NAME_TO_PATTERN: dict[str, str] = {
-    "first_high": "FirstAgentDataHighLevel",
-    "first_low": "FirstAgentDataLowLevel",
-    "third_high": "ThirdAgentDataHighLevel",
-    "third_low": "ThirdAgentDataLowLevel",
-}
-
-
-def _filter_source_paths(
-    paths: tuple[Path, ...],
-    source_names: tuple[str, ...],
-) -> tuple[Path, ...]:
-    """按 --membench-sources 名称过滤源文件路径；空名称列表返回全量。"""
-    if not source_names:
-        return paths
-    patterns = [_MEMBENCH_SOURCE_NAME_TO_PATTERN[n] for n in source_names]
-    return tuple(p for p in paths if any(pat in p.name for pat in patterns))
-
-
-def resolve_membench_source_paths(
-    variant_spec: BenchmarkVariantSpec,
-    request: BenchmarkLoadRequest,
-) -> tuple[Path, ...]:
-    """把 MemBench source 名称解析为 source-locked、有序文件子集。
-
-    显式 source 子集只属于 smoke 调试/哨兵路径；full 必须保留 concrete
-    variant 的全部四源。返回顺序永远沿用 ``variant_spec``，不接受调用方
-    顺序制造新的 dataset identity。
-    """
-
-    unknown_names = tuple(
-        name
-        for name in request.membench_sources
-        if name not in _MEMBENCH_SOURCE_NAME_TO_PATTERN
-    )
-    if unknown_names:
-        allowed = ", ".join(sorted(_MEMBENCH_SOURCE_NAME_TO_PATTERN))
-        raise ConfigurationError(
-            f"Unknown --membench-sources value(s) {unknown_names!r}. Allowed: {allowed}"
-        )
-
-    selected = _filter_source_paths(
-        variant_spec.source_relative_paths,
-        request.membench_sources,
-    )
-    if not selected:
-        allowed = ", ".join(sorted(_MEMBENCH_SOURCE_NAME_TO_PATTERN))
-        raise ConfigurationError(
-            f"--membench-sources filter produced empty source set for variant "
-            f"'{request.variant}'. Allowed names: {allowed}"
-        )
-    if (
-        request.run_scope is RunScope.FULL
-        and selected != variant_spec.source_relative_paths
-    ):
-        raise ConfigurationError(
-            "--membench-sources is only supported for MemBench smoke; "
-            "full runs must use every source in the selected variant"
-        )
-    return selected
-
-
-def _combined_source_sha256(
-    project_root: str | Path,
-    source_relative_paths: tuple[Path, ...],
-) -> str:
-    """对多个 source 文件按相对路径排序后逐个分块流式哈希，合并计算总 SHA-256。"""
-    digest = hashlib.sha256()
-    for rel_path in sorted(source_relative_paths):  # 排序确保顺序稳定
-        path = Path(project_root) / rel_path
-        digest.update(rel_path.as_posix().encode("utf-8"))
-        digest.update(b"\0")
-        with path.open("rb") as f:
-            while chunk := f.read(1024 * 1024):
-                digest.update(chunk)
-    return digest.hexdigest()
-
 
 class MemBenchAdapter(BenchmarkAdapter):
-    """MemBench benchmark 的 trajectory-QA 数据 adapter。
-
-    输入数据:
-        项目根目录下的 `data/membench/Membenchdata/data2test/<variant>` 主文件。
-
-    输出:
-        每条 MemBench trajectory 转成一个 `Conversation`，包含单个 session、
-        一个公开 multiple-choice question 和一个 evaluator-only gold label。
-    """
+    """MemBench benchmark 的 trajectory-QA 数据 adapter。"""
 
     name = "membench"
 
@@ -197,30 +60,17 @@ class MemBenchAdapter(BenchmarkAdapter):
         variant: str = "0_10k",
         source_relative_paths: tuple[Path, ...] | None = None,
     ):
-        """初始化 MemBench adapter 并锁定 concrete variant。
-
-        输入:
-            project_root: 项目根目录路径。
-            variant: concrete variant 名称，必须是 `0_10k` 或 `100k`。
-            source_relative_paths: 测试专用覆盖；为空时使用 variant 注册源文件。
-
-        输出:
-            None。初始化后会缓存 variant 和源文件路径。
-        """
-
         super().__init__(project_root)
         normalized_variant = variant.strip() if isinstance(variant, str) else ""
         if not normalized_variant:
             raise ConfigurationError("membench variant is required")
         if source_relative_paths is None:
-            try:
-                variant_spec = MEMBENCH_VARIANT_BY_NAME[normalized_variant]
-            except KeyError as exc:
-                allowed = ", ".join(spec.name for spec in MEMBENCH_VARIANT_SPECS)
+            if normalized_variant not in MEMBENCH_VARIANT_PATHS:
+                allowed = ", ".join(MEMBENCH_VARIANT_PATHS)
                 raise ConfigurationError(
                     f"Unknown membench variant '{variant}'. Allowed: {allowed}"
-                ) from exc
-            selected_source_paths = variant_spec.source_relative_paths
+                )
+            selected_source_paths = MEMBENCH_VARIANT_PATHS[normalized_variant]
         else:
             selected_source_paths = tuple(Path(path) for path in source_relative_paths)
             if not selected_source_paths:
@@ -230,26 +80,14 @@ class MemBenchAdapter(BenchmarkAdapter):
         self.source_relative_paths = selected_source_paths
 
     def load_dataset(self, limit: int | None = None) -> Dataset:
-        """读取选定 MemBench 文件并转换为统一 Dataset。
-
-        输入:
-            limit: 最多读取多少条 trajectory；None 表示读取 variant 全量主文件。
-
-        输出:
-            Dataset: dataset_name 固定为 `membench`，metadata 记录 variant、来源路径
-            和已转换 trajectory 数。limit 只截断 trajectory 数，不裁剪 message_list。
-        """
-
+        """读取选定 MemBench 文件并转换为统一 Dataset。"""
         if limit is not None and limit <= 0:
             raise DatasetValidationError("membench limit must be a positive integer")
 
         conversations: list[Conversation] = []
         total_raw_trajectories = 0
+        scored_conversations_count = 0
         source_fully_scanned = True
-        # 无论是否 limit 都报全文件合并哈希，与 source-lock.json 可比。
-        source_sha256 = _combined_source_sha256(
-            self.project_root, self.source_relative_paths
-        )
         for source_relative_path in self.source_relative_paths:
             raw_data = self.load_json(*source_relative_path.parts)
             source_context = source_relative_path.as_posix()
@@ -273,34 +111,28 @@ class MemBenchAdapter(BenchmarkAdapter):
                         f"{conversation_id}"
                     )
                 seen_conversation_ids_in_file.add(conversation_id)
-                conversations.append(
-                    _conversation_from_trajectory(
-                        trajectory,
-                        question_type=question_type,
-                        scenario=scenario,
-                        source_profile=source_profile,
-                        source_relative_path=source_relative_path,
-                    )
+                conv = _conversation_from_trajectory(
+                    trajectory,
+                    question_type=question_type,
+                    scenario=scenario,
+                    source_profile=source_profile,
+                    source_relative_path=source_relative_path,
                 )
-                if reached_limit(len(conversations), limit):
-                    source_fully_scanned = False
-                    return self._dataset(
-                        conversations,
-                        total_raw_trajectories=total_raw_trajectories,
-                        source_fully_scanned=source_fully_scanned,
-                        source_sha256=source_sha256,
-                        official_question_count=len(conversations),
-                    )
-
-        # MemBench 每条 trajectory 正好 1 个 question。
-        official_question_count = len(conversations)
+                conversations.append(conv)
+                if any(q.unified_capability is not None for q in conv.questions):
+                    scored_conversations_count += 1
+                    if reached_limit(scored_conversations_count, limit):
+                        source_fully_scanned = False
+                        return self._dataset(
+                            conversations,
+                            total_raw_trajectories=total_raw_trajectories,
+                            source_fully_scanned=source_fully_scanned,
+                        )
 
         return self._dataset(
             conversations,
             total_raw_trajectories=total_raw_trajectories,
             source_fully_scanned=source_fully_scanned,
-            source_sha256=source_sha256,
-            official_question_count=official_question_count,
         )
 
     def _dataset(
@@ -309,11 +141,7 @@ class MemBenchAdapter(BenchmarkAdapter):
         *,
         total_raw_trajectories: int,
         source_fully_scanned: bool,
-        source_sha256: str = "",
-        official_question_count: int = 0,
     ) -> Dataset:
-        """构造带统一 metadata 的 MemBench Dataset。"""
-
         return Dataset(
             dataset_name=self.name,
             conversations=conversations,
@@ -323,96 +151,14 @@ class MemBenchAdapter(BenchmarkAdapter):
                 "source_format": "membench_data2test",
                 "total_raw_trajectories": total_raw_trajectories,
                 "source_fully_scanned": source_fully_scanned,
-                "official_repo_url": MEMBENCH_OFFICIAL_REPO_URL,
-                "official_paper_url": MEMBENCH_OFFICIAL_PAPER_URL,
-                "license": MEMBENCH_LICENSE,
-                "source_sha256": source_sha256,
-                "official_conversation_count": official_question_count,
-                "official_question_count": official_question_count,
+                "official_conversation_count": len(conversations),
+                "official_question_count": len(conversations),
             },
         )
 
 
-def prepare_membench_run(
-    project_root: Path,
-    request: BenchmarkLoadRequest,
-) -> PreparedBenchmarkRun:
-    """为 MemBench concrete variant 构造 full 或 per-source smoke 运行。"""
-
-    variant_spec = MEMBENCH_VARIANT_BY_NAME.get(request.variant)
-    if variant_spec is None:
-        allowed = ", ".join(spec.name for spec in MEMBENCH_VARIANT_SPECS)
-        raise ConfigurationError(
-            f"Unknown membench variant '{request.variant}'. Allowed: {allowed}"
-        )
-
-    source_paths = resolve_membench_source_paths(variant_spec, request)
-
-    if request.run_scope is RunScope.FULL:
-        dataset = MemBenchAdapter(project_root, variant=request.variant).load()
-    elif request.run_scope is RunScope.PILOT:
-        dataset = _build_membench_pilot_dataset(
-            project_root,
-            variant=request.variant,
-            source_relative_paths=source_paths,
-            per_source_limit=request.smoke_conversation_limit,
-        )
-    elif request.run_scope is RunScope.SMOKE:
-        dataset = _build_membench_smoke_dataset(
-            project_root,
-            variant=request.variant,
-            source_relative_paths=source_paths,
-            per_source_limit=request.smoke_conversation_limit,
-            history_limit=request.smoke_turn_limit,
-        )
-    else:  # pragma: no cover - RunScope 是封闭枚举
-        raise ConfigurationError(f"unsupported MemBench run scope: {request.run_scope}")
-
-    metadata = dict(dataset.metadata)
-    metadata["variant"] = request.variant
-    metadata["run_scope"] = request.run_scope.value
-    return PreparedBenchmarkRun(
-        variant=request.variant,
-        run_scope=request.run_scope,
-        dataset=Dataset(
-            dataset_name=dataset.dataset_name,
-            conversations=list(dataset.conversations),
-            metadata=metadata,
-        ),
-        source_relative_paths=source_paths,
-    )
-
-
-def prepare_membench_run_with_policy_metadata(
-    project_root: Path,
-    request: BenchmarkLoadRequest,
-) -> PreparedBenchmarkRun:
-    """在 MemBench 既有 prepare_run 之上补齐已注册的 smoke/resume policy metadata。
-
-    只追加 dataset metadata 字段，不改变转换算法，也不修改裁剪逻辑（original/
-    retained 规模已由 _build_membench_smoke_dataset 记录）。只把声明的 policy
-    写入 dataset metadata，供 manifest/dataset metadata 审计使用。
-    """
-
-    prepared = prepare_membench_run(project_root, request)
-    metadata = copy.deepcopy(prepared.dataset.metadata)
-    metadata["smoke_policy"] = MEMBENCH_SMOKE_POLICY.to_dict()
-    metadata["resume_policy"] = MEMBENCH_RESUME_POLICY.to_dict()
-    return PreparedBenchmarkRun(
-        variant=prepared.variant,
-        run_scope=prepared.run_scope,
-        dataset=Dataset(
-            dataset_name=prepared.dataset.dataset_name,
-            conversations=list(prepared.dataset.conversations),
-            metadata=metadata,
-        ),
-        source_relative_paths=prepared.source_relative_paths,
-    )
-
-
 def normalize_membench_choice_prediction(prediction: AnswerResult) -> AnswerResult:
     """把 MemBench reader 原始输出规整为 A/B/C/D；无法解析时记 invalid_choice。"""
-
     raw_answer = prediction.answer
     parsed_choice = parse_membench_choice(raw_answer)
     metadata = dict(prediction.metadata)
@@ -429,13 +175,7 @@ def normalize_membench_choice_prediction(prediction: AnswerResult) -> AnswerResu
 
 
 def parse_membench_choice(raw_answer: str) -> str:
-    """从 reader 输出中提取 A/B/C/D，失败返回 `invalid_choice`。
-
-    先只匹配大写独立字母，再回退到小写：英文叙述里独立小写 "a" 是冠词
-    （如 "bought a bike, so the answer is C"），若与大写同权且取首个匹配
-    会把这类输出错判为 A。
-    """
-
+    """从 reader 输出中提取 A/B/C/D，失败返回 `invalid_choice`。"""
     text = str(raw_answer).strip()
     if not text:
         return "invalid_choice"
@@ -451,8 +191,6 @@ def parse_membench_choice(raw_answer: str) -> str:
 
 
 def _choice_from_json_text(text: str) -> str | None:
-    """尝试从官方 JSON schema 形态的输出中读取 choice。"""
-
     try:
         payload = json.loads(text)
     except json.JSONDecodeError:
@@ -468,190 +206,10 @@ def _choice_from_json_text(text: str) -> str | None:
     return "invalid_choice"
 
 
-def _build_membench_smoke_dataset(
-    project_root: Path,
-    *,
-    variant: str,
-    source_relative_paths: tuple[Path, ...],
-    per_source_limit: int,
-    history_limit: int = 1,
-) -> Dataset:
-    """按每个 MemBench 主文件前 N 条 trajectory + 人称内部裁剪构造 smoke Dataset。
-
-    第一人称（FirstAgent）：history_limit 视为 round（1 round = message_list 中
-      1 个源 step，拆分后含 user+assistant 两条 canonical child turn），保留前
-      N_round 个源 step 的**全部** child turn——pair 必须同进同出，不能切出半个
-      step。
-    第三人称（ThirdAgent）：history_limit 视为 turn（纯字符串 step，1 step=1
-      turn），沿用既有口径按 `history_limit * 2` 个源 step 截断（约等于 1 轮
-      观察信息）。
-    选择只按公开顺序（`source_step_index`），不读 answer/ground_truth/
-    target_step_id。metadata 同时记录源 step 规模与 canonical turn 规模两套
-    单位，避免以后混用。
-    """
-
-    if per_source_limit < 1:
-        raise ConfigurationError("MemBench smoke per-source limit must be positive")
-    if history_limit < 1:
-        raise ConfigurationError("MemBench smoke history_limit must be positive")
-
-    conversations: list[Conversation] = []
-    source_counts: dict[str, int] = {}
-    total_original_turn_count = 0
-    total_retained_turn_count = 0
-    total_original_step_count = 0
-    total_retained_step_count = 0
-    for source_relative_path in source_relative_paths:
-        source_dataset = MemBenchAdapter(
-            project_root,
-            variant=variant,
-            source_relative_paths=(source_relative_path,),
-        ).load(limit=per_source_limit)
-        source_profile = _source_profile_from_path(source_relative_path)
-        # 第一人称 1 round=1 源 step；第三人称 history_limit=turns=steps
-        is_first = source_profile["source_stream"] == "first"
-        step_budget = history_limit if is_first else history_limit * 2
-        for conv in source_dataset.conversations:
-            original_sessions = list(conv.sessions)
-            total_original = sum(len(s.turns) for s in original_sessions)
-            total_original_turn_count += total_original
-            original_session = original_sessions[0] if original_sessions else None
-            step_order = (
-                _step_indices_in_order(original_session)
-                if original_session is not None
-                else []
-            )
-            original_step_count = len(step_order)
-            total_original_step_count += original_step_count
-            retained_step_indices = set(step_order[:step_budget])
-            retained_step_count = len(retained_step_indices)
-            total_retained_step_count += retained_step_count
-            cropped_sessions = copy.deepcopy(original_sessions)
-            retained = 0
-            if cropped_sessions:
-                retained_turns = [
-                    turn
-                    for turn in cropped_sessions[0].turns
-                    if turn.metadata["source_step_index"] in retained_step_indices
-                ]
-                retained = len(retained_turns)
-                cropped_sessions[0] = Session(
-                    session_id=cropped_sessions[0].session_id,
-                    turns=retained_turns,
-                    session_time=cropped_sessions[0].session_time,
-                    start_time=cropped_sessions[0].start_time,
-                    end_time=cropped_sessions[0].end_time,
-                    metadata=cropped_sessions[0].metadata,
-                )
-            total_retained_turn_count += retained
-            conv_metadata = dict(conv.metadata)
-            conv_metadata["smoke_history_limit"] = history_limit
-            conv_metadata["smoke_original_turn_count"] = total_original
-            conv_metadata["smoke_retained_turn_count"] = retained
-            conv_metadata["smoke_original_step_count"] = original_step_count
-            conv_metadata["smoke_retained_step_count"] = retained_step_count
-            conversations.append(
-                Conversation(
-                    conversation_id=conv.conversation_id,
-                    sessions=cropped_sessions,
-                    questions=copy.deepcopy(conv.questions),
-                    gold_answers=copy.deepcopy(conv.gold_answers),
-                    metadata=conv_metadata,
-                )
-            )
-        source_counts[source_relative_path.as_posix()] = len(source_dataset.conversations)
-
-    return Dataset(
-        dataset_name=MemBenchAdapter.name,
-        conversations=conversations,
-        metadata={
-            "source_paths": [path.as_posix() for path in source_relative_paths],
-            "variant": variant,
-            "source_format": "membench_data2test",
-            "run_scope": RunScope.SMOKE.value,
-            "smoke_per_source_conversation_limit": per_source_limit,
-            "smoke_history_limit": history_limit,
-            "smoke_source_counts": source_counts,
-            "smoke_selected_conversation_count": len(conversations),
-            "smoke_original_turn_count": total_original_turn_count,
-            "smoke_retained_turn_count": total_retained_turn_count,
-            "smoke_original_step_count": total_original_step_count,
-            "smoke_retained_step_count": total_retained_step_count,
-        },
-    )
-
-
-def _build_membench_pilot_dataset(
-    project_root: Path,
-    *,
-    variant: str,
-    source_relative_paths: tuple[Path, ...],
-    per_source_limit: int,
-) -> Dataset:
-    """选取每个声明 source 的前 N 个完整 trajectory，不裁任何 message。"""
-
-    if per_source_limit < 1:
-        raise ConfigurationError("MemBench pilot per-source limit must be positive")
-    conversations: list[Conversation] = []
-    source_counts: dict[str, int] = {}
-    for source_relative_path in source_relative_paths:
-        source_dataset = MemBenchAdapter(
-            project_root,
-            variant=variant,
-            source_relative_paths=(source_relative_path,),
-        ).load(limit=per_source_limit)
-        conversations.extend(source_dataset.conversations)
-        source_counts[source_relative_path.as_posix()] = len(
-            source_dataset.conversations
-        )
-
-    return Dataset(
-        dataset_name=MemBenchAdapter.name,
-        conversations=conversations,
-        metadata={
-            "source_paths": [path.as_posix() for path in source_relative_paths],
-            "variant": variant,
-            "source_format": "membench_data2test",
-            "run_scope": RunScope.PILOT.value,
-            "pilot_per_source_conversation_limit": per_source_limit,
-            "pilot_source_counts": source_counts,
-            "pilot_selected_conversation_count": len(conversations),
-            "source_sha256": _combined_source_sha256(
-                project_root,
-                source_relative_paths,
-            ),
-            "source_fully_scanned": False,
-            "official_repo_url": MEMBENCH_OFFICIAL_REPO_URL,
-            "official_paper_url": MEMBENCH_OFFICIAL_PAPER_URL,
-            "license": MEMBENCH_LICENSE,
-        },
-    )
-
-
-def _step_indices_in_order(session: Session) -> list[int]:
-    """按首次出现顺序返回 session 内去重后的 `source_step_index` 列表。
-
-    FirstAgent pair 的 user/assistant 两个 child 共享同一个
-    `source_step_index`，在此各出现一次并去重为一个 step；按源顺序返回，供
-    smoke 裁剪按**源 step**（而不是 canonical turn）选择前 N 个。
-    """
-
-    seen: set[int] = set()
-    ordered: list[int] = []
-    for turn in session.turns:
-        step_index = turn.metadata["source_step_index"]
-        if step_index not in seen:
-            seen.add(step_index)
-            ordered.append(step_index)
-    return ordered
-
-
 def _iter_trajectories(
     raw_data: object,
     source_context: str,
 ) -> list[tuple[str, str, dict[str, Any]]]:
-    """按 question_type -> scenario -> trajectory 顺序展开 MemBench JSON。"""
-
     if not isinstance(raw_data, dict):
         raise DatasetValidationError(f"{source_context}: top-level JSON must be a dict")
 
@@ -684,8 +242,6 @@ def _conversation_from_trajectory(
     source_profile: dict[str, str],
     source_relative_path: Path,
 ) -> Conversation:
-    """把一条 MemBench trajectory 转成 Conversation。"""
-
     tid = _required_text(trajectory, "tid", source_relative_path.as_posix())
     conversation_id = _conversation_id(
         source_profile=source_profile,
@@ -696,13 +252,11 @@ def _conversation_from_trajectory(
     messages = _required_list(trajectory, "message_list", conversation_id)
     qa = _required_dict(trajectory, "QA", conversation_id)
     turns: list[Turn] = []
-    step_child_ids: list[tuple[str, ...]] = []
     for index, step in enumerate(messages):
         step_turns = _turns_from_step(
             step, step_index=index, conversation_id=conversation_id
         )
         turns.extend(step_turns)
-        step_child_ids.append(tuple(turn.turn_id for turn in step_turns))
     if not turns:
         raise DatasetValidationError(f"{conversation_id}: message_list is empty")
 
@@ -712,16 +266,8 @@ def _conversation_from_trajectory(
         question_type=question_type,
         scenario=scenario,
         tid=tid,
-        step_child_ids=tuple(step_child_ids),
     )
 
-    # MemBench trajectory 没有原生 session 时间：这里的单 Session 只是统一 schema 的
-    # 包装，不是官方时间单元，不存在可供无时间 turn 继承的真实 session time。显式保持
-    # session_time=None——缺失就诚实保持缺失，绝不用兄弟 turn 的时间、QA.time、运行墙钟
-    # 或递增序号伪造。message 自身内嵌时间仍逐 turn 结构化为 Turn.turn_time；无内嵌
-    # 时间的 message（含官方 NoiseData distractor）保持 turn_time=None。时间语义裁决见
-    # docs/workstreams/ws02.7-method-track/branches/membench-time-semantics/notes/
-    # membench-100k-time-ruling.md §5。
     return Conversation(
         conversation_id=conversation_id,
         sessions=[
@@ -751,24 +297,10 @@ def _conversation_from_trajectory(
     )
 
 
-# MemBench 每个 step 文本尾部带 `(place: …; time: '2024-10-01 08:00' Tuesday)` 或
-# `(place: …; time'2024-10-01 08:00' Tuesday)`（无冒号，SecondPerson LowLevel 全量
-# 19285 条均为此形态）。官方根源：load_test_data.py:29,57,113,139 的格式串为
-# `'{{}} (place: {{}}; time{{}})'.format(message, place, time_value)`，time 后无冒号
-# 和空格；time_value 本身带引号。后续版本部分改为 `time:'…'`（可能人工修正或不同生成
-# 时间线的产物）。两者都是合法数据，都匹配。只匹配具体数字时间戳，忽略模板占位
-# `'YYYY-MM-DD HH:MM'`（非数字，不会命中）。
 _MEMBENCH_TURN_TIME_RE = re.compile(r"time:?\s*'(\d{4}-\d{2}-\d{2} \d{2}:\d{2})'")
 
 
 def _membench_turn_time(text: str) -> str | None:
-    """从 MemBench step 文本提取真实 turn 时间戳；无则返回 None。
-
-    时间戳原样保留在 content 里（其它 method 仍能从文本读到），这里只是把它
-    额外结构化到 Turn.turn_time，供 LightMem 等时间感知 method 使用——附带信息
-    对全部 method 一视同仁，不制造主场优势。
-    """
-
     match = _MEMBENCH_TURN_TIME_RE.search(text)
     return match.group(1) if match else None
 
@@ -779,17 +311,6 @@ def _turns_from_step(
     step_index: int,
     conversation_id: str,
 ) -> list[Turn]:
-    """把 MemBench message_list 中的一个 step 转成 1-2 条公开 canonical Turn。
-
-    FirstAgent dict step（`{"user": ..., "agent": ...}`）拆成 user turn +
-    assistant turn 两条 canonical child；ThirdAgent string step 仍是一条 user
-    turn（observation）。两条 child 各自只从自身 content 计算时间/marker，绝不
-    跨侧 fallback；user child 只保留 `ps_user`，assistant child 只保留
-    `ps_agent`——peer 原文不通过公开 metadata 在另一条 turn 中重复出现。
-    调用方在 `_conversation_from_trajectory()` 中按源 step 顺序显式记录
-    step→child id 映射，任何下游都不得靠解析 turn_id 前缀反推 step。
-    """
-
     step_number = step_index + 1
     context = f"{conversation_id}:step{step_number}"
     if isinstance(step, dict):
@@ -851,15 +372,6 @@ def _build_step_turn(
     source_step_role: str,
     side_metadata: dict[str, str],
 ) -> Turn:
-    """构造单个 canonical child turn；时间/marker 只从自身 content 计算。
-
-    公开 marker `source_timestamp_embedded_in_content`：True ⇔ 该 turn 的
-    turn_time 由其**自身** content 内完整 time marker 解析得到。content-only
-    renderer（Mem0 等）据此跳过重复的 [Turn time] 前缀；typed-timestamp method
-    （LightMem/A-Mem/MemoryOS）继续读 turn.turn_time。绝不跨侧（user/agent）
-    fallback，也不要把 QA.time、place-only、模板占位或自然语言单词 time 误标 True。
-    """
-
     turn_time = _membench_turn_time(content)
     metadata: dict[str, Any] = {
         "source_step_index": step_index,
@@ -885,10 +397,7 @@ def _question_and_gold_from_qa(
     question_type: str,
     scenario: str,
     tid: str,
-    step_child_ids: tuple[tuple[str, ...], ...],
 ) -> tuple[Question, GoldAnswerInfo]:
-    """把 MemBench QA 拆成公开 Question 和私有 GoldAnswerInfo。"""
-
     question_text = _required_text(qa, "question", conversation_id)
     answer_text = _required_text(qa, "answer", conversation_id)
     ground_truth = _required_text(qa, "ground_truth", conversation_id).upper()
@@ -902,12 +411,14 @@ def _question_and_gold_from_qa(
     qid = _optional_text(qa.get("qid")) or "0"
     question_id = f"{conversation_id}:q{qid}"
 
+    capability = map_native_task_to_capability("membench", question_type)
     question = Question(
         question_id=question_id,
         conversation_id=conversation_id,
         text=question_text,
         question_time=question_time,
         category=question_type,
+        capability=capability,
         options=choices,
         metadata={
             "choices": choices,
@@ -920,10 +431,6 @@ def _question_and_gold_from_qa(
     gold = GoldAnswerInfo(
         question_id=question_id,
         answer=answer_text,
-        # 历史审计字段：稳定保留官方 0 基 target_step_id 的 +1 step
-        # alias，不展开 canonical child，也不声称是 public/canonical turn-id。
-        # 权威 qrel 只由下方 v1 evidence_group_sets 的显式 step→child 映射提供。
-        evidence=[str(step_id + 1) for step_id in target_step_ids],
         metadata={
             "ground_truth": ground_truth,
             "answer": answer_text,
@@ -933,67 +440,11 @@ def _question_and_gold_from_qa(
             "source_qid": qid,
             "source_tid": tid,
         },
-        gold_evidence_contract_version="v1",
-        evidence_group_sets=_membench_evidence_group_sets(
-            target_step_ids,
-            step_child_ids=step_child_ids,
-        ),
     )
     return question, gold
 
 
-def _membench_evidence_group_sets(
-    target_step_ids: list[int],
-    *,
-    step_child_ids: tuple[tuple[str, ...], ...],
-) -> tuple[GoldEvidenceGroupSet, ...]:
-    """把官方 0 基 target_step_id 展开为 evaluator-private gold evidence groups。
-
-    输入:
-        target_step_ids: 官方 `QA.target_step_id`（0 基，未去重）。
-        step_child_ids: 按源 step 顺序排列的显式 step→canonical child id 映射；
-            FirstAgent dict step 对应 2 元素 tuple（user、assistant 两个
-            child），ThirdAgent string step 对应 1 元素 tuple。
-
-    输出:
-        tuple[GoldEvidenceGroupSet, ...]: 单个 turn view（`membench_step`）。
-        官方 target 按首次出现顺序去重，一个 step 一个 group；合法 target 的
-        child_ids 取该 step 拆出的全部 canonical turn id（any-of，一个官方 step
-        只计一次分母，不因拆成两条 turn 而翻倍）；
-        `target_step_id >= len(step_child_ids)` 的越界 target 建 unmatched
-        group，不制造不存在的 child；空 target → 空 groups。
-    """
-
-    groups: list[GoldEvidenceGroup] = []
-    for step_id in dict.fromkeys(target_step_ids):
-        if step_id < len(step_child_ids):
-            groups.append(
-                GoldEvidenceGroup(
-                    unit_id=str(step_id),
-                    child_ids=step_child_ids[step_id],
-                    mapping_status="mapped",
-                )
-            )
-        else:
-            groups.append(
-                GoldEvidenceGroup(
-                    unit_id=str(step_id),
-                    child_ids=(),
-                    mapping_status="unmatched",
-                )
-            )
-    return (
-        GoldEvidenceGroupSet(
-            provenance_granularity="turn",
-            unit_kind="membench_step",
-            groups=tuple(groups),
-        ),
-    )
-
-
 def _source_profile_from_path(path: Path) -> dict[str, str]:
-    """从 MemBench 文件名中解析 first/third 与 high/low profile。"""
-
     name = path.name
     if name.startswith("FirstAgent"):
         source_stream = "first"
@@ -1018,8 +469,6 @@ def _conversation_id(
     scenario: str,
     tid: str,
 ) -> str:
-    """生成 MemBench trajectory conversation_id。"""
-
     return (
         f"{source_profile['source_stream']}-"
         f"{source_profile['level']}-"
@@ -1030,14 +479,10 @@ def _conversation_id(
 
 
 def _safe_id_part(value: str) -> str:
-    """把 MemBench scenario 文本转换为稳定 conversation_id 片段。"""
-
     return str(value).strip().replace(" ", "_")
 
 
 def _required_text(raw: dict[str, Any], key: str, context: str) -> str:
-    """读取必填非空文本字段。"""
-
     value = raw.get(key)
     text = str(value).strip() if value is not None else ""
     if not text:
@@ -1046,8 +491,6 @@ def _required_text(raw: dict[str, Any], key: str, context: str) -> str:
 
 
 def _optional_text(value: object) -> str | None:
-    """把可选值转换为去空白字符串。"""
-
     if value is None:
         return None
     text = str(value).strip()
@@ -1055,8 +498,6 @@ def _optional_text(value: object) -> str | None:
 
 
 def _required_dict(raw: dict[str, Any], key: str, context: str) -> dict[str, Any]:
-    """读取必填 dict 字段。"""
-
     value = raw.get(key)
     if not isinstance(value, dict):
         raise DatasetValidationError(f"{context}: {key} must be a dict")
@@ -1064,8 +505,6 @@ def _required_dict(raw: dict[str, Any], key: str, context: str) -> dict[str, Any
 
 
 def _required_list(raw: dict[str, Any], key: str, context: str) -> list[Any]:
-    """读取必填 list 字段。"""
-
     value = raw.get(key)
     if not isinstance(value, list):
         raise DatasetValidationError(f"{context}: {key} must be a list")
@@ -1073,8 +512,6 @@ def _required_list(raw: dict[str, Any], key: str, context: str) -> list[Any]:
 
 
 def _choices_dict(value: object, context: str) -> dict[str, str]:
-    """校验并归一化 A/B/C/D 选项。"""
-
     if not isinstance(value, dict):
         raise DatasetValidationError(f"{context}: choices must be a dict")
     choices: dict[str, str] = {}
@@ -1087,8 +524,6 @@ def _choices_dict(value: object, context: str) -> dict[str, str]:
 
 
 def _target_step_ids(value: object, context: str) -> list[int]:
-    """读取 MemBench 私有 target_step_id 列表；空列表返回空（高层的 highlevel_rec 全为空）。"""
-
     if not isinstance(value, list):
         raise DatasetValidationError(f"{context}: target_step_id must be a list")
     step_ids: list[int] = []
@@ -1114,19 +549,7 @@ def _target_step_ids(value: object, context: str) -> list[int]:
 __all__ = [
     "MEMBENCH_0_10K_SOURCE_PATHS",
     "MEMBENCH_100K_SOURCE_PATHS",
-    "MEMBENCH_INSTRUCTION_FIRST",
-    "MEMBENCH_INSTRUCTION_FIRST_PROFILE",
-    "MEMBENCH_LICENSE",
-    "MEMBENCH_OFFICIAL_PAPER_URL",
-    "MEMBENCH_OFFICIAL_REPO_URL",
-    "MEMBENCH_RESUME_POLICY",
-    "MEMBENCH_SMOKE_POLICY",
-    "MEMBENCH_VARIANT_SPECS",
     "MemBenchAdapter",
-    "_build_membench_smoke_dataset",
-    "build_membench_unified_answer_prompt",
     "normalize_membench_choice_prediction",
     "parse_membench_choice",
-    "prepare_membench_run",
-    "prepare_membench_run_with_policy_metadata",
 ]

@@ -1,1 +1,0 @@
-你不能修改/Users/wz/Desktop/memoryBenchmark/opencode目录下的任何文档以及进行git提交操作，而且你需要按照/Users/wz/Desktop/memoryBenchmark/opencode/opencode_result.md里面的要求去记录你的详细的执行轨迹，你去在opencode目录下创建一个文档，然后把文档的链接放在/Users/wz/Desktop/memoryBenchmark/opencode/opencode_result.md

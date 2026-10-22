@@ -1,878 +1,299 @@
-"""LLM judge 输出解析和通用调用外壳。
+"""工业级 Pydantic 双模式强类型 LLM-as-a-Judge 评测器 (`LLMJudgeEvaluator`)。
 
-本模块只负责把模型返回文本解析成统一决策，并提供可被具体 benchmark
-复用的懒加载 OpenAI 调用外壳。单元测试不会触发真实网络请求。
+设计亮点：
+1. **Pydantic 双模式（Binary / Rubric）强类型契约**：
+   - `BinaryJudgeEvaluation`：针对 LoCoMo、LongMemEval、MemBench、HaluMem 等二元基准，物理杜绝 `PARTIAL`，严格在 `CORRECT`/`WRONG`/`UNDECIDABLE` 中裁决；
+   - `RubricJudgeEvaluation`：针对 BEAM 等复合基准，放开 `PARTIAL` 选项评定半部分值；
+2. **CoT 思维链思考前置（Reasoning-First）**：
+   - 规定 `reason` 字段位于 `verdict` 之前，迫使自回归大模型先生成充分比对事实证据，再基于注意力注意力机制下达裁决；
+3. **剥离 `score` 生成与确定性映射**：
+   - LLM 仅负责语义判定，分值（1.0 / 0.5 / 0.0）100% 由 Python 字典根据 `verdict` 确定性映射，彻底杜绝大模型数字越界或自相矛盾；
+4. **API 语法硬约束 + 运行时多层防线安检**：
+   - 请求时携带 `response_format={"type": "json_object"}`，接收后利用 Pydantic `model_validate_json` 实行类型与非空安检，辅以正则围栏剥离与启发式降级兜底。
 """
 
 from __future__ import annotations
 
 import json
-import sys
-from collections.abc import Callable, Hashable, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
-from dataclasses import dataclass
-from threading import Lock
-from typing import Any, Iterator, TypeVar
+import re
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
-from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from openai import OpenAI
+from pydantic import BaseModel, Field, field_validator
 
-from memory_benchmark.config import (
-    CHAT_COMPLETIONS_JUDGE_TRANSPORT,
-    OPENCODEGO_API_PROVIDER,
-    RESPONSES_JUDGE_TRANSPORT,
-    OpenAISettings,
-    load_settings,
-)
-from memory_benchmark.core import AnswerResult, GoldAnswerInfo, MetricResult, Question
-from memory_benchmark.core.exceptions import ConfigurationError, JudgeOutputError
-from memory_benchmark.observability.efficiency import (
-    EfficiencyCollector,
-    EfficiencyObservation,
-    EfficiencyStage,
-    MeasurementSource,
-    ModelDescriptor,
-    resolve_token_usage,
+from memory_benchmark.core import (
+    AnswerResult,
+    GoldAnswerInfo,
+    JudgeOutputError,
+    LLMProperties,
+    MetricResult,
+    PromptProperties,
+    Question,
+    build_prompt_variable_pool,
+    format_prompt_template,
 )
 
+_JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
-_ArtifactUnit = TypeVar("_ArtifactUnit")
-_ArtifactResult = TypeVar("_ArtifactResult")
+VALID_VERDICTS = ("CORRECT", "PARTIAL", "WRONG", "UNDECIDABLE")
+
+VERDICT_SCORE_MAP: dict[str, float] = {
+    "CORRECT": 1.0,
+    "PARTIAL": 0.5,
+    "WRONG": 0.0,
+    "UNDECIDABLE": 0.0,
+}
 
 
-class EvaluatorEfficiencyObservationSink:
-    """artifact-level judge evaluator 在真实评测单元作用域内累积 efficiency observation。
+class BinaryJudgeEvaluation(BaseModel):
+    """二元裁判契约（针对 LoCoMo、LongMemEval、MemBench、HaluMem 等非黑即白基准）。
 
-    普通逐题 runner 由自己建立 judge scope 并回收 observation；artifact-level
-    evaluator 因为在自己的循环里才知道真实 conversation/question 身份，需要在该循环内
-    用 `unit_scope()` 包裹每个真实评测单元。scope 正常退出后其 records 折入本 sink，最终
-    由 evaluator 通过 payload 的 runner-internal `efficiency_observations` 字段回传给
-    runner 落盘。collector 为 None 或 disabled 时所有方法为空操作、不建立 scope、不产生
-    observation，从而保证离线/禁用路径行为不变。
+    在 Schema 语法层物理杜绝 PARTIAL，模型只能在 CORRECT、WRONG 与 UNDECIDABLE 间做选择题。
     """
 
-    def __init__(self, collector: EfficiencyCollector | None) -> None:
-        """绑定 runner 注入的 collector，并初始化累积缓冲。"""
+    reason: str = Field(
+        ...,
+        description="Detailed step-by-step reasoning comparing the predicted answer against the gold answer.",
+    )
+    verdict: Literal["CORRECT", "WRONG", "UNDECIDABLE"] = Field(
+        ...,
+        description="Final judgment verdict. Must be one of CORRECT, WRONG, or UNDECIDABLE.",
+    )
 
-        self._collector = collector
-        self._records: list[EfficiencyObservation] = []
+    @field_validator("reason")
+    @classmethod
+    def validate_reason_not_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("reason must not be empty or blank")
+        return cleaned
 
-    @property
-    def enabled(self) -> bool:
-        """仅当 collector 存在且启用时才建立 scope 与累积 observation。"""
 
-        return self._collector is not None and self._collector.enabled
+class RubricJudgeEvaluation(BaseModel):
+    """三档量规裁判契约（针对 BEAM 等复合多实体或部分正确基准）。
 
-    @contextmanager
-    def unit_scope(
-        self,
-        conversation_id: str | None,
-        question_id: str | None,
-    ) -> Iterator[None]:
-        """为一个真实评测单元建立 judge scope，退出后把其 observation 折入 sink。
+    语法层开放 PARTIAL 选项，允许按 0.5 分评定部分记忆召回。
+    """
 
-        collector 未启用时直接透传，不建立 scope，也不校验标识；启用时要求
-        conversation_id/question_id 为非空字符串，覆盖该单元内的全部 judge LLM 调用。
-        """
+    reason: str = Field(
+        ...,
+        description="Detailed step-by-step reasoning comparing the predicted answer against the gold answer.",
+    )
+    verdict: Literal["CORRECT", "PARTIAL", "WRONG", "UNDECIDABLE"] = Field(
+        ...,
+        description="Final judgment verdict. Must be one of CORRECT, PARTIAL, WRONG, or UNDECIDABLE.",
+    )
 
-        if not self.enabled:
-            yield
-            return
-        if not isinstance(conversation_id, str) or not conversation_id.strip():
-            raise ConfigurationError(
-                "efficiency judge scope requires a non-empty conversation_id"
-            )
-        if not isinstance(question_id, str) or not question_id.strip():
-            raise ConfigurationError(
-                "efficiency judge scope requires a non-empty question_id"
-            )
-        with self._collector.judge_scope(conversation_id, question_id) as scope:
-            yield
-        self._records.extend(scope.records)
-
-    def observations(self) -> list[EfficiencyObservation]:
-        """返回按建立顺序累积的全部 judge LLM observation 副本。"""
-
-        return list(self._records)
-
-    def extend_observations(
-        self,
-        observations: Sequence[EfficiencyObservation],
-    ) -> None:
-        """由 coordinator 按输入顺序合并并行评测单元的 observation。"""
-
-        if not self.enabled:
-            return
-        if any(not isinstance(item, EfficiencyObservation) for item in observations):
-            raise ConfigurationError(
-                "artifact judge sink accepts only EfficiencyObservation instances"
-            )
-        self._records.extend(observations)
+    @field_validator("reason")
+    @classmethod
+    def validate_reason_not_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("reason must not be empty or blank")
+        return cleaned
 
 
 @dataclass(frozen=True)
 class JudgeDecision:
-    """LLM judge 对单题回答是否正确的结构化决策。
+    """LLM 裁判解析后的结构化裁决结果。"""
 
-    字段:
-        is_correct: 预测答案是否应计为正确。
-        reason: 可选解释，主要用于审计日志和调试。
-    """
+    verdict: str
+    score: float
+    reason: str
+    needs_human_review: bool = False
+    raw_response: str = ""
 
-    is_correct: bool
-    reason: str = ""
-
-
-@dataclass(frozen=True)
-class LLMJudgeProfileConfig:
-    """LLM judge TOML profile 的强类型表示。
-
-    字段:
-        mode: 输出模式，只允许 `compact` 或 `detailed`。
-        model: judge 使用的模型名称。
-        prompt_profile: evaluator 使用的 prompt/计分身份；默认 `benchmark`。
-    """
-
-    mode: str
-    model: str
-    prompt_profile: str = "benchmark"
-
-    def __post_init__(self) -> None:
-        """校验输出模式和模型名称。"""
-
-        if self.mode not in {"compact", "detailed"}:
-            raise ConfigurationError(f"Unsupported judge mode: {self.mode}")
-        if not self.model.strip():
-            raise ConfigurationError("Judge model is required")
-        if (
-            not self.prompt_profile.strip()
-            or self.prompt_profile != self.prompt_profile.strip()
-        ):
-            raise ConfigurationError(
-                "Judge prompt_profile must be a non-blank trimmed string"
-            )
+    @property
+    def is_correct(self) -> bool:
+        return self.verdict == "CORRECT" or self.score >= 1.0
 
 
-@dataclass(frozen=True)
-class JudgeModelResponse:
-    """一次 Judge LLM 调用的文本与 token 计量结果。"""
+def parse_judge_response(
+    text: str,
+    mode: Literal["binary", "rubric"] = "binary",
+) -> JudgeDecision:
+    """解析裁判 LLM 输出，优先使用对应模式的 Pydantic 模型校验，辅以正则与启发式降级。"""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        raise JudgeOutputError("Judge LLM returned an empty response")
 
-    text: str
-    input_tokens: int
-    output_tokens: int
-    token_measurement_source: MeasurementSource
+    schema_cls: type[BaseModel] = RubricJudgeEvaluation if mode == "rubric" else BinaryJudgeEvaluation
+
+    # 1. 第一防线：使用 Pydantic 强类型反序列化校验
+    json_candidate = cleaned
+    match = _JSON_BLOCK_RE.search(cleaned)
+    if match:
+        json_candidate = match.group(0)
+
+    try:
+        parsed = schema_cls.model_validate_json(json_candidate)
+        verdict = str(parsed.verdict).upper()
+        reason = str(parsed.reason).strip()
+        score = VERDICT_SCORE_MAP.get(verdict, 0.0)
+        needs_review = (verdict == "UNDECIDABLE")
+        return JudgeDecision(
+            verdict=verdict,
+            score=score,
+            reason=reason or ("Insufficient context; routed to human review." if needs_review else ""),
+            needs_human_review=needs_review,
+            raw_response=cleaned,
+        )
+    except Exception:
+        # Pydantic 校验未通过时（如字段命名略有出入或老测试桩），进入第二防线
+        pass
+
+    # 2. 第二防线：提取 JSON 字典并进行别名容错
+    if match:
+        try:
+            payload = json.loads(match.group(0))
+            if isinstance(payload, dict):
+                raw_v = str(payload.get("verdict") or payload.get("label") or "").strip().upper()
+                raw_r = str(payload.get("reason") or payload.get("explanation") or "").strip()
+
+                if raw_v in {"CORRECT", "PARTIAL", "WRONG", "UNDECIDABLE"}:
+                    if mode == "binary" and raw_v == "PARTIAL":
+                        raw_v = "WRONG"
+                    needs_review = (raw_v == "UNDECIDABLE")
+                    return JudgeDecision(
+                        verdict=raw_v,
+                        score=VERDICT_SCORE_MAP.get(raw_v, 0.0),
+                        reason=raw_r or ("Insufficient context; routed to human review." if needs_review else ""),
+                        needs_human_review=needs_review,
+                        raw_response=cleaned,
+                    )
+        except Exception:
+            pass
+
+    # 3. 第三防线：首词启发式扫描兜底（保证离线测试桩与极端异常不中断主循环）
+    upper = cleaned.upper()
+    if "UNDECIDABLE" in upper:
+        return JudgeDecision("UNDECIDABLE", 0.0, cleaned, True, cleaned)
+    if upper.startswith("CORRECT") or upper.startswith("YES"):
+        return JudgeDecision("CORRECT", 1.0, cleaned, False, cleaned)
+    if mode == "rubric" and upper.startswith("PARTIAL"):
+        return JudgeDecision("PARTIAL", 0.5, cleaned, False, cleaned)
+    if upper.startswith("WRONG") or upper.startswith("INCORRECT") or upper.startswith("NO"):
+        return JudgeDecision("WRONG", 0.0, cleaned, False, cleaned)
+
+    raise JudgeOutputError(f"Unable to parse Judge LLM response into {schema_cls.__name__}: {cleaned!r}")
 
 
-def parse_judge_response(text: str, mode: str) -> JudgeDecision:
-    """解析 judge 原始文本输出。
-
-    输入:
-        text: LLM 返回的原始文本。
-        mode: 解析模式；`compact` 只接受 true/false，`detailed` 接受 JSON 对象。
-
-    输出:
-        JudgeDecision: 统一后的布尔判定和可选原因。
-
-    异常:
-        JudgeOutputError: 输出为空、格式错误或字段类型不符合约定。
-    """
-
-    normalized_mode = mode.strip().lower()
-    if normalized_mode == "compact":
-        return _parse_compact_response(text)
-    if normalized_mode == "detailed":
-        return _parse_detailed_response(text)
-    raise JudgeOutputError(f"unsupported judge mode: {mode}")
-
-
+@dataclass
 class LLMJudgeEvaluator:
-    """可复用的 LLM judge evaluator 外壳。
+    """遵循构造器依赖注入 (DI) 的通用 LLM 裁判评估器。"""
 
-    子类负责提供 benchmark-specific prompt；本类负责懒加载配置、调用模型、
-    解析输出并生成 `MetricResult`。构造对象本身不会读取 `.env` 或创建客户端。
-    """
+    llm_props: LLMProperties = field(default_factory=LLMProperties)
+    prompt_props: PromptProperties = field(default_factory=PromptProperties)
+    mode: Literal["binary", "rubric"] = "binary"
+    completion_fn: Any | None = None
+    metric_name: str = "llm_judge"
+    _client: Any = field(default=None, init=False, repr=False)
+    _client_lock: Any = field(default_factory=threading.Lock, init=False, repr=False)
 
-    metric_name = "llm_judge_accuracy"
-    benchmark_name = "generic"
-    supports_efficiency_observability = True
-    supports_incremental_artifact_scores = False
+    def _get_client(self) -> OpenAI:
+        if self._client is None:
+            with self._client_lock:
+                if self._client is None:
+                    self._client = OpenAI(
+                        api_key=self.llm_props.require_api_key(),
+                        base_url=self.llm_props.base_url,
+                        timeout=self.llm_props.timeout_seconds,
+                        max_retries=self.llm_props.max_retries,
+                    )
+        return self._client
 
-    def __init__(
-        self,
-        mode: str = "detailed",
-        model: str | None = None,
-        client: Any | None = None,
-        project_root: str | None = None,
-        env_file: str | None = None,
-        openai_settings: OpenAISettings | None = None,
-        efficiency_collector: EfficiencyCollector | None = None,
-    ) -> None:
-        """初始化 judge 外壳。
+    def _call_judge_llm(self, system_prompt: str, user_prompt: str) -> str:
+        if callable(self.completion_fn):
+            return str(self.completion_fn(system_prompt=system_prompt, user_prompt=user_prompt))
 
-        输入:
-            mode: judge 输出解析模式，默认 detailed。
-            model: 覆盖配置层模型名；为空时在真实调用前读取配置。
-            client: 可注入的兼容 OpenAI client，便于后续测试或替换。
-            project_root: 读取配置时使用的项目根目录。
-            env_file: 读取配置时使用的 `.env` 路径。
-            openai_settings: 命令层已按 run identity 解析的 provider 配置。
-            efficiency_collector: runner 管理的可选 evaluator-side observation collector。
+        client = self._get_client()
+        messages: list[dict[str, str]] = []
+        if system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt.strip()})
+        messages.append({"role": "user", "content": user_prompt.strip()})
 
-        输出:
-            None。
-        """
+        kwargs: dict[str, Any] = {
+            "model": self.llm_props.model,
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+            "temperature": self.llm_props.temperature,
+        }
+        if self.llm_props.max_tokens and self.llm_props.max_tokens > 0:
+            kwargs["max_tokens"] = self.llm_props.max_tokens
 
-        self.mode = mode
-        self.model = model
-        self._client = client
-        self._client_lock = Lock()
-        self._project_root = project_root
-        self._env_file = env_file
-        self._settings = None
-        self._openai_settings = openai_settings
-        self.efficiency_collector = efficiency_collector
-        self._existing_artifact_score_records: tuple[dict[str, Any], ...] = ()
-
-    def build_prompt(
-        self,
-        question: Question | str,
-        prediction: AnswerResult | str,
-        gold_answer: GoldAnswerInfo | str,
-    ) -> str:
-        """构造 judge prompt。
-
-        输入:
-            question: 公开问题对象或问题文本。
-            prediction: method 答案对象或答案文本。
-            gold_answer: evaluator 私有标准答案对象或答案文本。
-
-        输出:
-            str: 发送给 LLM judge 的 prompt。
-        """
-
-        raise NotImplementedError("subclasses must implement build_prompt")
+        max_attempts = 4
+        for attempt in range(max_attempts):
+            try:
+                resp = client.chat.completions.create(**kwargs)
+                content = resp.choices[0].message.content
+                return "" if content is None else str(content)
+            except Exception as exc:
+                if attempt < max_attempts - 1:
+                    sleep_s = min(1.5 ** attempt, 8.0)
+                    time.sleep(sleep_s)
+                else:
+                    raise
 
     def evaluate(
         self,
         question: Question,
-        prediction: AnswerResult | str,
-        gold_answer: GoldAnswerInfo | str,
+        answer: AnswerResult,
+        gold: GoldAnswerInfo,
     ) -> MetricResult:
-        """调用 LLM judge 并返回单题 metric。
+        """渲染注入的 `prompt_props`，调用 Judge LLM 并解析结构化裁决结果。"""
+        system_template = self.prompt_props.get_judge_system(question.category)
+        user_template = self.prompt_props.judge_user
 
-        输入:
-            question: method 可见的公开问题。
-            prediction: method 输出答案。
-            gold_answer: evaluator 私有标准答案。
+        variables = build_prompt_variable_pool(
+            question_text=question.text,
+            question_time=question.question_time or "",
+            gold_answer=gold.answer,
+            predicted_answer=answer.answer,
+            conversation_id=question.conversation_id,
+            category=question.category or "",
+            options=question.options,
+            extra={**question.metadata, **gold.metadata},
+        )
+        system_prompt = format_prompt_template(system_template, variables).strip()
+        user_prompt = format_prompt_template(user_template, variables).strip()
 
-        输出:
-            MetricResult: 包含 0/1 分数、布尔正确性和 judge 原因。
-        """
-
-        prompt = self.build_prompt(question, prediction, gold_answer)
-        model_response = self._call_model_with_usage(prompt)
-        self._record_judge_llm_call(model_response)
-        decision = parse_judge_response(model_response.text, mode=self.mode)
+        try:
+            raw_output = self._call_judge_llm(system_prompt, user_prompt)
+            decision = parse_judge_response(raw_output, mode=self.mode)
+        except Exception as exc:
+            decision = JudgeDecision(
+                verdict="UNDECIDABLE",
+                score=0.0,
+                reason=f"Judge invocation failed after retries: {exc}",
+                needs_human_review=True,
+                judgment=f"ERROR: {exc}",
+            )
         return MetricResult(
             metric_name=self.metric_name,
-            score=1.0 if decision.is_correct else 0.0,
+            score=decision.score,
             is_correct=decision.is_correct,
             details={
+                "question_id": question.question_id,
+                "conversation_id": question.conversation_id,
+                "mode": self.mode,
+                "verdict": decision.verdict,
                 "reason": decision.reason,
-                "raw_judge_response": model_response.text,
+                "needs_human_review": decision.needs_human_review,
+                "judge_model": self.llm_props.model,
+                "judge_temperature": self.llm_props.temperature,
             },
         )
 
-    def _new_efficiency_observation_sink(self) -> EvaluatorEfficiencyObservationSink:
-        """为 artifact-level judge 创建绑定当前 collector 的 observation sink。"""
 
-        return EvaluatorEfficiencyObservationSink(self.efficiency_collector)
-
-    def _finalize_artifact_payload(
-        self,
-        payload: dict[str, Any],
-        sink: EvaluatorEfficiencyObservationSink,
-    ) -> dict[str, Any]:
-        """collector 启用时把累积 observation 折入 runner-internal 字段后返回 payload。
-
-        `efficiency_observations` 仅供 runner 内部消费，禁止出现在 score row / summary /
-        CLI 摘要。collector 未启用时不添加该字段，离线行为字节级不变。
-        """
-
-        if sink.enabled:
-            payload["efficiency_observations"] = sink.observations()
-        return payload
-
-    def _map_artifact_judge_units(
-        self,
-        *,
-        units: Sequence[_ArtifactUnit],
-        evaluate_unit: Callable[
-            [_ArtifactUnit, EvaluatorEfficiencyObservationSink],
-            _ArtifactResult,
-        ],
-        max_workers: int,
-        unit_identity: Callable[[_ArtifactUnit], Hashable] | None = None,
-        score_identity: Callable[[dict[str, Any]], Hashable] | None = None,
-    ) -> tuple[list[_ArtifactResult], EvaluatorEfficiencyObservationSink]:
-        """有界并行评测 artifact 单元，并按输入顺序归并结果与 token 观测。
-
-        每个单元建立独立 sink，因此共享 ``EfficiencyCollector`` 的 ContextVar 作用域
-        不会串写；coordinator 等全部 future 完成后按原始 index 排序，保证 score row 与
-        observation 的逻辑顺序不受远端响应快慢影响。终端只显示一条轻量进度条，不新增
-        artifact 或改变评分内容。
-        """
-
-        if isinstance(max_workers, bool) or max_workers < 1:
-            raise ConfigurationError("artifact judge max_workers must be positive")
-        if (unit_identity is None) != (score_identity is None):
-            raise ConfigurationError(
-                "artifact judge cache requires both unit_identity and score_identity"
-            )
-        aggregate_sink = self._new_efficiency_observation_sink()
-        indexed_units = list(enumerate(units))
-        cached_by_identity: dict[Hashable, dict[str, Any]] = {}
-        if self._existing_artifact_score_records:
-            if unit_identity is None or score_identity is None:
-                raise ConfigurationError(
-                    f"{self.metric_name} does not support incremental score reuse"
-                )
-            for record in self._existing_artifact_score_records:
-                identity = score_identity(record)
-                if identity in cached_by_identity:
-                    raise ConfigurationError(
-                        "artifact judge cache has duplicate score identity"
-                    )
-                cached_by_identity[identity] = record
-
-            unit_identities = [unit_identity(unit) for _, unit in indexed_units]
-            if len(set(unit_identities)) != len(unit_identities):
-                raise ConfigurationError(
-                    "artifact judge units have duplicate score identity"
-                )
-            extra_cached = set(cached_by_identity) - set(unit_identities)
-            if extra_cached:
-                raise ConfigurationError(
-                    "artifact judge cache contains scores outside current inputs"
-                )
-            indexed_units_to_run = [
-                item
-                for item in indexed_units
-                if unit_identity(item[1]) not in cached_by_identity
-            ]
-        else:
-            indexed_units_to_run = indexed_units
-        if not indexed_units:
-            return [], aggregate_sink
-
-        worker_count = min(max_workers, len(indexed_units_to_run))
-        def execute(
-            indexed_unit: tuple[int, _ArtifactUnit],
-        ) -> tuple[int, _ArtifactResult, list[EfficiencyObservation]]:
-            """在线程内评测一个带稳定输入序号的 artifact 单元。"""
-
-            index, unit = indexed_unit
-            local_sink = self._new_efficiency_observation_sink()
-            result = evaluate_unit(unit, local_sink)
-            return index, result, local_sink.observations()
-
-        completed: list[
-            tuple[int, _ArtifactResult, list[EfficiencyObservation]]
-        ] = []
-        with _artifact_judge_progress(
-            self.metric_name,
-            len(indexed_units_to_run),
-        ) as advance:
-            if worker_count == 1:
-                for indexed_unit in indexed_units_to_run:
-                    completed.append(execute(indexed_unit))
-                    advance()
-            elif worker_count > 1:
-                with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                    futures = [
-                        executor.submit(execute, indexed_unit)
-                        for indexed_unit in indexed_units_to_run
-                    ]
-                    for future in as_completed(futures):
-                        completed.append(future.result())
-                        advance()
-
-        completed.sort(key=lambda item: item[0])
-        new_by_index: dict[int, _ArtifactResult] = {}
-        for index, result, observations in completed:
-            new_by_index[index] = result
-            aggregate_sink.extend_observations(observations)
-        results: list[_ArtifactResult] = []
-        for index, unit in indexed_units:
-            if unit_identity is not None:
-                cached = cached_by_identity.get(unit_identity(unit))
-                if cached is not None:
-                    results.append(cached)  # type: ignore[arg-type]
-                    continue
-            results.append(new_by_index[index])
-        return results, aggregate_sink
-
-    def bind_existing_artifact_score_records(
-        self,
-        records: Sequence[dict[str, Any]],
-    ) -> None:
-        """在任何 API 调用前绑定同 metric 的既有 score，供增量 evaluator 复用。"""
-
-        if self._existing_artifact_score_records:
-            raise ConfigurationError("artifact judge score cache was already bound")
-        normalized: list[dict[str, Any]] = []
-        for record in records:
-            if not isinstance(record, dict):
-                raise ConfigurationError("artifact judge score cache rows must be objects")
-            if record.get("metric_name") != self.metric_name:
-                raise ConfigurationError(
-                    "artifact judge score cache metric_name does not match evaluator"
-                )
-            normalized.append(dict(record))
-        self._existing_artifact_score_records = tuple(normalized)
-
-    @staticmethod
-    def _question_score_identity(record: dict[str, Any]) -> str:
-        """从 question-level score row 读取稳定非空 question id。"""
-
-        question_id = record.get("question_id")
-        if not isinstance(question_id, str) or not question_id.strip():
-            raise ConfigurationError(
-                "incremental question-level judge score requires question_id"
-            )
-        return question_id
-
-    def efficiency_model_inventory(self) -> tuple[ModelDescriptor, ...]:
-        """返回 judge evaluator 会写入 observation 的模型身份。"""
-
-        model_name = self.model or self._get_openai_settings().model
-        return (
-            ModelDescriptor(
-                model_id="judge-llm",
-                model_name=model_name,
-                model_role="judge_llm",
-                execution_mode="api",
-                tokenizer_name=model_name,
-            ),
-        )
-
-    def _extract_text_fields(
-        self,
-        question: Question | str,
-        prediction: AnswerResult | str,
-        gold_answer: GoldAnswerInfo | str,
-    ) -> tuple[str, str, str]:
-        """从实体或字符串中提取 prompt 所需文本。
-
-        输入:
-            question: 公开问题对象或文本。
-            prediction: method 答案对象或文本。
-            gold_answer: 标准答案对象或文本。
-
-        输出:
-            tuple[str, str, str]: 问题、预测答案、标准答案文本。
-        """
-
-        question_text = question.text if isinstance(question, Question) else str(question)
-        prediction_text = prediction.answer if isinstance(prediction, AnswerResult) else str(prediction)
-        gold_text = gold_answer.answer if isinstance(gold_answer, GoldAnswerInfo) else str(gold_answer)
-        return question_text, prediction_text, gold_text
-
-    def _output_instruction(self) -> str:
-        """根据解析模式生成与 parser 对齐的输出格式指令。
-
-        输入:
-            无。读取当前 evaluator 的 `mode`。
-
-        输出:
-            str: prompt 中要求 judge 遵守的输出格式。
-        """
-
-        normalized_mode = self.mode.strip().lower()
-        if normalized_mode == "compact":
-            return "Return exactly one lowercase word: true or false.\n"
-        if normalized_mode == "detailed":
-            return 'Return JSON exactly as {"is_correct": true|false, "reason": "..."}.\n'
-        raise JudgeOutputError(f"unsupported judge mode: {self.mode}")
-
-    def _call_model(self, prompt: str) -> str:
-        """调用真实 LLM judge。
-
-        输入:
-            prompt: 已构造好的 judge prompt。
-
-        输出:
-            str: 模型原始文本输出。
-        """
-
-        return self._call_model_with_usage(prompt).text
-
-    def _call_model_with_usage(self, prompt: str) -> JudgeModelResponse:
-        """以字符串 prompt 调用 LLM judge，并解析文本和 token usage。"""
-
-        return self._invoke_judge_model(
-            api_input=prompt,
-            tokenizer_prompt_text=prompt,
-        )
-
-    def _invoke_judge_model(
-        self,
-        *,
-        api_input: Any,
-        tokenizer_prompt_text: str,
-        chat_completions_response_format: dict[str, str] | None = None,
-    ) -> JudgeModelResponse:
-        """以给定 API input 调用 judge 模型并解析 token usage。
-
-        `api_input` 原样传给 Responses API（可为字符串 prompt，也可为官方 role-tagged
-        messages），绝不改写，因此不会破坏任何官方 prompt 字节；`tokenizer_prompt_text`
-        只在 API usage 缺失时供 tokenizer 回退估算，不影响真实请求内容。本方法只负责计量，
-        不记录 observation，由调用方在 judge scope 内自行调用 `_record_judge_llm_call`，
-        保证每次真实调用恰好计一次、不因外壳叠套而双计。
-
-        `chat_completions_response_format` 只约束 Chat Completions 的传输层输出格式；
-        Responses 正式轨保持原请求不变。调用方只能在自身 parser 本来就要求对应结构时
-        传入，不能借此改变 benchmark 的评分语义。
-        """
-
-        client = self._get_client()
-        api_settings = self._resolve_invocation_settings()
-        model = self.model or api_settings.model
-        if api_settings.judge_transport == RESPONSES_JUDGE_TRANSPORT:
-            response = client.responses.create(
-                model=model,
-                input=api_input,
-                temperature=0,
-            )
-        elif api_settings.judge_transport == CHAT_COMPLETIONS_JUDGE_TRANSPORT:
-            request_overrides = api_settings.chat_completions_request_overrides()
-            if chat_completions_response_format is not None:
-                request_overrides["response_format"] = dict(
-                    chat_completions_response_format
-                )
-            response = client.chat.completions.create(
-                model=model,
-                messages=_judge_chat_messages(api_input),
-                temperature=0,
-                **request_overrides,
-            )
-        else:  # pragma: no cover - OpenAISettings 已在构造期封闭枚举
-            raise ConfigurationError(
-                f"Unsupported judge transport: {api_settings.judge_transport!r}"
-            )
-        text = _extract_response_text(response)
-        input_tokens, output_tokens = _extract_usage_tokens(response)
-        usage = resolve_token_usage(
-            api_input_tokens=input_tokens,
-            api_output_tokens=output_tokens,
-            prompt_text=tokenizer_prompt_text,
-            output_text=text,
-            tokenizer=_TiktokenCounter(model),
-        )
-        return JudgeModelResponse(
-            text=text,
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            token_measurement_source=usage.source,
-        )
-
-    def _record_judge_llm_call(self, model_response: JudgeModelResponse) -> None:
-        """在 runner 建立的 judge scope 内记录一次 LLM 调用。"""
-
-        collector = self.efficiency_collector
-        if collector is None or not collector.enabled:
-            return
-        with collector.operation_stage(EfficiencyStage.JUDGE):
-            collector.record_llm_call(
-                model_id="judge-llm",
-                input_tokens=model_response.input_tokens,
-                output_tokens=model_response.output_tokens,
-                token_measurement_source=model_response.token_measurement_source,
-            )
-
-    def _get_client(self) -> Any:
-        """懒加载 OpenAI client。
-
-        输入:
-            无。
-
-        输出:
-            Any: OpenAI SDK client 或注入的兼容 client。
-        """
-
-        if self._client is None:
-            with self._client_lock:
-                if self._client is None:
-                    from openai import OpenAI
-
-                    self._client = OpenAI(
-                        **self._get_openai_settings().to_client_kwargs()
-                    )
-        return self._client
-
-    def _resolve_invocation_settings(self) -> OpenAISettings:
-        """返回本次 judge 的 transport；旧 fake client 默认保留 Responses 语义。"""
-
-        if self._openai_settings is None and self._client is not None:
-            return OpenAISettings(
-                api_key="<injected-test-client>",
-                model=self.model or "gpt-4o-mini",
-            )
-        return self._get_openai_settings()
-
-    def _get_openai_settings(self) -> OpenAISettings:
-        """返回命令层注入或从 primary profile 懒加载的 API 配置。"""
-
-        if self._openai_settings is not None:
-            return self._openai_settings
-        return self._get_settings().openai
-
-    def _provider_completion_limit(self, requested: int) -> int:
-        """为 reasoning provider 放宽隐藏推理与可见答案共享的 token 预算。"""
-
-        settings = self._resolve_invocation_settings()
-        if settings.provider == OPENCODEGO_API_PROVIDER:
-            return max(requested, 128)
-        return requested
-
-    def _get_settings(self) -> Any:
-        """懒加载项目配置。
-
-        输入:
-            无。
-
-        输出:
-            AppSettings: 配置层返回的结构化设置。
-        """
-
-        if self._settings is None:
-            self._settings = load_settings(
-                project_root=self._project_root,
-                env_file=self._env_file,
-            )
-        return self._settings
-
-
-@contextmanager
-def _artifact_judge_progress(
-    metric_name: str,
-    total: int,
-) -> Iterator[Callable[[], None]]:
-    """为 artifact judge 显示单条终端进度，不写 prediction progress artifact。"""
-
-    console = Console(file=sys.__stdout__ or sys.stdout)
-    progress = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        TimeElapsedColumn(),
-        console=console,
-        disable=not console.is_terminal,
-    )
-    with progress:
-        task_id = progress.add_task(f"Evaluate {metric_name}", total=total)
-
-        def advance() -> None:
-            """推进一个已完成的 artifact 评测单元。"""
-
-            progress.advance(task_id)
-
-        yield advance
-
-
-def _parse_compact_response(text: str) -> JudgeDecision:
-    """解析 compact judge 输出。
-
-    输入:
-        text: LLM 原始输出。
-
-    输出:
-        JudgeDecision: true/false 对应的结构化判定。
-    """
-
-    normalized_text = _ensure_text(text).strip().lower()
-    if normalized_text == "true":
-        return JudgeDecision(is_correct=True)
-    if normalized_text == "false":
-        return JudgeDecision(is_correct=False)
-    raise JudgeOutputError("compact output must be exactly true or false")
-
-
-def _parse_detailed_response(text: str) -> JudgeDecision:
-    """解析 detailed JSON judge 输出。
-
-    输入:
-        text: LLM 原始输出，必须是 JSON object 字符串。
-
-    输出:
-        JudgeDecision: JSON 中的结构化判定。
-    """
-
-    raw_text = _ensure_text(text)
-    try:
-        payload = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
-        raise JudgeOutputError("detailed output must be valid JSON") from exc
-
-    if not isinstance(payload, dict):
-        raise JudgeOutputError("detailed output must be a JSON object")
-    if "is_correct" not in payload:
-        raise JudgeOutputError("detailed output missing is_correct")
-    if not isinstance(payload["is_correct"], bool):
-        raise JudgeOutputError("is_correct must be a boolean")
-
-    reason = payload.get("reason", "")
-    if not isinstance(reason, str):
-        raise JudgeOutputError("reason must be a string when provided")
-
-    return JudgeDecision(is_correct=payload["is_correct"], reason=reason)
-
-
-def _ensure_text(text: str) -> str:
-    """校验并返回字符串输出。
-
-    输入:
-        text: 待解析对象。
-
-    输出:
-        str: 原始字符串。
-    """
-
-    if not isinstance(text, str):
-        raise JudgeOutputError("judge response must be a string")
-    return text
-
-
-def _extract_response_text(response: Any) -> str:
-    """从 OpenAI SDK 响应对象中提取文本。
-
-    输入:
-        response: OpenAI Responses API 返回对象，或测试中注入的兼容结构。
-
-    输出:
-        str: 可交给 parser 的 judge 原始文本。
-    """
-
-    if isinstance(response, str):
-        return response
-
-    output_text = _get_mapping_or_attr(response, "output_text")
-    if isinstance(output_text, str) and output_text.strip():
-        return output_text
-
-    choices = _get_mapping_or_attr(response, "choices")
-    if isinstance(choices, list) and choices:
-        message = _get_mapping_or_attr(choices[0], "message")
-        content = _get_mapping_or_attr(message, "content")
-        if isinstance(content, str) and content.strip():
-            return content
-
-    if isinstance(response, dict):
-        output = response.get("output")
-    else:
-        output = getattr(response, "output", None)
-
-    if isinstance(output, list):
-        for item in output:
-            content = _get_mapping_or_attr(item, "content")
-            if isinstance(content, list):
-                for content_item in content:
-                    text = _get_mapping_or_attr(content_item, "text")
-                    if isinstance(text, str) and text.strip():
-                        return text
-
-    raise JudgeOutputError("model response does not contain output text")
-
-
-def _judge_chat_messages(api_input: Any) -> list[dict[str, Any]]:
-    """把 Responses 风格 judge input 无损映射到 Chat Completions messages。"""
-
-    if isinstance(api_input, str):
-        return [{"role": "user", "content": api_input}]
-    if not isinstance(api_input, list) or not api_input:
-        raise ConfigurationError(
-            "chat-completions judge input must be a string or non-empty message list"
-        )
-    messages: list[dict[str, Any]] = []
-    for index, item in enumerate(api_input):
-        if not isinstance(item, dict):
-            raise ConfigurationError(
-                f"chat-completions judge message {index} must be a dict"
-            )
-        role = item.get("role")
-        content = item.get("content")
-        if not isinstance(role, str) or not role.strip():
-            raise ConfigurationError(
-                f"chat-completions judge message {index} requires role"
-            )
-        if not isinstance(content, str):
-            raise ConfigurationError(
-                f"chat-completions judge message {index} requires string content"
-            )
-        messages.append(dict(item))
-    return messages
-
-
-class _TiktokenCounter:
-    """按 OpenAI-compatible 模型名计数 token 的轻量 wrapper。"""
-
-    def __init__(self, model_name: str) -> None:
-        """保存模型名，encoding 懒加载以避免无观测路径额外开销。"""
-
-        self.model_name = model_name
-        self._encoding = None
-
-    def count_tokens(self, text: str) -> int:
-        """返回文本 token 数；未知模型回退到 cl100k_base。"""
-
-        if self._encoding is None:
-            try:
-                import tiktoken
-            except Exception as exc:
-                raise ConfigurationError(
-                    "tiktoken is required for judge token estimation"
-                ) from exc
-            try:
-                self._encoding = tiktoken.encoding_for_model(self.model_name)
-            except KeyError:
-                self._encoding = tiktoken.get_encoding("cl100k_base")
-        return len(self._encoding.encode(text or ""))
-
-
-def _extract_usage_tokens(response: Any) -> tuple[int | None, int | None]:
-    """从 OpenAI Responses API usage 中提取 input/output token。"""
-
-    usage = _get_mapping_or_attr(response, "usage")
-    if usage is None:
-        return None, None
-    input_tokens = _get_first_int(usage, ("input_tokens", "prompt_tokens"))
-    output_tokens = _get_first_int(usage, ("output_tokens", "completion_tokens"))
-    return input_tokens, output_tokens
-
-
-def _get_first_int(source: Any, field_names: tuple[str, ...]) -> int | None:
-    """按候选字段顺序读取第一个整数 token 值。"""
-
-    for field_name in field_names:
-        value = _get_mapping_or_attr(source, field_name)
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
-    return None
-
-
-def _get_mapping_or_attr(value: Any, key: str) -> Any:
-    """兼容 dict 和 SDK 对象读取字段。
-
-    输入:
-        value: dict 或普通对象。
-        key: 字段名。
-
-    输出:
-        Any: 字段值；不存在时返回 None。
-    """
-
-    if isinstance(value, dict):
-        return value.get(key)
-    return getattr(value, key, None)
+__all__ = [
+    "BinaryJudgeEvaluation",
+    "JudgeDecision",
+    "LLMJudgeEvaluator",
+    "RubricJudgeEvaluation",
+    "VALID_VERDICTS",
+    "VERDICT_SCORE_MAP",
+    "parse_judge_response",
+]

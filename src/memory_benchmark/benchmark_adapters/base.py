@@ -86,6 +86,7 @@ class BenchmarkAdapter(ABC):
         """
 
         dataset = self.load_dataset(limit=limit)
+        retain_scored_cohort(dataset)
         validate_dataset(dataset)
         for conversation in dataset.conversations:
             validate_no_private_keys(conversation.to_public_dict())
@@ -114,6 +115,38 @@ class BenchmarkAdapter(ABC):
         输出:
             None。子类发现 benchmark-specific 问题时应抛领域异常。
         """
+
+
+def retain_scored_cohort(dataset: Dataset) -> int:
+    """去掉没有统一评测类型的题，并丢掉因此变空的 conversation。
+
+    输入:
+        dataset: adapter 刚转换出的数据集。没有 capability 的题不进入评测分母。
+
+    输出:
+        int: 被去掉的题目数。
+    """
+
+    kept_conversations = []
+    dropped_questions = 0
+    for conversation in dataset.conversations:
+        kept_questions = []
+        for question in conversation.questions:
+            if question.unified_capability is None:
+                conversation.gold_answers.pop(question.question_id, None)
+                dropped_questions += 1
+                continue
+            kept_questions.append(question)
+        conversation.questions = kept_questions
+        if kept_questions:
+            kept_conversations.append(conversation)
+    dataset.conversations = kept_conversations
+    scored_question_count = sum(len(conversation.questions) for conversation in kept_conversations)
+    dataset.metadata["excluded_unmapped_question_count"] = dropped_questions
+    dataset.metadata["scored_question_count"] = scored_question_count
+    if "loaded_question_count" in dataset.metadata:
+        dataset.metadata["loaded_question_count"] = scored_question_count
+    return dropped_questions
 
 
 def reached_limit(count: int, limit: int | None) -> bool:

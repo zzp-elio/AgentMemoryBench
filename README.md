@@ -1,626 +1,254 @@
 # AgentMemoryBench
 
-AgentMemoryBench 是一个面向 Agent Memory 方法的可复现、可扩展、可审计评测框架。
-它把不同 benchmark 的原始数据统一成可校验的数据模型，调用 memory method 写入和检索
-记忆，由 framework reader 生成回答，再把 prediction、运行观测和 evaluator 结果保存为
-可复算的标准实验产物。
+评测端统一答题和打分，记忆系统只交回记忆。这样比较的是记忆本身，而不是各家论文自己的答题模型、提示词和指标。
 
-GitHub 仓库：[zzp-elio/AgentMemoryBench](https://github.com/zzp-elio/AgentMemoryBench)
+记忆系统实现两个接口即可接入：
 
-当前第一优先用户是希望低门槛运行官方集成的实验使用者；第二类用户是希望把新 memory
-method 接入统一 benchmark 的研究者。
+| 接口 | 做什么 |
+| :--- | :--- |
+| `ingest` | 一次写入一个会话。会话包含各轮发言和会话时间，并用 `isolation_key` 把不同对话分开。标准答案不传入。 |
+| `retrieve` | 按问题和 `isolation_key` 取回记忆，只返回一段 `formatted_memory`。不返回答案。 |
 
-## 当前状态
+评测端把这段记忆拼进答题提示词，生成回答后再打分。召回率不进入总分：取回的是改写后的记忆，不是原话位置。
 
-当前主线只实现 **conversation + QA** task family：
+---
 
-```text
-conversation history -> question -> answer-level score
+## 评测题
+
+五个基准的原题按「做对时该回答什么」收成 6 类。总分和这 6 类用同一批题。对不上的原题在加载时去掉。
+
+| 类型 | 做对时 |
+| :--- | :--- |
+| 事实回忆 | 把已经说过的内容说出来 |
+| 多证据综合 | 把好几处说过的内容拼起来 |
+| 时间与顺序 | 用日期或先后作答 |
+| 记忆更新 | 只答更新后的当前值 |
+| 拒答 | 明确说没说过 |
+| 个性化 | 偏好已经说过，回答要照着做 |
+
+不进入这 6 类的题包括：LoCoMo 的对抗题和开放域常识题，MemBench 没说破的偏好、情绪、再加工和带噪问题，BEAM 的内部矛盾、指令遵循和长期总结，HaluMem 的错误前提纠正和新情境应用。
+
+打分用三个评测器：精确匹配、F1、LLM 裁判。信息不够时，裁判可以拒绝打分并转人工，而不是猜一个对错。
+
+---
+
+## 流水线
+
+```mermaid
+flowchart LR
+    D["五个基准"] --> A["读入并标成 6 类"]
+    A --> I["ingest 按会话写入"]
+    I --> R["retrieve 取回一段记忆"]
+    R --> Q["评测端生成回答"]
+    Q --> E["精确匹配 / F1 / LLM 裁判"]
 ```
 
-### Phase 1 目标与进展（2026-08-21）
+---
 
-Phase 1 范围是 **5 个 benchmark × 10 个 method**。
-多模态字段已在 core 中保留，但当前阶段不主动运行多模态 benchmark。
+## 目录结构
 
-Phase 1 的**交付物是 5×10 smoke 矩阵**（每格极小规模真实测试 + 成本 observation），
-不是全量实验。全量实验在预算获批后另启。
+代码采用标准微服务中间层架构，Git 仅白名单跟踪评测端核心源码与配置文件：
 
-**当前里程碑**：
+```text
+├── configs/
+│   └── application.yaml                # 统一配置（LLM 客户端与动态 Prompt 矩阵）
+├── src/memory_benchmark/               # 评测中间层核心源码
+│   ├── benchmark_adapters/             # 5 大基准加载与 6 类题型过滤适配器 (LoCoMo / LongMemEval 等)
+│   ├── core/                           # 核心领域实体、中间层协议 (MemoryProvider) 与安全变量格式化引擎
+│   ├── coordinator/                    # 评测协调微服务 (IoC 容器，接收外部容器 /ready 握手编排)
+│   ├── readers/                        # 统一回答生成器 (FrameworkAnswerReader 拼接记忆与生成回答)
+│   ├── evaluators/                     # 通用评估器 (ExactMatch / F1 / 支持拒判转人工的双模式 LLM-Judge)
+│   ├── runners/                        # 执行器 (prediction.py 并发预测与 evaluation.py 离线解耦打分)
+│   ├── storage/                        # 评测实验产物管理 (JSON Lines 读写与原子落地)
+│   ├── utils/                          # 通用工具 (线程安全运行日志记录器等)
+│   └── __main__.py                     # 极简 CLI 命令行入口
+├── pyproject.toml                      # 项目元数据与评测必要依赖规范 (无重型依赖冲突)
+├── uv.lock                             # 确定性依赖版本锁定文件
+├── .env.example                        # 环境变量模板 (API_KEY / BASE_URL / MODEL_NAME)
+└── .gitignore                          # 严格白名单过滤规则
+```
 
-- 5 个 benchmark adapter 全部 frozen-v1；canonical、Gold Evidence Group、异常账、answer/judge
-  和 metric 资格均有稳定文档。
-- Phase 1 十家 method 已完成全部可行格的真实 smoke、B1-B11 与冻结；不适用组合以
-  N/A/unsupported 留痕，不为填矩阵伪造能力。Graphiti OSS `v0.29.3` 已接替
-  source-unavailable 的 Supermemory，且不代表 Zep hosted product。
-- 2026-08-21 冻结后差量审计只发现 A-Mem 的 runtime provenance stamp 与既有 N/A 裁决
-  不一致；现已做零 API 精确修复，不撤销既有 build smoke，也不改写历史 artifact。
-- 十家产品调用签名、参数/返回类型、framework granularity 与产品 list/batch 语义集中在
-  [Method 产品接口与注入粒度总账](docs/reference/method-interface-inventory.md)，逐家细节由
-  对应 integration 页承载。
-- 当前主树无 API 全量基线为
-  **2200 passed, 3 deselected, 25 warnings, 29 subtests passed**；测试总数较 ws04 当时的
-  历史基线变化来自后续 legacy 退役与新契约门增删，不能只比较裸计数判断退化。
+### 关键目录与模块职责
 
-协议全文见 [spec-protocol-v3.md](docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md)，
-逐家进度与恢复断点见 [ws02.7](docs/workstreams/ws02.7-method-track/README.md)。
+- [`configs/application.yaml`](configs/application.yaml)：全局基准与差异化覆盖配置中心。定义 `llm.answer` 与 `llm.judge` 默认模型参数，并配置各大 Benchmark 细分题型的定制化 System/User 提示词。
+- [`src/memory_benchmark/benchmark_adapters/`](src/memory_benchmark/benchmark_adapters/)：统一数据接口。负责解析原始对话为 `Conversation -> Session -> Turn`，只保留映射进 6 类的有效题，并剥离私有参考答案。
+- [`src/memory_benchmark/core/`](src/memory_benchmark/core/)：系统核心抽象层。提供泛型响应封装 `Result[T]`、极简双方法客户端协议 [`HttpMemoryProvider`](src/memory_benchmark/core/provider_protocol.py)，以及免疫 JSON 花括号冲突的安全提示词格式化引擎。
+- [`src/memory_benchmark/readers/`](src/memory_benchmark/readers/)：统一答题生成层。将被测记忆系统返回的纯文本 `formatted_memory` 拼入提示词，使用统一配置的 Answer LLM 回答问题。
+- [`src/memory_benchmark/evaluators/`](src/memory_benchmark/evaluators/)：统一指标打分层。包括字符串精确匹配 `ExactMatch`、Token 级重叠度 `F1` 以及强类型 Pydantic 双模式的 `LLMJudgeEvaluator`（遇到不可判情况自动标记 `UNDECIDABLE` 拒判转人工复核）。
+- [`src/memory_benchmark/runners/`](src/memory_benchmark/runners/)：流水线编排调度层。以对话（Conversation）为粒度进行多线程并发执行，并按原始索引严格确定性归并生成产物。
 
-### 已实现基线详情
+---
 
-| 类型 | 当前状态 |
-| --- | --- |
-| Phase 1 目标 Benchmark | LoCoMo、LongMemEval、HaluMem、BEAM、MemBench |
-| Phase 1 目标 Method | A-Mem、MemoryOS、MemOS、LightMem、SimpleMem、Mem0、Letta/MemGPT、EverOS、LangMem、Graphiti OSS |
-| 已接入 Benchmark | LoCoMo、LongMemEval、HaluMem、BEAM、MemBench（均 frozen-v1） |
-| 已冻结 Method | Phase 1 十家全部 frozen：A-Mem、MemoryOS、MemOS、LightMem、SimpleMem、Mem0、Letta/MemGPT、EverOS、LangMem、Graphiti OSS |
-| 当前工程主线 | ws03 M1-A→E 与 ws04 已关闭；成本 pilot 暂缓，下一批为后接 method 对齐复证 |
-| 方法身份边界 | Graphiti OSS 不是 Zep hosted parity；Supermemory blocked 仅保留 source-gate 判例 |
-| 指标与观测 | answer/retrieval/operation evaluator + token、latency、model/runtime identity、memory context observations |
-| 历史 source gate | Supermemory stable self-host binary 的运行时核心未公开，已退出 Phase 1 第十格 |
-| 已移除 | PrefEval（不恢复 adapter、测试、文档或原始仓库） |
+## 运行
 
-### 关键约束
+评测中间层与被测记忆系统采用 **C/S 微服务解耦架构**：
+评测端只负责发送评测流量（调度 Ingest、Retrieve 并打分），被测记忆系统作为独立 HTTP Server 运行（实现 `/ingest` 与 `/retrieve`）。
 
-- **预算强约束**：全量实验必须先有成本估算表并经导师批准；当前一切真实 run 均为极小
-  smoke。真实 API 调用须用户显式确认 method、benchmark、样本规模和 `run_id`。
-- 新 smoke 使用 `.env` 中 `opencode_go_key/opencode_base_url/opencode_model_name_3` 对应的
-  `opencodego/mimo-v2.5`；旧 DeepSeek/Muse artifact 仍按 manifest 从第一/第二模型槽
-  精确回读；`official_full` 与作者正式校准使用
-  `primary/gpt-4o-mini`。两条 runtime 身份进入 manifest，分数不可直接混比。
-- 真实费用按实际 API 服务商价格离线计算，不绑定 OpenAI 官方价。
-- smoke 使用官方 method 参数；成本控制只通过数据规模裁剪。
-- `outputs/memoryos-locomo-full-20260603/` 是受保护实验资产。
+### 1. 安装 uv 与依赖初始化
 
-最新任务状态以 [AGENTS.md](AGENTS.md)、[docs/roadmap.md](docs/roadmap.md) 和各
-[workstream README](docs/workstreams/) 为准。
-
-## 快速开始
-
-安装依赖：
+推荐使用现代 Python 极速包管理工具 [uv](https://docs.astral.sh/uv/) 初始化环境：
 
 ```bash
+# 1. 安装 uv (如未安装)
+# macOS / Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# 或使用 Homebrew:
+# brew install uv
+
+# 2. 一键创建虚拟环境并锁定安装依赖
 uv sync
 ```
 
-配置 API。根目录 `.env` 只保存 secret 和服务地址，不提交到 Git：
+### 2. 配置环境变量
 
-```text
-# 低预算 smoke profile
-opencode_go_key=<your-opencodego-key>
-opencode_base_url=<your-opencodego-base-url>
-opencode_model_name=deepseek-v4-flash  # 仅用于旧 artifact 精确回读
-opencode_model_name_2=muse-spark-1.2-contributor  # 仅用于旧 artifact 精确回读
-opencode_model_name_3=mimo-v2.5  # 新 smoke 默认
+复制 `.env.example` 为 `.env`，配置用于答题和裁判的大模型参数：
 
-# official_full / 作者正式校准 profile
-OPENAI_KEY=<your-api-key>
+```bash
+cp .env.example .env
+```
+
+在 `.env` 中填写以下变量（兼容任何提供 OpenAI `/v1/chat/completions` 接口的模型服务或中转地址）：
+
+```bash
+API_KEY=your_api_key_here
 BASE_URL=https://api.openai.com/v1
+MODEL_NAME=gpt-4o-mini
 ```
 
-查看 CLI：
+### 3. 运行自动化契约测试
 
-```bash
-uv run memory-benchmark --help
-uv run python -m memory_benchmark --help
-```
-
-运行离线验证，不会调用真实外部 API：
-
-```bash
-uv run pytest tests/test_documentation_standards.py tests/test_method_official_smoke_profiles.py -q
-uv run python -m compileall -q src/memory_benchmark tests
-```
-
-更完整的本地回归：
+在运行真实实验前，可运行测试套件验证代码与文档防漂移契约：
 
 ```bash
 uv run pytest -q
-uv run pytest -m api --collect-only -q
 ```
 
-默认 `pytest` 通过 marker 排除 `api`，不会触发真实 API。需要真实 API smoke 时，必须显式
-使用 `-m api` 或 CLI 的 `--confirm-api`。
+---
 
-## 本地资产
+### 4. 运行评测实验
 
-大型数据、模型和实验输出不进入 Git，也不会塞进 Python 安装包。当前 `.gitignore` 保护：
+#### 方式 A：零外部服务依赖快速冒烟（单方面立即可跑）
 
-- `data/`
-- `models/`
-- `outputs/`
-- `third_party/benchmarks/`
-- `paper-make/`
-- `.env`
-
-本地运行时约定：
-
-```text
-data/                            # adapter 读取的 canonical runtime dataset
-models/                          # 本地 embedding / compressor / NLP 模型资源
-outputs/<run_id>/                # legacy run 输出目录
-outputs/runs/{method}/...        # CLI v2 分层 run 输出目录
-third_party/benchmarks/          # 官方 benchmark 仓库，只用于事实核验和源码参考
-third_party/methods/             # 项目提供并固定版本的第三方 method 源码
-```
-
-LightMem 当前需要本地模型：
-
-- `models/all-MiniLM-L6-v2`
-- `models/llmlingua-2-bert-base-multilingual-cased-meetingbank`
-
-method 资源和官方参数核对见
-[docs/reference/method-resource-parameter-audit.md](docs/reference/method-resource-parameter-audit.md)。
-当前 public Hugging Face 数据仓库为
-[BuptZZP/agentmemorybench-data](https://huggingface.co/datasets/BuptZZP/agentmemorybench-data)，
-准备和上传流程见
-[docs/reference/huggingface-datasets.md](docs/reference/huggingface-datasets.md)。
-
-## 项目层次
-
-```text
-src/
-  memory_benchmark/
-    config/               # .env、路径、profile 和服务配置读取
-    core/                 # 数据实体、抽象接口、校验、领域异常、结果摘要
-    benchmark_adapters/   # 原始 dataset -> 统一 Dataset
-    evaluators/           # answer-level 指标和 LLM judge
-    runners/              # prediction/evaluation/run 编排
-    methods/              # method wrapper、profile 装配和能力声明
-    observability/        # Rich 进度、事件日志和效率 observation
-    storage/              # 标准实验目录、JSONL、fingerprint 和 artifact 工具
-    utils/                # logger 与通用工具
-    cli/                  # 统一命令行入口
-tests/                    # pytest 测试和可维护性约定测试
-configs/                  # method/evaluator TOML profile
-docs/                     # 当前设计、计划、资源审计、交接文档
-third_party/methods/      # vendored method 源码
-```
-
-核心分层原则：
-
-- `core/` 不读取数据、不调用模型、不计算指标，只定义公共语言。
-- `benchmark_adapters/` 只做 schema 转换和强校验，不调用 method。
-- `runners/` 只向 method 传公开对象，不能传 gold answer、evidence 或 judge label。
-- `evaluators/` 才能读取 `GoldAnswerInfo` 等 evaluator-only 私有信息。
-- `methods/` 用 wrapper 隔离第三方源码，runner 不直接依赖第三方内部类。
-- `registry` 只保存名称、静态能力和 factory，不保存 secret 或运行实例。
-
-数据结构参考与评测流程参考位于：
-
-- [docs/survey/datasets/](docs/survey/datasets/)
-- [docs/survey/workflows/](docs/survey/workflows/)
-
-## 运转逻辑
-
-```text
-CLI / Python API
-  ↓
-Registry + Config Resolver
-  ↓
-BenchmarkAdapter
-  读取本地原始数据
-  ↓
-Dataset
-  Conversation -> Session -> Turn
-  Conversation -> Question + GoldAnswerInfo
-  ↓
-Prediction Runner
-  method.add(public Conversation)
-  method.retrieve(public Question) -> AnswerPromptResult.prompt_messages
-  framework answer LLM(prompt_messages)
-  ↓
-标准 predictions + runtime observations
-  ↓
-Evaluation Runner
-  prediction + private GoldAnswerInfo
-  ↓
-EvaluationResult
-  answer-level metrics + per-question details
-```
-
-公开/私有边界是硬约束：
-
-- `Conversation` 和 `Question` 是 method 可见输入。
-- `GoldAnswerInfo` 只给 evaluator 和审计日志使用。
-- gold answer、evidence id、judge label、私有 metadata 不能进入 method。
-- runner 会重建 public 对象，避免 dataclass 动态属性泄漏。
-
-## 数据模型
-
-```text
-Dataset
-└── Conversation
-    ├── Session
-    │   └── Turn
-    ├── Question
-    └── GoldAnswerInfo
-```
-
-实体含义：
-
-- `Dataset`: 一个 benchmark split 的统一载体。
-- `Conversation`: 一个独立记忆空间，用 `conversation_id` 隔离。
-- `Session`: 一段有边界的历史对话，可带 session-level 时间。
-- `Turn`: 单个 speaker 的一次发言；一个 user/assistant round 应拆成两个 turn。
-- `Question`: method 可见问题，可带可选时间、类别、选项和公开 metadata。
-- `GoldAnswerInfo`: evaluator 私有标准答案信息。
-- `ImageRef`: 后续多模态扩展字段，Phase 1 不主动处理图片。
-
-## Method 接口
-
-当前主协议为 **v3 `MemoryProvider`**（`ingest(unit) + retrieve(query) -> RetrievalResult`），
-粒度由实例级 `consume_granularity` 声明、框架事件流聚合投递。协议全文：
-[docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md](docs/workstreams/ws02-phase1-matrix/spec-protocol-v3.md)。
-
-十个内置 method 的 registry factory 与 `--method-class` custom 入口都直接产出 v3；旧
-`provider_bridge.py` 和 MemoryOS 专用 prediction runner 已退役。新接入不接受
-`BaseMemoryProvider.add/retrieve` 或 method-owned `get_answer()`。
-
-```python
-from memory_benchmark.core.provider_protocol import (
-    IngestResult,
-    MemoryProvider,
-    RetrievalQuery,
-    RetrievalResult,
-    TurnEvent,
-)
-
-
-class MyMemoryProvider(MemoryProvider):
-    consume_granularity = "turn"
-
-    def ingest(self, unit: TurnEvent) -> IngestResult:
-        ...
-
-    def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
-        return RetrievalResult(formatted_memory="...retrieved memory...")
-```
-
-`ingest()` 的载荷由 `consume_granularity` 决定：turn/pair/session/conversation 分别对应
-`TurnEvent`、`TurnPair`、`SessionBatch`、`ConversationBatch`。框架负责遍历、顺序、聚合、
-边界与 `isolation_key`；method 只翻译到产品接口。
-
-`RetrievalResult.formatted_memory` 是主 benchmark answer builder 的唯一 method 输入；可选
-`prompt_messages` 只服务一手证据闭合的作者校准，`items/evidence` 只在 provenance 与 ranking
-真实可证明时填写。框架统一 answer LLM 负责最终回答。
-
-framework answer LLM 当前使用 `AnswerLLMSettings` 显式记录并传递 method × benchmark 的
-官方 answer 参数，例如 temperature、max_tokens、top_p、message role、timeout 和 retry。
-未在官方脚本中设置的字段保持 `None`，不会被框架猜默认值后传给 SDK。
-
-answer LLM 和 judge LLM 后续会统一到 `LLMClient -> LLMResponse` 抽象，标准返回包含
-文本、provider、model、usage、request id、finish reason、latency 和可选 debug raw
-response。当前 registered prediction 已能在 method 声明 `MEMORY_RETRIEVAL` 时构造
-OpenAI-compatible framework reader；完整多 provider 配置仍处于设计后续阶段，详见
-[LLM Provider 与 Prompt 配置设计](docs/workstreams/ws03-architecture-slimming/2026-06-21-llm-provider-config-design.md)。
-
-接口约束：
-
-- 用框架发放的 `isolation_key` 做记忆隔离，不从 question/source path 猜 namespace；
-- `end_conversation()` 返回即代表 memory 已可检索，异步产品必须等待真实 terminal；
-- `retrieve()` 接收公开 `RetrievalQuery`，绝不能看到 gold answer/evidence/judge label；
-- `top_k` 是 query 字段；模型、embedding、算法超参属于 TOML profile；
-- metric 资格逐 method × benchmark × metric 判 valid/N/A/pending，不为填矩阵伪造 lineage。
-
-自定义 method 现在也可以通过 CLI 轻量接入：传
-`--method-class module:ClassName`，并让该类无参数构造且继承 `MemoryProvider`。
-该路径不要求用户写 AgentMemoryBench 的 TOML profile、不要求接入 source identity，也不
-强制内部 LLM/embedding 观测。自定义 method 默认 `workers=1`；如果用户显式传
-`--allow-unsafe-custom-parallel`，框架才允许 `workers>1`，并由用户自行保证外部数据库、
-文件、namespace 和 conversation 隔离安全。手把手示例见
-[docs/reference/custom-method-onboarding.md](docs/reference/custom-method-onboarding.md)。当前内置 method
-原生接口审计见 [docs/reference/method-interface-inventory.md](docs/reference/method-interface-inventory.md)。
-
-## 统一命令行入口
-
-统一入口包含三个子命令：
-
-- `predict`：只运行 method 并保存回答，不计算指标。
-- `evaluate`：只读取已有 artifacts 计算指标，不重新运行 method。
-- `run`：先 prediction，再 evaluation，是前两步的便利组合。
-
-正式实验建议优先使用可独立恢复的 `predict` 和 `evaluate`。`run` 不复制业务逻辑。
-`predict` / `run` 默认写出 prediction 阶段的 token、latency 和模型身份 observation；
-只有临时调试时才建议显式传 `--disable-efficiency-observability` 关闭。
-当前推荐使用 CLI v2：
-
-- `predict smoke`：极小真实链路测试。允许裁剪 conversation、历史 round 和每个
-  conversation 的问题数；不支持 `--resume` 或 `--retry-failed`。
-- `predict formal`：正式 profile 运行。不能裁剪历史或问题；可用
-  `--isolation-id`（可重复）锁定有序 isolation cohort，再用
-  `--conversation-budget` 分批推进，并可用 `--resume` 继续同一个 `run_id`。
-- `--allow-api` 是 `--confirm-api` 的直观别名；旧名称仍兼容。
-
-这些预算参数语义都是上限：如果设置值大于当前 dataset / variant 的实际数量，框架按实际
-可用数量运行；worker 数量也会由 runner 按实际 work item 做边界处理。
-
-LoCoMo 小量真实链路示例：
+无需启动任何外部记忆微服务，使用内置的 `mock` 内存测试桩单方面跑通全流程：
 
 ```bash
-uv run memory-benchmark predict smoke \
-  --method mem0 \
+uv run memory-benchmark \
   --benchmark locomo \
-  --run-id mem0-locomo-smoke \
-  --allow-api \
-  --conversations 5 \
-  --rounds 20 \
-  --questions-per-conversation 2 \
-  --workers 2
+  --method mock \
+  --max-conversations 1 \
+  --metrics f1
 ```
 
-已有回答可以离线计算 LoCoMo F1，不读取 `.env`，也不会再次调用 method：
+#### 方式 B：对接真实 Memory Server 的端到端评测（C/S 协同跑法）
 
+1. **步骤 1：启动被测记忆服务**
+   启动你的 Memory Server（需提供标准的 `POST /ingest` 与 `POST /retrieve` 接口）。
+   例如服务启动并监听在本地 `8002` 端口（`http://127.0.0.1:8002`）。
+
+2. **步骤 2：启动评测打流**
+   通过 `--server-url` 指定你的 Memory Server 真实访问地址：
+
+   ```bash
+   uv run memory-benchmark \
+     --benchmark locomo \
+     --method http \
+     --server-url http://127.0.0.1:8002 \
+     --metrics f1 \
+     --max-conversations 1
+   ```
+
+---
+
+## 命令行参数完整参考 (CLI Reference)
+
+> **全量与抽样规则**：
+> - **默认全量评测**：如果不指定 `-c` / `--max-conversations`（缺省值为 `None`），框架将**默认加载该 Benchmark 的 100% 全量数据**进行完整评测；
+> - **微规模抽样**：指定 `-c 1` 或 `-q 5` 仅用于开发调试、网络连通性测试与快速冒烟。
+
+### 1. 评测基准与数据抽样选项 (Benchmark & Data Sampling)
+
+| 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `--benchmark` | `-b` | `locomo` | `locomo`, `longmemeval`, `halumem`, `beam`, `membench` | 目标评测基准数据集。 |
+| `--max-conversations` | `-c` | `None` *(全量)* | 整数（如 `1`, `10`） | 评测的最大对话数。**不传时默认 100% 全量评测**。 |
+| `--max-questions` | `-q` | `None` *(全量)* | 整数（如 `5`, `20`） | 每段对话评测的最大问题数。支持别名 `--max-questions-per-conversation`。 |
+| `--project-root` | - | `.` | 路径字符串 | 项目根目录路径。 |
+
+### 2. 被测记忆系统连接配置 (Memory Server Connection)
+
+| 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `--method` | `-m` | `mock` | `http`, `mock` | 评测模式：`http` 连接外部独立记忆微服务；`mock` 本地离线自测。 |
+| `--server-url` | `-u` | `None` | `http://127.0.0.1:8002` | 被测 Memory Server 的真实 HTTP 根地址（`--method http` 时必填）。 |
+
+### 3. 评测指标与模型控制 (Metrics & LLM Execution)
+
+| 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `--metrics` | - | `f1` | `f1`, `exact_match`, `llm_judge` | 逗号分隔的评估指标列表，如 `--metrics f1,exact_match`。 |
+| `--mock-llm` | - | `False` | 标志位（无需值） | 强制使用本地确定性测试客户端生成回答，绝不调用外部 LLM API。 |
+
+### 4. 并发调度与执行管理 (Concurrency & Execution)
+
+| 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `--max-workers` | `-w` | `1` | 整数（如 `4`, `10`） | 会话级多线程并发 Worker 数。评测自动按原始索引确定性归并产物。 |
+| `--run-id` | - | 自动生成 | 字符串（如 `test_run_01`） | 显式指定本次实验运行标识符，输出将保存在 `outputs/{run_id}/`。 |
+
+### 5. 高级解耦模式与 Coordinator 微服务 (Advanced & Service Modes)
+
+| 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `--eval-run-dir` | - | `None` | 产物目录路径 | 离线打分模式：直接对已有预测产物重新评测，无需重复写入与检索记忆。 |
+| `--server` | - | `False` | 标志位（无需值） | 启动 Coordinator 微服务，常驻监听外部容器的 `/ready` 握手。 |
+| `--host` | - | `127.0.0.1` | IP 地址字符串 | Coordinator 服务绑定的主机地址。 |
+| `--port` | - | `8000` | 端口号（整数） | Coordinator 服务绑定的端口号。 |
+
+---
+
+## 常用评测场景示例 (Cookbook)
+
+#### 场景 1：全量真实评测（默认全量，对接外部微服务）
 ```bash
-uv run memory-benchmark evaluate \
-  --run-id mem0-locomo-smoke \
-  --metric locomo-f1
+uv run memory-benchmark \
+  -b locomo \
+  -m http \
+  -u http://127.0.0.1:8002 \
+  --metrics f1
 ```
 
-同一份回答可以继续增加 LLM judge；只有 judge 本身需要 API 确认：
-
+#### 场景 2：10 线程高并发加速评测（推荐用于 LoCoMo 全量 10 个独立会话）
 ```bash
-uv run memory-benchmark evaluate \
-  --run-id mem0-locomo-smoke \
-  --metric locomo-judge \
-  --judge-profile compact \
-  --allow-api \
-  --workers 4
+uv run memory-benchmark \
+  -b locomo \
+  -m http \
+  -u http://127.0.0.1:8002 \
+  -w 10 \
+  --metrics f1
 ```
 
-LongMemEval-S 小量示例：
-
+#### 场景 3：快速单会话冒烟验证（抽样 1 个 Conversation，秒级验证连通性）
 ```bash
-uv run memory-benchmark predict smoke \
-  --method mem0 \
-  --benchmark longmemeval \
-  --variant s_cleaned \
-  --run-id mem0-longmemeval-smoke \
-  --allow-api \
-  --conversations 1 \
-  --rounds 20 \
-  --questions-per-conversation 1
+uv run memory-benchmark \
+  -b locomo \
+  -m mock \
+  -c 1 \
+  --metrics f1
 ```
 
-LongMemEval 支持 `s_cleaned`、`m_cleaned` 和命令层 selector `all`。`--variant all` 不会把
-S/M 合并成一个 dataset，而是创建独立 child run，保证 resume、指标比较和排行榜口径清晰。
-
-formal profile 会产生大量真实 API 调用；新入口只需要显式 `--allow-api`，并建议先用
-`--isolation-id` 选择公开输入形状预先锁定的代表 cohort，再用
-`--conversation-budget` 分批推进。下面三项 isolation 在首轮就全部写入 identity，首轮只推进
-第一项：
-
+#### 场景 4：多指标复合评测（同时运行 F1 与精确匹配）
 ```bash
-uv run memory-benchmark predict formal \
-  --method mem0 \
-  --benchmark locomo \
-  --run-id mem0-locomo-full-YYYYMMDD \
-  --allow-api \
-  --isolation-id conv-median \
-  --isolation-id conv-lower \
-  --isolation-id conv-upper \
-  --conversation-budget 1 \
-  --workers 2
+uv run memory-benchmark \
+  -b locomo \
+  -m http \
+  -u http://127.0.0.1:8002 \
+  -c 1 \
+  --metrics f1,exact_match
 ```
 
-分批续跑选项：
-
+#### 场景 5：离线二次评估（无需再次请求 Memory Server 与重复消耗 Token）
 ```bash
-uv run memory-benchmark predict formal \
-  --method mem0 \
-  --benchmark locomo \
-  --run-id mem0-locomo-full-YYYYMMDD \
-  --allow-api \
-  --resume \
-  --isolation-id conv-median \
-  --isolation-id conv-lower \
-  --isolation-id conv-upper \
-  --conversation-budget 2 \
-  --workers 2
+uv run memory-benchmark \
+  --eval-run-dir outputs/locomo_http \
+  --metrics exact_match,llm_judge
 ```
-
-`--conversation-budget` 的语义是“本次命令最多推进 N 个尚未完成的 conversation”。
-它是运行预算，不是实验 identity；同一个 `run_id` 后续可以用不同预算继续 `--resume`。
-`--isolation-id` 则是实验 cohort identity：按参数出现顺序选择，未知、空白或重复 id 会
-fail-fast；resume 必须原样重复同一份有序名单。精确选择时建议显式传一个 concrete
-`--variant`，避免把一个 variant 的 id 误用于另一个 child run。
-预算/扩大稳定性实验可显式传 `--profile calibration`：当前身份是
-`opencodego/mimo-v2.5` + thinking disabled，仍使用 FULL isolation 和 benchmark 统一 answer
-参数；它与默认 `official-full` 的 `primary/gpt-4o-mini` 是两套不可混分、不可互相 resume 的
-runtime identity。
-如果某个 conversation 已在 `checkpoints/conversation_status.json` 中标记为 `failed`，默认
-`--resume` 不会再次处理它；确认资源和修复原因后，可用 `--retry-failed` 显式重试。
-
-旧写法 `predict --profile smoke` / `predict --profile official-full` 仍保留兼容；新实验建议
-优先使用 `predict smoke` / `predict formal`。
-旧 CLI 不会立刻删除：等四个内置 method 的 LoCoMo/LongMemEval 新 CLI smoke 稳定后，
-再为旧写法加 deprecated warning；至少完成一次 v2 formal 小规模 run 后，再从公开示例中
-移除旧写法；对外发布前再决定是否彻底删除旧参数。
-
-当前 prediction/full run 的并行边界是 conversation 级：单个 method × 单个 benchmark
-内部可以用 worker 并行处理不同 conversation。多个 method 或多个 benchmark 同时跑实验时，
-当前推荐开多个终端分别运行并使用不同 `run_id`；框架暂不把 method×benchmark 外层并行作为
-full 实验主线。`calibrate-smoke` 只作为极小成本校准和批量 smoke 的便利入口。
-
-## 配置
-
-配置分层组合，避免把 secret、官方参数和单次运行选项混在一起。
-
-```text
-代码安全默认值
-< 命名 profile
-< 用户实验 TOML
-< 少量 CLI 显式覆盖
-```
-
-TOML profile 位于：
-
-```text
-configs/
-  methods/
-    mem0.toml
-    memoryos.toml
-    amem.toml
-    lightmem.toml
-  evaluators/
-    llm_judge.toml
-```
-
-profile 类型：
-
-- `official` / `official-full`：官方或论文复现配置，关键参数不可临时覆盖。
-- `smoke`：低成本真实链路测试；smoke 也使用官方 method 参数，成本只通过数据规模裁剪。
-- `custom`：允许用户进行消融和参数调整。
-
-用户配置采用分层 TOML，不为每个 method × benchmark 创建配置文件笛卡尔积。
-
-## 实验输出
-
-CLI v2 新实验输出按 method、benchmark 和模式分层；legacy 命令和历史实验仍保留
-`outputs/<run_id>/` 平铺布局。两种布局的 run 目录内部结构一致，`evaluate --run-id`
-可以兼容读取；如果同名 `run_id` 同时出现在 legacy 和 v2 目录，或在 v2 目录中出现多处，
-框架会报 ambiguity，要求换明确的 run id。
-
-```text
-outputs/runs/{method}/{benchmark}/{variant?}/{smoke|formal}/{run_id}/
-  manifest.json
-  config.redacted.json
-  artifacts/
-    dataset_fingerprint.json
-    public_questions.jsonl
-    method_predictions.jsonl
-    evaluator_private_labels.jsonl
-    answer_scores.<metric>.jsonl
-    efficiency_observations.jsonl
-  logs/
-    run.log
-    events.jsonl
-  checkpoints/
-    progress.json
-    conversation_status.json
-  method_state/
-  summaries/
-    summary.json
-    efficiency_overall.prediction.json
-    efficiency_by_conversation.prediction.json
-    efficiency_by_question.prediction.json
-```
-
-关键规则：
-
-- `run_id` 对应不可变实验；resume 只能继续数据、method、reader、源码身份和关键配置一致的运行。
-- `method_predictions.jsonl` 可以被多个 evaluator 复用，不需要重复调用 method。
-- `method_predictions.jsonl` 应保持轻量：大段 system prompt、reader prompt、injected
-  context 或重复 metadata 应按 run/conversation 单独记录一次，再在逐题 prediction 中引用。
-- `evaluator_private_labels.jsonl` 只给 evaluator 使用，不能传给 method。
-- `config.redacted.json` 只保存脱敏配置，不包含 secret。
-- `logs/run.log` 面向人工排查；`logs/events.jsonl` 是结构化事件日志。
-- `summaries/efficiency_*.prediction.json` 是从 raw observation 派生的人类可读聚合：
-  overall、per-conversation 和 per-question 三个视图，方便估算单个 conversation 的 token、
-  API call 和 latency；真实审计仍以 `artifacts/efficiency_observations.jsonl` 为准。
-- 第三方 method 的 stdout/warning 不应直接打乱终端 Rich 进度；wrapper 应可靠写入
-  `logs/run.log`/events，并用配置控制是否同步显示到终端，不应全局压掉用户 method 的
-  调试输出。
-- LightMem 可能输出 `LLM returned invalid source_id ... Auto-corrected`。这是 LightMem
-  官方 memory build 中对 LLM 生成 source id 越界的自动修正 warning，当前不代表 run
-  失败，但会污染终端，仍在 stdout/warning 治理待办中。
-- 本地 Qdrant 可能输出 payload index warning；本地模式下该索引 warning 通常不影响实验
-  结果，但同样应逐步重定向到日志。
-- 如果 question 带 `category`，evaluator summary 应同时输出 overall 和 by-category
-  聚合；这不是某个 benchmark 的特例。
-
-## 指标与效率观测
-
-当前只评估 answer 质量：
-
-- LoCoMo: token F1，可选 LLM judge accuracy。
-- LongMemEval: LLM judge accuracy。
-
-当前不做 retrieval recall，也不把 adversarial 作为独立主线。
-
-效率 observation 在 prediction 阶段逐操作保存原始数据，后续离线聚合。当前优先关注：
-
-1. `Retrieval Latency`：检索 embedding、搜索、过滤、重排耗时，不含最终回答生成。
-2. `Memory Context Tokens`：真正注入回答 LLM prompt 的记忆上下文 token。
-3. `Memory Update Cost`：记忆写入延迟、LLM input/output tokens、embedding input tokens。
-
-真实费用不绑定 OpenAI 官方价格。实验结束后按实际 API 服务商价格离线计算；本地模型成本
-保留为零成本或仅记录 token/latency。
-
-不同 method 的 token 来源会写入 `measurement_source`。`api_usage` 表示直接读取
-OpenAI-compatible response usage；`tokenizer_estimate` 表示 wrapper 无法拿到原始 usage 时
-用 tokenizer 估算，不能混同为精确 API 账单。
-同一个 method 内部也可能混合两种来源：例如 wrapper 可见的 reader 调用能记录
-`api_usage`，第三方内部 memory build 调用若暂时无法暴露 usage，则仍会保留
-`tokenizer_estimate` 并在后续审计中继续收敛。
-
-## 日志结构
-
-开发日志和运行日志分开：
-
-- `docs/archive/handoffs/`: 上下文压缩或额度中断前的交接文件。
-- `docs/task-ledger.md`: 当前任务和历史文档 open/closed 状态总账。
-- 历史主题日志已归档，命名规则见
-  [docs/archive/logs/README.md](docs/archive/logs/README.md)。
-- `outputs/<run_id>/logs/run.log`: 单次运行的人类可读日志。
-- `outputs/<run_id>/logs/events.jsonl`: 单次运行的结构化事件日志。
-
-运行期日志通过统一 logger / observability 工具写入，终端展示使用 `rich`。
-
-## 验证命令
-
-常用命令：
-
-```bash
-uv run pytest --collect-only -q
-uv run pytest -q
-uv run pytest -m memoryos -q
-uv run pytest -m api --collect-only -q
-uv run python -m compileall -q src/memory_benchmark tests
-```
-
-文档和 official smoke profile 的快速检查：
-
-```bash
-uv run pytest tests/test_documentation_standards.py tests/test_method_official_smoke_profiles.py -q
-```
-
-adapter dry-run：
-
-```bash
-uv run python -m memory_benchmark.cli.dry_run --benchmark all --limit 1
-```
-
-OpenAI 配置最小 smoke test 会真实调用 API，只在需要时运行：
-
-```bash
-uv run python -m unittest tests/test_API.py -v
-```
-
-## 开发约定
-
-- 使用 `uv` 管理和运行 Python。
-- Python 文件顶端必须有中文模块说明。
-- 类、函数、测试函数必须有中文 docstring，解释输入、输出和关键字段。
-- 新增 benchmark 时先识别 task family；当前只有 `conversation_qa` 主线。
-- 新增字段优先放到 `metadata`，只有跨 benchmark 稳定复用时才升格为核心字段。
-- 缺 required 字段、question/gold 不对齐、私有字段泄漏都应抛项目领域异常。
-- 任何实质性架构变化都先和用户讨论再执行。
-- 禁止修改第三方核心算法；必要观测优先通过 wrapper 或可关闭 observer 实现。
-
-## 参考文档
-
-- [AGENTS.md](AGENTS.md): 项目入口、硬规则、协作模式、导航。
-- [docs/roadmap.md](docs/roadmap.md): Phase 1 目标、workstream 索引、全局约束、恢复流程。
-- [docs/workstreams/](docs/workstreams/): 各任务线状态页（README）+ spec + plan + notes。
-- [docs/reference/architecture.md](docs/reference/architecture.md): 架构分层说明。
-- [docs/reference/architecture-execution-flow.md](docs/reference/architecture-execution-flow.md): 完整架构与执行流程（论文级深度）。
-- [docs/reference/data-model.md](docs/reference/data-model.md): core 数据模型说明。
-- [docs/reference/custom-method-onboarding.md](docs/reference/custom-method-onboarding.md): 自定义 method 轻量接入指南。
-- [docs/reference/method-interface-inventory.md](docs/reference/method-interface-inventory.md): 内置 method 原生接口审计。
-- [docs/reference/method-resource-parameter-audit.md](docs/reference/method-resource-parameter-audit.md): method 参数与资源审计。
-- [docs/reference/huggingface-datasets.md](docs/reference/huggingface-datasets.md): Hugging Face dataset 发布流程。
-- [docs/reference/future-ideas.md](docs/reference/future-ideas.md): 实验监控 AI、新 method 接入 skill 等后期想法。
-- [docs/reference/architect-playbook.md](docs/reference/architect-playbook.md): 架构师热规则与经验检索入口。
-- [docs/reference/playbooks/architect/README.md](docs/reference/playbooks/architect/README.md): 按任务标签检索完整案例库。
-- [docs/reference/actor-handbook.md](docs/reference/actor-handbook.md): 执行者施工规矩全文。
-- [docs/archive/specs/2026-06-12-project-goals-architecture-design.md](docs/archive/specs/2026-06-12-project-goals-architecture-design.md): 长期项目目标与架构设计。
