@@ -4,6 +4,8 @@
 !.env.example
 !pyproject.toml
 !uv.lock
+!assets/
+!assets/**
 !configs/
 !configs/**
 !src/

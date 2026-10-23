@@ -7,6 +7,94 @@
 
 ---
 
+## 系统整体架构 (System Architecture)
+
+![AgentMemoryBench 整体架构图](assets/architecture.png)
+
+系统在逻辑上划分为三个彻底解耦的层次：
+
+```mermaid
+flowchart LR
+    subgraph Data["1. 评测基准数据层"]
+        B["5 大长对话基准<br/>(LoCoMo / LongMemEval /<br/>BEAM / MemBench / HaluMem)"]
+        AD["基准适配器<br/>(解析为统一实体并过滤 6 类题型)"]
+        B --> AD
+    end
+
+    subgraph Bench["2. AgentMemoryBench 评测中间层"]
+        SCHED["会话级并发调度器<br/>(ThreadPoolExecutor)"]
+        READER["统一回答生成器<br/>(Prompt 安全注入 + Answer LLM)"]
+        EVAL["通用评测器<br/>(ExactMatch / F1 / LLM-Judge)"]
+        SCHED --> READER --> EVAL
+    end
+
+    subgraph Server["3. 独立 Memory Server (被测系统)"]
+        INGEST["POST /ingest<br/>(按 Session 写入记忆)"]
+        RETRIEVE["POST /retrieve<br/>(按 Query 检索记忆)"]
+        STORE["内部存储与演化<br/>(向量库 / 知识图谱 / 离线更新)"]
+        INGEST --> STORE --> RETRIEVE
+    end
+
+    AD -->|"加载会话与考题"| SCHED
+    SCHED -->|"1. 写入 Session"| INGEST
+    SCHED -->|"2. 检索 Query"| RETRIEVE
+    RETRIEVE -->|"返回 formatted_memory"| READER
+```
+
+---
+
+## 评测题与 6 类能力图谱
+
+五个基准的原题按「做对时该回答什么」收成 6 类能力。总分和这 6 类使用同一批题目，对不上的原题在加载适配时自动过滤剔除。
+
+| 类型 | 做对时该回答什么 | 收进来的代表性原题 |
+| :--- | :--- | :--- |
+| **事实回忆** | 把已经说过的内容准确说出来 | LoCoMo 单跳；LongMemEval 用户/助手事实；BEAM 事实抽取；MemBench 基础识别；HaluMem 事实回忆 |
+| **多证据综合** | 把好几处分散说过的内容拼接推理 | LoCoMo 多跳；LongMemEval 跨会话推理；BEAM 多跳；MemBench 综合筛选与比较；HaluMem 多跳 |
+| **时间与顺序** | 用精确日期或相对先后顺序作答 | LoCoMo 时间题；LongMemEval 时间推理；BEAM 时间间隔与事件排序 |
+| **记忆更新** | 只回答更新后的当前有效事实 | LongMemEval、BEAM、MemBench、HaluMem 的状态与事实动态更新题 |
+| **拒答** | 明确识别未提及内容并礼貌拒答 | LongMemEval 拒答题；BEAM 拒答量规；HaluMem 记忆边界检验题 |
+| **个性化** | 偏好已经明确提及，回答必须遵循 | LongMemEval 偏好题；BEAM 偏好遵循 |
+
+> **未纳入这 6 类的边缘题型**：包括 LoCoMo 对抗题与开放域常识题，MemBench 没说破的隐含情绪与带噪问题，BEAM 内部矛盾与指令遵循，HaluMem 错误前提纠正与新情境应用。
+
+**统一评测裁决矩阵**：
+评测端提供三个高内聚通用评测器：**字符串精确匹配 (`ExactMatch`)**、**Token 级重叠度 (`F1`)** 以及基于强类型 Pydantic 契约的 **`LLMJudge` 裁判**。当遇到关键背景信息缺失或时间基准不足时，裁判自动标记 `UNDECIDABLE` 拒判并路由转人工复核，杜绝二元猜题误判。
+
+---
+
+## 目录结构与关键模块职责
+
+```text
+├── configs/
+│   └── application.yaml                # 统一配置中心（LLM 客户端超参与动态 Prompt 矩阵）
+├── assets/                             # 仓库静态资产与学术架构示意图
+├── src/memory_benchmark/               # 评测中间层核心源码
+│   ├── benchmark_adapters/             # 5 大基准加载与 6 类题型过滤适配器 (LoCoMo / LongMemEval 等)
+│   ├── core/                           # 核心领域实体、中间层协议 (MemoryProvider) 与安全变量格式化引擎
+│   ├── readers/                        # 统一回答生成器 (FrameworkAnswerReader 拼接记忆与生成回答)
+│   ├── evaluators/                     # 通用评估器 (ExactMatch / F1 / 支持拒判转人工的双模式 LLM-Judge)
+│   ├── runners/                        # 执行器 (prediction.py 并发预测与 evaluation.py 离线解耦打分)
+│   ├── storage/                        # 评测实验产物管理 (JSON Lines 读写与原子落地)
+│   ├── utils/                          # 通用工具 (线程安全运行日志记录器等)
+│   └── __main__.py                     # 极简 CLI 命令行入口 (run / ingest / query / eval)
+├── pyproject.toml                      # 项目元数据与评测必要依赖规范
+├── uv.lock                             # 确定性依赖版本锁定文件
+├── .env.example                        # 环境变量模板 (API_KEY / BASE_URL / MODEL_NAME)
+└── .gitignore                          # 严格白名单过滤规则
+```
+
+### 关键目录与模块职责
+
+- [`configs/application.yaml`](configs/application.yaml)：全局基准与差异化覆盖配置中心。定义 `llm.answer` 与 `llm.judge` 默认模型参数，并配置各大 Benchmark 细分题型的定制化 System/User 提示词。
+- [`src/memory_benchmark/benchmark_adapters/`](src/memory_benchmark/benchmark_adapters/)：统一数据接口。负责解析原始对话为 `Conversation -> Session -> Turn`，只保留映射进 6 类的有效题，并剥离私有参考答案。
+- [`src/memory_benchmark/core/`](src/memory_benchmark/core/)：系统核心抽象层。提供泛型响应封装 `Result[T]`、极简双方法客户端协议 [`HttpMemoryProvider`](src/memory_benchmark/core/provider_protocol.py)，以及免疫 JSON 花括号冲突的安全提示词格式化引擎。
+- [`src/memory_benchmark/readers/`](src/memory_benchmark/readers/)：统一答题生成层。将被测记忆系统返回的纯文本 `formatted_memory` 拼入提示词，使用统一配置的 Answer LLM 回答问题。
+- [`src/memory_benchmark/evaluators/`](src/memory_benchmark/evaluators/)：统一指标打分层。包括字符串精确匹配 `ExactMatch`、Token 级重叠度 `F1` 以及强类型 Pydantic 双模式的 `LLMJudgeEvaluator`。
+- [`src/memory_benchmark/runners/`](src/memory_benchmark/runners/)：流水线编排调度层。以对话（Conversation）为粒度进行多线程并发执行，并按原始索引严格确定性归并生成产物。
+
+---
+
 ## 记忆系统对接协议与接口实体规范 (C/S API Specification)
 
 被测记忆服务（Method Server / Docker 容器）只需暴露以下两个标准 HTTP POST 端点，并统一采用仿 Spring Boot 的 `Result[T]` JSON 信封响应：
@@ -71,9 +159,6 @@
 }
 ```
 
-> **关于 `latency_ms` 的防作弊与度量设计**：
-> 响应体中的 `latency_ms` 是**完全可选（Optional）字段**，服务端无需刻意计算返回。评测端**始终在客户端使用高精度时钟 `time.perf_counter()` 采集端到端实际耗时（Wall-Clock Time）**，防止被测系统虚标造假。在本地（`127.0.0.1`）或同一 Docker 网络下，网络往返（RTT）仅约 0.05ms，相对于耗时数百毫秒的记忆抽取与检索可以忽略不计，且真实反映了客户端感知的端到端吞吐。
-
 ---
 
 ### 2. 记忆检索端点 (`POST /retrieve`)
@@ -109,6 +194,11 @@
   "latency_ms": 8.6
 }
 ```
+
+> **双轨延迟度量说明（Dual Latency Tracking）**：
+> - 响应体中的 `latency_ms` 为可选字段，代表 Memory Server 内部计算耗时；
+> - 评测框架在客户端始终通过高精度物理时钟 `time.perf_counter()` 自动测量端到端网络往返耗时（Wall-Clock Latency）；
+> - 若服务端在响应中返回了 `latency_ms`，评测框架会同时记录并在产物与摘要中展示两者，便于对比服务端内部处理耗时与网络开销。
 
 ---
 
@@ -157,70 +247,6 @@ flowchart LR
 ### 5. 评测端默认保护机制
 - **默认单线程安全模式**：如果不显式传 `-w`，评测框架**默认使用 `--max-workers 1`（单线程串行模式）**；
 - 任何轻量级、单线程、甚至本地写文件的初级 Memory Demo 都能 100% 稳定运行，不会因并发导致崩溃；只有确认服务端支持并发时才建议调大 `-w`。
-
----
-
-## 评测题
-
-五个基准的原题按「做对时该回答什么」收成 6 类。总分和这 6 类用同一批题。对不上的原题在加载时去掉。
-
-| 类型 | 做对时 |
-| :--- | :--- |
-| 事实回忆 | 把已经说过的内容说出来 |
-| 多证据综合 | 把好几处说过的内容拼起来 |
-| 时间与顺序 | 用日期或先后作答 |
-| 记忆更新 | 只答更新后的当前值 |
-| 拒答 | 明确说没说过 |
-| 个性化 | 偏好已经说过，回答要照着做 |
-
-不进入这 6 类的题包括：LoCoMo 的对抗题和开放域常识题，MemBench 没说破的偏好、情绪、再加工和带噪问题，BEAM 的内部矛盾、指令遵循和长期总结，HaluMem 的错误前提纠正和新情境应用。
-
-打分用三个评测器：精确匹配、F1、LLM 裁判。信息不够时，裁判可以拒绝打分并转人工，而不是猜一个对错。
-
----
-
-## 流水线
-
-```mermaid
-flowchart LR
-    D["五个基准"] --> A["读入并标成 6 类"]
-    A --> I["ingest 按会话写入"]
-    I --> R["retrieve 取回一段记忆"]
-    R --> Q["评测端生成回答"]
-    Q --> E["精确匹配 / F1 / LLM 裁判"]
-```
-
----
-
-## 目录结构
-
-```text
-├── configs/
-│   └── application.yaml                # 统一配置（LLM 客户端与动态 Prompt 矩阵）
-├── src/memory_benchmark/               # 评测中间层核心源码
-│   ├── benchmark_adapters/             # 5 大基准加载与 6 类题型过滤适配器 (LoCoMo / LongMemEval 等)
-│   ├── core/                           # 核心领域实体、中间层协议 (MemoryProvider) 与安全变量格式化引擎
-│   ├── coordinator/                    # 评测协调微服务 (IoC 容器，接收外部容器 /ready 握手编排)
-│   ├── readers/                        # 统一回答生成器 (FrameworkAnswerReader 拼接记忆与生成回答)
-│   ├── evaluators/                     # 通用评估器 (ExactMatch / F1 / 支持拒判转人工的双模式 LLM-Judge)
-│   ├── runners/                        # 执行器 (prediction.py 并发预测与 evaluation.py 离线解耦打分)
-│   ├── storage/                        # 评测实验产物管理 (JSON Lines 读写与原子落地)
-│   ├── utils/                          # 通用工具 (线程安全运行日志记录器等)
-│   └── __main__.py                     # 极简 CLI 命令行入口
-├── pyproject.toml                      # 项目元数据与评测必要依赖规范 (无重型依赖冲突)
-├── uv.lock                             # 确定性依赖版本锁定文件
-├── .env.example                        # 环境变量模板 (API_KEY / BASE_URL / MODEL_NAME)
-└── .gitignore                          # 严格白名单过滤规则
-```
-
-### 关键目录与模块职责
-
-- [`configs/application.yaml`](configs/application.yaml)：全局基准与差异化覆盖配置中心。定义 `llm.answer` 与 `llm.judge` 默认模型参数，并配置各大 Benchmark 细分题型的定制化 System/User 提示词。
-- [`src/memory_benchmark/benchmark_adapters/`](src/memory_benchmark/benchmark_adapters/)：统一数据接口。负责解析原始对话为 `Conversation -> Session -> Turn`，只保留映射进 6 类的有效题，并剥离私有参考答案。
-- [`src/memory_benchmark/core/`](src/memory_benchmark/core/)：系统核心抽象层。提供泛型响应封装 `Result[T]`、极简双方法客户端协议 [`HttpMemoryProvider`](src/memory_benchmark/core/provider_protocol.py)，以及免疫 JSON 花括号冲突的安全提示词格式化引擎。
-- [`src/memory_benchmark/readers/`](src/memory_benchmark/readers/)：统一答题生成层。将被测记忆系统返回的纯文本 `formatted_memory` 拼入提示词，使用统一配置的 Answer LLM 回答问题。
-- [`src/memory_benchmark/evaluators/`](src/memory_benchmark/evaluators/)：统一指标打分层。包括字符串精确匹配 `ExactMatch`、Token 级重叠度 `F1` 以及强类型 Pydantic 双模式的 `LLMJudgeEvaluator`（遇到不可判情况自动标记 `UNDECIDABLE` 拒判转人工复核）。
-- [`src/memory_benchmark/runners/`](src/memory_benchmark/runners/)：流水线编排调度层。以对话（Conversation）为粒度进行多线程并发执行，并按原始索引严格确定性归并生成产物。
 
 ---
 
