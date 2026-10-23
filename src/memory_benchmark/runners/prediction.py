@@ -71,6 +71,7 @@ class PredictionRunPolicy:
     max_new_conversations: int | None = None
     top_k: int = 10
     skip_ingest: bool = False
+    skip_retrieval: bool = False
     isolation_prefix: str | None = None
 
     def __post_init__(self) -> None:
@@ -136,6 +137,7 @@ def _execute_single_conversation(
     prediction_transform: Callable[[AnswerResult], AnswerResult] | None,
     top_k: int,
     skip_ingest: bool = False,
+    skip_retrieval: bool = False,
     isolation_prefix: str | None = None,
     logger: RunLogger,
 ) -> _ConversationExecutionResult:
@@ -157,22 +159,23 @@ def _execute_single_conversation(
         ret_latencies: list[float] = []
         ctx_tokens_list: list[int] = []
 
-        for question in questions:
-            pred_record, prompt_record, ret_latency_ms, ctx_tokens = (
-                _retrieve_and_answer_question(
-                    question=question,
-                    isolation_key=isolation_key,
-                    provider=provider,
-                    answer_reader=answer_reader,
-                    unified_prompt_builder=unified_prompt_builder,
-                    prediction_transform=prediction_transform,
-                    top_k=top_k,
+        if not skip_retrieval:
+            for question in questions:
+                pred_record, prompt_record, ret_latency_ms, ctx_tokens = (
+                    _retrieve_and_answer_question(
+                        question=question,
+                        isolation_key=isolation_key,
+                        provider=provider,
+                        answer_reader=answer_reader,
+                        unified_prompt_builder=unified_prompt_builder,
+                        prediction_transform=prediction_transform,
+                        top_k=top_k,
+                    )
                 )
-            )
-            pred_records.append(pred_record)
-            prompt_records.append(prompt_record)
-            ret_latencies.append(ret_latency_ms)
-            ctx_tokens_list.append(ctx_tokens)
+                pred_records.append(pred_record)
+                prompt_records.append(prompt_record)
+                ret_latencies.append(ret_latency_ms)
+                ctx_tokens_list.append(ctx_tokens)
 
         status_entry = {
             "status": "completed",
@@ -248,6 +251,7 @@ def run_predictions(
 
     effective_top_k = active_policy.top_k if active_policy and active_policy.top_k != 10 else top_k
     skip_ingest = active_policy.skip_ingest if active_policy else False
+    skip_retrieval = active_policy.skip_retrieval if active_policy else False
     isolation_prefix = active_policy.isolation_prefix if active_policy else None
 
     if active_policy.max_workers > 1 and len(indexed_conversations) > 1:
@@ -265,6 +269,7 @@ def run_predictions(
                     prediction_transform=prediction_transform,
                     top_k=effective_top_k,
                     skip_ingest=skip_ingest,
+                    skip_retrieval=skip_retrieval,
                     isolation_prefix=isolation_prefix,
                     logger=logger,
                 ): idx
@@ -303,6 +308,7 @@ def run_predictions(
                     prediction_transform=prediction_transform,
                     top_k=effective_top_k,
                     skip_ingest=skip_ingest,
+                    skip_retrieval=skip_retrieval,
                     isolation_prefix=isolation_prefix,
                     logger=logger,
                 )

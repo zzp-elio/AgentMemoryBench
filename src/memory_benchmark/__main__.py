@@ -1,13 +1,17 @@
-"""AgentMemoryBench 极简命令行入口 (`python -m memory_benchmark` / `memory-benchmark`)。
+"""AgentMemoryBench 命令行入口 (`memory-benchmark` / `python -m memory_benchmark`)。
 
-基于仿 Spring Boot 的 `configs/application.yaml` 自动配置注入，一键驱动：
-加载数据集 (Adapter) -> 写入与检索记忆 (MemoryProvider) -> 生成回答 (Reader) -> 质量与效率评测 (Evaluator)。
+提供清晰的阶段解耦子命令架构：
+1. `run`：一站式全流程评测 (Ingest -> Query -> Evaluate)；
+2. `ingest`：阶段一，仅将长会话历史写入外部 Memory Server；
+3. `query`：阶段二，仅根据已构建的记忆检索上下文并生成回答；
+4. `eval`：阶段三，仅离线读取预测产物计算评测指标 (F1 / ExactMatch / LLM-Judge)。
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
@@ -15,6 +19,7 @@ from typing import Any
 from memory_benchmark.benchmark_adapters import get_adapter, list_benchmarks
 from memory_benchmark.core import (
     ConfigurationError,
+    Conversation,
     Dataset,
     MemoryBenchmarkError,
     create_provider,
@@ -34,14 +39,21 @@ from memory_benchmark.storage import RunContext
 
 def _slice_dataset(
     dataset: Dataset,
+    smoke: bool = False,
     max_conversations: int | None = None,
     max_questions: int | None = None,
     max_sessions: int | None = None,
     max_turns_per_session: int | None = None,
 ) -> Dataset:
-    """按对话数、单段对话 Session 数、单 Session Turn 数与问题数轻量裁剪数据集（用于快速冒烟验证）。"""
+    """数据集裁剪引擎：支持一键 `--smoke` 快速冒烟或指定深度裁剪。"""
     convs: list[Conversation] = []
     base_convs = list(dataset.conversations)
+
+    # 1. 一键冒烟锁定：截取 1 个会话，每个会话最多 5 道题
+    if smoke:
+        max_conversations = 1
+        max_questions = 5
+
     if max_conversations and max_conversations > 0:
         base_convs = base_convs[:max_conversations]
 
@@ -70,6 +82,70 @@ def _slice_dataset(
     return Dataset(dataset.dataset_name, convs, dict(dataset.metadata))
 
 
+def _add_common_data_args(parser: argparse.ArgumentParser) -> None:
+    g = parser.add_argument_group("Benchmark & Data Options")
+    g.add_argument(
+        "-b",
+        "--benchmark",
+        default="locomo",
+        choices=list_benchmarks(),
+        help="Target benchmark dataset.",
+    )
+    g.add_argument(
+        "--smoke",
+        action="store_true",
+        default=False,
+        help="One-click smoke test mode: safely clamps to 1 conversation and 5 questions for rapid validation.",
+    )
+    g.add_argument(
+        "--project-root",
+        default=".",
+        help="Path to project root directory.",
+    )
+    # 隐藏的微调内部参数（保持向后兼容，不暴露给普通用户）
+    g.add_argument("-c", "--max-conversations", type=int, default=None, help=argparse.SUPPRESS)
+    g.add_argument("-q", "--max-questions", "--max-questions-per-conversation", type=int, default=None, dest="max_questions", help=argparse.SUPPRESS)
+    g.add_argument("--max-sessions", "--max-sessions-per-conversation", type=int, default=None, dest="max_sessions", help=argparse.SUPPRESS)
+    g.add_argument("--max-turns", "--max-turns-per-session", type=int, default=None, dest="max_turns", help=argparse.SUPPRESS)
+
+
+def _add_common_conn_args(parser: argparse.ArgumentParser) -> None:
+    g = parser.add_argument_group("Memory Server Connection Options")
+    g.add_argument(
+        "-m",
+        "--method",
+        default="mock",
+        choices=list_methods(),
+        help="Memory provider mode: 'http' for remote memory server, 'mock' for local in-memory test.",
+    )
+    g.add_argument(
+        "-u",
+        "--server-url",
+        default=None,
+        help="Base URL of remote Memory Server when --method=http (e.g. http://127.0.0.1:8002).",
+    )
+    # 隐藏兼容参数
+    g.add_argument("-k", "--top-k", type=int, default=10, help=argparse.SUPPRESS)
+    g.add_argument("--skip-ingest", action="store_true", default=False, help=argparse.SUPPRESS)
+    g.add_argument("--reuse-ingest-run-id", "--isolation-prefix", default=None, dest="reuse_ingest_run_id", help=argparse.SUPPRESS)
+
+
+def _add_common_exec_args(parser: argparse.ArgumentParser) -> None:
+    g = parser.add_argument_group("Execution & Concurrency Options")
+    g.add_argument(
+        "-w",
+        "--max-workers",
+        type=int,
+        default=1,
+        help="Max worker threads for concurrent conversation evaluation.",
+    )
+    g.add_argument(
+        "--run-id",
+        default=None,
+        help="Explicit experiment run_id identifier.",
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="memory-benchmark",
@@ -77,148 +153,143 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    # 1. 基准与数据抽样控制
-    g_data = parser.add_argument_group("Benchmark & Data Sampling Options")
-    g_data.add_argument(
-        "-b",
-        "--benchmark",
-        default="locomo",
-        choices=list_benchmarks(),
-        help="Target benchmark dataset.",
-    )
-    g_data.add_argument(
-        "-c",
-        "--max-conversations",
-        type=int,
-        default=None,
-        help="Maximum conversations to evaluate (default: None, evaluates all conversations).",
-    )
-    g_data.add_argument(
-        "-q",
-        "--max-questions",
-        "--max-questions-per-conversation",
-        type=int,
-        default=None,
-        dest="max_questions_per_conversation",
-        help="Maximum questions per conversation to evaluate (default: all questions).",
-    )
-    g_data.add_argument(
-        "--project-root",
-        default=".",
-        help="Path to project root directory.",
-    )
-    # 隐藏的微调内部参数（保持向后兼容，不干扰普通开源用户）
-    g_data.add_argument("--max-sessions", "--max-sessions-per-conversation", type=int, default=None, dest="max_sessions", help=argparse.SUPPRESS)
-    g_data.add_argument("--max-turns", "--max-turns-per-session", type=int, default=None, dest="max_turns", help=argparse.SUPPRESS)
-
-    # 2. 被测记忆系统连接配置
-    g_conn = parser.add_argument_group("Memory Server Connection Options")
-    g_conn.add_argument(
-        "-m",
-        "--method",
-        default="mock",
-        choices=list_methods(),
-        help="Memory provider mode: 'http' for remote memory server, 'mock' for offline smoke test.",
-    )
-    g_conn.add_argument(
-        "-u",
-        "--server-url",
-        default=None,
-        help="Base URL of remote Memory Server when --method=http (e.g. http://127.0.0.1:8002).",
-    )
-    # 隐藏的底层专家选项（默认 top_k=10，完整两阶段评测无需手动干预）
-    g_conn.add_argument("-k", "--top-k", type=int, default=10, help=argparse.SUPPRESS)
-    g_conn.add_argument("--skip-ingest", action="store_true", default=False, help=argparse.SUPPRESS)
-    g_conn.add_argument("--reuse-ingest-run-id", "--isolation-prefix", default=None, dest="reuse_ingest_run_id", help=argparse.SUPPRESS)
-
-    # 3. 评测指标与模型控制
-    g_eval = parser.add_argument_group("Metrics & LLM Execution Options")
-    g_eval.add_argument(
+    # 顶层全局参数（保证不带子命令时默认以 run 模式执行，并完全向后兼容旧版调用）
+    _add_common_data_args(parser)
+    _add_common_conn_args(parser)
+    _add_common_exec_args(parser)
+    p_top_eval = parser.add_argument_group("Metrics & LLM Options")
+    p_top_eval.add_argument(
         "--metrics",
         default="f1",
         help=f"Comma-separated answer metrics ({', '.join(list_evaluators())}).",
     )
-    g_eval.add_argument(
+    p_top_eval.add_argument(
         "--mock-llm",
         action="store_true",
         default=False,
         help="Force using offline deterministic FakeAnswerLLMClient instead of real external LLM API.",
     )
-    g_eval.add_argument(
-        "--confirm-api",
-        action="store_true",
-        default=False,
-        help=argparse.SUPPRESS,  # 隐蔽废弃参数，保持向后兼容
+    p_top_eval.add_argument("--confirm-api", action="store_true", default=False, help=argparse.SUPPRESS)
+    p_top_eval.add_argument(
+        "--run-dir",
+        "--eval-run-dir",
+        "--eval-dir",
+        default=None,
+        dest="run_dir",
+        help=argparse.SUPPRESS,
     )
 
-    # 4. 并发与执行管理
-    g_exec = parser.add_argument_group("Concurrency & Execution Options")
-    g_exec.add_argument(
+    subparsers = parser.add_subparsers(dest="subcommand", help="Available subcommands")
+
+    # 1. run 子命令：一站式全流程
+    p_run = subparsers.add_parser("run", help="Run end-to-end benchmark evaluation (Ingest -> Query -> Evaluate).")
+    _add_common_data_args(p_run)
+    _add_common_conn_args(p_run)
+    p_run_eval = p_run.add_argument_group("Metrics & LLM Options")
+    p_run_eval.add_argument(
+        "--metrics",
+        default="f1",
+        help=f"Comma-separated answer metrics ({', '.join(list_evaluators())}).",
+    )
+    p_run_eval.add_argument(
+        "--mock-llm",
+        action="store_true",
+        default=False,
+        help="Force using offline deterministic FakeAnswerLLMClient instead of real external LLM API.",
+    )
+    p_run_eval.add_argument("--confirm-api", action="store_true", default=False, help=argparse.SUPPRESS)
+    _add_common_exec_args(p_run)
+
+    # 2. ingest 子命令：仅注入记忆
+    p_ingest = subparsers.add_parser("ingest", help="Stage 1 only: Ingest dialogue sessions into Memory Server.")
+    _add_common_data_args(p_ingest)
+    _add_common_conn_args(p_ingest)
+    _add_common_exec_args(p_ingest)
+
+    # 3. query 子命令：仅检索记忆与回答
+    p_query = subparsers.add_parser("query", help="Stage 2 only: Retrieve memories and generate answers (assumes data pre-ingested).")
+    _add_common_data_args(p_query)
+    _add_common_conn_args(p_query)
+    p_query_eval = p_query.add_argument_group("LLM Options")
+    p_query_eval.add_argument(
+        "--mock-llm",
+        action="store_true",
+        default=False,
+        help="Force using offline deterministic FakeAnswerLLMClient instead of real external LLM API.",
+    )
+    p_query_eval.add_argument("--confirm-api", action="store_true", default=False, help=argparse.SUPPRESS)
+    _add_common_exec_args(p_query)
+
+    # 4. eval 子命令：仅离线重新评测打分
+    p_eval = subparsers.add_parser("eval", help="Stage 3 only: Offline evaluate an existing run directory without touching Memory Server.")
+    p_eval.add_argument(
+        "--run-dir",
+        "--eval-run-dir",
+        "--eval-dir",
+        required=True,
+        dest="run_dir",
+        help="Path to an existing experiment output directory containing method_predictions.jsonl.",
+    )
+    p_eval.add_argument(
+        "-b",
+        "--benchmark",
+        default="locomo",
+        choices=list_benchmarks(),
+        help="Benchmark dataset matching the predictions.",
+    )
+    p_eval.add_argument(
+        "--metrics",
+        default="f1",
+        help=f"Comma-separated answer metrics ({', '.join(list_evaluators())}).",
+    )
+    p_eval.add_argument(
         "-w",
         "--max-workers",
         type=int,
         default=1,
-        help="Max worker threads for concurrent conversation evaluation.",
+        help="Max worker threads for concurrent judge evaluation.",
     )
-    g_exec.add_argument(
-        "--run-id",
-        default=None,
-        help="Explicit experiment run_id identifier.",
-    )
-
-    # 5. 高级解耦模式与 Coordinator 微服务
-    g_adv = parser.add_argument_group("Advanced & Service Mode Options")
-    g_adv.add_argument(
-        "--eval-run-dir",
-        "--eval-dir",
-        default=None,
-        dest="eval_run_dir",
-        help="Directly evaluate an existing experiment run directory without re-running predictions.",
-    )
-    g_adv.add_argument(
-        "--server",
-        action="store_true",
-        help="Run AgentMemoryBench as Coordinator HTTP Server listening for /ready requests.",
-    )
-    g_adv.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Host to bind Coordinator Server.",
-    )
-    g_adv.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Port to bind Coordinator Server.",
+    p_eval.add_argument(
+        "--project-root",
+        default=".",
+        help="Path to project root directory.",
     )
 
+    parser.set_defaults(subcommand="run")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    """解析命令行参数并执行端到端预测与评测流水线。"""
-    args = _build_parser().parse_args(argv)
+    """解析命令行参数并调度执行对应的阶段流水线。"""
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+
+    # 兼容处理 1：如果包含 --eval-run-dir 或 --eval-dir 且未传子命令，自动转为 eval 子命令
+    if raw_args and any(arg.startswith(("--eval-run-dir", "--eval-dir", "--run-dir")) for arg in raw_args):
+        if raw_args[0] != "eval":
+            raw_args = ["eval"] + [a for a in raw_args if a != "eval"]
+
+    # 兼容处理 2：如果第一个参数不是子命令也不是帮助选项，自动缺省为 run 子命令
+    elif raw_args and raw_args[0] not in {"run", "ingest", "query", "eval", "-h", "--help"}:
+        raw_args = ["run"] + raw_args
+    elif not raw_args:
+        raw_args = ["run"]
+
+    parser = _build_parser()
+    args = parser.parse_args(raw_args)
+
     try:
         app_cfg = load_app_config(args.project_root)
-        if args.server:
-            from memory_benchmark.coordinator import CoordinatorContext, CoordinatorServer
 
-            ctx = CoordinatorContext(app_config=app_cfg)
-            server = CoordinatorServer(ctx, host=args.host, port=args.port)
-            print(f"AgentMemoryBench Coordinator Server running on {server.base_url}")
-            try:
-                server.start(threaded=False)
-            except KeyboardInterrupt:
-                print("\nShutting down Coordinator Server...")
-                server.stop()
-            return 0
+        # ----------------------------------------------------------------------
+        # 分支 1: eval 离线重打分阶段
+        # ----------------------------------------------------------------------
+        if args.subcommand == "eval":
+            run_dir = Path(args.run_dir)
+            if not run_dir.is_dir():
+                run_dir = Path(app_cfg.outputs_root) / args.run_dir
+            if not run_dir.is_dir():
+                raise ConfigurationError(f"Evaluation run directory not found: {args.run_dir}")
 
-        if args.eval_run_dir:
-            run_dir = Path(args.eval_run_dir)
-            if not run_dir.is_dir():
-                run_dir = Path(app_cfg.outputs_root) / args.eval_run_dir
-            if not run_dir.is_dir():
-                raise ConfigurationError(f"evaluation run directory not found: {args.eval_run_dir}")
             prof = app_cfg.profile(args.benchmark)
             metrics = [m.strip() for m in str(args.metrics).split(",") if m.strip()]
             eval_summaries = [
@@ -247,68 +318,123 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
 
+        # ----------------------------------------------------------------------
+        # 分支 2: run / ingest / query 阶段
+        # ----------------------------------------------------------------------
+        # 加载与裁剪数据集
+        smoke_enabled = bool(getattr(args, "smoke", False))
+        max_convs = getattr(args, "max_conversations", None)
+        max_qs = getattr(args, "max_questions", None)
+        max_sess = getattr(args, "max_sessions", None)
+        max_t = getattr(args, "max_turns", None)
+
+        adapter = get_adapter(args.benchmark, app_cfg.project_root)
+        limit_load = 1 if smoke_enabled else max_convs
         dataset = _slice_dataset(
-            get_adapter(args.benchmark, app_cfg.project_root).load(limit=args.max_conversations),
-            max_conversations=args.max_conversations,
-            max_questions=args.max_questions_per_conversation,
-            max_sessions=args.max_sessions,
-            max_turns_per_session=args.max_turns,
+            adapter.load(limit=limit_load),
+            smoke=smoke_enabled,
+            max_conversations=max_convs,
+            max_questions=max_qs,
+            max_sessions=max_sess,
+            max_turns_per_session=max_t,
         )
 
+        # 连接被测记忆系统
         provider_cfg: dict[str, Any] = {}
         if args.server_url:
             provider_cfg["base_url"] = args.server_url
         provider = create_provider(args.method, config=provider_cfg)
 
         prof = app_cfg.profile(args.benchmark)
-        # 1. 显式指定 --mock-llm 时，强制使用 Fake 客户端
-        # 2. 当 --method=mock 时，除非显式指定了 --confirm-api，否则默认使用 Fake 客户端，杜绝离线测试意外消耗真实 API Token
-        # 3. 当 --method=http 时，默认必须使用真实 LLM 客户端
-        if args.mock_llm:
-            use_fake_llm = True
-        elif args.method == "mock" and not args.confirm_api:
-            use_fake_llm = True
-        else:
-            use_fake_llm = False
 
-        if use_fake_llm:
-            reader = FrameworkAnswerReader(
-                client=FakeAnswerLLMClient("mock answer"),
-                prompts=prof.prompts,
-            )
-        else:
-            if not prof.answer_llm.api_key.strip():
-                raise ConfigurationError(
-                    "Missing LLM API key for Answer generation. Please set API_KEY in .env or run with --mock-llm."
+        # 构造 Answer Reader (仅 run 和 query 需要)
+        reader: FrameworkAnswerReader | None = None
+        if args.subcommand in {"run", "query"}:
+            use_fake_llm = bool(getattr(args, "mock_llm", False))
+            if not use_fake_llm:
+                if args.method == "mock" and not getattr(args, "confirm_api", False):
+                    use_fake_llm = True
+                elif not prof.answer_llm.api_key.strip():
+                    raise ConfigurationError(
+                        "Missing LLM API key for Answer generation. Please set API_KEY in .env or run with --mock-llm."
+                    )
+
+            if use_fake_llm:
+                reader = FrameworkAnswerReader(
+                    client=FakeAnswerLLMClient("mock answer"),
+                    prompts=prof.prompts,
                 )
-            reader = FrameworkAnswerReader(
-                client=OpenAICompatibleAnswerLLMClient(prof.answer_llm),
-                prompts=prof.prompts,
-            )
+            else:
+                reader = FrameworkAnswerReader(
+                    client=OpenAICompatibleAnswerLLMClient(prof.answer_llm),
+                    prompts=prof.prompts,
+                )
 
         run_id = args.run_id or f"{args.benchmark}_{args.method}"
         run_ctx = RunContext.create(
             run_id=run_id,
             benchmark_name=args.benchmark,
             method_name=args.method,
-            model_name=reader.client.model_name,
+            model_name=reader.client.model_name if reader else "none",
             output_root=app_cfg.outputs_root,
         )
+
+        # 控制 Ingest 与 Retrieve 的执行边界
+        is_ingest_only = (args.subcommand == "ingest")
+        is_query_only = (args.subcommand == "query")
+        skip_ingest = is_query_only or bool(getattr(args, "skip_ingest", False))
+        skip_retrieval = is_ingest_only
+
         policy = PredictionRunPolicy(
             max_workers=max(1, args.max_workers),
-            top_k=args.top_k,
-            skip_ingest=args.skip_ingest,
-            isolation_prefix=args.reuse_ingest_run_id,
+            top_k=int(getattr(args, "top_k", 10)),
+            skip_ingest=skip_ingest,
+            skip_retrieval=skip_retrieval,
+            isolation_prefix=getattr(args, "reuse_ingest_run_id", None),
         )
+
         pred_summary = run_predictions(
             dataset,
             provider,
             run_ctx,
             policy=policy,
             answer_reader=reader,
-            top_k=args.top_k,
+            top_k=policy.top_k,
         )
 
+        # ingest 子命令直接打印写入报告
+        if args.subcommand == "ingest":
+            print(
+                json.dumps(
+                    {
+                        "ingest_summary": {
+                            "run_id": pred_summary.run_id,
+                            "dataset_name": pred_summary.dataset_name,
+                            "total_conversations": pred_summary.total_conversations,
+                            "completed_conversations": pred_summary.completed_conversations,
+                            "efficiency_metrics": asdict(pred_summary.efficiency_metrics) if hasattr(pred_summary.efficiency_metrics, "__dataclass_fields__") else pred_summary.efficiency_metrics,
+                        }
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+            )
+            return 0
+
+        # query 子命令打印检索与回答生成报告
+        if args.subcommand == "query":
+            print(
+                json.dumps(
+                    {"prediction": asdict(pred_summary)},
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+            )
+            return 0
+
+        # run 子命令继续执行在线评估打分
         metrics = [m.strip() for m in str(args.metrics).split(",") if m.strip()]
         eval_summaries = [
             asdict(
@@ -335,6 +461,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+
     except KeyboardInterrupt:
         print("\nAborted by user.")
         return 130

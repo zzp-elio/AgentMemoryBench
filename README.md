@@ -47,8 +47,6 @@ flowchart LR
 
 ## 目录结构
 
-代码采用标准微服务中间层架构，Git 仅白名单跟踪评测端核心源码与配置文件：
-
 ```text
 ├── configs/
 │   └── application.yaml                # 统一配置（LLM 客户端与动态 Prompt 矩阵）
@@ -127,99 +125,113 @@ uv run pytest -q
 
 ### 4. 运行评测实验
 
-#### 方式 A：零外部服务依赖快速冒烟（单方面立即可跑）
+#### 方式 A：一键快速冒烟自测（秒级跑通全链路，零外部依赖）
 
-无需启动任何外部记忆微服务，使用内置的 `mock` 内存测试桩单方面跑通全流程：
+无需启动外部服务或消耗真实 API Token，使用内置的 `mock` 内存桩 + 强制 Fake LLM 一键冒烟验证流水线连通性：
 
 ```bash
-uv run memory-benchmark \
-  --benchmark locomo \
-  --method mock \
-  --max-conversations 1 \
-  --metrics f1
+uv run memory-benchmark run --smoke --mock-llm
 ```
 
-#### 方式 B：对接真实 Memory Server 的端到端评测（C/S 协同跑法）
+> **`--smoke` 的作用**：自动安全锁定为「1 个会话、最多 5 道考题」，毫秒级跑通「数据加载 $\rightarrow$ 记忆写入 $\rightarrow$ 记忆检索 $\rightarrow$ 答题生成 $\rightarrow$ 评测打分」完整闭环，避免手动配置底层参数失误导致崩溃或 Token 浪费。
+
+#### 方式 B：对接真实 Memory Server 的端到端评测（C/S 生产跑法）
 
 1. **步骤 1：启动被测记忆服务**
    启动你的 Memory Server（需提供标准的 `POST /ingest` 与 `POST /retrieve` 接口）。
    例如服务启动并监听在本地 `8002` 端口（`http://127.0.0.1:8002`）。
 
 2. **步骤 2：启动评测打流**
-   通过 `--server-url` 指定你的 Memory Server 真实访问地址：
+   通过 `--server-url` 指定你的 Memory Server 真实访问地址（默认全量评测）：
 
    ```bash
-   uv run memory-benchmark \
-     --benchmark locomo \
-     --method http \
-     --server-url http://127.0.0.1:8002 \
-     --metrics f1 \
-     --max-conversations 1
+   uv run memory-benchmark run \
+     -b locomo \
+     -m http \
+     -u http://127.0.0.1:8002 \
+     --metrics f1
    ```
+
+#### 方式 C：流水线阶段解耦分步执行（写入 / 答题 / 打分 物理分离）
+
+当被测记忆系统入库耗时较长，或需要多次调试 Prompt / 指标时，可分步执行：
+
+```bash
+# 阶段 1：仅将长对话历史注入外部记忆服务（不发题、不调答题 LLM）
+uv run memory-benchmark ingest -b locomo -m http -u http://127.0.0.1:8002
+
+# 阶段 2：仅检索记忆并生成回答（假设数据已写入，不重复 Ingest）
+uv run memory-benchmark query -b locomo -m http -u http://127.0.0.1:8002
+
+# 阶段 3：仅离线计算评估打分（强绑定 --run-dir 与 --metrics，无需再打扰 Memory Server）
+uv run memory-benchmark eval --run-dir outputs/locomo_http --metrics f1,exact_match
+```
 
 ---
 
 ## 命令行参数完整参考 (CLI Reference)
 
-> **全量与抽样规则**：
-> - **默认全量评测**：如果不指定 `-c` / `--max-conversations`（缺省值为 `None`），框架将**默认加载该 Benchmark 的 100% 全量数据**进行完整评测；
-> - **微规模抽样**：指定 `-c 1` 或 `-q 5` 仅用于开发调试、网络连通性测试与快速冒烟。
+AgentMemoryBench 采用 **子命令（Subcommand）流水线架构**，各阶段职责与参数独立，杜绝隐式依赖耦合：
 
-### 1. 评测基准与数据抽样选项 (Benchmark & Data Sampling)
+| 子命令 (Subcommand) | 核心职责 | 典型调用场景 |
+| :--- | :--- | :--- |
+| `run` *(缺省默认)* | 一站式全流程评测 (Ingest $\rightarrow$ Query $\rightarrow$ Evaluate) | 日常全量评测、冒烟验收 |
+| `ingest` | 阶段一：仅向 Memory Server 写入长对话 Session 历史 | 耗时记忆预热、持久化建库 |
+| `query` | 阶段二：仅根据已写入的记忆检索并生成回答 | 调试答题 Prompt、更换回答模型 |
+| `eval` | 阶段三：仅离线读取已有产物打分（强绑定 `--metrics`） | 多指标离线复评、无 Token 损耗复验 |
+
+### 1. 核心通用参数 (Global & Data Options)
+
+适用于 `run`、`ingest`、`query` 子命令（直接执行 `memory-benchmark [options]` 默认作为 `run` 处理）：
 
 | 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
 | :--- | :--- | :--- | :--- | :--- |
 | `--benchmark` | `-b` | `locomo` | `locomo`, `longmemeval`, `halumem`, `beam`, `membench` | 目标评测基准数据集。 |
-| `--max-conversations` | `-c` | `None` *(全量)* | 整数（如 `1`, `10`） | 评测的最大对话数。**不传时默认 100% 全量评测**。 |
-| `--max-questions` | `-q` | `None` *(全量)* | 整数（如 `5`, `20`） | 每段对话评测的最大问题数。支持别名 `--max-questions-per-conversation`。 |
+| `--smoke` | - | `False` | 标志位（无需值） | **一键安全冒烟模式**：强制锁定为 1 个会话 + 最多 5 道题，秒级完成全链路验证。**不传时默认 100% 全量评测**。 |
+| `--method` | `-m` | `mock` | `http`, `mock` | 记忆系统评测模式：`http` 连接外部独立微服务；`mock` 本地离线自测。 |
+| `--server-url` | `-u` | `None` | `http://127.0.0.1:8002` | 被测 Memory Server 的 HTTP 根地址（`--method http` 时必填）。 |
+| `--max-workers` | `-w` | `1` | 整数（如 `4`, `10`） | 会话级多线程并发 Worker 数。评测自动按原始索引确定性升序归并产物。 |
+| `--run-id` | - | 自动生成 | 字符串（如 `exp_locomo_01`） | 显式指定实验运行 ID，产物统一持久化在 `outputs/{run_id}/`。 |
 | `--project-root` | - | `.` | 路径字符串 | 项目根目录路径。 |
 
-### 2. 被测记忆系统连接配置 (Memory Server Connection)
+### 2. 评测打分与模型控制 (Metrics & LLM Options)
+
+适用于 `run`（在线打分）与 `eval`（离线重打分）：
 
 | 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
 | :--- | :--- | :--- | :--- | :--- |
-| `--method` | `-m` | `mock` | `http`, `mock` | 评测模式：`http` 连接外部独立记忆微服务；`mock` 本地离线自测。 |
-| `--server-url` | `-u` | `None` | `http://127.0.0.1:8002` | 被测 Memory Server 的真实 HTTP 根地址（`--method http` 时必填）。 |
+| `--metrics` | - | `f1` | `f1`, `exact_match`, `llm_judge` | 逗号分隔的评估指标列表，如 `--metrics f1,exact_match`。在 `eval` 模式下为核心评估依据。 |
+| `--mock-llm` | - | `False` | 标志位（无需值） | 强制使用本地确定性 Fake 客户端生成回答，绝不发起外部网络请求（适用于 `run` 与 `query`）。 |
 
-### 3. 评测指标与模型控制 (Metrics & LLM Execution)
+### 3. 离线打分专属选项 (Offline Eval Options)
 
-| 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
-| :--- | :--- | :--- | :--- | :--- |
-| `--metrics` | - | `f1` | `f1`, `exact_match`, `llm_judge` | 逗号分隔的评估指标列表，如 `--metrics f1,exact_match`。 |
-| `--mock-llm` | - | `False` | 标志位（无需值） | 强制使用本地确定性测试客户端生成回答，绝不调用外部 LLM API。 |
-
-### 4. 并发调度与执行管理 (Concurrency & Execution)
+仅适用于 `eval` 子命令：
 
 | 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
 | :--- | :--- | :--- | :--- | :--- |
-| `--max-workers` | `-w` | `1` | 整数（如 `4`, `10`） | 会话级多线程并发 Worker 数。评测自动按原始索引确定性归并产物。 |
-| `--run-id` | - | 自动生成 | 字符串（如 `test_run_01`） | 显式指定本次实验运行标识符，输出将保存在 `outputs/{run_id}/`。 |
-
-### 5. 高级解耦模式与 Coordinator 微服务 (Advanced & Service Modes)
-
-| 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
-| :--- | :--- | :--- | :--- | :--- |
-| `--eval-run-dir` | - | `None` | 产物目录路径 | 离线打分模式：直接对已有预测产物重新评测，无需重复写入与检索记忆。 |
-| `--server` | - | `False` | 标志位（无需值） | 启动 Coordinator 微服务，常驻监听外部容器的 `/ready` 握手。 |
-| `--host` | - | `127.0.0.1` | IP 地址字符串 | Coordinator 服务绑定的主机地址。 |
-| `--port` | - | `8000` | 端口号（整数） | Coordinator 服务绑定的端口号。 |
+| `--run-dir` | - | **必填** | `outputs/locomo_http` | 目标实验输出目录（包含 `method_predictions.jsonl`）。 |
 
 ---
 
 ## 常用评测场景示例 (Cookbook)
 
-#### 场景 1：全量真实评测（默认全量，对接外部微服务）
+#### 场景 1：一键冒烟自检（开发/调试/网络连通秒验）
 ```bash
-uv run memory-benchmark \
+uv run memory-benchmark run --smoke --mock-llm
+```
+
+#### 场景 2：全量真实评测（默认全量，对接外部微服务）
+```bash
+uv run memory-benchmark run \
   -b locomo \
   -m http \
   -u http://127.0.0.1:8002 \
   --metrics f1
 ```
 
-#### 场景 2：10 线程高并发加速评测（推荐用于 LoCoMo 全量 10 个独立会话）
+#### 场景 3：10 线程高并发加速评测（推荐用于 LoCoMo 全量 10 个独立会话）
 ```bash
-uv run memory-benchmark \
+uv run memory-benchmark run \
   -b locomo \
   -m http \
   -u http://127.0.0.1:8002 \
@@ -227,28 +239,19 @@ uv run memory-benchmark \
   --metrics f1
 ```
 
-#### 场景 3：快速单会话冒烟验证（抽样 1 个 Conversation，秒级验证连通性）
-```bash
-uv run memory-benchmark \
-  -b locomo \
-  -m mock \
-  -c 1 \
-  --metrics f1
-```
-
 #### 场景 4：多指标复合评测（同时运行 F1 与精确匹配）
 ```bash
-uv run memory-benchmark \
+uv run memory-benchmark run \
   -b locomo \
   -m http \
   -u http://127.0.0.1:8002 \
-  -c 1 \
+  --smoke \
   --metrics f1,exact_match
 ```
 
 #### 场景 5：离线二次评估（无需再次请求 Memory Server 与重复消耗 Token）
 ```bash
-uv run memory-benchmark \
-  --eval-run-dir outputs/locomo_http \
+uv run memory-benchmark eval \
+  --run-dir outputs/locomo_http \
   --metrics exact_match,llm_judge
 ```
