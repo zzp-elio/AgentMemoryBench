@@ -49,10 +49,11 @@ def _slice_dataset(
     convs: list[Conversation] = []
     base_convs = list(dataset.conversations)
 
-    # 1. 一键冒烟锁定：截取 1 个会话，每个会话最多 5 道题
+    # 1. 一键冒烟锁定：极简截取 1 个会话、1 个 Session、1 道题（实现秒级真实微服务与网络连通性冒烟）
     if smoke:
         max_conversations = 1
-        max_questions = 5
+        max_sessions = 1
+        max_questions = 1
 
     if max_conversations and max_conversations > 0:
         base_convs = base_convs[:max_conversations]
@@ -95,7 +96,7 @@ def _add_common_data_args(parser: argparse.ArgumentParser) -> None:
         "--smoke",
         action="store_true",
         default=False,
-        help="One-click smoke test mode: safely clamps to 1 conversation and 5 questions for rapid validation.",
+        help="One-click smoke test mode: safely clamps to 1 conversation, 1 session, and 1 question for rapid validation.",
     )
     g.add_argument(
         "--project-root",

@@ -133,7 +133,7 @@ uv run pytest -q
 uv run memory-benchmark run --smoke --mock-llm
 ```
 
-> **`--smoke` 的作用**：自动安全锁定为「1 个会话、最多 5 道考题」，毫秒级跑通「数据加载 $\rightarrow$ 记忆写入 $\rightarrow$ 记忆检索 $\rightarrow$ 答题生成 $\rightarrow$ 评测打分」完整闭环，避免手动配置底层参数失误导致崩溃或 Token 浪费。
+> **`--smoke` 的作用**：自动安全锁定为「1 个会话、1 个 Session、1 道考题」，秒级跑通「数据加载 $\rightarrow$ 记忆写入 $\rightarrow$ 记忆检索 $\rightarrow$ 答题生成 $\rightarrow$ 评测打分」完整闭环。在对接真实外部 Memory Server（`--method http`）时，只需 1 次 Ingest + 1 次 Retrieve 即可验证网络连通性与接口格式，避免长会话建库耗时与 Token 浪费。
 
 #### 方式 B：对接真实 Memory Server 的端到端评测（C/S 生产跑法）
 
@@ -187,7 +187,7 @@ AgentMemoryBench 采用 **子命令（Subcommand）流水线架构**，各阶段
 | 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
 | :--- | :--- | :--- | :--- | :--- |
 | `--benchmark` | `-b` | `locomo` | `locomo`, `longmemeval`, `halumem`, `beam`, `membench` | 目标评测基准数据集。 |
-| `--smoke` | - | `False` | 标志位（无需值） | **一键安全冒烟模式**：强制锁定为 1 个会话 + 最多 5 道题，秒级完成全链路验证。**不传时默认 100% 全量评测**。 |
+| `--smoke` | - | `False` | 标志位（无需值） | **一键安全冒烟模式**：强制锁定为 1 个会话 + 1 个 Session + 1 道题，秒级完成全链路验证。**不传时默认 100% 全量评测**。 |
 | `--method` | `-m` | `mock` | `http`, `mock` | 记忆系统评测模式：`http` 连接外部独立微服务；`mock` 本地离线自测。 |
 | `--server-url` | `-u` | `None` | `http://127.0.0.1:8002` | 被测 Memory Server 的 HTTP 根地址（`--method http` 时必填）。 |
 | `--max-workers` | `-w` | `1` | 整数（如 `4`, `10`） | 会话级多线程并发 Worker 数。评测自动按原始索引确定性升序归并产物。 |
