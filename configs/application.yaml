@@ -1,5 +1,5 @@
 # ============================================================================
-# AgentMemoryBench 统一应用配置文件 (仿 Spring Boot application.yaml + Profile 覆盖机制)
+# MemBridge 统一应用配置文件 (仿 Spring Boot application.yaml + Profile 覆盖机制)
 # ============================================================================
 # 1. 顶层 [llm] 与 [prompts] 定义全局默认基线 (Base Defaults)；
 # 2. [benchmarks.<name>] 定义各评测基准及其细分题型的差异化覆盖 (Profile Overrides)；

@@ -1,4 +1,4 @@
-"""AgentMemoryBench 命令行入口 (`memory-benchmark` / `python -m memory_benchmark`)。
+"""MemBridge 命令行入口 (`membridge` / `memory-benchmark` / `python -m memory_benchmark`)。
 
 提供清晰的阶段解耦子命令架构：
 1. `run`：一站式全流程评测 (Ingest -> Query -> Evaluate)；

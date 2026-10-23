@@ -1,6 +1,6 @@
 """标准化预测运行器 (Prediction Runner)。
 
-串联 AgentMemoryBench 的核心数据流闭环：
+串联 MemBridge 的核心数据流闭环：
 1. [Ingest (Session)] 遍历 `Conversation.sessions`，携带 `isolation_key` 调用
    `MemoryProvider.ingest(IngestRequest(isolation_key, session))` 并校验 `Result.code == 200`；
 2. [Retrieve] 针对每个公开 `Question`，携带 `isolation_key` 调用

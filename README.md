@@ -1,4 +1,6 @@
-# AgentMemoryBench
+# MemBridge
+
+> **Standardized C/S Evaluation Middleware & Gateway for AI Agent Long-Term Memory Systems**
 
 评测端统一答题和打分，记忆系统只交回记忆。这样比较的是记忆本身，而不是各家论文自己的答题模型、提示词和指标。
 
@@ -9,12 +11,12 @@
 
 ## 系统整体架构 (System Architecture)
 
-![AgentMemoryBench 整体架构图](assets/architecture.png)
+![MemBridge 整体架构图](assets/architecture.png)
 
 系统在逻辑上划分为三个彻底解耦的层次：
 
 1. **评测基准数据层 (Data & Benchmark Layer)**：覆盖 LoCoMo、LongMemEval、BEAM、MemBench 与 HaluMem 五大长对话评测基准。通过适配器统一加载为 `Conversation`、`Session`、`Turn` 与 `Question` 标准实体，并自动收敛至 6 类核心能力图谱。
-2. **AgentMemoryBench 评测中间层 (Middleware Engine)**：作为评测主控客户端，调度会话级并发写入与检索；检索完成后，将服务端返回的文本上下文安全注入统一 Prompt 模板，调用 Answer LLM 生成作答，并经由标准评测器（`ExactMatch` / `F1` / `LLMJudge`）进行客观与语义打分。
+2. **MemBridge 评测中间层 (Evaluation Middleware)**：作为评测主控客户端，调度会话级并发写入与检索；检索完成后，将服务端返回的文本上下文安全注入统一 Prompt 模板，调用 Answer LLM 生成作答，并经由标准评测器（`ExactMatch` / `F1` / `LLMJudge`）进行客观与语义打分。
 3. **独立 Memory Server 被测服务层 (Isolated Memory Service)**：被测记忆系统作为独立 HTTP 微服务或 Docker 容器运行。评测端视其为**完全黑盒**，仅通过 `POST /ingest`（会话级写入）与 `POST /retrieve`（问题级检索）两个标准端点通信。记忆系统内部采用何种存储与演化策略（无论是向量检索、知识图谱、分层递归摘要、键值索引还是混合架构），评测端均不作任何假设与侵入。
 
 ---
@@ -314,7 +316,7 @@ uv run memory-benchmark eval --run-dir outputs/locomo_http --metrics f1,exact_ma
 
 ## 命令行参数完整参考 (CLI Reference)
 
-AgentMemoryBench 采用 **子命令（Subcommand）流水线架构**，各阶段职责与参数独立，杜绝隐式依赖耦合：
+MemBridge 采用 **子命令（Subcommand）流水线架构**，各阶段职责与参数独立，杜绝隐式依赖耦合：
 
 | 子命令 (Subcommand) | 核心职责 | 典型调用场景 |
 | :--- | :--- | :--- |

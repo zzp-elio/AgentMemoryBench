@@ -1,4 +1,4 @@
-"""AgentMemoryBench 双向就绪评测协调器模块 (`memory_benchmark.coordinator`)。"""
+"""MemBridge 双向就绪评测协调器模块 (`memory_benchmark.coordinator`)。"""
 
 from .context import CoordinatorContext
 from .entities import EvaluationTaskInfo, ReadyRequest, TaskState
