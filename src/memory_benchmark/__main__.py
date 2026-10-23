@@ -113,17 +113,18 @@ def _add_common_data_args(parser: argparse.ArgumentParser) -> None:
 def _add_common_conn_args(parser: argparse.ArgumentParser) -> None:
     g = parser.add_argument_group("Memory Server Connection Options")
     g.add_argument(
-        "-m",
-        "--method",
-        default="mock",
-        choices=list_methods(),
-        help="Memory provider mode: 'http' for remote memory server, 'mock' for local in-memory test.",
-    )
-    g.add_argument(
         "-u",
         "--server-url",
-        default=None,
-        help="Base URL of remote Memory Server when --method=http (e.g. http://127.0.0.1:8002).",
+        default="http://127.0.0.1:8002",
+        help="Base URL of target Memory Server (default: http://127.0.0.1:8002).",
+    )
+    # 隐藏的内部测试选项，用户默认 100% 为 HTTP 独立微服务
+    g.add_argument(
+        "-m",
+        "--method",
+        default="http",
+        choices=list_methods(),
+        help=argparse.SUPPRESS,
     )
     # 隐藏兼容参数
     g.add_argument("-k", "--top-k", type=int, default=10, help=argparse.SUPPRESS)
@@ -342,7 +343,9 @@ def main(argv: list[str] | None = None) -> int:
 
         # 连接被测记忆系统
         provider_cfg: dict[str, Any] = {}
-        if args.server_url:
+        if args.method == "http":
+            provider_cfg["base_url"] = args.server_url or "http://127.0.0.1:8002"
+        elif args.server_url and args.method != "mock":
             provider_cfg["base_url"] = args.server_url
         provider = create_provider(args.method, config=provider_cfg)
 

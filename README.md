@@ -2,14 +2,145 @@
 
 评测端统一答题和打分，记忆系统只交回记忆。这样比较的是记忆本身，而不是各家论文自己的答题模型、提示词和指标。
 
-记忆系统实现两个接口即可接入：
+评测中间层与被测记忆系统采用 **C/S 微服务解耦架构**：
+评测端作为客户端只负责发送评测流量（调度 Ingest、Retrieve 并统一答题打分），被测记忆系统作为独立 HTTP Server 运行（实现 `/ingest` 与 `/retrieve` 两个核心端点）。
 
-| 接口 | 做什么 |
-| :--- | :--- |
-| `ingest` | 一次写入一个会话。会话包含各轮发言和会话时间，并用 `isolation_key` 把不同对话分开。标准答案不传入。 |
-| `retrieve` | 按问题和 `isolation_key` 取回记忆，只返回一段 `formatted_memory`。不返回答案。 |
+---
 
-评测端把这段记忆拼进答题提示词，生成回答后再打分。召回率不进入总分：取回的是改写后的记忆，不是原话位置。
+## 记忆系统对接协议与接口实体规范 (C/S API Specification)
+
+被测记忆服务（Method Server / Docker 容器）只需暴露以下两个标准 HTTP POST 端点，并统一采用仿 Spring Boot 的 `Result[T]` JSON 信封响应：
+
+### 1. 记忆写入端点 (`POST /ingest`)
+
+以「单次会话（Session，包含该会话的多轮发言）」为标准粒度递交记忆。
+
+- **请求实体 (`IngestRequest`)**：
+  - `isolation_key` (`str`，必填)：数据隔离分区键（格式为 `{run_id}_{conversation_id}`），不同对话严格隔离，杜绝数据串扰；
+  - `session` (`Session`，必填)：当前会话数据实体：
+    - `session_id` (`str`)：当前会话唯一标识符；
+    - `session_time` (`str | null`)：当前会话时间锚点（如 `"2023-05-10 14:30:00"`）；
+    - `turns` (`list[Turn]`)：会话轮次列表：
+      - `turn_id` (`str`)：单轮发言 ID；
+      - `speaker` (`str`)：发言人角色标识（如 `"user"`, `"assistant"`, 或真实人名）；
+      - `content` (`str`)：发言文本内容（多模态图像已标准化内联为文本描述）；
+  - `metadata` (`dict`)：调度元数据，如 `{"is_last_session": true}` 告知会话收口。
+
+**请求体 JSON 范例**：
+```json
+{
+  "isolation_key": "locomo_run1_conv01",
+  "session": {
+    "session_id": "session_01",
+    "session_time": "2023-05-10 14:30:00",
+    "turns": [
+      {
+        "turn_id": "turn_01",
+        "speaker": "Alice",
+        "content": "Hi Bob, I just moved to Seattle yesterday!"
+      },
+      {
+        "turn_id": "turn_02",
+        "speaker": "Bob",
+        "content": "Welcome to Seattle! How do you like the weather?"
+      }
+    ]
+  },
+  "metadata": {
+    "is_last_session": false
+  }
+}
+```
+
+- **响应实体 (`Result[None]`)**：
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": null,
+  "latency_ms": 15.2
+}
+```
+
+---
+
+### 2. 记忆检索端点 (`POST /retrieve`)
+
+根据考题文本和隔离键取回与问题相关的记忆，只返回纯文本 `formatted_memory`，不返回答案。
+
+- **请求实体 (`RetrieveRequest`)**：
+  - `isolation_key` (`str`，必填)：必须与写入时的数据隔离键严格一致；
+  - `query` (`str`，必填)：需要被回答的问题文本；
+  - `question_time` (`str | null`)：提问时间锚点（辅助记忆系统进行相对时间推理）；
+  - `question_id` (`str | null`)：考题唯一标识；
+  - `metadata` (`dict`)：可选检索扩展信息。
+
+**请求体 JSON 范例**：
+```json
+{
+  "isolation_key": "locomo_run1_conv01",
+  "query": "Where did Alice move recently?",
+  "question_time": "2023-05-15",
+  "question_id": "q_01",
+  "metadata": {}
+}
+```
+
+- **响应实体 (`Result[RetrievePayload]`)**：
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "formatted_memory": "Alice moved to Seattle on 2023-05-10."
+  },
+  "latency_ms": 8.6
+}
+```
+
+---
+
+## 服务端多线程并发要求与处理指南 (Server-Side Concurrency)
+
+评测框架客户端支持通过 `-w` / `--max-workers` 开启高并发评测（如 `-w 10`）。由于多线程是在客户端并发向外部 Memory Server 发起 HTTP 请求，**服务端必须具备相应的并发支撑与数据安全设计**：
+
+```mermaid
+flowchart LR
+    subgraph Client["评测端 Client (max-workers=10)"]
+        W1["Worker 1 (Conv 1)"]
+        W2["Worker 2 (Conv 2)"]
+        W10["Worker 10 (Conv 10)"]
+    end
+    subgraph Server["外部 Memory Server (必须支持并发)"]
+        ASGI["ASGI 异步网关 (Uvicorn / Gunicorn)"]
+        POOL["DB/向量库 连接池 (pool_size >= 10)"]
+        LOCK["按 isolation_key 隔离分区<br/>(杜绝跨对话脏写)"]
+    end
+    W1 -->|POST /ingest (key_1)| ASGI
+    W2 -->|POST /ingest (key_2)| ASGI
+    W10 -->|POST /ingest (key_10)| ASGI
+    ASGI --> POOL --> LOCK
+```
+
+### 1. 严格基于 `isolation_key` 隔离存储（杜绝竞态脏写）
+并发 Worker 是以独立 Conversation 为调度粒度的。打到服务端的每个请求携带全局唯一的 `isolation_key`（例如 `run01_conv_1` 与 `run01_conv_2`）。
+- **服务端红线**：严禁在全局单例变量中追加写入记忆，必须将 `isolation_key` 作为数据库/向量集合的分区主键（Partition Key / Namespace / Collection）；
+- 保证多线程同时发起 Ingest 时，Conversation 1 的事实绝不会写入 Conversation 2 的记忆库。
+
+### 2. 生产级 ASGI Web 容器部署
+- 避免使用单进程单线程的开发服务器；
+- 推荐使用 FastAPI 搭配生产级多 Worker ASGI 容器：
+  ```bash
+  uvicorn server:app --host 0.0.0.0 --port 8002 --workers 4
+  ```
+
+### 3. 数据库与向量库连接池配置
+- 如果 Memory Server 底层使用了 PostgreSQL、MySQL、Qdrant 或 Milvus，数据库连接池上限（`pool_size` 与 `max_overflow`）必须大于或等于评测端的 `--max-workers` 线程数；
+- 避免连接池排空导致请求阻塞超时（`QueuePool limit exceeded`）。
+
+### 4. 评测端默认保护机制
+- **默认单线程安全模式**：如果不显式传 `-w`，评测框架**默认使用 `--max-workers 1`（单线程串行模式）**；
+- 任何轻量级、单线程、甚至本地写文件的初级 Memory Demo 都能 100% 稳定运行，不会因并发导致崩溃；只有确认服务端支持并发时才建议调大 `-w`。
 
 ---
 
@@ -125,32 +256,26 @@ uv run pytest -q
 
 ### 4. 运行评测实验
 
-#### 方式 A：一键快速冒烟自测（秒级跑通全链路，零外部依赖）
+#### 方式 A：一键极速冒烟探活（秒级验证外部服务连通性与接口对齐）
 
-无需启动外部服务或消耗真实 API Token，使用内置的 `mock` 内存桩 + 强制 Fake LLM 一键冒烟验证流水线连通性：
+启动你的 Memory Server 后，运行一键冒烟命令，验证网络路由与实体反序列化是否正常：
 
 ```bash
-uv run memory-benchmark run --smoke --mock-llm
+uv run memory-benchmark run --smoke --server-url http://127.0.0.1:8002
 ```
 
-> **`--smoke` 的作用**：自动安全锁定为「1 个会话、1 个 Session、1 道考题」，秒级跑通「数据加载 $\rightarrow$ 记忆写入 $\rightarrow$ 记忆检索 $\rightarrow$ 答题生成 $\rightarrow$ 评测打分」完整闭环。在对接真实外部 Memory Server（`--method http`）时，只需 1 次 Ingest + 1 次 Retrieve 即可验证网络连通性与接口格式，避免长会话建库耗时与 Token 浪费。
+> **`--smoke` 的作用**：自动安全锁定为「1 个会话、1 个 Session、1 道考题」，在真实网络层仅触发 1 次 `POST /ingest` 与 1 次 `POST /retrieve`，秒级跑通全流程，避免长会话建库等待与 Token 浪费。
 
-#### 方式 B：对接真实 Memory Server 的端到端评测（C/S 生产跑法）
+#### 方式 B：全量生产端到端评测（默认全量数据）
 
-1. **步骤 1：启动被测记忆服务**
-   启动你的 Memory Server（需提供标准的 `POST /ingest` 与 `POST /retrieve` 接口）。
-   例如服务启动并监听在本地 `8002` 端口（`http://127.0.0.1:8002`）。
+通过 `--server-url` 指定你的 Memory Server 真实访问地址（默认全量评测）：
 
-2. **步骤 2：启动评测打流**
-   通过 `--server-url` 指定你的 Memory Server 真实访问地址（默认全量评测）：
-
-   ```bash
-   uv run memory-benchmark run \
-     -b locomo \
-     -m http \
-     -u http://127.0.0.1:8002 \
-     --metrics f1
-   ```
+```bash
+uv run memory-benchmark run \
+  -b locomo \
+  --server-url http://127.0.0.1:8002 \
+  --metrics f1
+```
 
 #### 方式 C：流水线阶段解耦分步执行（写入 / 答题 / 打分 物理分离）
 
@@ -158,10 +283,10 @@ uv run memory-benchmark run --smoke --mock-llm
 
 ```bash
 # 阶段 1：仅将长对话历史注入外部记忆服务（不发题、不调答题 LLM）
-uv run memory-benchmark ingest -b locomo -m http -u http://127.0.0.1:8002
+uv run memory-benchmark ingest -b locomo --server-url http://127.0.0.1:8002
 
 # 阶段 2：仅检索记忆并生成回答（假设数据已写入，不重复 Ingest）
-uv run memory-benchmark query -b locomo -m http -u http://127.0.0.1:8002
+uv run memory-benchmark query -b locomo --server-url http://127.0.0.1:8002
 
 # 阶段 3：仅离线计算评估打分（强绑定 --run-dir 与 --metrics，无需再打扰 Memory Server）
 uv run memory-benchmark eval --run-dir outputs/locomo_http --metrics f1,exact_match
@@ -188,8 +313,7 @@ AgentMemoryBench 采用 **子命令（Subcommand）流水线架构**，各阶段
 | :--- | :--- | :--- | :--- | :--- |
 | `--benchmark` | `-b` | `locomo` | `locomo`, `longmemeval`, `halumem`, `beam`, `membench` | 目标评测基准数据集。 |
 | `--smoke` | - | `False` | 标志位（无需值） | **一键安全冒烟模式**：强制锁定为 1 个会话 + 1 个 Session + 1 道题，秒级完成全链路验证。**不传时默认 100% 全量评测**。 |
-| `--method` | `-m` | `mock` | `http`, `mock` | 记忆系统评测模式：`http` 连接外部独立微服务；`mock` 本地离线自测。 |
-| `--server-url` | `-u` | `None` | `http://127.0.0.1:8002` | 被测 Memory Server 的 HTTP 根地址（`--method http` 时必填）。 |
+| `--server-url` | `-u` | `http://127.0.0.1:8002` | `http://127.0.0.1:8002` | 被测 Memory Server 的真实 HTTP 根地址。 |
 | `--max-workers` | `-w` | `1` | 整数（如 `4`, `10`） | 会话级多线程并发 Worker 数。评测自动按原始索引确定性升序归并产物。 |
 | `--run-id` | - | 自动生成 | 字符串（如 `exp_locomo_01`） | 显式指定实验运行 ID，产物统一持久化在 `outputs/{run_id}/`。 |
 | `--project-root` | - | `.` | 路径字符串 | 项目根目录路径。 |
@@ -201,7 +325,7 @@ AgentMemoryBench 采用 **子命令（Subcommand）流水线架构**，各阶段
 | 参数 (Option) | 短选项 | 默认值 | 取值范围 / 示例 | 说明 |
 | :--- | :--- | :--- | :--- | :--- |
 | `--metrics` | - | `f1` | `f1`, `exact_match`, `llm_judge` | 逗号分隔的评估指标列表，如 `--metrics f1,exact_match`。在 `eval` 模式下为核心评估依据。 |
-| `--mock-llm` | - | `False` | 标志位（无需值） | 强制使用本地确定性 Fake 客户端生成回答，绝不发起外部网络请求（适用于 `run` 与 `query`）。 |
+| `--mock-llm` | - | `False` | 标志位（无需值） | 强制使用本地确定性 Fake 客户端生成回答，绝不发起外部 LLM API 请求（适用于 `run` 与 `query` 离线测试）。 |
 
 ### 3. 离线打分专属选项 (Offline Eval Options)
 
@@ -215,17 +339,16 @@ AgentMemoryBench 采用 **子命令（Subcommand）流水线架构**，各阶段
 
 ## 常用评测场景示例 (Cookbook)
 
-#### 场景 1：一键冒烟自检（开发/调试/网络连通秒验）
+#### 场景 1：一键极速冒烟探活（秒级验证外部服务连通性）
 ```bash
-uv run memory-benchmark run --smoke --mock-llm
+uv run memory-benchmark run --smoke --server-url http://127.0.0.1:8002
 ```
 
-#### 场景 2：全量真实评测（默认全量，对接外部微服务）
+#### 场景 2：全量真实评测（默认全量数据，对接外部微服务）
 ```bash
 uv run memory-benchmark run \
   -b locomo \
-  -m http \
-  -u http://127.0.0.1:8002 \
+  --server-url http://127.0.0.1:8002 \
   --metrics f1
 ```
 
@@ -233,8 +356,7 @@ uv run memory-benchmark run \
 ```bash
 uv run memory-benchmark run \
   -b locomo \
-  -m http \
-  -u http://127.0.0.1:8002 \
+  --server-url http://127.0.0.1:8002 \
   -w 10 \
   --metrics f1
 ```
@@ -243,8 +365,7 @@ uv run memory-benchmark run \
 ```bash
 uv run memory-benchmark run \
   -b locomo \
-  -m http \
-  -u http://127.0.0.1:8002 \
+  --server-url http://127.0.0.1:8002 \
   --smoke \
   --metrics f1,exact_match
 ```
