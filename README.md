@@ -13,33 +13,9 @@
 
 系统在逻辑上划分为三个彻底解耦的层次：
 
-```mermaid
-flowchart LR
-    subgraph Data["1. 评测基准数据层"]
-        B["5 大长对话基准<br/>(LoCoMo / LongMemEval /<br/>BEAM / MemBench / HaluMem)"]
-        AD["基准适配器<br/>(解析为统一实体并过滤 6 类题型)"]
-        B --> AD
-    end
-
-    subgraph Bench["2. AgentMemoryBench 评测中间层"]
-        SCHED["会话级并发调度器<br/>(ThreadPoolExecutor)"]
-        READER["统一回答生成器<br/>(Prompt 安全注入 + Answer LLM)"]
-        EVAL["通用评测器<br/>(ExactMatch / F1 / LLM-Judge)"]
-        SCHED --> READER --> EVAL
-    end
-
-    subgraph Server["3. 独立 Memory Server (被测系统)"]
-        INGEST["POST /ingest<br/>(按 Session 写入记忆)"]
-        RETRIEVE["POST /retrieve<br/>(按 Query 检索记忆)"]
-        STORE["内部存储与演化<br/>(向量库 / 知识图谱 / 离线更新)"]
-        INGEST --> STORE --> RETRIEVE
-    end
-
-    AD -->|"加载会话与考题"| SCHED
-    SCHED -->|"1. 写入 Session"| INGEST
-    SCHED -->|"2. 检索 Query"| RETRIEVE
-    RETRIEVE -->|"返回 formatted_memory"| READER
-```
+1. **评测基准数据层 (Data & Benchmark Layer)**：覆盖 LoCoMo、LongMemEval、BEAM、MemBench 与 HaluMem 五大长对话评测基准。通过适配器统一加载为 `Conversation`、`Session`、`Turn` 与 `Question` 标准实体，并自动收敛至 6 类核心能力图谱。
+2. **AgentMemoryBench 评测中间层 (Middleware Engine)**：作为评测主控客户端，调度会话级并发写入与检索；检索完成后，将服务端返回的文本上下文安全注入统一 Prompt 模板，调用 Answer LLM 生成作答，并经由标准评测器（`ExactMatch` / `F1` / `LLMJudge`）进行客观与语义打分。
+3. **独立 Memory Server 被测服务层 (Isolated Memory Service)**：被测记忆系统作为独立 HTTP 微服务或 Docker 容器运行。评测端视其为**完全黑盒**，仅通过 `POST /ingest`（会话级写入）与 `POST /retrieve`（问题级检索）两个标准端点通信。记忆系统内部采用何种存储与演化策略（无论是向量检索、知识图谱、分层递归摘要、键值索引还是混合架构），评测端均不作任何假设与侵入。
 
 ---
 
