@@ -19,12 +19,19 @@
   - `isolation_key` (`str`，必填)：数据隔离分区键（格式为 `{run_id}_{conversation_id}`），不同对话严格隔离，杜绝数据串扰；
   - `session` (`Session`，必填)：当前会话数据实体：
     - `session_id` (`str`)：当前会话唯一标识符；
-    - `session_time` (`str | null`)：当前会话时间锚点（如 `"2023-05-10 14:30:00"`）；
+    - `session_time` (`str | null`)：当前会话发生的时间锚点（如 `"2023-05-10 14:30:00"`）；
     - `turns` (`list[Turn]`)：会话轮次列表：
       - `turn_id` (`str`)：单轮发言 ID；
-      - `speaker` (`str`)：发言人角色标识（如 `"user"`, `"assistant"`, 或真实人名）；
-      - `content` (`str`)：发言文本内容（多模态图像已标准化内联为文本描述）；
+      - `speaker` (`str`)：发言人标识。**取值有两种谱系**：
+        1. **标准角色**（LongMemEval / BEAM / HaluMem / MemBench）：`"user"`（用户）与 `"assistant"` / `"agent"`（助手）；
+        2. **真实角色姓名**（LoCoMo）：具体的对话角色人名（如 `"Alice"`, `"Bob"`, `"Caroline"`）；
+        *建议*：被测系统在抽取知识实体时，可直接以 `speaker` 作为主语/来源标签。
+      - `turn_time` (`str | null`)：单轮发言具体时间戳（部分基准如 BEAM/HaluMem 细化到了单轮，若无则为 `null`）；
+      - `content` (`str`)：发言文本内容（多模态视觉描述已标准化内联为文本描述）；
   - `metadata` (`dict`)：调度元数据，如 `{"is_last_session": true}` 告知会话收口。
+
+> **时间层级降级策略（Temporal Fallback）**：
+> 记忆系统在构建带时间戳的记忆时，推荐采用分层继承规则：**优先使用 `turn.turn_time`；若为 `null`，则自动降级继承会话级的 `session.session_time`**。这样无论对接哪个基准，都能保证时序证据链完整。
 
 **请求体 JSON 范例**：
 ```json
@@ -37,11 +44,13 @@
       {
         "turn_id": "turn_01",
         "speaker": "Alice",
+        "turn_time": "2023-05-10 14:30:05",
         "content": "Hi Bob, I just moved to Seattle yesterday!"
       },
       {
         "turn_id": "turn_02",
         "speaker": "Bob",
+        "turn_time": "2023-05-10 14:30:20",
         "content": "Welcome to Seattle! How do you like the weather?"
       }
     ]
@@ -61,6 +70,9 @@
   "latency_ms": 15.2
 }
 ```
+
+> **关于 `latency_ms` 的防作弊与度量设计**：
+> 响应体中的 `latency_ms` 是**完全可选（Optional）字段**，服务端无需刻意计算返回。评测端**始终在客户端使用高精度时钟 `time.perf_counter()` 采集端到端实际耗时（Wall-Clock Time）**，防止被测系统虚标造假。在本地（`127.0.0.1`）或同一 Docker 网络下，网络往返（RTT）仅约 0.05ms，相对于耗时数百毫秒的记忆抽取与检索可以忽略不计，且真实反映了客户端感知的端到端吞吐。
 
 ---
 
@@ -106,39 +118,43 @@
 
 ```mermaid
 flowchart LR
-    subgraph Client["评测端 Client (max-workers=10)"]
-        W1["Worker 1 (Conv 1)"]
-        W2["Worker 2 (Conv 2)"]
-        W10["Worker 10 (Conv 10)"]
+    subgraph Client["评测端 Client (并发 Workers)"]
+        W1["Worker 1 (对话 1)"]
+        W2["Worker 2 (对话 2)"]
     end
-    subgraph Server["外部 Memory Server (必须支持并发)"]
+    subgraph Server["外部 Memory Server"]
         ASGI["ASGI 异步网关 (Uvicorn / Gunicorn)"]
-        POOL["DB/向量库 连接池 (pool_size >= 10)"]
-        LOCK["按 isolation_key 隔离分区<br/>(杜绝跨对话脏写)"]
+        POOL["DB / 向量库连接池"]
+        LOCK["按 isolation_key 隔离存储<br/>(会话间并发，会话内严格保序)"]
     end
-    W1 -->|POST /ingest (key_1)| ASGI
-    W2 -->|POST /ingest (key_2)| ASGI
-    W10 -->|POST /ingest (key_10)| ASGI
-    ASGI --> POOL --> LOCK
+    W1 -->|"POST /ingest (Key 1)"| ASGI
+    W2 -->|"POST /ingest (Key 2)"| ASGI
+    ASGI --> POOL
+    POOL --> LOCK
 ```
 
-### 1. 严格基于 `isolation_key` 隔离存储（杜绝竞态脏写）
+### 1. 同一会话下的 Session 严格顺序传递保证（In-Order Delivery）
+同一个 `isolation_key`（即同一段长对话）下的所有 Session，评测端**严格按时间升序串行、同步递交**：
+- 只有当前一个 Session 的 HTTP 响应成功返回（`200 OK`）后，评测端才会发出下一个 Session 的写入请求；
+- 多线程并发（`-w`）**仅作用于不同 Conversation 之间**，绝不在同一个 Conversation 内部乱序并发，彻底杜绝因并发导致的记忆时序因果倒置。
+
+### 2. 严格基于 `isolation_key` 隔离存储（杜绝跨对话脏写）
 并发 Worker 是以独立 Conversation 为调度粒度的。打到服务端的每个请求携带全局唯一的 `isolation_key`（例如 `run01_conv_1` 与 `run01_conv_2`）。
 - **服务端红线**：严禁在全局单例变量中追加写入记忆，必须将 `isolation_key` 作为数据库/向量集合的分区主键（Partition Key / Namespace / Collection）；
 - 保证多线程同时发起 Ingest 时，Conversation 1 的事实绝不会写入 Conversation 2 的记忆库。
 
-### 2. 生产级 ASGI Web 容器部署
+### 3. 生产级 ASGI Web 容器部署
 - 避免使用单进程单线程的开发服务器；
 - 推荐使用 FastAPI 搭配生产级多 Worker ASGI 容器：
   ```bash
   uvicorn server:app --host 0.0.0.0 --port 8002 --workers 4
   ```
 
-### 3. 数据库与向量库连接池配置
+### 4. 数据库与向量库连接池配置
 - 如果 Memory Server 底层使用了 PostgreSQL、MySQL、Qdrant 或 Milvus，数据库连接池上限（`pool_size` 与 `max_overflow`）必须大于或等于评测端的 `--max-workers` 线程数；
 - 避免连接池排空导致请求阻塞超时（`QueuePool limit exceeded`）。
 
-### 4. 评测端默认保护机制
+### 5. 评测端默认保护机制
 - **默认单线程安全模式**：如果不显式传 `-w`，评测框架**默认使用 `--max-workers 1`（单线程串行模式）**；
 - 任何轻量级、单线程、甚至本地写文件的初级 Memory Demo 都能 100% 稳定运行，不会因并发导致崩溃；只有确认服务端支持并发时才建议调大 `-w`。
 
